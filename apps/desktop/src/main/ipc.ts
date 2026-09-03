@@ -162,19 +162,37 @@ export function registerIpc(runtime: AppRuntime): void {
     listJobs: async (limit): Promise<Job[]> => runtime.jobs.list(limit),
     retryJob: async (jobId): Promise<Job> => runtime.jobs.retry(jobId),
 
-    // --- 理解 / Inbox / 纠正（M2 实现） ---
-    listItems: async (): Promise<Item[]> => notReady('理解条目功能'),
-    getItemEvidence: async () => notReady('依据查看功能'),
-    previewCorrection: async () => notReady('纠正功能'),
-    correctItem: async () => notReady('纠正功能'),
-    setItemPendingReview: async () => notReady('待讨论功能'),
-    shelveItem: async () => notReady('搁置功能'),
-    assignItemToProject: async () => notReady('归属功能'),
-    createManualItem: async () => notReady('手工条目功能'),
-    listCorrections: async () => notReady('改口历史功能'),
+    // --- 理解 / Inbox / 纠正（M2） ---
+    listItems: async (input): Promise<Item[]> =>
+      runtime.items.list({
+        projectId: input.projectId,
+        ...(input.state !== undefined ? { state: input.state } : {}),
+        ...(input.needsReview !== undefined ? { needsReview: input.needsReview } : {}),
+        ...(input.shelved !== undefined ? { shelved: input.shelved } : {}),
+        ...(input.type !== undefined ? { type: input.type } : {}),
+      }),
+    getItemEvidence: async (itemId) => runtime.items.getEvidence(itemId),
+    previewCorrection: async (input) => {
+      const base = runtime.items.previewCorrection(input.itemId, input.userText);
+      const evidence = runtime.items.getEvidence(input.itemId);
+      return {
+        oldStatement: base.oldStatement,
+        newStatement: base.newStatement,
+        type: base.type,
+        evidence: evidence.map((e) => ({ segment_id: e.segment_id, excerpt: e.excerpt })),
+      };
+    },
+    correctItem: async (input) => runtime.items.correct(input),
+    setItemPendingReview: async (input) =>
+      runtime.items.setPendingReview(input.itemId, input.needsReview),
+    shelveItem: async (input) => runtime.items.shelve(input.itemId, input.shelved),
+    assignItemToProject: async (input) =>
+      runtime.items.assignToProject(input.itemId, input.projectId),
+    createManualItem: async (input) => runtime.items.createManual(input),
+    listCorrections: async (input) => runtime.items.listCorrections(input.projectId),
 
     // --- 问答（M2） ---
-    askQuestion: async () => notReady('问答功能'),
+    askQuestion: async (input) => runtime.ask(input.projectId, input.question),
 
     // --- 工作记录（M3） ---
     listWorkRuns: async () => notReady('工作记录功能'),

@@ -2,6 +2,11 @@ import { app } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
+  AskService,
+  Extractor,
+  FakeProvider,
+  ItemService,
+  OpenAIResponsesProvider,
   ImportService,
   JobQueue,
   Logger,
@@ -18,12 +23,21 @@ import {
   resolveDataDir,
   saveConfig,
   setDataDirChoice,
+  type AskResult,
   type CoreDatabase,
+  type ModelProvider,
 } from '@ixaeon/core';
-import { LOCAL_HTTP_PORT, type AppConfig, type Project, type SetupInput } from '@ixaeon/contracts';
+import {
+  ErrorCodes,
+  IxaError,
+  LOCAL_HTTP_PORT,
+  type AppConfig,
+  type Project,
+  type SetupInput,
+} from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
-import { encryptApiKey } from './ipc.js';
+import { decryptApiKey, encryptApiKey } from './ipc.js';
 
 /**
  * 桌面应用主运行时：集中持有数据库、服务与本地 HTTP 服务。
@@ -37,9 +51,11 @@ export class AppRuntime {
   readonly projects: ProjectService;
   readonly search: SearchService;
   readonly imports: ImportService;
+  readonly items: ItemService;
   readonly jobs: JobQueue;
   readonly logger: Logger;
   readonly localServer: LocalServer;
+  private readonly fakeProvider = new FakeProvider('fake-model-v1');
   private fastify: ReturnType<typeof Fastify> | null = null;
   private config: AppConfig;
   private readonly configFile: string;
@@ -57,6 +73,7 @@ export class AppRuntime {
     projects: ProjectService;
     search: SearchService;
     imports: ImportService;
+    items: ItemService;
     jobs: JobQueue;
     logger: Logger;
     localServer: LocalServer;
@@ -71,6 +88,7 @@ export class AppRuntime {
     this.projects = deps.projects;
     this.search = deps.search;
     this.imports = deps.imports;
+    this.items = deps.items;
     this.jobs = deps.jobs;
     this.logger = deps.logger;
     this.localServer = deps.localServer;
@@ -93,6 +111,7 @@ export class AppRuntime {
     const projects = new ProjectService(db);
     const search = new SearchService(db);
     const imports = new ImportService(db, vault, permissions, sources);
+    const items = new ItemService(db);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
     const config = loadConfig(layout.configFile);
@@ -132,6 +151,7 @@ export class AppRuntime {
       projects,
       search,
       imports,
+      items,
       jobs,
       logger,
       localServer,
@@ -144,19 +164,63 @@ export class AppRuntime {
   }
 
   private registerJobHandlers(): void {
-    // M1：导入后的提取任务。模型未配置时任务失败并给出明确原因（可在配置后重试）。
+    // 提取任务（M2）：结构化提取 → items + item_evidence。
+    // 模型未配置时任务失败并给出明确原因（配置后可重试）。
     this.jobs.register('extract', async (job) => {
       const payload = JSON.parse(job.payload_json) as { sourceId: string };
-      const config = this.config;
-      if (!config.model.apiKeyPresent || !config.model.modelName) {
+      const provider = this.getProvider();
+      if (!provider) {
         throw new Error(
           'IXA0010 模型未配置：请在设置中填写 OpenAI API Key 与模型名称后重试该提取任务',
         );
       }
-      // M2 实现：结构化提取 → items + item_evidence
-      void payload;
-      throw new Error('IXA0022 提取功能将在 M2 里程碑启用');
+      const extractor = new Extractor(this.db, provider);
+      const stats = await extractor.extractSource(payload.sourceId);
+      recordAudit(this.db, 'extract.completed', {
+        sourceId: payload.sourceId,
+        inserted: stats.inserted,
+        skippedBadRef: stats.skippedBadRef,
+        disputed: stats.disputed,
+        needsReview: stats.needsReview,
+      });
     });
+  }
+
+  /**
+   * 当前可用的模型提供者。API Key 解密失败或未配置时返回 null。
+   * 测试可用 IXAEON_FAKE_MODEL=1 注入 FakeProvider（绝不连接网络）。
+   */
+  getProvider(): ModelProvider | null {
+    if (process.env.IXAEON_FAKE_MODEL === '1') {
+      return this.fakeProvider;
+    }
+    const config = this.config;
+    if (!config.model.apiKeyPresent || !config.model.modelName) return null;
+    const encrypted = config.model.apiKeyEncrypted;
+    if (!encrypted) return null;
+    const apiKey = decryptApiKey(encrypted);
+    if (!apiKey) {
+      this.logger.warn('API Key 解密失败（可能迁移自其他机器）', {});
+      return null;
+    }
+    return new OpenAIResponsesProvider({
+      apiKey,
+      modelName: config.model.modelName,
+      baseUrl: process.env.IXAEON_OPENAI_BASE_URL,
+    });
+  }
+
+  /** 问答（Ask 页）。模型未配置时明确报错。 */
+  async ask(projectId: string | null, question: string): Promise<AskResult> {
+    const provider = this.getProvider();
+    if (!provider) {
+      throw new IxaError(
+        ErrorCodes.MODEL_NOT_CONFIGURED,
+        'IXA0010 模型未配置：请在设置中填写 OpenAI API Key 后使用问答',
+      );
+    }
+    const asker = new AskService(this.db, provider);
+    return asker.ask(projectId, question);
   }
 
   private async startServer(): Promise<void> {

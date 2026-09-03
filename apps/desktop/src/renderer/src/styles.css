@@ -563,3 +563,173 @@ code {
   padding: 1px 5px;
   font-size: 12px;
 }
+
+/* --- 理解页（M2） --- */
+.item-group {
+  margin: 14px 0;
+}
+
+.item-group h3 {
+  font-size: 13px;
+  color: var(--accent-2);
+  margin: 12px 0 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.item-row {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+
+.item-row.item-disputed {
+  border-color: var(--warn);
+}
+
+.item-row header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.item-statement {
+  margin: 0;
+  font-size: 14px;
+}
+
+.item-rationale {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.evidence-panel {
+  margin-top: 10px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+
+.evidence-entry {
+  margin-bottom: 10px;
+}
+
+.evidence-entry header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.correction-preview {
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 10px;
+}
+
+.correction-preview p {
+  margin: 6px 0;
+}
+
+.old-statement {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.new-statement {
+  color: var(--ok);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+/* --- 历史页 --- */
+.history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.history-entry {
+  border-left: 3px solid var(--accent);
+  padding: 8px 14px;
+  margin-bottom: 14px;
+  background: var(--panel-2);
+  border-radius: 0 8px 8px 0;
+}
+
+.history-entry time {
+  font-size: 12px;
+}
+
+.history-entry p {
+  margin: 6px 0;
+}
+
+/* --- 问答页 --- */
+.ask-answer {
+  margin-top: 12px;
+}
+
+.answer-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 0;
+}
+
+.citations {
+  margin-top: 12px;
+}
+
+.citations h4 {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.citations ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.citations li {
+  margin-bottom: 6px;
+}
+
+.citation-ref {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent-2);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.citations .segment-text {
+  margin-top: 6px;
+  max-height: 160px;
+}

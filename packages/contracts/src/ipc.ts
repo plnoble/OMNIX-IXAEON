@@ -1,8 +1,7 @@
-import type {
+﻿import type {
   AuditEvent,
   Correction,
   Item,
-  ItemEvidence,
   Job,
   Permission,
   Project,
@@ -86,12 +85,26 @@ export const searchInputSchema = z.object({
 });
 export type SearchInput = z.infer<typeof searchInputSchema>;
 
+/** 条目依据（含片段与来源标题，供界面展开核验）。 */
+export type ItemEvidenceView = {
+  segment_id: string;
+  excerpt: string;
+  relevance: number;
+  segment: {
+    id: string;
+    source_id: string;
+    sequence: number;
+    role: string;
+    text: string;
+  };
+  sourceTitle: string;
+};
+
 export const correctionPreviewSchema = z.object({
   oldStatement: z.string(),
-  oldState: z.string(),
   newStatement: z.string(),
-  newOrigin: z.literal('user'),
-  createdAt: z.string(),
+  type: itemTypeSchema,
+  evidence: z.array(z.object({ segment_id: z.string(), excerpt: z.string() })),
 });
 export type CorrectionPreview = z.infer<typeof correctionPreviewSchema>;
 
@@ -109,12 +122,14 @@ export const askQuestionInputSchema = z.object({
 export type AskQuestionInput = z.infer<typeof askQuestionInputSchema>;
 
 export const citationSchema = z.object({
-  n: z.number().int().positive(),
-  segmentId: z.string().uuid(),
-  sourceId: z.string().uuid(),
+  /** 引用编号（如 R3，与回答文本中的 [R3] 对应） */
+  ref: z.string(),
+  segmentId: z.string(),
   sourceTitle: z.string(),
   role: z.string(),
   excerpt: z.string(),
+  /** true 表示该结论来自用户纠正（优先于旧 AI 推断） */
+  isUserCorrection: z.boolean(),
 });
 export type Citation = z.infer<typeof citationSchema>;
 
@@ -216,9 +231,7 @@ export interface IxaIpcApi {
     shelved?: boolean;
     type?: string;
   }): Promise<Item[]>;
-  getItemEvidence(
-    itemId: string,
-  ): Promise<Array<ItemEvidence & { segment: Segment; sourceTitle: string }>>;
+  getItemEvidence(itemId: string): Promise<ItemEvidenceView[]>;
   previewCorrection(input: { itemId: string; userText: string }): Promise<CorrectionPreview>;
   correctItem(input: CorrectItemInput): Promise<{
     oldItem: Item;

@@ -5,9 +5,21 @@ import { ProjectsPage } from './pages/Projects.js';
 import { SourcesPage } from './pages/Sources.js';
 import { SearchPage } from './pages/Search.js';
 import { SettingsPage } from './pages/Settings.js';
+import { UnderstandingPage } from './pages/Understanding.js';
+import { InboxPage, HistoryPage } from './pages/Inbox.js';
+import { AskPage } from './pages/Ask.js';
 import { Card, ErrorBanner } from './ui.js';
 
-type Page = 'overview' | 'projects' | 'sources' | 'search' | 'settings';
+type Page =
+  | 'overview'
+  | 'understanding'
+  | 'inbox'
+  | 'ask'
+  | 'history'
+  | 'projects'
+  | 'sources'
+  | 'search'
+  | 'settings';
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -78,6 +90,38 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={page === 'understanding' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('understanding')}
+            data-testid="nav-understanding"
+          >
+            理解
+          </button>
+          <button
+            type="button"
+            className={page === 'inbox' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('inbox')}
+            data-testid="nav-inbox"
+          >
+            待讨论
+          </button>
+          <button
+            type="button"
+            className={page === 'ask' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('ask')}
+            data-testid="nav-ask"
+          >
+            问答
+          </button>
+          <button
+            type="button"
+            className={page === 'history' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('history')}
+            data-testid="nav-history"
+          >
+            历史
+          </button>
+          <button
+            type="button"
             className={page === 'projects' ? 'nav-item active' : 'nav-item'}
             onClick={() => setPage('projects')}
             data-testid="nav-projects"
@@ -141,6 +185,14 @@ export default function App() {
             }}
           />
         )}
+
+        {page === 'understanding' && <UnderstandingPage projects={projects} />}
+
+        {page === 'inbox' && <InboxPage projects={projects} />}
+
+        {page === 'ask' && <AskPage projects={projects} />}
+
+        {page === 'history' && <HistoryPage />}
 
         {page === 'sources' && (
           <SourcesPage projects={projects} projectId={projectId} onProjectChange={setProjectId} />

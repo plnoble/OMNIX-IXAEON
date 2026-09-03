@@ -10,7 +10,8 @@
   "dependencies": {
     "@ixaeon/contracts": "workspace:*",
     "better-sqlite3": "^13.0.3",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@ixaeon/test-fixtures": "workspace:*",

@@ -1,10 +1,11 @@
 import type {
   AppState,
+  AskAnswer,
   AuditEvent,
   Correction,
   IxaIpcApi,
   Item,
-  ItemEvidence,
+  ItemEvidenceView,
   Job,
   Permission,
   Project,
@@ -28,10 +29,11 @@ export function errMsg(err: unknown): string {
 
 export type {
   AppState,
+  AskAnswer,
   AuditEvent,
   Correction,
   Item,
-  ItemEvidence,
+  ItemEvidenceView,
   Job,
   Permission,
   Project,

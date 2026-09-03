@@ -133,6 +133,9 @@ importers:
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
     devDependencies:
       '@ixaeon/test-fixtures':
         specifier: workspace:*

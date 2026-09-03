@@ -29,3 +29,19 @@ export {
 export { readProjectSnapshot, MAX_FILE_BYTES } from './import/projectSnapshot.js';
 export { ImportService, MAX_IMPORT_BYTES, type ImportFileResult } from './import/importService.js';
 export { JobQueue, type JobHandler, type JobContext } from './jobs/jobQueue.js';
+export { ModelError, type ModelProvider } from './extraction/model/provider.js';
+export { OpenAIResponsesProvider } from './extraction/model/openai.js';
+export { FakeProvider } from './extraction/model/fake.js';
+export {
+  EXTRACT_PROMPT_VERSION,
+  EXTRACT_SYSTEM_PROMPT,
+  ASK_SYSTEM_PROMPT,
+} from './extraction/prompts.js';
+export {
+  Extractor,
+  extractionOutputSchema,
+  type ExtractionOutput,
+  type ExtractStats,
+} from './extraction/extractor.js';
+export { ItemService } from './storage/itemStore.js';
+export { AskService, type AskResult } from './storage/askStore.js';
