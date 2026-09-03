@@ -195,7 +195,7 @@ export function registerIpc(runtime: AppRuntime): void {
     askQuestion: async (input) => runtime.ask(input.projectId, input.question),
 
     // --- 工作记录（M3） ---
-    listWorkRuns: async () => notReady('工作记录功能'),
+    listWorkRuns: async (input) => runtime.listWorkRuns(input.projectId, input.limit),
 
     // --- 设置 ---
     getSettings: async () => {
@@ -210,7 +210,7 @@ export function registerIpc(runtime: AppRuntime): void {
           extensionLastSyncAt: runtime.lastCaptureAt(),
         },
         dataDir: runtime.state.dataDir,
-        mcp: getMcpSnippet(app.getPath('exe')),
+        mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
         encryptionNotice:
           '应用未实现全库加密：数据库与原文保存在本地文件中，建议开启 Windows BitLocker。',
       };

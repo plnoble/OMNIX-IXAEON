@@ -34,6 +34,7 @@ import {
   type AppConfig,
   type Project,
   type SetupInput,
+  type WorkRun,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
@@ -221,6 +222,13 @@ export class AppRuntime {
     }
     const asker = new AskService(this.db, provider);
     return asker.ask(projectId, question);
+  }
+
+  /** 工作记录列表（M3：最近工作展示）。 */
+  listWorkRuns(projectId: string, limit: number): Array<WorkRun> {
+    return this.db
+      .prepare(`SELECT * FROM work_runs WHERE project_id = ? ORDER BY finished_at DESC LIMIT ?`)
+      .all(projectId, limit) as WorkRun[];
   }
 
   private async startServer(): Promise<void> {

@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AuditEvent,
   Correction,
   Item,
@@ -168,6 +168,8 @@ export const settingsViewSchema = z.object({
     command: z.string(),
     args: z.array(z.string()),
     snippet: z.string(),
+    /** localToken（MCP 端点认证用，供配置片段复制） */
+    localToken: z.string().nullable(),
   }),
   encryptionNotice: z.string(),
 });

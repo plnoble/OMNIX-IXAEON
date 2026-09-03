@@ -1,11 +1,21 @@
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import type { CoreDatabase } from '@ixaeon/core';
-import { type PermissionService, type SourceStore, Vault, recordAudit } from '@ixaeon/core';
+import {
+  type PermissionService,
+  type SourceStore,
+  McpService,
+  Vault,
+  recordAudit,
+} from '@ixaeon/core';
 import {
   ErrorCodes,
   IxaError,
   captureBatchSchema,
   pairRequestSchema,
+  prepareTaskInputSchema,
+  searchContextInputSchema,
+  getSourceExcerptInputSchema,
+  recordWorkResultInputSchema,
   type AppConfig,
   type CaptureBatch,
   type CaptureBatchResponse,
@@ -13,7 +23,7 @@ import {
   type HealthResponse,
   type PairResponse,
 } from '@ixaeon/contracts';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 
 const APP_VERSION = '0.1.0';
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
@@ -72,6 +82,37 @@ export class LocalServer {
     throw new IxaError(ErrorCodes.INVALID_TOKEN, '访问令牌无效');
   }
 
+  /** MCP 端点专用：只接受 localToken（扩展令牌不可访问 MCP 工具）。 */
+  private requireLocalToken(authorization: unknown): void {
+    const config = this.deps.getConfig();
+    const header = typeof authorization === 'string' ? authorization : '';
+    const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+    const token = match?.[1] ?? '';
+    if (!token || !config.localToken || token !== config.localToken) {
+      throw new IxaError(
+        ErrorCodes.INVALID_TOKEN,
+        'MCP 端点需要本地令牌（IXAEON_DATA_DIR/config.json 的 localToken）',
+      );
+    }
+  }
+
+  /** 统一错误序列化（IxaError → HTTP 状态码 + code/message）。 */
+  private sendError(reply: FastifyReply, err: unknown): FastifyReply {
+    const apiErr =
+      err instanceof IxaError
+        ? err.toApiError()
+        : { code: ErrorCodes.UNKNOWN, message: String(err) };
+    const status =
+      apiErr.code === ErrorCodes.NOT_FOUND || apiErr.code === ErrorCodes.INVALID_REFERENCE
+        ? 404
+        : apiErr.code === ErrorCodes.INVALID_TOKEN || apiErr.code === ErrorCodes.PERMISSION_REVOKED
+          ? 401
+          : apiErr.code === ErrorCodes.VALIDATION_FAILED
+            ? 400
+            : 500;
+    return reply.code(status).send(apiErr);
+  }
+
   async register(app: FastifyInstance): Promise<void> {
     // 健康检查：不要求令牌（不泄露任何数据）
     app.get('/api/health', async (): Promise<HealthResponse> => {
@@ -82,6 +123,87 @@ export class LocalServer {
         version: APP_VERSION,
         setupComplete: config.setupComplete,
       };
+    });
+
+    // --- MCP 端点（localToken 认证；STDIO 服务器转发） ---
+    app.post('/api/mcp/prepare-task', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = prepareTaskInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `prepare_task 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const mcp = new McpService(this.deps.db);
+          return reply.send(mcp.prepareTask(parsed.data));
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    app.post('/api/mcp/search-context', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = searchContextInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `search_context 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const mcp = new McpService(this.deps.db);
+          return reply.send(mcp.searchContext(parsed.data));
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    app.post('/api/mcp/get-source-excerpt', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = getSourceExcerptInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `get_source_excerpt 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const mcp = new McpService(this.deps.db);
+          return reply.send(mcp.getSourceExcerpt(parsed.data.ref, parsed.data.max_chars));
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    app.post('/api/mcp/record-work-result', {
+      config: { bodyLimit: 1024 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = recordWorkResultInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `record_work_result 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const mcp = new McpService(this.deps.db);
+          return reply.send(mcp.recordWorkResult(parsed.data));
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
     });
 
     // --- 扩展端点 ---

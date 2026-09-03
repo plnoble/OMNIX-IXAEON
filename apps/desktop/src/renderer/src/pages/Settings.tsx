@@ -137,10 +137,16 @@ export function SettingsPage() {
       </Card>
 
       <Card title="MCP 接入（编码 AI）" testId="settings-mcp">
-        <p className="note">把下面的片段加入 Codex / Claude Code / Cursor 配置即可接入本机服务。</p>
+        <p className="note">
+          把下面的片段加入 Codex / Claude Code / Cursor 配置即可接入本机服务。
+          令牌已内嵌（仅本机有效；泄露不会暴露文件系统，但可读写工作记录）。
+        </p>
         <pre className="code-block" data-testid="settings-mcp-snippet">
           {view.mcp.snippet}
         </pre>
+        <p className="note">
+          本地令牌：<code data-testid="settings-mcp-token">{view.mcp.localToken ?? '未生成'}</code>
+        </p>
       </Card>
 
       <Card title="本地数据" testId="settings-data">

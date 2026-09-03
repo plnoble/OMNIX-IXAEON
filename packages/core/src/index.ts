@@ -45,3 +45,4 @@ export {
 } from './extraction/extractor.js';
 export { ItemService } from './storage/itemStore.js';
 export { AskService, type AskResult } from './storage/askStore.js';
+export { McpService } from './storage/mcpStore.js';
