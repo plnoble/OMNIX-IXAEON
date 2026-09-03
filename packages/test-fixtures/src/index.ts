@@ -26,6 +26,11 @@ export function readonlyThoughtDocs(): string[] {
   ];
 }
 
+/** 模拟 ChatGPT 对话页（扩展 e2e 用：含 user/assistant 两轮 + 侧栏噪音）。 */
+export function chatgptMockPagePath(): string {
+  return join(fixturesDir(), 'web', 'chatgpt-mock.html');
+}
+
 // ---------------------------------------------------------------------------
 // ChatGPT 导出包模拟数据
 // ---------------------------------------------------------------------------

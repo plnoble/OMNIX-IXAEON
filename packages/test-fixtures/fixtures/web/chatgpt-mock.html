@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>模拟 ChatGPT 对话</title>
+    <style>
+      .message {
+        margin: 12px 0;
+        padding: 10px 14px;
+        border-radius: 8px;
+        background: #f4f4f4;
+      }
+    </style>
+  </head>
+  <body>
+    <nav id="sidebar">侧栏（扩展不应读取这里）</nav>
+    <main id="thread">
+      <div class="message" data-message-author-role="user">
+        <div class="action-bar"><button>复制</button><button>编辑</button></div>
+        <div class="text">IXAEON 项目的第一版核心价值是什么？</div>
+      </div>
+      <div class="message" data-message-author-role="assistant">
+        <div class="action-bar"><button>复制</button><button>重新生成</button></div>
+        <div class="text">
+          IXAEON（析衍）第一版的核心价值是项目连续性：把用户与编码 AI 的协作历史保存为本地可追溯的记忆。
+        </div>
+      </div>
+    </main>
+    <!-- e2e 测试会动态追加新轮次 -->
+  </body>
+</html>

@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="zh-CN">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <style>
       body {
-        width: 300px;
+        width: 320px;
         margin: 0;
         padding: 14px 16px;
         font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
@@ -16,14 +16,65 @@
         font-size: 15px;
         margin: 0 0 10px;
       }
-      .status {
+      .row {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 0;
+      }
+      .ok {
+        color: #3fb96b;
+      }
+      .bad {
+        color: #e05a5a;
+      }
+      .muted {
         color: #8b93a1;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #2a313c;
+        background: #1d232c;
+        color: #e6e9ee;
+        margin: 6px 0;
+      }
+      button {
+        padding: 6px 14px;
+        border-radius: 6px;
+        border: 1px solid #4f8cff;
+        background: #4f8cff;
+        color: #fff;
+        cursor: pointer;
+        width: 100%;
+        margin-top: 4px;
+      }
+      button.ghost {
+        background: transparent;
+        border-color: #2a313c;
+        color: #8b93a1;
+      }
+      #pair-result {
+        margin-top: 6px;
+        min-height: 18px;
       }
     </style>
   </head>
   <body>
     <h1>IXAEON 析衍采集助手</h1>
-    <p class="status" data-testid="popup-status">M0 占位：配对功能将在后续版本提供。</p>
-    <script type="module" src="popup.js"></script>
+    <div class="row"><span>连接状态</span><span id="status-connected">…</span></div>
+    <div class="row"><span>采集开关</span><span id="status-capture">…</span></div>
+    <div class="row"><span>最近同步</span><span id="status-sync" class="muted">…</span></div>
+    <div class="row"><span>最近错误</span><span id="status-error" class="bad">…</span></div>
+    <div id="pair-area" hidden>
+      <input id="pair-code" inputmode="numeric" maxlength="6" placeholder="输入 6 位配对码" />
+      <button id="pair-submit">配对</button>
+      <div id="pair-result"></div>
+    </div>
+    <p class="muted" style="font-size: 11px; margin-top: 10px">
+      只采集当前 chatgpt.com 对话页可见消息；全局暂停请在 IXAEON 桌面端设置中关闭。
+    </p>
+    <script src="popup.js"></script>
   </body>
 </html>

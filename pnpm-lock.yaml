@@ -87,6 +87,9 @@ importers:
 
   apps/extension:
     devDependencies:
+      '@ixaeon/test-fixtures':
+        specifier: workspace:*
+        version: link:../../packages/test-fixtures
       '@playwright/test':
         specifier: ^1.62.1
         version: 1.62.1

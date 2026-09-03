@@ -27,4 +27,25 @@ function run(label, cwd) {
 
 const only = process.argv[2];
 if (!only || only === 'desktop') run('desktop e2e', resolve(root, 'apps', 'desktop'));
-if (!only || only === 'extension') run('extension e2e', resolve(root, 'apps', 'extension'));
+if (!only || only === 'extension') {
+  // 扩展 e2e 不走 Playwright Test runner（与扩展 SW 共存时触发 Windows
+  // 0xC0000409 快速失败）；用纯 node 脚本驱动（断言失败 → 非零退出码）
+  runScript('extension e2e', resolve(root, 'apps', 'extension', 'e2e', 'run.cjs'));
+}
+
+function runScript(label, scriptPath) {
+  const started = Date.now();
+  console.log(`\n▶ ${label}`);
+  const result = spawnSync('node', [scriptPath], {
+    cwd: resolve(root, 'apps', 'extension'),
+    shell: isWindows,
+    stdio: 'inherit',
+    env: process.env,
+  });
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
+  if (result.status !== 0) {
+    console.error(`✗ ${label} 失败（${seconds}s）`);
+    process.exit(result.status ?? 1);
+  }
+  console.log(`✓ ${label} 完成（${seconds}s）`);
+}
