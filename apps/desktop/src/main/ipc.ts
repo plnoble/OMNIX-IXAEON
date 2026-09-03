@@ -59,6 +59,17 @@ export function registerIpc(runtime: AppRuntime): void {
 
     // --- 导入 ---
     pickFiles: async (kind) => {
+      // 测试钩子：IXAEON_TEST_DIALOG_RESPONSES="docs|path1;path2" 直接返回固定选择，
+      // 避免测试依赖真实原生对话框（仅当环境变量存在时生效，正常用户运行不受影响）
+      const stub = process.env.IXAEON_TEST_DIALOG_RESPONSES;
+      if (stub) {
+        const sections = new Map<string, string[]>();
+        for (const part of stub.split(';')) {
+          const sep = part.indexOf('|');
+          if (sep > 0) sections.set(part.slice(0, sep), part.slice(sep + 1).split(','));
+        }
+        return sections.get(kind) ?? null;
+      }
       if (kind === 'directory') {
         const result = await dialog.showOpenDialog({
           title: '选择项目目录',

@@ -51,11 +51,14 @@ if (!gotSingleInstanceLock) {
     try {
       runtime = await Runtime.create();
     } catch (err) {
-      // 运行时失败仍要打开窗口：设置页显示错误并允许重试
+      // 运行时失败仍要打开窗口：状态卡显示错误并允许重试
       process.stderr.write(`[ixaeon] 运行时初始化失败: ${String(err)}\n`);
     }
-    if (runtime) registerIpc(runtime);
-    ipcFallbackState();
+    if (runtime) {
+      registerIpc(runtime);
+    } else {
+      ipcFallbackState();
+    }
     await createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) void createWindow();
@@ -78,9 +81,8 @@ if (!gotSingleInstanceLock) {
   });
 }
 
-/** 运行时创建失败时的兜底状态查询。 */
+/** 运行时创建失败时的兜底状态查询（仅在 registerIpc 未注册时调用）。 */
 function ipcFallbackState(): void {
-  if (ipcMain.listenerCount('ixaeon:getState') > 0) return;
   ipcMain.handle('ixaeon:getState', (): AppState => {
     return {
       version: app.getVersion() || '0.1.0',

@@ -1,12 +1,64 @@
-import { useEffect, useState } from 'react';
-import type { AppState } from '@ixaeon/contracts';
+import { useCallback, useEffect, useState } from 'react';
+import { api, errMsg, type AppState, type Project } from './api.js';
+import { SetupWizard } from './pages/Setup.js';
+import { ProjectsPage } from './pages/Projects.js';
+import { SourcesPage } from './pages/Sources.js';
+import { SearchPage } from './pages/Search.js';
+import { SettingsPage } from './pages/Settings.js';
+import { Card, ErrorBanner } from './ui.js';
+
+type Page = 'overview' | 'projects' | 'sources' | 'search' | 'settings';
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>('overview');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await api.getState();
+      setState(s);
+      if (s.setupComplete) {
+        setProjects(await api.listProjects());
+      }
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  }, []);
 
   useEffect(() => {
-    void window.ixaeon?.getState().then(setState);
-  }, []);
+    void refresh();
+  }, [refresh]);
+
+  if (error && state === null) {
+    return <ErrorBanner message={error} />;
+  }
+  if (state === null) {
+    return (
+      <div className="app" data-testid="app-root">
+        <p className="empty">加载中…</p>
+      </div>
+    );
+  }
+
+  if (!state.setupComplete) {
+    return (
+      <div className="app" data-testid="app-root">
+        {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+        <SetupWizard
+          state={state}
+          onDone={() => {
+            void refresh();
+            setPage('sources');
+          }}
+        />
+      </div>
+    );
+  }
+
+  const activeProject = projects.find((p) => p.id === projectId) ?? null;
 
   return (
     <div className="app" data-testid="app-root">
@@ -15,26 +67,90 @@ export default function App() {
           IXAEON <span className="cn">析衍</span>
         </h1>
         <p className="tagline">本地项目记忆与编码 AI 背景服务 · OMNIX</p>
+        <nav className="nav" data-testid="main-nav">
+          <button
+            type="button"
+            className={page === 'overview' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('overview')}
+            data-testid="nav-overview"
+          >
+            总览
+          </button>
+          <button
+            type="button"
+            className={page === 'projects' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('projects')}
+            data-testid="nav-projects"
+          >
+            项目
+          </button>
+          <button
+            type="button"
+            className={page === 'sources' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('sources')}
+            data-testid="nav-sources"
+          >
+            来源
+          </button>
+          <button
+            type="button"
+            className={page === 'search' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('search')}
+            data-testid="nav-search"
+          >
+            检索
+          </button>
+          <button
+            type="button"
+            className={page === 'settings' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('settings')}
+            data-testid="nav-settings"
+          >
+            设置
+          </button>
+        </nav>
       </header>
+
       <main className="app-main">
-        <section className="card" data-testid="state-card">
-          <h2>系统状态</h2>
-          <dl>
-            <dt>版本</dt>
-            <dd data-testid="state-version">{state?.version ?? '…'}</dd>
-            <dt>数据目录</dt>
-            <dd data-testid="state-datadir">{state?.dataDir ?? '…'}</dd>
-            <dt>首次设置</dt>
-            <dd data-testid="state-setup">
-              {state ? (state.setupComplete ? '已完成' : '未完成') : '…'}
-            </dd>
-            <dt>本地服务</dt>
-            <dd data-testid="state-server">
-              {state ? (state.serverRunning ? `127.0.0.1:${state.serverPort}` : '未运行') : '…'}
-            </dd>
-          </dl>
-        </section>
-        <p className="note">工程底座（M0）阶段：界面与服务将在后续里程碑接入。</p>
+        {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+
+        {page === 'overview' && (
+          <Card title="系统状态" testId="state-card">
+            <dl>
+              <dt>版本</dt>
+              <dd data-testid="state-version">{state.version}</dd>
+              <dt>数据目录</dt>
+              <dd data-testid="state-datadir">{state.dataDir}</dd>
+              <dt>首次设置</dt>
+              <dd data-testid="state-setup">已完成</dd>
+              <dt>本地服务</dt>
+              <dd data-testid="state-server">
+                {state.serverRunning ? `127.0.0.1:${state.serverPort}` : '未运行'}
+              </dd>
+              <dt>当前项目</dt>
+              <dd data-testid="state-current-project">{activeProject?.name ?? '全部'}</dd>
+            </dl>
+          </Card>
+        )}
+
+        {page === 'projects' && (
+          <ProjectsPage
+            onOpenSources={(id) => {
+              setProjectId(id);
+              setPage('sources');
+            }}
+          />
+        )}
+
+        {page === 'sources' && (
+          <SourcesPage projects={projects} projectId={projectId} onProjectChange={setProjectId} />
+        )}
+
+        {page === 'search' && (
+          <SearchPage projects={projects} projectId={projectId} onProjectChange={setProjectId} />
+        )}
+
+        {page === 'settings' && <SettingsPage />}
       </main>
     </div>
   );

@@ -23,6 +23,7 @@ import {
 import { LOCAL_HTTP_PORT, type AppConfig, type Project, type SetupInput } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
+import { encryptApiKey } from './ipc.js';
 
 /**
  * 桌面应用主运行时：集中持有数据库、服务与本地 HTTP 服务。
@@ -208,15 +209,19 @@ export class AppRuntime {
   /** 首次设置完成：数据目录、模型、第一个项目。 */
   completeSetup(input: SetupInput): { ok: true } {
     if (input.dataDir && input.dataDir.trim().length > 0) {
+      // 记录选择（bootstrap.json 指向新目录；本进程继续用当前目录，重启后生效）
       setDataDirChoice(input.dataDir.trim());
     }
+    const apiKeyEncrypted =
+      input.apiKey.length > 0 ? encryptApiKey(input.apiKey) : this.config.model.apiKeyEncrypted;
     this.updateConfig((c) => ({
       ...c,
       setupComplete: true,
       model: {
         ...c.model,
         modelName: input.modelName,
-        apiKeyPresent: input.apiKey.length > 0 ? true : c.model.apiKeyPresent,
+        apiKeyEncrypted,
+        apiKeyPresent: apiKeyEncrypted !== null,
       },
     }));
     // 创建第一个项目
