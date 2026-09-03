@@ -1,0 +1,25 @@
+appId: com.omnix.ixaeon
+productName: IXAEON
+copyright: OMNIX
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+asarUnpack:
+  - "**/*.node"
+win:
+  target:
+    - nsis
+  icon: resources/icon.ico
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: IXAEON-Setup-${version}.${ext}
+  shortcutName: IXAEON 析衍
+  uninstallDisplayName: IXAEON（析衍）
+publish: null

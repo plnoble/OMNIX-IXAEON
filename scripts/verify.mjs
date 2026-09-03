@@ -1,0 +1,79 @@
+#!/usr/bin/env node
+/**
+ * IXAEON 一键验证：lint → format:check → typecheck → test:unit → test:integration → build。
+ * 直接调用各工具 CLI（不经嵌套 pnpm，避免外层 pnpm shim 干扰）。
+ */
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+
+const root = resolve(import.meta.dirname, '..');
+const node = process.execPath;
+
+function run(label, args, env = {}) {
+  const started = Date.now();
+  process.stdout.write(`\n\u001b[36m▶ ${label}\u001b[0m\n`);
+  const result = spawnSync(node, args, {
+    cwd: root,
+    stdio: 'inherit',
+    env: { ...process.env, ...env },
+  });
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
+  if (result.status !== 0) {
+    process.stdout.write(`\u001b[31m✗ ${label} 失败（${seconds}s）\u001b[0m\n`);
+    process.exit(result.status ?? 1);
+  }
+  process.stdout.write(`\u001b[32m✓ ${label} 通过（${seconds}s）\u001b[0m\n`);
+  return { label, seconds };
+}
+
+const results = [];
+
+results.push(
+  run('lint（ESLint）', [resolve(root, 'node_modules', 'eslint', 'bin', 'eslint.js'), '.']),
+);
+
+results.push(
+  run('format:check（Prettier）', [
+    resolve(root, 'node_modules', 'prettier', 'bin', 'prettier.cjs'),
+    '--check',
+    'apps/*/src/**/*.{ts,tsx,css,html}',
+    'packages/*/src/**/*.{ts,tsx}',
+    'scripts/**/*.mjs',
+    'apps/*/scripts/**/*.mjs',
+    '*.{ts,mjs,json}',
+  ]),
+);
+
+results.push(
+  run('typecheck（tsc --noEmit）', [
+    resolve(root, 'node_modules', 'typescript', 'bin', 'tsc'),
+    '--noEmit',
+    '-p',
+    'tsconfig.json',
+  ]),
+);
+
+results.push(
+  run('unit（Vitest 单元测试）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--project',
+    'unit',
+  ]),
+);
+
+results.push(
+  run('integration（Vitest 集成测试）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--project',
+    'integration',
+  ]),
+);
+
+results.push(run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]));
+
+process.stdout.write(`\n\u001b[32m全部通过（IXAEON v0.1 验证完成）\u001b[0m\n`);
+for (const r of results) {
+  process.stdout.write(`  ✓ ${r.label} — ${r.seconds}s\n`);
+}

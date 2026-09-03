@@ -1,0 +1,24 @@
+{
+  "docTitle": "会议纪要：IXAEON 第一版评审（脱敏测试资料）",
+  "date": "2025-06-01",
+  "attendees": ["用户", "助手"],
+  "decisions": [
+    {
+      "id": "D1",
+      "statement": "第一版只支持 Windows 11 本机运行",
+      "reason": "用户的主要工作环境是 Windows"
+    },
+    {
+      "id": "D2",
+      "statement": "不使用向量数据库，采用 SQLite 全文搜索",
+      "reason": "降低第一版复杂度"
+    }
+  ],
+  "rejected": [
+    {
+      "statement": "多 Agent 圆桌讨论",
+      "reason": "超出第一版范围"
+    }
+  ],
+  "openLoops": ["确认 MCP 配置文档的措辞", "补齐导出包样例"]
+}

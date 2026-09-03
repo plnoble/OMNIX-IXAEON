@@ -1,0 +1,21 @@
+{
+  "name": "@ixaeon/mcp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "IXAEON STDIO MCP 服务，调用本机 IXAEON 接口",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "start": "node dist/index.mjs",
+    "test:e2e": "echo 'mcp e2e via desktop tests'"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
+    "@ixaeon/contracts": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "vite": "^7.3.6"
+  }
+}

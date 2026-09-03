@@ -1,0 +1,16 @@
+{
+  "name": "@ixaeon/extension",
+  "private": true,
+  "version": "0.1.0",
+  "description": "IXAEON 浏览器扩展（Chrome/Edge Manifest V3，仅 chatgpt.com）",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test:e2e": "playwright test -c e2e/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "playwright": "^1.62.1",
+    "vite": "^7.3.6"
+  }
+}

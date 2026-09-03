@@ -1,0 +1,16 @@
+node_modules
+dist
+out
+release
+coverage
+playwright-report
+test-results
+packages/test-fixtures/fixtures
+
+# 三份历史思想文档：只读，绝不格式化或修改
+JARVIS_CONSTITUTION_v0.1.md
+Jarvis_Constitution_v0.1.docx
+grok-20260903-IXAEON-思想碰撞.md
+
+# pnpm lockfile 保持机器生成格式
+pnpm-lock.yaml

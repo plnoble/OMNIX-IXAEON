@@ -1,0 +1,31 @@
+// IXAEON core — 导入、存储、提取、检索、纠正、简报逻辑
+export { openDatabase, type CoreDatabase } from './db/database.js';
+export { migrate, currentMigrationVersion, MIGRATIONS } from './db/migrations.js';
+export { Vault, sha256 } from './vault.js';
+export { normalizeLocalPath, isPathInside, assertInside, safeJoin } from './paths.js';
+export {
+  defaultDataDir,
+  resolveDataDir,
+  setDataDirChoice,
+  ensureDataDirLayout,
+  wipeDataDirForTests,
+} from './dataDir.js';
+export { Logger, redactValue, type LogLevel } from './logging/logger.js';
+export { recordAudit, listAuditEvents } from './audit.js';
+export { loadConfig, saveConfig } from './config.js';
+export { PermissionService } from './permissions.js';
+export { ProjectService } from './projects.js';
+export { SourceStore, type SourceWithStats } from './storage/sourceStore.js';
+export { SearchService, type SegmentSearchHit } from './storage/search.js';
+export {
+  parseMarkdownDocument,
+  parseTextDocument,
+  parseJsonDocument,
+  parseChatgptConversations,
+  tryParseChatgptConversations,
+  type ParsedSegment,
+  type ParsedSource,
+} from './import/parsers.js';
+export { readProjectSnapshot, MAX_FILE_BYTES } from './import/projectSnapshot.js';
+export { ImportService, MAX_IMPORT_BYTES, type ImportFileResult } from './import/importService.js';
+export { JobQueue, type JobHandler, type JobContext } from './jobs/jobQueue.js';

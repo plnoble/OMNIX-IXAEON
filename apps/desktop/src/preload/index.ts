@@ -1,0 +1,53 @@
+import { contextBridge, ipcRenderer } from 'electron';
+import type { IxaIpcApi } from '@ixaeon/contracts';
+
+/**
+ * preload：暴露 window.ixaeon 的完整 IPC 通道。
+ * contextIsolation 开启，渲染进程只能通过这里的受控方法访问主进程能力。
+ */
+const api: IxaIpcApi = {
+  getState: () => ipcRenderer.invoke('ixaeon:getState'),
+  completeSetup: (input) => ipcRenderer.invoke('ixaeon:completeSetup', input),
+  listProjects: () => ipcRenderer.invoke('ixaeon:listProjects'),
+  createProject: (input) => ipcRenderer.invoke('ixaeon:createProject', input),
+  updateProjectStatus: (input) => ipcRenderer.invoke('ixaeon:updateProjectStatus', input),
+  pickFiles: (kind) => ipcRenderer.invoke('ixaeon:pickFiles', kind),
+  pickSaveZip: (defaultName) => ipcRenderer.invoke('ixaeon:pickSaveZip', defaultName),
+  importPaths: (input) => ipcRenderer.invoke('ixaeon:importPaths', input),
+  registerProjectDirectory: (input) => ipcRenderer.invoke('ixaeon:registerProjectDirectory', input),
+  listSources: (input) => ipcRenderer.invoke('ixaeon:listSources', input),
+  getSource: (id) => ipcRenderer.invoke('ixaeon:getSource', id),
+  getSourceSegments: (input) => ipcRenderer.invoke('ixaeon:getSourceSegments', input),
+  getSegmentContext: (input) => ipcRenderer.invoke('ixaeon:getSegmentContext', input),
+  searchSegments: (input) => ipcRenderer.invoke('ixaeon:searchSegments', input),
+  reextractSource: (sourceId) => ipcRenderer.invoke('ixaeon:reextractSource', sourceId),
+  revokeSourceReading: (sourceId) => ipcRenderer.invoke('ixaeon:revokeSourceReading', sourceId),
+  deleteSourceDerived: (sourceId) => ipcRenderer.invoke('ixaeon:deleteSourceDerived', sourceId),
+  deleteSource: (sourceId) => ipcRenderer.invoke('ixaeon:deleteSource', sourceId),
+  listJobs: (limit) => ipcRenderer.invoke('ixaeon:listJobs', limit),
+  retryJob: (jobId) => ipcRenderer.invoke('ixaeon:retryJob', jobId),
+  listItems: (input) => ipcRenderer.invoke('ixaeon:listItems', input),
+  getItemEvidence: (itemId) => ipcRenderer.invoke('ixaeon:getItemEvidence', itemId),
+  previewCorrection: (input) => ipcRenderer.invoke('ixaeon:previewCorrection', input),
+  correctItem: (input) => ipcRenderer.invoke('ixaeon:correctItem', input),
+  setItemPendingReview: (input) => ipcRenderer.invoke('ixaeon:setItemPendingReview', input),
+  shelveItem: (input) => ipcRenderer.invoke('ixaeon:shelveItem', input),
+  assignItemToProject: (input) => ipcRenderer.invoke('ixaeon:assignItemToProject', input),
+  createManualItem: (input) => ipcRenderer.invoke('ixaeon:createManualItem', input),
+  listCorrections: (input) => ipcRenderer.invoke('ixaeon:listCorrections', input),
+  askQuestion: (input) => ipcRenderer.invoke('ixaeon:askQuestion', input),
+  listWorkRuns: (input) => ipcRenderer.invoke('ixaeon:listWorkRuns', input),
+  getSettings: () => ipcRenderer.invoke('ixaeon:getSettings'),
+  saveModelSettings: (input) => ipcRenderer.invoke('ixaeon:saveModelSettings', input),
+  setCaptureEnabled: (enabled) => ipcRenderer.invoke('ixaeon:setCaptureEnabled', enabled),
+  setAutoAnalyze: (enabled) => ipcRenderer.invoke('ixaeon:setAutoAnalyze', enabled),
+  generatePairingCode: () => ipcRenderer.invoke('ixaeon:generatePairingCode'),
+  getExtensionStatus: () => ipcRenderer.invoke('ixaeon:getExtensionStatus'),
+  exportData: (targetPath) => ipcRenderer.invoke('ixaeon:exportData', targetPath),
+  previewRestore: (zipPath) => ipcRenderer.invoke('ixaeon:previewRestore', zipPath),
+  restoreData: (zipPath) => ipcRenderer.invoke('ixaeon:restoreData', zipPath),
+  openLogsFolder: () => ipcRenderer.invoke('ixaeon:openLogsFolder'),
+  listAuditEvents: (limit) => ipcRenderer.invoke('ixaeon:listAuditEvents', limit),
+};
+
+contextBridge.exposeInMainWorld('ixaeon', api);

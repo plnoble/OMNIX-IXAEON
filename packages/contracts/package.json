@@ -1,0 +1,13 @@
+{
+  "name": "@ixaeon/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "IXAEON 共享契约：Zod schema、共享类型、统一错误码",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.5.4"
+  }
+}

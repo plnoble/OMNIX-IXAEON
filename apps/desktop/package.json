@@ -1,0 +1,35 @@
+{
+  "name": "@ixaeon/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "IXAEON（析衍）Windows 桌面应用：Electron 主进程、React 界面、本地 HTTP 接口",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "package:windows": "electron-vite build && electron-builder --win nsis --config electron-builder.yml",
+    "postinstall": "electron-builder install-app-deps",
+    "test:e2e": "playwright test -c e2e/playwright.config.ts"
+  },
+  "dependencies": {
+    "@ixaeon/contracts": "workspace:*",
+    "@ixaeon/core": "workspace:*",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.12.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.1.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "playwright": "^1.62.1",
+    "vite": "^7.3.6"
+  }
+}
