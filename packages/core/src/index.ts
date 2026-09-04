@@ -4,6 +4,12 @@ export { migrate, currentMigrationVersion, MIGRATIONS } from './db/migrations.js
 export { Vault, sha256 } from './vault.js';
 export { normalizeLocalPath, isPathInside, assertInside, safeJoin } from './paths.js';
 export {
+  isSourceAuthorized,
+  assertSourceAuthorized,
+  assertSegmentAuthorized,
+  PROJECT_ISOLATION_RULE,
+} from './access.js';
+export {
   defaultDataDir,
   resolveDataDir,
   setDataDirChoice,
@@ -40,6 +46,8 @@ export {
 export {
   Extractor,
   extractionOutputSchema,
+  splitTextToFit,
+  MAX_BLOCK_CHARS,
   type ExtractionOutput,
   type ExtractStats,
 } from './extraction/extractor.js';

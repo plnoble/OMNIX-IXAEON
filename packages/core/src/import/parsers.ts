@@ -32,14 +32,102 @@ export interface ParsedSource {
 // Markdown / TXT / JSON 普通文档
 // ---------------------------------------------------------------------------
 
-export function parseMarkdownDocument(
+/**
+ * Markdown/TXT 按标题与段落拆成可引用 segment（修复 P1-10）：
+ * - Markdown 标题行起一个新 segment；
+ * - 标题下的连续非空行聚合为同一段（空行 = 段落边界）；
+ * - 超长段（> 6000 字符）继续按安全字符边界拆分（段落/句子/标点优先），
+ *   保证单段不会撑爆提取块预算；
+ * - Vault 中的原始文件逐字不变（拆分只影响 segments 结构化表达）。
+ */
+const MAX_DOC_SEGMENT_CHARS = 6000;
+
+function chunkLongText(text: string): string[] {
+  if (text.length <= MAX_DOC_SEGMENT_CHARS) return [text];
+  const parts: string[] = [];
+  let rest = text;
+  let guard = 0;
+  while (rest.length > MAX_DOC_SEGMENT_CHARS && guard++ < 100_000) {
+    const window = rest.slice(0, MAX_DOC_SEGMENT_CHARS);
+    let cut = -1;
+    for (const re of [/[。！？!?]/g, /[；;：:]/g, /[，、,]/g, /\s/g]) {
+      const matches = [...window.matchAll(re)];
+      if (matches.length > 0) {
+        const last = matches[matches.length - 1]!.index! + 1;
+        if (last >= MAX_DOC_SEGMENT_CHARS / 2) {
+          cut = last;
+          break;
+        }
+      }
+    }
+    if (cut < 0) cut = MAX_DOC_SEGMENT_CHARS;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest.length > 0) parts.push(rest);
+  return parts;
+}
+
+function splitDocToSegments(
+  text: string,
+  format: 'markdown' | 'text',
+): Array<{ text: string; heading: string | null }> {
+  const lines = text.split('\n');
+  const collected: Array<{ text: string; heading: string | null; buffer: string[] }> = [];
+  let current: { text: string; heading: string | null; buffer: string[] } | null = null;
+  const flush = () => {
+    if (current && current.buffer.join('\n').trim().length > 0) collected.push(current);
+    current = null;
+  };
+  for (const line of lines) {
+    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (format === 'markdown' && headingMatch) {
+      flush();
+      current = { text: '', heading: headingMatch[2]!.trim(), buffer: [line] };
+      continue;
+    }
+    // 空行 = 段落边界（text 格式也按空行分段）
+    if (line.trim().length === 0 && current) {
+      flush();
+      continue;
+    }
+    if (!current) current = { text: '', heading: null, buffer: [] };
+    current.buffer.push(line);
+  }
+  flush();
+
+  // 展开超长段
+  const expanded: Array<{ text: string; heading: string | null }> = [];
+  for (const seg of collected) {
+    const joined = seg.buffer.join('\n').trim();
+    if (joined.length === 0) continue;
+    for (const part of chunkLongText(joined)) {
+      expanded.push({ text: part, heading: seg.heading });
+    }
+  }
+  return expanded;
+}
+
+function buildDocumentSegments(
   content: string,
+  format: 'markdown' | 'text',
   opts: { title: string; externalId: string; capturedAt?: string | null },
 ): ParsedSource {
   const text = content.replace(/\r\n/g, '\n').trim();
   if (text.length === 0) {
     throw new IxaError(ErrorCodes.PARSE_FAILED, '文档为空');
   }
+  const pieces = splitDocToSegments(text, format);
+  const segments: ParsedSegment[] = pieces.map((p, i) => ({
+    sequence: i,
+    role: 'document',
+    externalNodeId: p.heading ? `h:${i}` : null,
+    externalParentId: null,
+    isActiveBranch: true,
+    occurredAt: opts.capturedAt ?? null,
+    text: p.text,
+    metadata: p.heading ? { format, heading: p.heading } : { format },
+  }));
   return {
     kind: 'document',
     provider: 'local_file',
@@ -47,51 +135,28 @@ export function parseMarkdownDocument(
     title: opts.title,
     contentHash: sha256(text),
     capturedAt: opts.capturedAt ?? null,
-    segments: [
-      {
-        sequence: 0,
-        role: 'document',
-        externalNodeId: null,
-        externalParentId: null,
-        isActiveBranch: true,
-        occurredAt: opts.capturedAt ?? null,
-        text,
-        metadata: { format: 'markdown' },
-      },
-    ],
-    metadata: { format: 'markdown', chars: text.length },
+    segments,
+    metadata: {
+      format,
+      chars: text.length,
+      segments: segments.length,
+      headings: pieces.filter((p) => p.heading).length,
+    },
   };
+}
+
+export function parseMarkdownDocument(
+  content: string,
+  opts: { title: string; externalId: string; capturedAt?: string | null },
+): ParsedSource {
+  return buildDocumentSegments(content, 'markdown', opts);
 }
 
 export function parseTextDocument(
   content: string,
   opts: { title: string; externalId: string; capturedAt?: string | null },
 ): ParsedSource {
-  const text = content.replace(/\r\n/g, '\n').trim();
-  if (text.length === 0) {
-    throw new IxaError(ErrorCodes.PARSE_FAILED, '文档为空');
-  }
-  return {
-    kind: 'document',
-    provider: 'local_file',
-    externalId: opts.externalId,
-    title: opts.title,
-    contentHash: sha256(text),
-    capturedAt: opts.capturedAt ?? null,
-    segments: [
-      {
-        sequence: 0,
-        role: 'document',
-        externalNodeId: null,
-        externalParentId: null,
-        isActiveBranch: true,
-        occurredAt: opts.capturedAt ?? null,
-        text,
-        metadata: { format: 'text' },
-      },
-    ],
-    metadata: { format: 'text', chars: text.length },
-  };
+  return buildDocumentSegments(content, 'text', opts);
 }
 
 /** 若内容是 ChatGPT conversations.json 数组则返回解析结果，否则 null。 */

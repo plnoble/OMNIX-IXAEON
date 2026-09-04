@@ -60,7 +60,7 @@ beforeAll(() => {
 
   project = projects.create({ name: '导出测试项目', rootPath: null, description: null });
   const doc = fixturePath('files', 'project-notes.md');
-  imports.importFile(doc, { projectId: project.id, allowedPaths: [doc] });
+  imports.importFile(doc, { projectId: project.id, permissionId: permissions.grantFile(doc).id });
 });
 
 let project: { id: string; name: string };

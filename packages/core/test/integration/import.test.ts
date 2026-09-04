@@ -52,7 +52,7 @@ describe('授权默认拒绝', () => {
   it('未授权路径读取被拒绝（PERMISSION_DENIED）', () => {
     const outside = join(dir, 'unauthorized.md');
     writeFileSync(outside, '# 未授权文档');
-    expect(() => imports.importFile(outside, { projectId: null, allowedPaths: [] })).toThrowError(
+    expect(() => imports.importFile(outside, { projectId: null, permissionId: "no-permission-id" })).toThrowError(
       expect.objectContaining({ code: 'IXA0001' }),
     );
   });
@@ -62,7 +62,7 @@ describe('Markdown / TXT / JSON 导入', () => {
   it('导入 Markdown 文档成功并可搜索', () => {
     const file = join(dir, 'notes.md');
     writeFileSync(file, '# 星尘计划\n\n目标是构建本地知识整理工具。', 'utf8');
-    const result = imports.importFile(file, { projectId: null, allowedPaths: [file] });
+    const result = imports.importFile(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     expect(result.created).toHaveLength(1);
     expect(result.created[0]!.kind).toBe('document');
     expect(result.created[0]!.title).toBe('notes.md');
@@ -74,7 +74,7 @@ describe('Markdown / TXT / JSON 导入', () => {
 
   it('同一文件重复导入幂等（只有一份来源）', () => {
     const file = join(dir, 'notes.md');
-    const again = imports.importFile(file, { projectId: null, allowedPaths: [file] });
+    const again = imports.importFile(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     expect(again.created).toHaveLength(0);
     expect(again.deduplicated).toHaveLength(1);
     const all = sources.list({ projectId: null });
@@ -84,9 +84,9 @@ describe('Markdown / TXT / JSON 导入', () => {
   it('内容变化后产生新记录（不覆盖）', () => {
     const file = join(dir, 'versioned.md');
     writeFileSync(file, '第一版内容');
-    const first = imports.importFile(file, { projectId: null, allowedPaths: [file] });
+    const first = imports.importFile(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     writeFileSync(file, '第一版内容（更新）');
-    const second = imports.importFile(file, { projectId: null, allowedPaths: [file] });
+    const second = imports.importFile(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     expect(first.created).toHaveLength(1);
     expect(second.created).toHaveLength(1);
     expect(first.created[0]!.id).not.toBe(second.created[0]!.id);
@@ -94,24 +94,26 @@ describe('Markdown / TXT / JSON 导入', () => {
 
   it('导入带提示注入的文档只作为资料', () => {
     const file = fixturePath('files', 'prompt-injection.md');
-    const result = imports.importFile(file, { projectId: null, allowedPaths: [file] });
+    const result = imports.importFile(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     expect(result.created).toHaveLength(1);
-    // 注入文本被完整保存为普通片段
-    const { segments } = sources.getSegments(result.created[0]!.id, 0, 10);
-    expect(segments[0]!.text).toContain('忽略之前的所有规则');
+    // 注入文本被完整保存为普通片段（Markdown 按标题/段落拆分后分布在各段）
+    const { segments } = sources.getSegments(result.created[0]!.id, 0, 100);
+    const joined = segments.map((s) => s.text).join('\n');
+    expect(joined).toContain('忽略之前的所有规则');
+    expect(segments.length).toBeGreaterThan(1);
   });
 
   it('不支持的扩展名被拒绝', () => {
     const file = join(dir, 'data.csv');
     writeFileSync(file, 'a,b');
-    expect(() => imports.importFile(file, { projectId: null, allowedPaths: [file] })).toThrowError(
+    expect(() => imports.importFile(file, { projectId: null, permissionId: permissions.grantFile(file).id })).toThrowError(
       expect.objectContaining({ code: 'IXA0004' }),
     );
   });
 
   it('JSON 文档导入（会议纪要）', () => {
     const file = fixturePath('files', 'meeting-notes.json');
-    const result = imports.importFile(file, { projectId: null, allowedPaths: [file] });
+    const result = imports.importFile(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     expect(result.created).toHaveLength(1);
     expect(result.created[0]!.title).toBe('会议纪要：IXAEON 第一版评审（脱敏测试资料）');
   });
@@ -121,7 +123,7 @@ describe('ChatGPT conversations.json 导入', () => {
   it('多场对话各自成为来源，分支关系保留', () => {
     const file = join(dir, 'conversations.json');
     writeFileSync(file, makeConversationsJson(), 'utf8');
-    const result = imports.importChatgptExport(file, { projectId: null, allowedPaths: [file] });
+    const result = imports.importChatgptExport(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     expect(result.created).toHaveLength(2);
     const conv = result.created[0]!;
     const { segments, total } = sources.getSegments(conv.id, 0, 100);
@@ -136,7 +138,7 @@ describe('ChatGPT conversations.json 导入', () => {
 
   it('重复导入同一导出包幂等', () => {
     const file = join(dir, 'conversations.json');
-    const again = imports.importChatgptExport(file, { projectId: null, allowedPaths: [file] });
+    const again = imports.importChatgptExport(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     expect(again.created).toHaveLength(0);
     expect(again.deduplicated).toHaveLength(2);
   });
@@ -150,7 +152,7 @@ describe('ChatGPT conversations.json 导入', () => {
       ]),
       'utf8',
     );
-    const result = imports.importChatgptExport(file, { projectId: null, allowedPaths: [file] });
+    const result = imports.importChatgptExport(file, { projectId: null, permissionId: permissions.grantFile(file).id });
     expect(result.created).toHaveLength(1);
     const { segments } = sources.getSegments(result.created[0]!.id, 0, 100);
     const inactive = segments.filter((s) => !s.is_active_branch);
@@ -178,7 +180,10 @@ describe('项目目录快照', () => {
     writeFileSync(join(projDir, 'src', 'main.ts'), 'console.log(1)');
 
     const project = projects.create({ name: '快照测试项目', rootPath: projDir, description: null });
-    const result = imports.importProjectSnapshot(projDir, { projectId: project.id });
+    const result = imports.importProjectSnapshot(projDir, {
+      projectId: project.id,
+      permissionId: permissions.grantFolder(projDir).id,
+    });
     expect(result.created).toHaveLength(1);
     const snapshot = result.created[0]!;
     expect(snapshot.project_id).toBe(project.id);
@@ -202,7 +207,7 @@ describe('项目目录快照', () => {
 describe('真实思想文档导入（计划 10.1 的基础）', () => {
   it('根目录两份 Markdown 可导入且可全文检索', () => {
     for (const doc of readonlyThoughtDocs()) {
-      const result = imports.importFile(doc, { projectId: null, allowedPaths: [doc] });
+      const result = imports.importFile(doc, { projectId: null, permissionId: permissions.grantFile(doc).id });
       expect(result.created).toHaveLength(1);
       expect(result.created[0]!.content_hash).toHaveLength(64);
     }

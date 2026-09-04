@@ -50,7 +50,7 @@ describe('M2 提取（FakeProvider）', () => {
     const doc = fixturePath('files', 'project-notes.md');
     const result = imports.importFile(doc, {
       projectId: null,
-      allowedPaths: [doc],
+      permissionId: permissions.grantFile(doc).id,
     });
     const source = result.created[0]!;
 
@@ -102,7 +102,7 @@ describe('M2 提取（FakeProvider）', () => {
     const fake = new FakeProvider();
     const extractor = new Extractor(db, fake);
     const doc = fixturePath('files', 'prompt-injection.md');
-    const result = imports.importFile(doc, { projectId: null, allowedPaths: [doc] });
+    const result = imports.importFile(doc, { projectId: null, permissionId: permissions.grantFile(doc).id });
     const source = result.created[0]!;
     fake.enqueueStructured({ items: [] });
     await extractor.extractSource(source.id);
@@ -116,7 +116,7 @@ describe('M2 提取（FakeProvider）', () => {
     const doc = fixturePath('files', 'meeting-notes.json');
     const result = imports.importFile(doc, {
       projectId: project.id,
-      allowedPaths: [doc],
+      permissionId: permissions.grantFile(doc).id,
     });
     const source = result.created[0]!;
 
@@ -152,7 +152,7 @@ describe('M2 提取（FakeProvider）', () => {
     writeFileSync(docFile, '# 重提取\n版本一结论。', 'utf8');
     const result = imports.importFile(docFile, {
       projectId: project.id,
-      allowedPaths: [docFile],
+      permissionId: permissions.grantFile(docFile).id,
     });
     const source = result.created[0]!;
 

@@ -19,6 +19,8 @@ export const appConfigSchema = z.object({
     enabled: z.boolean(),
     /** 自动把收回的原文发给云模型分析；默认 false（只保存） */
     autoAnalyze: z.boolean(),
+    /** 已暂停采集的对话（externalId 列表；扩展与本地服务双方强制执行） */
+    pausedConversations: z.array(z.string().min(1)).default([]),
   }),
   extension: z.object({
     /** 配对成功后发放给扩展的访问令牌 */
@@ -40,7 +42,7 @@ export function defaultAppConfig(): AppConfig {
       apiKeyEncrypted: null,
       apiKeyPresent: false,
     },
-    capture: { enabled: false, autoAnalyze: false },
+    capture: { enabled: false, autoAnalyze: false, pausedConversations: [] },
     extension: { token: null, pairedAt: null },
     localToken: null,
   };

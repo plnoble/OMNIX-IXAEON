@@ -1,4 +1,6 @@
 import { app, dialog, ipcMain, shell, safeStorage } from 'electron';
+import { randomBytes } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
@@ -12,6 +14,7 @@ import {
   type Item,
   type Job,
   type Permission,
+  type PickResult,
   type Project,
   type SearchInput,
   type Source,
@@ -20,14 +23,92 @@ import {
 
 /**
  * IPC 处理器注册：实现 IxaIpcApi 的全部方法。
- * 渲染进程只能通过这里的受控入口访问本地能力；
- * 文件选择必须经过原生对话框（授权来源）。
- * 未到里程碑的功能返回明确的 DISABLED 错误，不静默造假数据。
+ *
+ * 授权票据（修复 P1-5）：渲染进程不能决定实际读取路径。
+ * - pickFiles / pickSaveZip / pickRestoreZip 弹出原生对话框，选择结果存入
+ *   主进程票据表（随机票据 → 规范化真实路径，5 分钟有效、单次使用）；
+ * - importPaths / registerProjectDirectory / exportData / previewRestore
+ *   只接受票据，不接受渲染层声明的路径；伪造 / 过期 / 重复使用一律拒绝；
+ * - 使用后立即作废；对话框选中 A 文件不能借票据读取同目录 B 文件
+ *   （票据精确绑定所选路径集合，导入前还需与授权范围比对）。
  */
+interface PendingTicket {
+  /** 票据授权的路径集合（realpath 规范化 + 原始形态双记，用于精确匹配） */
+  paths: string[];
+  realPaths: string[];
+  /** 用途标记（导入 / 导出目标 / 恢复包来源），防止跨用途混用 */
+  purpose: 'import' | 'save' | 'restore';
+  expiresAt: number;
+}
+
+const TICKET_TTL_MS = 5 * 60 * 1000;
+
+/** 测试钩子：IXAEON_TEST_DIALOG_RESPONSES="documents|path1;path2"（仅测试环境生效）。 */
+function stubDialogPaths(kind: string): string[] | null {
+  const stub = process.env.IXAEON_TEST_DIALOG_RESPONSES;
+  if (!stub) return null;
+  const sections = new Map<string, string[]>();
+  for (const part of stub.split(';')) {
+    const sep = part.indexOf('|');
+    if (sep > 0) sections.set(part.slice(0, sep), part.slice(sep + 1).split(','));
+  }
+  return sections.get(kind) ?? null;
+}
+
+function realPath(p: string): string {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return p;
+  }
+}
+
 export function registerIpc(runtime: AppRuntime): void {
   const wrap = (err: unknown): Error => {
     const api = toApiError(err);
     return new Error(`${api.code} ${api.message}`);
+  };
+
+  // --- 票据表（主进程内存；随进程生命周期） ---
+  const tickets = new Map<string, PendingTicket>();
+
+  const issueTicket = (paths: string[], purpose: PendingTicket['purpose']): PickResult => {
+    const ticket = randomBytes(24).toString('hex');
+    tickets.set(ticket, {
+      paths,
+      realPaths: paths.map(realPath),
+      purpose,
+      expiresAt: Date.now() + TICKET_TTL_MS,
+    });
+    return { ticket, paths };
+  };
+
+  /** 消费票据（单次使用）：返回其路径集合；伪造/过期/重复/用途不符一律拒绝。 */
+  const consumeTicket = (ticket: unknown, purpose: PendingTicket['purpose']): string[] => {
+    if (typeof ticket !== 'string' || ticket.length === 0) {
+      throw new IxaError(
+        ErrorCodes.PERMISSION_DENIED,
+        '缺少有效的选择票据（请通过文件对话框选择）',
+      );
+    }
+    const entry = tickets.get(ticket);
+    if (!entry) {
+      throw new IxaError(
+        ErrorCodes.PERMISSION_DENIED,
+        '选择票据无效或已使用（请重新通过对话框选择）',
+      );
+    }
+    tickets.delete(ticket); // 一次性使用：无论后续成功与否都作废
+    if (Date.now() > entry.expiresAt) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '选择票据已过期（请重新选择）');
+    }
+    if (entry.purpose !== purpose) {
+      throw new IxaError(
+        ErrorCodes.PERMISSION_DENIED,
+        '选择票据用途不符（导入 / 导出 / 恢复票据不可混用）',
+      );
+    }
+    return entry.paths;
   };
 
   const enqueueExtractions = (
@@ -53,66 +134,89 @@ export function registerIpc(runtime: AppRuntime): void {
     createProject: async (input) => runtime.projects.create(input),
     updateProjectStatus: async (input) => runtime.projects.updateStatus(input.id, input.status),
 
-    // --- 导入 ---
-    pickFiles: async (kind) => {
-      // 测试钩子：IXAEON_TEST_DIALOG_RESPONSES="docs|path1;path2" 直接返回固定选择，
-      // 避免测试依赖真实原生对话框（仅当环境变量存在时生效，正常用户运行不受影响）
-      const stub = process.env.IXAEON_TEST_DIALOG_RESPONSES;
-      if (stub) {
-        const sections = new Map<string, string[]>();
-        for (const part of stub.split(';')) {
-          const sep = part.indexOf('|');
-          if (sep > 0) sections.set(part.slice(0, sep), part.slice(sep + 1).split(','));
-        }
-        return sections.get(kind) ?? null;
+    // --- 导入（票据制） ---
+    pickFiles: async (kind): Promise<PickResult | null> => {
+      // 测试钩子：仅当环境变量存在时生效，正常用户运行不受影响
+      const stub = stubDialogPaths(kind);
+      if (stub !== null) {
+        if (stub.length === 0) return null;
+        return issueTicket(stub, 'import');
       }
+      let paths: string[] | null = null;
       if (kind === 'directory') {
         const result = await dialog.showOpenDialog({
           title: '选择项目目录',
           properties: ['openDirectory'],
         });
-        return result.canceled ? null : result.filePaths;
+        paths = result.canceled ? null : result.filePaths;
+      } else {
+        const filters =
+          kind === 'chatgptExport'
+            ? [{ name: 'ChatGPT 导出 conversations.json', extensions: ['json'] }]
+            : [
+                { name: '支持的文档', extensions: ['md', 'txt', 'json'] },
+                { name: '所有文件', extensions: ['*'] },
+              ];
+        const result = await dialog.showOpenDialog({
+          title: '选择要导入的文件',
+          properties: ['openFile', 'multiSelections'],
+          filters,
+        });
+        paths = result.canceled ? null : result.filePaths;
       }
-      const filters =
-        kind === 'chatgptExport'
-          ? [{ name: 'ChatGPT 导出 conversations.json', extensions: ['json'] }]
-          : [
-              { name: '支持的文档', extensions: ['md', 'txt', 'json'] },
-              { name: '所有文件', extensions: ['*'] },
-            ];
-      const result = await dialog.showOpenDialog({
-        title: '选择要导入的文件',
-        properties: ['openFile', 'multiSelections'],
-        filters,
-      });
-      return result.canceled ? null : result.filePaths;
+      if (!paths || paths.length === 0) return null;
+      return issueTicket(paths, 'import');
     },
-    pickSaveZip: async (defaultName) => {
+    pickSaveZip: async (defaultName): Promise<PickResult | null> => {
       const result = await dialog.showSaveDialog({
         title: '导出 IXAEON 数据',
         defaultPath: defaultName,
         filters: [{ name: 'ZIP 导出包', extensions: ['zip'] }],
       });
-      return result.canceled ? null : result.filePath;
+      if (result.canceled || !result.filePath) return null;
+      return issueTicket([result.filePath], 'save');
+    },
+    pickRestoreZip: async (): Promise<PickResult | null> => {
+      const result = await dialog.showOpenDialog({
+        title: '选择 IXAEON 导出包',
+        properties: ['openFile'],
+        filters: [{ name: 'IXAEON 导出包', extensions: ['zip'] }],
+      });
+      if (result.canceled || result.filePaths.length === 0) return null;
+      return issueTicket(result.filePaths, 'restore');
     },
     importPaths: async (input) => {
-      // importFile 内部识别 conversations.json（多场对话）与普通文档，均幂等；
-      // 输入路径集合本身就是用户通过对话框选择的授权来源
+      // 票据消费（单次）：拿到对话框选择的真实路径集合；渲染层无法自报路径
+      const paths = consumeTicket(input.ticket, 'import');
       let pending: Array<{ id: string }> = [];
-      for (const p of input.paths) {
-        const result = runtime.imports.importFile(p, {
-          projectId: input.projectId,
-          allowedPaths: input.paths,
-        });
-        pending = pending.concat(result.pendingExtraction);
+      const failed: Array<{ path: string; message: string }> = [];
+      for (const p of paths) {
+        try {
+          // 主进程为每个对话框选中的文件创建授权记录（file），
+          // 然后带着 permissionId 调用核心层导入（核心层不再自行授权）
+          const permission = runtime.permissions.grantFile(p);
+          const result = runtime.imports.importFile(p, {
+            projectId: input.projectId,
+            permissionId: permission.id,
+          });
+          pending = pending.concat(result.pendingExtraction);
+        } catch (err) {
+          const api = toApiError(err);
+          failed.push({ path: p, message: `${api.code} ${api.message}` });
+        }
       }
       const jobIds = enqueueExtractions(pending, input.projectId);
-      return { jobIds };
+      return { jobIds, failed };
     },
     registerProjectDirectory: async (input) => {
+      // 目录票据（Setup / Projects 页的目录选择）→ folder 授权 → 快照导入
+      const paths = consumeTicket(input.ticket, 'import');
+      const rootPath = paths[0]!;
       runtime.projects.get(input.projectId);
-      const result = runtime.imports.importProjectSnapshot(input.rootPath, {
+      const permission = runtime.permissions.grantFolder(rootPath);
+      const result = runtime.imports.importProjectSnapshot(rootPath, {
         projectId: input.projectId,
+        permissionId: permission.id,
       });
       const jobIds = enqueueExtractions(result.pendingExtraction, input.projectId);
       return { jobId: jobIds[0] ?? '' };
@@ -248,10 +352,23 @@ export function registerIpc(runtime: AppRuntime): void {
       };
     },
 
-    // --- 导出 / 恢复（M5） ---
-    exportData: async (targetPath) => runtime.exportData(targetPath),
-    previewRestore: async (zipPath) => runtime.previewRestore(zipPath),
-    restoreData: async (zipPath) => runtime.restoreData(zipPath),
+    // --- 导出 / 恢复（M5；票据制 + 预览凭证） ---
+    exportData: async (input) => {
+      const paths = consumeTicket(input.ticket, 'save');
+      const targetPath = paths[0]!;
+      if (!targetPath.toLowerCase().endsWith('.zip')) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '导出目标必须是 .zip 文件');
+      }
+      return runtime.exportData(targetPath);
+    },
+    previewRestore: async (input) => {
+      const paths = consumeTicket(input.ticket, 'restore');
+      return runtime.previewRestore(paths[0]!);
+    },
+    restoreData: async (input) => {
+      // 恢复必须持有预览凭证：绕过预览直接恢复一律拒绝（修复 P1-7.9）
+      return runtime.restoreData(input.previewToken);
+    },
     openLogsFolder: async () => {
       await shell.openPath(join(runtime.state.dataDir, 'logs'));
       return { ok: true as const };

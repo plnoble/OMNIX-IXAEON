@@ -2,6 +2,7 @@ import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import { ASK_SYSTEM_PROMPT } from '../extraction/prompts.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
+import { assertSourceAuthorized } from '../access.js';
 
 /** 问答用的检索片段（引用编号 + 内容）。 */
 interface CitedSegment {
@@ -32,12 +33,15 @@ export interface AskResult {
 const MAX_CONTEXT_CHARS = 12_000;
 
 /**
- * 问答（计划 5.6）：
+ * 问答（计划 5.6；修复 P1-4）：
  * 1. 项目内当前条目（含用户纠正）+ 全文检索候选片段
  * 2. 用户纠正优先于旧 AI 推断
  * 3. 冲突声明（disputed 条目附 notice）
  * 4. 引用编号可核验（citations 带 segment_id）
  * 5. 资料不足时明确回答而不是编造
+ *
+ * 项目隔离与授权：指定项目时 FTS 只匹配明确属于该项目的来源片段
+ * （project_id 严格相等，未分配资料不混入）；已撤销授权的来源不进入上下文。
  */
 export class AskService {
   constructor(
@@ -77,9 +81,9 @@ export class AskService {
       cited.push(c);
     };
 
-    // 每个条目附第一条依据片段（可核验出处）
+    // 每个条目附第一条依据片段（可核验出处；来源授权撤销后只保留条目陈述，不带原文）
     const evidenceStmt = this.db.prepare(
-      `SELECT e.segment_id, e.excerpt, s.role, s.text, s.occurred_at, src.title
+      `SELECT e.segment_id, e.excerpt, s.role, s.text, s.occurred_at, s.source_id, src.title
        FROM item_evidence e
        JOIN segments s ON s.id = e.segment_id
        JOIN sources src ON src.id = s.source_id
@@ -96,35 +100,40 @@ export class AskService {
             role: string;
             text: string;
             occurred_at: string | null;
+            source_id: string;
             title: string;
           }
         | undefined;
+      const evAllowed =
+        ev !== undefined &&
+        this.sourceReadable(ev.source_id) &&
+        this.evidenceInProject(ev.source_id, projectId);
       pushCited({
         ref,
-        segmentId: ev ? ev.segment_id : `item:${item.id}`,
-        sourceTitle: item.origin === 'user' ? '用户纠正' : (ev?.title ?? '条目'),
-        role: item.origin === 'user' ? 'user' : (ev?.role ?? 'item'),
+        segmentId: evAllowed && ev ? ev.segment_id : `item:${item.id}`,
+        sourceTitle: item.origin === 'user' ? '用户纠正' : evAllowed && ev ? ev.title : '条目',
+        role: item.origin === 'user' ? 'user' : evAllowed && ev ? ev.role : 'item',
         occurredAt: item.updated_at,
         text:
           item.origin === 'user'
             ? `[用户纠正 · ${item.type}] ${item.statement}`
-            : `[${item.type}${item.state === 'disputed' ? ' · 存在冲突' : ''}] ${item.statement}${ev ? `\n依据摘录：${ev.excerpt}` : ''}`,
+            : `[${item.type}${item.state === 'disputed' ? ' · 存在冲突' : ''}] ${item.statement}${evAllowed && ev ? `\n依据摘录：${ev.excerpt}` : ''}`,
         isUserCorrection: item.origin === 'user',
       });
       if (usedChars(cited) > MAX_CONTEXT_CHARS) break;
     }
 
-    // 2) 关键词检索补充原文片段
+    // 2) 关键词检索补充原文片段（FTS rowid 正确连接 + 项目隔离 + 授权过滤）
     const keywords = extractKeywords(question);
     if (keywords.length > 0) {
       const segs = this.db
         .prepare(
-          `SELECT s.id, s.role, s.text, s.occurred_at, src.title, src.project_id
+          `SELECT sg.id, sg.role, sg.text, sg.occurred_at, src.title, src.project_id, src.id AS source_id
            FROM segments_fts f
-           JOIN segments s ON s.id = f.rowid
-           JOIN sources src ON src.id = s.source_id
+           JOIN segments sg ON sg.rowid = f.rowid
+           JOIN sources src ON src.id = sg.source_id
            WHERE segments_fts MATCH ?
-           ORDER BY rank LIMIT 12`,
+           ORDER BY rank LIMIT 24`,
         )
         .all(keywords.join(' OR ')) as Array<{
         id: string;
@@ -133,11 +142,13 @@ export class AskService {
         occurred_at: string | null;
         title: string;
         project_id: string | null;
+        source_id: string;
       }>;
       for (const seg of segs) {
-        if (projectId !== null && seg.project_id !== null && seg.project_id !== projectId) {
-          continue;
-        }
+        // 项目隔离：指定项目时只允许明确属于该项目的片段（未分配不混入）
+        if (projectId !== null && seg.project_id !== projectId) continue;
+        // 授权隔离：撤销授权的来源不进入问答上下文
+        if (!this.sourceReadable(seg.source_id)) continue;
         refCounter += 1;
         const ref = `R${refCounter}`;
         pushCited({
@@ -201,6 +212,24 @@ export class AskService {
       usedChars: context.length,
       modelName: this.provider.modelName,
     };
+  }
+
+  /** 来源授权是否仍有效（撤销后其原文不进入问答上下文）。 */
+  private sourceReadable(sourceId: string): boolean {
+    try {
+      assertSourceAuthorized(this.db, sourceId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 条目依据片段是否在问答项目范围内（全局问答放行）。 */
+  private evidenceInProject(sourceId: string, projectId: string | null): boolean {
+    if (projectId === null) return true;
+    const row = this.db.prepare('SELECT project_id FROM sources WHERE id = ?').get(sourceId) as
+      { project_id: string | null } | undefined;
+    return row?.project_id === projectId;
   }
 }
 

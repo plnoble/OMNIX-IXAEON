@@ -4,6 +4,7 @@ import type { IxaIpcApi } from '@ixaeon/contracts';
 /**
  * preload：暴露 window.ixaeon 的完整 IPC 通道。
  * contextIsolation 开启，渲染进程只能通过这里的受控方法访问主进程能力。
+ * 文件选择一律经主进程原生对话框（返回一次性票据，渲染层不接触授权决策）。
  */
 const api: IxaIpcApi = {
   getState: () => ipcRenderer.invoke('ixaeon:getState'),
@@ -13,6 +14,7 @@ const api: IxaIpcApi = {
   updateProjectStatus: (input) => ipcRenderer.invoke('ixaeon:updateProjectStatus', input),
   pickFiles: (kind) => ipcRenderer.invoke('ixaeon:pickFiles', kind),
   pickSaveZip: (defaultName) => ipcRenderer.invoke('ixaeon:pickSaveZip', defaultName),
+  pickRestoreZip: () => ipcRenderer.invoke('ixaeon:pickRestoreZip'),
   importPaths: (input) => ipcRenderer.invoke('ixaeon:importPaths', input),
   registerProjectDirectory: (input) => ipcRenderer.invoke('ixaeon:registerProjectDirectory', input),
   listSources: (input) => ipcRenderer.invoke('ixaeon:listSources', input),
@@ -43,9 +45,9 @@ const api: IxaIpcApi = {
   setAutoAnalyze: (enabled) => ipcRenderer.invoke('ixaeon:setAutoAnalyze', enabled),
   generatePairingCode: () => ipcRenderer.invoke('ixaeon:generatePairingCode'),
   getExtensionStatus: () => ipcRenderer.invoke('ixaeon:getExtensionStatus'),
-  exportData: (targetPath) => ipcRenderer.invoke('ixaeon:exportData', targetPath),
-  previewRestore: (zipPath) => ipcRenderer.invoke('ixaeon:previewRestore', zipPath),
-  restoreData: (zipPath) => ipcRenderer.invoke('ixaeon:restoreData', zipPath),
+  exportData: (input) => ipcRenderer.invoke('ixaeon:exportData', input),
+  previewRestore: (input) => ipcRenderer.invoke('ixaeon:previewRestore', input),
+  restoreData: (input) => ipcRenderer.invoke('ixaeon:restoreData', input),
   openLogsFolder: () => ipcRenderer.invoke('ixaeon:openLogsFolder'),
   listAuditEvents: (limit) => ipcRenderer.invoke('ixaeon:listAuditEvents', limit),
 };

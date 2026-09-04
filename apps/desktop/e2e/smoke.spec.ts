@@ -1,8 +1,9 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 /** 找到 desktop 应用目录（test-e2e.mjs 以 apps/desktop 为 cwd 运行）。 */
 function findDesktopDir(): string {
@@ -31,7 +32,7 @@ async function launchApp(env: Record<string, string>): Promise<ElectronApplicati
   });
 }
 
-test.describe('桌面应用 M1 冒烟', () => {
+test.describe('桌面应用冒烟（含修复回归）', () => {
   let app: ElectronApplication;
   let page: Page;
   let dataDir: string;
@@ -93,20 +94,21 @@ test.describe('桌面应用 M1 冒烟', () => {
   test('导入文档 → 来源列表与片段阅读器', async () => {
     await page.getByTestId('nav-sources').click();
     await expect(page.getByTestId('sources-card')).toBeVisible();
-    await expect(page.getByTestId('sources-empty')).toBeVisible();
+    // 首次设置已登记项目目录（快照来源已存在），列表非空
 
     await page.getByTestId('sources-import-docs').click();
     // stub 对话框直接返回 seed-notes.md → 导入 → 列表出现
     const row = page.locator('tbody tr').first();
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await expect(row).toContainText('seed-notes.md');
-    await expect(row).toContainText('文档');
+    await expect(page.locator('tbody tr').filter({ hasText: 'seed-notes.md' })).toHaveCount(1, {
+      timeout: 20_000,
+    });
 
     // 打开详情 → 片段阅读器
     await row.click();
     await expect(page.getByTestId('source-detail')).toBeVisible();
     await expect(page.getByTestId('segment-list')).toBeVisible();
-    await expect(page.locator('.segment-text').first()).toContainText('原文永久保留');
+    await expect(page.locator('.segment-text').first()).toContainText('IXAEON 种子文档');
   });
 
   test('全文检索命中导入内容', async () => {
@@ -132,11 +134,148 @@ test.describe('桌面应用 M1 冒烟', () => {
     await expect(page.getByTestId('state-setup')).toHaveText('已完成');
   });
 
-  test('设置页 MCP 片段与数据目录', async () => {
+  test('设置页 MCP 片段：命令可执行 + 入口文件存在 + 令牌经环境变量', async () => {
     await page.getByTestId('nav-settings').click();
     await expect(page.getByTestId('settings-mcp')).toBeVisible();
     const snippet = page.getByTestId('settings-mcp-snippet');
     await expect(snippet).toContainText('ixaeon');
+    // 修复 P1-3：命令必须是 Electron 可执行本身（不依赖全局 Node.js）
+    await expect(snippet).toContainText('IXAEON_LOCAL_TOKEN');
+    const text = await snippet.textContent();
+    expect(text).toBeTruthy();
+    // 解析片段中的 command 与 args，断言真实存在
+    const parsed = JSON.parse(text!);
+    const command = parsed.mcpServers.ixaeon.command;
+    const entry = parsed.mcpServers.ixaeon.args[0];
+    expect(existsSync(command)).toBe(true);
+    expect(existsSync(entry)).toBe(true);
+    // 令牌只经环境变量传入，不写进命令行参数
+    expect(parsed.mcpServers.ixaeon.args.length).toBe(1);
     await expect(page.getByTestId('settings-data')).toContainText(dataDir);
+  });
+
+  test('MCP 片段命令真实握手（initialize + tools/list）', async () => {
+    await page.getByTestId('nav-settings').click();
+    const text = await page.getByTestId('settings-mcp-snippet').textContent();
+    const parsed = JSON.parse(text!);
+    const { command, args, env } = parsed.mcpServers.ixaeon;
+    // 从安装产物环境模拟：用 IXAEON 可执行 + run-as-node 运行 MCP 入口，
+    // 完成一次真实 STDIO initialize + tools/list（修复 P1-3 验收要求）
+    const request = [
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'ixaeon-e2e', version: '0.1.0' },
+        },
+      },
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+        params: {},
+      },
+    ];
+    const result = spawnSync(command, args, {
+      input: request.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: { ...process.env, ...env },
+    });
+    expect(result.status).toBe(0);
+    const output = result.stdout;
+    expect(output).toContain('ixaeon');
+    expect(output).toContain('prepare_task');
+    expect(output).toContain('search_context');
+    expect(output).toContain('get_source_excerpt');
+    expect(output).toContain('record_work_result');
+  });
+
+  test('桌面服务运行时：MCP 端点真实调用 prepare_task + record_work_result', async () => {
+    // 读取本地令牌（dataDir/config.json）
+    const config = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as {
+      localToken: string;
+    };
+    expect(config.localToken).toBeTruthy();
+
+    const call = (path: string, body: unknown): { status: number; body: string } => {
+      const bodyJson = JSON.stringify(body).replace(/'/g, "\\'");
+      const res = spawnSync(
+        process.execPath,
+        [
+          '-e',
+          `const r = await fetch('http://127.0.0.1:43191${path}', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: 'Bearer ${config.localToken}' },
+            body: '${bodyJson}',
+          });
+          process.stdout.write(String(r.status) + '\\n' + JSON.stringify(await r.json()));
+        `,
+        ],
+        { encoding: 'utf8', timeout: 30_000 },
+      );
+      const [status, bodyText] = (res.stdout ?? '').split('\n');
+      return { status: Number(status), body: bodyText ?? '' };
+    };
+
+    // prepare_task（项目 ref = 橙子计划）
+    const prep = call('/api/mcp/prepare-task', {
+      project_ref: '橙子计划',
+      task: 'e2e 验证任务',
+      max_chars: 4000,
+    });
+    expect(prep.status).toBe(200);
+    expect(prep.body).toContain('橙子计划');
+
+    // record_work_result
+    const record = call('/api/mcp/record-work-result', {
+      project_ref: '橙子计划',
+      agent_name: 'codex-e2e',
+      task: 'e2e 写回验证',
+      outcome: 'success',
+      summary: '完成 MCP 闭环验证',
+      changes: [],
+      tests: [{ name: 'mcp handshake', result: 'passed' }],
+      open_loops: [],
+    });
+    expect(record.status).toBe(200);
+    expect(record.body).toContain('work_run_id');
+
+    // 错误令牌 → 401 可操作错误
+    const bad = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `const r = await fetch('http://127.0.0.1:43191/api/mcp/prepare-task', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer invalid-token' },
+          body: '{}',
+        });
+        process.stdout.write(String(r.status));
+        `,
+      ],
+      { encoding: 'utf8', timeout: 30_000 },
+    );
+    expect(bad.stdout).toBe('401');
+  });
+
+  test('票据制：渲染层伪造路径导入被拒绝（修复 P1-5）', async () => {
+    // 直接通过 evaluate 调用主进程 IPC：不带票据（旧 allowedPaths 通道已不存在）
+    const result = await page.evaluate(async () => {
+      try {
+        // @ts-expect-error 测试注入：直接发原始 IPC（绕过 preload 类型）
+        return await window.ixaeon.importPaths({
+          ticket: 'forged-ticket-0000000000',
+          projectId: null,
+        });
+      } catch (err) {
+        return { rejected: String(err) };
+      }
+    });
+    expect(JSON.stringify(result)).toContain('票据无效或已使用');
   });
 });

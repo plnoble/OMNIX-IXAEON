@@ -130,6 +130,27 @@ const observer = new MutationObserver(() => {
 });
 observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
+// popup/background 查询当前对话 ID（暂停/继续当前对话用）
+chrome.runtime.onMessage.addListener((msg: { type: string }, _sender, sendResponse) => {
+  if (msg.type === 'ixaeon:get-conversation-id') {
+    sendResponse({ externalId: conversationExternalId(location) });
+    return false;
+  }
+  return false;
+});
+
+/** 向 background 报告本标签页的对话身份（popup 查询「当前对话」用）。 */
+function reportConversation(): void {
+  void chrome.runtime.sendMessage({
+    type: 'ixaeon:tab-conversation',
+    externalId: conversationExternalId(location),
+  });
+}
+reportConversation();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') reportConversation();
+});
+
 // 首次加载也排一次（页面加载完成后 2s 稳定期）
 if (document.readyState === 'complete') {
   scheduleSubmit();

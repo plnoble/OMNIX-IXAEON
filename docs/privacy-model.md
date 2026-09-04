@@ -22,6 +22,17 @@
 - ZIP 导入逐条目校验目标路径，防 Zip Slip。
 - 项目目录读取只读说明/配置类文件；排除 `.env*`、`*.pem`、`*.key`、Cookie/Token、`node_modules`、构建产物与二进制文件；单文件 >10MB 需单独确认。
 
+## 项目隔离与全局检索（明确规则）
+
+- **指定项目检索**（问答、`prepare_task`、`search_context` 带 project_ref）：只返回
+  `project_id` 严格等于该项目的资料。`project_id IS NULL`（未分配）的资料**绝不**自动
+  混入项目上下文——未分配可能包含私人对话，不允许进入某个编码 Agent 的视野。
+- **全局检索**（不指定项目）：返回全部资料（含未分配）。这是用户显式发起的跨项目
+  查询，仅发生在桌面检索页与不带 project_ref 的 `search_context`。
+- **授权过滤**：任何检索入口（含全局）都不返回授权已撤销来源的原文。
+- **当前对话暂停**（`capture.pausedConversations`）：扩展端本地拦截 + 桌面端服务
+  403 双重强制；全局暂停（`capture.enabled=false`）停止一切采集提交。
+
 ## 数据离开电脑的唯一渠道
 
 用户配置的 OpenAI 模型 API（提取 / 问答 / 自动分析，若开启）。发送内容：

@@ -1,0 +1,192 @@
+# 开发过程记录：IXAEON v0.1 验收问题修复
+
+> 任务来源：`IXAEON_v0.1_验收问题与修复任务.md`（2026-09-04 审核，v0.1 暂不通过验收）
+> 修复执行：2026-09-04 ~ 2026-09-05
+> 修复顺序按任务文档第 12 节：权限边界 → FTS 隔离 → 提取事务/分块 → 采集闭环 →
+> MCP 打包 → 数据目录 → 导出恢复 → 日志隐私 → E2E/材料。
+
+---
+
+## 一、问题定位阶段（先读代码再动手）
+
+审核前通读了关键路径的实现，确认审核意见全部属实：
+
+1. `askStore.ts` / `mcpStore.ts` 的 FTS 连接写的是 `JOIN segments s ON s.id = f.rowid`
+   ——`segments.id` 是 UUID 文本、`f.rowid` 是数字行号，恒不相等 → 全文检索恒 0 命中。
+2. `ipc.ts` 的 `importPaths` 把渲染层传入的 `input.paths` 原样当作 `allowedPaths`
+   （自授权）；`registerProjectDirectory` 同样直接信任 `rootPath`。
+3. `Extractor.extractSource()` 在任何模型调用前先 `deleteOldAiItems()`；`buildBlocks`
+   只在「已有内容」时检查上限，单个 30k 字符 segment 会整段进入标称 8k 的块。
+4. `LocalServer` 构造时 `onCaptured` 从未传入；`appendCapturedTurns` 对同顺序新指纹
+   只插入不降级旧版本；`lastCaptureAt` 读 `imported_at` 但追加时不刷新。
+5. `electron-builder.yml` 没有 extraResources；`mcpSnippet` 的开发模式路径推算会
+   解析到 `node_modules/.pnpm/electron@44.1.1/apps/mcp/dist/index.mjs`（不存在），
+   命令写死 `node`。
+6. `ArchiveService.restoreData` 的备份 rename 用 `.catch(() => {})` 吞掉失败；
+   `Vault.absolutePath` 只查 `sha256/` 前缀。
+7. `completeSetup` 只写 bootstrap.json 指针，本进程继续往旧目录写 setupComplete/
+   模型配置/首个项目 → 重启后新目录是空的，用户再见首次设置。
+8. `logger.ts` 普通字符串只截断 2000 字符 —— 27k 正文的前 2000 字符会落日志；
+   现有测试只断言「完整串不存在」。
+
+---
+
+## 二、修复实施（按顺序）
+
+### 1. 权限边界、撤销语义和 Vault 路径安全（P1-5）
+
+**契约层（packages/contracts/src/ipc.ts）**：删除 `importPathsInputSchema.paths`
+（渲染层自报路径的通道）；新增 `pickResultSchema`（一次性票据 + 对话框返回的路径）、
+`importPickedInputSchema`（只收票据）、`exportDataInputSchema` / `restoreDataInputSchema`
+（导出目标与恢复来源同样票据化）；恢复预览新增 `previewToken` 字段。
+
+**核心层（access.ts 新文件 + importService.ts 重写）**：
+- 新建 `assertSourceAuthorized` / `assertSegmentAuthorized` / `isSourceAuthorized`：
+  撤销授权的统一读取边界，八个入口（getSegments / getSegmentContext /
+  searchSegments / 问答上下文 / MCP segment 路径 / MCP item 路径 / 重新提取 /
+  rawContent）全部接入。
+- ImportService 删除 `allowedPaths` 参数与内部 `grantFile` 调用：核心层不再创建
+  授权，调用方必须传可信主进程创建的 `permissionId`；`requirePermission` 校验
+  授权存在、active、且 realpath 后覆盖请求路径（folder 前缀 / file 精确）。
+
+**主进程（ipc.ts 重写）**：票据表（`Map<ticket, {paths, realPaths, purpose, expiresAt}>`）
+- `pickFiles` / `pickSaveZip` / `pickRestoreZip` 弹原生对话框后签发票据（随机 24 字节
+  hex，5 分钟有效）；测试钩子 `IXAEON_TEST_DIALOG_RESPONSES` 同样走签发。
+- `importPaths` 消费票据（用途必须 import）→ 主进程 `grantFile` → 带 permissionId
+  调核心层；单个文件失败进 `failed[]` 不阻塞其余。
+- `consumeTicket` 一次性：验证后立即删除（无论后续成败），伪造/过期/重复/用途
+  不符全部 PERMISSION_DENIED。
+
+**Vault（vault.ts）**：`absolutePath` 严格正则
+`^sha256/[0-9a-f]{2}/[0-9a-f]{64}$` + resolve 后必须仍在 vault 根内；
+新增静态 `isStrictVaultRelPath` 供恢复校验复用。
+
+### 2. FTS 搜索与项目隔离（P1-4）
+
+- `askStore.ts`：FTS 连接改 `sg.rowid = f.rowid`；指定项目时 `seg.project_id !==
+  projectId` 一律跳过（未分配不混入）；撤销来源不进上下文；条目依据片段也做
+  项目归属 + 授权双检（无权依据只留条目陈述，不带原文摘录）。
+- `mcpStore.ts`：同修复；`search_context` 指定项目改为 `src.project_id = ?`
+  （原来是 `= ? OR IS NULL` —— 未分配混入的根源）；get_source_excerpt 的 item 路径
+  补上与 segment 路径一致的授权断言（旁路封堵）；prepare_task 预算改按
+  `JSON.stringify(entry).length` 核算（保证序列化输出不超 max_chars）。
+- `search.ts`：FTS/LIKE 两条路径都过滤撤销来源；trigram 词长阈值从 2 提到 3
+  （2 字中文词走 LIKE 兜底，修复「析衍」检索不到）。
+- 隔离规则写入 `docs/privacy-model.md`「项目隔离与全局检索」。
+
+### 3. 提取事务与长文分块（P1-10）
+
+- `extractor.ts` 重构：模型调用全部在前（不持锁），成功后在**单个事务**里
+  「删旧 current + 写新 + 冲突标记」；任一块失败直接抛出，旧理解不动。
+  授权撤销的来源拒绝重新提取。
+- `buildBlocks`：超长单段先 `splitTextToFit`（段落/句/标点/空白安全边界，兜底硬切）
+  拆成 `S1 / S1.2 / S1.3…` 子引用；块内多段拼接后整块 user 文本 ≤8000（含编号头）。
+- `parsers.ts`：Markdown/TXT 按标题 + 空行段落拆 segment（>6000 字符段继续切），
+  heading 存 metadata；vault 原件逐字不变（contentHash 仍按全文）。
+
+### 4. ChatGPT 自动分析、对话暂停和版本管理（P1-6）
+
+- `localServer.ts`：构造参数接入 `onCaptured`；`maybeAutoAnalyze`（采集开启 +
+  autoAnalyze=true + 域授权有效 + 本批有新内容 + 60s 防抖）回调 AppRuntime；
+  新端点 `GET /api/extension/paused`、`POST /api/extension/pause-conversation`；
+  capture 处理器对暂停对话返回 403 IXA0022（服务端强制）。
+- 身份合并：正式 `/c/<id>` 批次到达而库里只有 `page:<hash>` 临时来源时，先建正式
+  来源（沿用授权），再 `mergeConversationSources`（按 external_node_id+content_hash
+  幂等搬运，item_evidence 转挂，删临时来源行）。
+- `sourceStore.appendCapturedTurns`：同顺序新指纹 → 旧版本 `is_active_branch=0`；
+  旧指纹回归（编辑回退）→ 重新激活并降级其他；每次 accepted/deduplicated 刷新
+  `imported_at` + `captured_at`。
+- `AppRuntime.enqueueAutoExtraction`：任务表查重（同来源 queued/running 提取跳过）。
+- 扩展：popup 新增「当前对话」状态行 + 暂停/继续按钮（本地即时生效 + 同步桌面端）；
+  background 持有 `pausedConversations`（storage.local）、捕获 `ixaeon:tab-conversation`
+  上报定位当前对话（popup 打开时 active tab 是 popup 自身，不能靠 tabs.query）；
+  content script 提交前 background 检查暂停（本地拦截）；manifest 增加 `tabs` 权限。
+
+### 5. MCP 开发/安装闭环（P1-3）
+
+- `electron-builder.yml`：`extraResources: from ../mcp/dist → to mcp`（打包前
+  package-windows.mjs 先跑 apps/mcp 的 vite build）。
+- `mcpSnippet.ts`：命令 = Electron 可执行自身；env 带 `ELECTRON_RUN_AS_NODE=1` +
+  `IXAEON_LOCAL_TOKEN`（令牌不进命令行）；开发模式从 exe 位置逐级向上实查
+  `apps/mcp/dist/index.mjs`（existsSync 校验，不再盲拼路径）。
+- 验证：win-unpacked 产物真实 STDIO initialize + tools/list（见 REVIEW_PACKET 第 4 节）。
+
+### 6. 自定义数据目录（P1-8）
+
+`appRuntime.completeSetup` 重构：自定义目录时「ensureDataDirLayout（不可写即抛，
+旧指针未动）→ 新目录写完整 config（含 safeStorage 加密 Key + localToken）→ 建库 +
+首个项目 → 最后 setDataDirChoice 切指针」；返回 `restartRequired`，Setup 向导展示
+重启提示。默认目录路径仍在当前进程就地完成。
+
+### 7. 导出、恢复和失败回滚（P1-7）
+
+`archiveStore.ts` 重写：
+- 导出新增 `data/{projects,sources,segments,items,item-evidence,corrections,
+  work-runs,permissions}.json`（formatVersion=1 + count + rows）。
+- 恢复五阶段：staging 解压（条目白名单 + zip slip 严格校验，条目名统一正斜杠）→
+  staging 内校验（SQLite 头 / integrity_check / 迁移版本兼容 / raw_path 严格格式 +
+  布局一致 + vault 文件存在；Windows 反斜杠 raw_path 规范化写回）→ 关连接 →
+  备份 rename（**失败立即中止**，异常不吞）→ 原子替换 + 替换后校验；catch 分支
+  回滚备份（备份目录保留，绝不留半个新库配半个旧 vault）。
+- `previewRestore` 签发一次性 `previewToken`（10 分钟）；`restoreDataWithToken`
+  消费凭证后恢复 —— 主进程不允许绕过预览。
+- AppRuntime.restoreData 失败时重启本地 HTTP 服务（应用保持可用）。
+
+### 8. 日志隐私（P1-9）
+
+`logger.ts` 重写：正文键白名单（text/content/prompt/…/error/file 等 28 个）→
+`[content N chars sha256:xxxxxxxxxxxx]` 摘要（不可复原）；敏感键（token/apikey/…）
+同样摘要；Error/cause 递归；message 超 200 摘要；普通字符串上限 300；debug 同清洗。
+测试从「完整串不存在」升级为「开头/中间/结尾标记 + 独特短语全部不存在」。
+
+### 9. E2E、真实验收与审核材料（P2-11）
+
+- 新增测试文件：`fixes.test.ts`（15 项）、`archiveFixes.test.ts`（8 项）、
+  `localServer.test.ts`（9 项）、`semanticAcceptance.test.ts`（4 项）；
+  desktop e2e 扩到 9 项（MCP 真实握手 / 桌面服务真实工具调用 / 票据伪造拒绝）；
+  扩展 e2e 增加暂停-继续闭环 + 3 张弹窗截图。
+- 截图：`screenshots.spec.ts` 采集 9 张桌面页面 + 扩展 3 张 = 12 张真实截图。
+- 导出样例：语义验收测试真实生成 `ixaeon-export-sample.zip`（两份思想文档数据）。
+- REVIEW_PACKET 重写：端口 43120→43191 修正；逐项区分自动化/人工/未验证；
+  交付物含安装包 SHA-256 与安装版 MCP 真实调用结果。
+
+---
+
+## 三、过程中发现并处理的额外问题
+
+1. **pnpm list --json 污染**：`corepack pnpm package:windows` 下 electron-builder
+   的 node-module 收集器拿到带 corepack 提示的 stdout → "No JSON content found"。
+   修复：打包脚本剥离 `npm_*/pnpm_*/COREPACK_*` 环境变量（node 直跑不受影响）。
+2. **FTS trigram 词长**：2 字中文词（析衍）在 trigram 索引下 MATCH 不到 —— 词长
+   阈值提到 3，短词走 LIKE 兜底。
+3. **appendCapturedTurns 参数错位**：INSERT 列 11 个（occurred_at 在其中）但少传
+   了一个值 —— 集成测试抓出后补上（occurred_at = now）。
+4. **JSZip 条目名跨平台**：Windows 导出 raw_path 含反斜杠，ZIP 条目统一正斜杠，
+   恢复时反向规范化。
+5. **prettier 误格式化基线文档**：`开发计划.md` 被 format 改了一处空格 —— 还原并
+   把两份验收基线文档加进 `.prettierignore`。
+
+---
+
+## 四、验证结果（全部命令实跑）
+
+| 命令 | 结果 |
+|---|---|
+| `corepack pnpm verify` | 全部通过（lint / format / typecheck / unit 16 / integration 97 / build） |
+| `corepack pnpm test:e2e` | desktop e2e 9 passed；extension e2e 全部断言通过 |
+| `corepack pnpm package:windows` | 成功（extraResources 携带 mcp/index.mjs） |
+| 安装版 MCP 握手（win-unpacked + ELECTRON_RUN_AS_NODE） | initialize ✅ tools/list 4 工具 ✅ 桌面未运行错误可操作 ✅ |
+| 安装包 | 122,562,511 字节，SHA-256 `CE4631447B7165BB203D2D6035E703B9F6471AC12244A917C5EF81371616C039` |
+
+新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
+desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
+
+---
+
+## 五、未完成事项（如实声明）
+
+1. 自定义数据目录的「向导→重启→直达主界面」完整 e2e 未自动化（环境变量注入优先
+   级所限，核心逻辑已单测级验证）。
+2. 真实 OpenAI 模型的六组语义问答未人工执行（需用户 API Key；自动化覆盖检索与
+   引用层）。
+3. 真实 chatgpt.com 的人工验收未执行（扩展 e2e 为 mock 页面全流程）。

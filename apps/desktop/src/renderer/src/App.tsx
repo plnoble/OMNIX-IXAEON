@@ -61,7 +61,8 @@ export default function App() {
         {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
         <SetupWizard
           state={state}
-          onDone={() => {
+          onDone={(restartRequired) => {
+            if (restartRequired) return; // 向导内已展示重启提示
             void refresh();
             setPage('sources');
           }}

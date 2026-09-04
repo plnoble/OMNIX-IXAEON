@@ -2,9 +2,10 @@ import { readFileSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { normalize } from 'node:path';
 import type { CoreDatabase } from '../db/database.js';
-import type { Source } from '@ixaeon/contracts';
+import type { Permission, Source } from '@ixaeon/contracts';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { type PermissionService } from '../permissions.js';
+import { isPathInside } from '../paths.js';
 import { Vault } from '../vault.js';
 import { type SourceStore } from '../storage/sourceStore.js';
 import {
@@ -40,16 +41,13 @@ export interface ImportFileResult {
   pendingExtraction: Source[];
 }
 
-/** Windows 下路径比较统一小写。 */
-const norm = (p: string): string => normalize(p).toLowerCase();
-
 /**
  * 导入服务：授权校验 → SHA-256 → vault → 解析 → 去重 → 入库。
- * 原则：
- * - 未授权路径一律拒绝；
- * - 原件先入 vault（解析失败也不回收原件）；
- * - 结构化数据要么全部入库要么回滚，不留半套；
- * - 同一内容重复导入幂等。
+ *
+ * 信任边界（修复 P1-5）：核心层不创建授权。调用方（桌面主进程）必须先通过
+ * 原生对话框流程获得授权记录（grantFile / grantFolder），把 permissionId
+ * 传进来；本服务验证该授权真实存在、仍 active、且覆盖请求路径。
+ * 任何调用方都无法通过「自带 allowedPaths」给自己授权——该参数已删除。
  */
 export class ImportService {
   constructor(
@@ -59,10 +57,36 @@ export class ImportService {
     private readonly sources: SourceStore,
   ) {}
 
+  /** 取出并验证授权（存在 / active / 覆盖路径，realpath 防符号链接与 junction 逃逸）。 */
+  private requirePermission(permissionId: string, absPath: string): Permission {
+    const perm = this.permissions.get(permissionId);
+    if (!perm) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, `授权记录不存在: ${permissionId}`);
+    }
+    if (perm.status !== 'active') {
+      throw new IxaError(
+        ErrorCodes.PERMISSION_REVOKED,
+        '授权已被撤销，拒绝读取（可在来源页重新授权）',
+      );
+    }
+    const covers =
+      perm.scope_type === 'folder'
+        ? isPathInside(perm.locator, absPath)
+        : isPathInside(perm.locator, absPath) && isPathInside(absPath, perm.locator);
+    if (!covers) {
+      throw new IxaError(
+        ErrorCodes.PATH_ESCAPE,
+        `路径不在授权范围内（授权 ${perm.locator}，请求 ${absPath}）`,
+      );
+    }
+    return perm;
+  }
+
   private readAuthorized(
     absPath: string,
     opts: { maxBytes?: number } = {},
   ): { content: string; hash: string } {
+    // 双重校验：即使调用方传入了合法票据，也要求某条 active 授权覆盖该路径
     this.permissions.assertPathAllowed(absPath);
     const maxBytes =
       opts.maxBytes ?? (isChatgptExportFile(absPath) ? MAX_CHATGPT_EXPORT_BYTES : MAX_IMPORT_BYTES);
@@ -94,21 +118,13 @@ export class ImportService {
 
   /**
    * 导入用户明确选择的文件（Markdown / TXT / JSON / conversations.json）。
-   * 授权来源：调用方传入用户已授权的路径集合（来自原生对话框选择）。
-   * 不在授权集合内的路径一律拒绝，防止内部代码自行授权读任意文件。
+   * permissionId 必须来自可信主进程的原生对话框流程。
    */
   importFile(
     absPath: string,
-    opts: { projectId: string | null; allowedPaths: string[]; maxBytes?: number },
+    opts: { projectId: string | null; permissionId: string; maxBytes?: number },
   ): ImportFileResult {
-    const allowed = new Set(opts.allowedPaths.map((p) => norm(p)));
-    if (!allowed.has(norm(absPath))) {
-      throw new IxaError(
-        ErrorCodes.PERMISSION_DENIED,
-        `路径不在用户选择范围内，拒绝读取: ${absPath}`,
-      );
-    }
-    const permission = this.permissions.grantFile(absPath);
+    const permission = this.requirePermission(opts.permissionId, absPath);
     const { content, hash: fileHash } = this.readAuthorized(absPath, { maxBytes: opts.maxBytes });
     const name = basename(absPath);
     const created: Source[] = [];
@@ -163,19 +179,12 @@ export class ImportService {
     return { created, deduplicated, pendingExtraction: created };
   }
 
-  /** 显式按 ChatGPT 导出解析（导入界面单独入口；同样要求路径在用户选择集合内）。 */
+  /** 显式按 ChatGPT 导出解析（同样要求传入可信授权 ID）。 */
   importChatgptExport(
     absPath: string,
-    opts: { projectId: string | null; allowedPaths: string[] },
+    opts: { projectId: string | null; permissionId: string },
   ): ImportFileResult {
-    const allowed = new Set(opts.allowedPaths.map((p) => norm(p)));
-    if (!allowed.has(norm(absPath))) {
-      throw new IxaError(
-        ErrorCodes.PERMISSION_DENIED,
-        `路径不在用户选择范围内，拒绝读取: ${absPath}`,
-      );
-    }
-    const permission = this.permissions.grantFile(absPath);
+    const permission = this.requirePermission(opts.permissionId, absPath);
     const { content, hash: fileHash } = this.readAuthorized(absPath);
     let parsedJson: unknown;
     try {
@@ -207,9 +216,18 @@ export class ImportService {
     return { created, deduplicated, pendingExtraction: created };
   }
 
-  /** 登记项目目录：读取项目说明/配置快照（不扫描全部源码）。 */
-  importProjectSnapshot(rootPath: string, opts: { projectId: string }): ImportFileResult {
-    const permission = this.permissions.grantFolder(rootPath);
+  /** 登记项目目录：读取项目说明/配置快照（不扫描全部源码）。folder 授权须由可信主进程创建。 */
+  importProjectSnapshot(
+    rootPath: string,
+    opts: { projectId: string; permissionId: string },
+  ): ImportFileResult {
+    const permission = this.requirePermission(opts.permissionId, rootPath);
+    if (permission.scope_type !== 'folder') {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '项目目录登记需要 folder 授权（请通过目录选择对话框）',
+      );
+    }
     const snapshot = readProjectSnapshot(rootPath);
     if (snapshot.source.segments.length === 0) {
       throw new IxaError(
@@ -254,3 +272,6 @@ export class ImportService {
     return { created: true, source };
   }
 }
+
+/** 兼容旧调用形态的路径规范化（Windows 大小写不敏感比较用）。 */
+export const normalizeForCompare = (p: string): string => normalize(p).toLowerCase();

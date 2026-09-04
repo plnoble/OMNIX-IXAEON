@@ -57,9 +57,12 @@ export function SourcesPage({
     setBusy(true);
     setError(null);
     try {
-      const paths = await api.pickFiles('documents');
-      if (!paths || paths.length === 0) return;
-      await api.importPaths({ paths, projectId });
+      const picked = await api.pickFiles('documents');
+      if (!picked || picked.paths.length === 0) return;
+      const result = await api.importPaths({ ticket: picked.ticket, projectId });
+      if (result.failed.length > 0) {
+        setError(result.failed.map((f) => `${f.path}: ${f.message}`).join('\n'));
+      }
       await reload();
     } catch (err) {
       setError(errMsg(err));
@@ -72,9 +75,12 @@ export function SourcesPage({
     setBusy(true);
     setError(null);
     try {
-      const paths = await api.pickFiles('chatgptExport');
-      if (!paths || paths.length === 0) return;
-      await api.importPaths({ paths, projectId });
+      const picked = await api.pickFiles('chatgptExport');
+      if (!picked || picked.paths.length === 0) return;
+      const result = await api.importPaths({ ticket: picked.ticket, projectId });
+      if (result.failed.length > 0) {
+        setError(result.failed.map((f) => `${f.path}: ${f.message}`).join('\n'));
+      }
       await reload();
     } catch (err) {
       setError(errMsg(err));

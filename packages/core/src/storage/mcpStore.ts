@@ -12,6 +12,7 @@ import type {
   SearchResult,
 } from '@ixaeon/contracts';
 import { recordAudit } from '../audit.js';
+import { assertSourceAuthorized } from '../access.js';
 
 /**
  * MCP 工具逻辑（计划 6.x）。
@@ -142,9 +143,10 @@ export class McpService {
       state: null,
     }));
 
-    // 字符预算裁剪（优先级：purpose > decisions > open_loops > rejected > risks > status > work）
+    // 字符预算裁剪（优先级：purpose > decisions > open_loops > rejected > risks > status > work）。
+    // 预算按序列化后 JSON 字符量核算，任何输出不得超过调用者声明的 max_chars。
     const budget = input.max_chars;
-    const groups: Array<BriefingEntry[]> = [
+    const groups: BriefingEntry[][] = [
       purpose,
       decisions,
       openLoops,
@@ -154,12 +156,12 @@ export class McpService {
       recentWork,
     ];
     let used = 0;
-    const totalBefore = groups.flat().reduce((n, e) => n + e.text.length + 20, 0);
+    const totalBefore = JSON.stringify(groups.flat()).length;
     let truncated = false;
     for (const group of groups) {
       const kept: BriefingEntry[] = [];
       for (const entry of group) {
-        const cost = entry.text.length + 20;
+        const cost = JSON.stringify(entry).length;
         if (used + cost > budget) {
           truncated = true;
           continue;
@@ -221,7 +223,7 @@ export class McpService {
     }
     const results: SearchResult[] = [];
 
-    // 1) 条目匹配（statement LIKE）
+    // 1) 条目匹配（statement LIKE）；项目隔离：指定项目时仅该项目的条目
     const itemRows = this.db
       .prepare(
         `SELECT i.id, i.type, i.statement, i.state, s.title AS source_title, i.project_id,
@@ -266,18 +268,18 @@ export class McpService {
       });
     }
 
-    // 2) 原文片段匹配（FTS）
+    // 2) 原文片段匹配（FTS rowid 正确连接 + 项目隔离 + 授权过滤）
     const ftsQuery = `"${input.query.replace(/"/g, '""')}"`;
     const segRows = this.db
       .prepare(
-        `SELECT s.id, s.role, substr(s.text, 1, 300) AS excerpt, src.title AS source_title,
-                src.project_id, p.name AS project_name, s.occurred_at
+        `SELECT sg.id, sg.role, substr(sg.text, 1, 300) AS excerpt, src.title AS source_title,
+                src.project_id, src.id AS src_id, p.name AS project_name, sg.occurred_at
          FROM segments_fts f
-         JOIN segments s ON s.id = f.rowid
-         JOIN sources src ON src.id = s.source_id
+         JOIN segments sg ON sg.rowid = f.rowid
+         JOIN sources src ON src.id = sg.source_id
          LEFT JOIN projects p ON p.id = src.project_id
          WHERE segments_fts MATCH ?
-         ${projectId !== null ? 'AND (src.project_id = ? OR src.project_id IS NULL)' : ''}
+         ${projectId !== null ? 'AND src.project_id = ?' : ''}
          ORDER BY rank LIMIT ?`,
       )
       .all(ftsQuery, ...(projectId !== null ? [projectId] : []), input.limit) as Array<{
@@ -286,11 +288,18 @@ export class McpService {
       excerpt: string;
       source_title: string;
       project_id: string | null;
+      src_id: string;
       project_name: string | null;
       occurred_at: string | null;
     }>;
     for (const row of segRows) {
       if (results.length >= input.limit) break;
+      // 授权隔离：撤销授权的来源不返回原文（含 item 依据指向的片段）
+      try {
+        assertSourceAuthorized(this.db, row.src_id);
+      } catch {
+        continue;
+      }
       results.push({
         ref: row.id,
         kind: 'segment',
@@ -317,7 +326,7 @@ export class McpService {
     };
   }
 
-  /** get_source_excerpt：展开引用（item id 或 segment id）。 */
+  /** get_source_excerpt：展开引用（item id 或 segment id；两条路径都过权限检查）。 */
   getSourceExcerpt(ref: string, maxChars: number): GetSourceExcerptOutput {
     // 先按 segment id 查
     const seg = this.db
@@ -341,18 +350,7 @@ export class McpService {
 
     if (seg) {
       // 权限检查：来源的读取授权必须仍有效（计划 6.3）
-      const perm = this.db
-        .prepare(
-          `SELECT p.status FROM permissions p JOIN sources src ON src.permission_id = p.id
-           WHERE src.id = ?`,
-        )
-        .get(seg.source_id) as { status: string } | undefined;
-      if (perm && perm.status !== 'active') {
-        throw new IxaError(
-          ErrorCodes.PERMISSION_REVOKED,
-          '该来源的读取授权已被用户撤销，无法提供原文',
-        );
-      }
+      assertSourceAuthorized(this.db, seg.source_id);
       const before = this.db
         .prepare('SELECT text FROM segments WHERE source_id = ? AND sequence = ?')
         .get(seg.source_id, seg.sequence - 1) as { text: string } | undefined;
@@ -371,7 +369,7 @@ export class McpService {
       };
     }
 
-    // 再按 item id 查（返回第一条依据片段）
+    // 再按 item id 查（返回第一条依据片段；权限检查与 segment 路径一致 —— 修复 P1-5 旁路）
     const itemEvidence = this.db
       .prepare(
         `SELECT s.id, s.role, s.text, s.occurred_at, s.is_active_branch, s.sequence,
@@ -394,6 +392,7 @@ export class McpService {
         }
       | undefined;
     if (itemEvidence) {
+      assertSourceAuthorized(this.db, itemEvidence.source_id);
       return {
         ref,
         excerpt: itemEvidence.text.slice(0, maxChars),

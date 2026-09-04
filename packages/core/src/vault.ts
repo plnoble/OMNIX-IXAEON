@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 
 export function sha256(content: Buffer | string): string {
@@ -26,13 +26,35 @@ export class Vault {
     return join('sha256', hash.slice(0, 2), hash);
   }
 
-  /** 从相对路径解析回绝对路径。 */
+  /** 严格校验 vault 相对路径格式：sha256/[0-9a-f]{2}/[0-9a-f]{64}（拒绝 ../、绝对路径、盘符、异常长度）。 */
+  static isStrictVaultRelPath(relative: string): boolean {
+    const normalized = relative.replace(/\\/g, '/').replace(/\/+$/, '');
+    return /^sha256\/[0-9a-f]{2}\/[0-9a-f]{64}$/.test(normalized);
+  }
+
+  /**
+   * 从相对路径解析回绝对路径。
+   * 严格格式校验 + 结果必须仍在 vault 根内（防恢复包携带恶意 raw_path
+   * 诱导后续导出/读取越过数据目录）。
+   */
   absolutePath(relative: string): string {
-    const normalized = relative.replace(/\\/g, '/');
-    if (!normalized.startsWith('sha256/')) {
-      throw new IxaError(ErrorCodes.INVALID_REFERENCE, `非法的 vault 路径: ${relative}`);
+    if (!Vault.isStrictVaultRelPath(relative)) {
+      throw new IxaError(
+        ErrorCodes.INVALID_REFERENCE,
+        `非法的 vault 路径（应为 sha256/xx/<64位哈希>）: ${relative.slice(0, 60)}`,
+      );
     }
-    return join(this.vaultDir, normalized.slice('sha256/'.length));
+    const normalized = relative.replace(/\\/g, '/');
+    const abs = join(this.vaultDir, normalized.slice('sha256/'.length));
+    const root = resolve(this.vaultDir);
+    const resolvedAbs = resolve(abs);
+    if (
+      !resolvedAbs.toLowerCase().startsWith(root.toLowerCase() + sep) &&
+      resolvedAbs.toLowerCase() !== root.toLowerCase()
+    ) {
+      throw new IxaError(ErrorCodes.INVALID_REFERENCE, `vault 路径越界: ${relative.slice(0, 60)}`);
+    }
+    return resolvedAbs;
   }
 
   has(hash: string): boolean {

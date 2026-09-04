@@ -3,6 +3,7 @@ import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from './model/provider.js';
 import { EXTRACT_PROMPT_VERSION, EXTRACT_SYSTEM_PROMPT } from './prompts.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
+import { assertSourceAuthorized } from '../access.js';
 
 /** 单次提取的输出 schema（计划 5.3.4：候选项目、决定、否决、待办、目标、约束）。 */
 export const extractionOutputSchema = z.object({
@@ -40,15 +41,20 @@ export interface ExtractStats {
   needsReview: number;
 }
 
+/** 发送给模型的每块字符上限（含编号、角色、提示包装后的完整 user 文本）。 */
+export const MAX_BLOCK_CHARS = 8000;
+
 /**
  * 提取器：把一个来源的片段交给模型，得到有出处的结构化结论。
  *
- * 流程（计划 5.3）：
- * 1. 以对话轮次/文档标题切块（每块 ≤ 8,000 字符，包含片段编号头）
- * 2. 模型按 JSON Schema 返回候选
+ * 流程（计划 5.3；修复 P1-10）：
+ * 1. 以对话轮次/文档标题切块，超长单段继续按安全字符边界拆分（不突破上限）
+ * 2. 所有模型块全部成功（结构、引用、长度校验通过）后，才在单个短事务中
+ *    原子替换旧 current AI 理解；任一块失败 → 旧理解保持不变
  * 3. 确定性代码核验 segment_ref 真实存在（不信任模型）
- * 4. 事务写入 items + item_evidence；无有效依据的整批回滚（计划 4.6）
+ * 4. 无有效依据的结论不入当前理解（整批回滚语义）
  * 5. 冲突结论标记 disputed（不去重合并）
+ * 6. 授权撤销的来源拒绝重新提取（读取边界一致）
  */
 export class Extractor {
   constructor(
@@ -56,12 +62,14 @@ export class Extractor {
     private readonly provider: ModelProvider,
   ) {}
 
-  /** 对一个来源执行提取（幂等：先清掉本来源无纠正的 AI 旧结论）。 */
+  /** 对一个来源执行提取（原子替换：模型全部成功前不删旧理解）。 */
   async extractSource(sourceId: string): Promise<ExtractStats> {
     const source = this.db
       .prepare('SELECT id, title, project_id FROM sources WHERE id = ?')
       .get(sourceId) as { id: string; title: string; project_id: string | null } | undefined;
     if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${sourceId}`);
+    // 重新提取也是一次原文读取：授权撤销后拒绝
+    assertSourceAuthorized(this.db, sourceId);
 
     const segments = this.db
       .prepare(
@@ -78,10 +86,9 @@ export class Extractor {
       occurred_at: string | null;
     }>;
 
-    // 重新提取前删除本来源旧 AI 条目（有纠正的保留历史，计划 4.7 双向追溯）
-    this.deleteOldAiItems(sourceId);
-
     if (segments.length === 0) {
+      // 没有片段：视为成功空提取（保留旧行为），但清空旧理解需谨慎——
+      // 无片段说明数据异常，保守起见不删除旧理解，直接返回
       return { inserted: 0, skippedBadRef: 0, disputed: 0, needsReview: 0 };
     }
 
@@ -95,6 +102,7 @@ export class Extractor {
       segmentId: string;
     }> = [];
 
+    // 1) 全部模型调用（跨网络，不持锁）。任一失败直接抛出 —— 旧 current 理解保持不变
     for (const block of this.buildBlocks(pool)) {
       const output = await this.provider.chatStructured({
         system: EXTRACT_SYSTEM_PROMPT,
@@ -111,8 +119,7 @@ export class Extractor {
       }
     }
 
-    if (collected.length === 0) return stats;
-
+    // 2) 单个短事务：删除旧 current AI 条目 + 写入新结论 + 冲突标记（原子替换）
     const now = new Date().toISOString();
     const insertItem = this.db.prepare(
       `INSERT INTO items (id, project_id, type, statement, rationale, state, confidence,
@@ -124,8 +131,13 @@ export class Extractor {
       `INSERT INTO item_evidence (item_id, segment_id, excerpt, relevance)
        VALUES (?, ?, ?, ?)`,
     );
+    const deleteOld = this.db.prepare(
+      `DELETE FROM items
+       WHERE extracted_from_source_id = ? AND origin = 'ai' AND state = 'current'`,
+    );
 
     this.db.transaction(() => {
+      deleteOld.run(sourceId);
       for (const { row, segmentId } of collected) {
         const itemId = crypto.randomUUID();
         // 项目归属：来源绑定项目 → 直接归属；否则尝试 project_hint 匹配名
@@ -164,45 +176,56 @@ export class Extractor {
     return stats;
   }
 
-  /** 按轮次/标题切块，块内保留片段编号 → 段 ID 映射。 */
-  private buildBlocks(
+  /**
+   * 按轮次/标题切块；超长单段继续按安全字符边界（标点/空白优先）拆分为
+   * 带后缀编号的子片段。任何块的完整 user 文本（含编号与角色头）都不超过上限。
+   */
+  buildBlocks(
     segments: Array<{ id: string; sequence: number; role: string; text: string }>,
-    maxChars = 8000,
+    maxChars = MAX_BLOCK_CHARS,
   ): Array<{ userText: string; refMap: Map<string, string> }> {
+    // 展开超长片段 → 引用编号列表（S1、S1.2 …）→ 片段 ID
+    const refs: Array<{ ref: string; segId: string; piece: string }> = [];
+    for (const seg of segments) {
+      const base = `S${seg.sequence + 1}`;
+      const header = `[${base}]（${seg.role}）\n`;
+      // 单段展开后的多个子块（不超上限），ref 为 S1 / S1.1 / S1.2 …
+      const parts = splitTextToFit(seg.text, maxChars - header.length - 1, base);
+      parts.forEach((part, i) => {
+        const ref = i === 0 ? base : `${base}.${i + 1}`;
+        refs.push({ ref, segId: seg.id, piece: part });
+      });
+    }
+
+    // 组装块：整块 user 文本（多段拼接）仍不超上限
     const blocks: Array<{ userText: string; refMap: Map<string, string> }> = [];
     let currentLines: string[] = [];
+    let currentLen = 0;
     const currentMap = new Map<string, string>();
 
     const flush = () => {
       if (currentLines.length > 0) {
         blocks.push({ userText: currentLines.join('\n'), refMap: new Map(currentMap) });
         currentLines = [];
+        currentLen = 0;
         currentMap.clear();
       }
     };
 
-    for (const seg of segments) {
-      // 片段编号 1-based（人类可读：S1 = 第一段）
-      const ref = `S${seg.sequence + 1}`;
-      const piece = `[${ref}]（${seg.role}）\n${seg.text}`;
-      if (currentLines.length > 0 && currentLines.join('\n').length + piece.length > maxChars) {
-        flush();
+    for (const r of refs) {
+      const piece = `[${r.ref}]（doc）\n${r.piece}`;
+      if (currentLen + piece.length + 1 > maxChars) flush();
+      if (piece.length > maxChars) {
+        // splitTextToFit 已按上限拆分，这里兜底（极端小上限）
+        blocks.push({ userText: piece, refMap: new Map([[r.ref, r.segId]]) });
+        continue;
       }
-      currentMap.set(ref, seg.id);
+      currentMap.set(r.ref, r.segId);
       currentLines.push(piece);
+      currentLen += piece.length + 1;
     }
     flush();
     return blocks;
-  }
-
-  /** 删除本来源的旧 AI 条目（被纠正过的保留：superseded 状态本身就是历史）。 */
-  private deleteOldAiItems(sourceId: string): void {
-    this.db
-      .prepare(
-        `DELETE FROM items
-         WHERE extracted_from_source_id = ? AND origin = 'ai' AND state = 'current'`,
-      )
-      .run(sourceId);
   }
 
   /** 相似结论标记 disputed：同项目同类型、Jaccard 字符 bigram ≥ 0.6。 */
@@ -232,6 +255,43 @@ export class Extractor {
     }
     return disputed;
   }
+}
+
+/**
+ * 把文本拆成多块（每块 ≤ limit 字符）。优先在段落/句子/标点边界切，
+ * 找不到安全边界时按硬字符位置切（保证不超限）。
+ */
+export function splitTextToFit(text: string, limit: number, label?: string): string[] {
+  if (limit < 100) limit = 100; // 防御性下限（正常调用 limit ≈ 7900）
+  if (text.length <= limit) return [text];
+  const parts: string[] = [];
+  let rest = text;
+  let guard = 0;
+  while (rest.length > limit && guard++ < 100_000) {
+    let cut = findSafeCut(rest, limit);
+    if (cut < Math.floor(limit / 2)) cut = limit; // 安全边界太靠前 → 硬切
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+    void label;
+  }
+  if (rest.length > 0) parts.push(rest);
+  return parts;
+}
+
+/** 在 [floor(limit/2), limit] 内找最后一个安全切点（换行 > 句号/问号/叹号 > 顿号逗号 > 空白）。 */
+function findSafeCut(text: string, limit: number): number {
+  const min = Math.floor(limit / 2);
+  const search = (re: RegExp): number => {
+    let last = -1;
+    const m = [...text.slice(0, limit).matchAll(re)];
+    if (m.length > 0) last = m[m.length - 1]!.index! + 1;
+    return last >= min ? last : -1;
+  };
+  for (const re of [/\n/g, /[。！？!?]/g, /[；;：:]/g, /[，、,]/g, /\s/g]) {
+    const cut = search(re);
+    if (cut > 0) return cut;
+  }
+  return -1;
 }
 
 function bigrams(text: string): Set<string> {

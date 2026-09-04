@@ -11,12 +11,20 @@ const desktop = resolve(root, 'apps', 'desktop');
 function run(label, command, args, cwd) {
   const started = Date.now();
   console.log(`\n▶ ${label}`);
+  // 剥离 pnpm/corepack 注入的环境变量：electron-builder 的 node-module 收集器
+  // 在「pnpm 子进程」中执行 pnpm list --json 会拿到被污染的 stdout（corepack 提示），
+  // 导致 "No JSON content found in output"。干净环境下（node 直跑）无此问题。
+  const cleanEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (/^(npm_|pnpm_|PNPM_|COREPACK_)/i.test(k)) continue;
+    cleanEnv[k] = v;
+  }
   const result = spawnSync(command, args, {
     cwd,
     shell: isWindows,
     stdio: 'inherit',
     env: {
-      ...process.env,
+      ...cleanEnv,
       // NSIS / Electron 二进制按需下载（走系统代理）
       ELECTRON_GET_USE_PROXY: process.env.ELECTRON_GET_USE_PROXY ?? 'true',
       HTTP_PROXY: process.env.HTTP_PROXY ?? '',
@@ -31,6 +39,12 @@ function run(label, command, args, cwd) {
   console.log(`✓ ${label} 完成（${seconds}s）`);
 }
 
+run(
+  'mcp build（vite，打包资源用）',
+  'node',
+  [resolve(root, 'apps', 'mcp', 'node_modules', 'vite', 'bin', 'vite.js'), 'build'],
+  resolve(root, 'apps', 'mcp'),
+);
 run(
   'desktop build（electron-vite）',
   'node',

@@ -59,6 +59,14 @@ const EXT_DIR = path.join(WORK, 'ext');
 const PROFILES = path.join(WORK, 'profiles');
 const CERT_PFX = path.join(WORK, 'chatgpt-mock.pfx');
 const CERT_PASS = 'ixaeon-e2e';
+const RELEASE_SHOTS = path.join(
+  __dirname,
+  '..',
+  '..',
+  'desktop',
+  'release',
+  'screenshots',
+);
 
 let failed = 0;
 function ok(cond, label) {
@@ -84,6 +92,8 @@ function includes(actual, needle, label) {
 const batches = [];
 let authHeaderSeen = null;
 let pairRequests = 0;
+let pausedConversations = new Set();
+let pauseRequests = [];
 
 /** 准备自签证书（证书复用上次生成或用 PowerShell 现生成 PFX）。 */
 function ensureCert() {
@@ -133,6 +143,25 @@ function startApiServer() {
         );
         return;
       }
+      if (url.pathname === '/api/extension/pause-conversation') {
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+        });
+        req.on('end', () => {
+          try {
+            const parsed = JSON.parse(body);
+            pauseRequests.push(parsed);
+            if (parsed.paused) pausedConversations.add(parsed.externalId);
+            else pausedConversations.delete(parsed.externalId);
+            res.end(JSON.stringify({ ok: true, paused: !!parsed.paused }));
+          } catch {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ code: 'IXA0102', message: 'bad json' }));
+          }
+        });
+        return;
+      }
       if (url.pathname === '/api/extension/capture') {
         authHeaderSeen = req.headers.authorization ?? null;
         let body = '';
@@ -141,7 +170,19 @@ function startApiServer() {
         });
         req.on('end', () => {
           try {
-            batches.push(JSON.parse(body));
+            const parsed = JSON.parse(body);
+            // 模拟桌面端：暂停的对话返回 403 DISABLED
+            if (pausedConversations.has(parsed.conversation.externalId)) {
+              res.statusCode = 403;
+              res.end(
+                JSON.stringify({
+                  code: 'IXA0022',
+                  message: '该对话已被用户暂停，扩展不再提交其内容',
+                }),
+              );
+              return;
+            }
+            batches.push(parsed);
             res.end(JSON.stringify({ accepted: 2, deduplicated: 0, sourceId: 'src-1' }));
           } catch {
             res.statusCode = 400;
@@ -237,6 +278,7 @@ async function main() {
   const proxy = await startConnectProxy(CHATGPT_PORT);
   // 全流程复用一个浏览器上下文（同一 profile 的二次启动会触发真实
   // chatgpt.com 的 Cloudflare 挑战——host-resolver 在该场景下不可靠）
+  fs.mkdirSync(RELEASE_SHOTS, { recursive: true });
   const mainContext = await newContext('a');
   try {
     // ---- 1. 配对流程 ----
@@ -253,6 +295,7 @@ async function main() {
       const popup = await context.newPage();
       await popup.goto(origin + '/popup.html');
       await popup.waitForSelector('#pair-code', { state: 'visible' });
+      await popup.screenshot({ path: path.join(RELEASE_SHOTS, '10-extension-pair.png') });
 
       await popup.fill('#pair-code', '12');
       await popup.click('#pair-submit');
@@ -278,6 +321,13 @@ async function main() {
       ok(connected, 'popup shows connected');
       eq(pairRequests, 1, 'exactly one pair request');
 
+      // 截图：配对成功后的弹窗状态（P2-11 审核材料）
+      const popupShot = await context.newPage();
+      await popupShot.goto(origin + '/popup.html');
+      await popupShot.waitForSelector('#status-connected', { state: 'visible' });
+      await popupShot.waitForTimeout(600);
+      await popupShot.screenshot({ path: path.join(RELEASE_SHOTS, '11-extension-connected.png') });
+      await popupShot.close();
       const hasToken = await sw
         .evaluate(async () => {
           const s = await chrome.storage.local.get(['token']);
@@ -362,6 +412,84 @@ async function main() {
       ok(
         finalBatch.turns.every((t) => /^[0-9a-f]{64}$/.test(t.contentHash)),
         'new batch hashes present',
+      );
+      await page.close();
+    }
+
+    // ---- 3.5 暂停当前对话（修复 P1-6.4：popup 按钮 → 本地停止 + 服务端同步） ----
+    console.log('pause current conversation: local + server enforced');
+    {
+      const context = mainContext;
+      const page = await context.newPage();
+      await page.bringToFront();
+      const pauseUrl = 'https://chatgpt.com/c/pause-check-001';
+      await page.goto(pauseUrl, { waitUntil: 'domcontentloaded' });
+      await waitFor(() => batches.length > 0, 20_000, 'batch before pause submitted');
+      const beforePause = batches.length;
+
+      // 打开 popup：显示「采集中」→ 点击「暂停当前对话」
+      const sw = (await waitSw(context)) || (await waitSw(context));
+      const popup = await context.newPage();
+      const m = /^(chrome-extension:\/\/[^/]+)/.exec(sw.url());
+      await popup.goto(m[1] + '/popup.html');
+      await popup.waitForSelector('#pause-current', { state: 'visible' });
+      eq(await popup.locator('#status-current').textContent(), '采集中', 'popup shows capturing');
+      await popup.click('#pause-current');
+      await popup.waitForTimeout(500);
+      eq(await popup.locator('#status-current').textContent(), '已暂停', 'popup shows paused');
+      includes(
+        await popup.locator('#pause-current').textContent(),
+        '继续',
+        'button switched to resume',
+      );
+      await popup.screenshot({ path: path.join(RELEASE_SHOTS, '12-extension-paused.png') });
+      await popup.close();
+
+      // 服务端收到了暂停同步
+      await waitFor(() => pauseRequests.length > 0, 5000, 'pause request sent to server');
+      eq(pauseRequests[0].paused, true, 'pause request paused=true');
+      eq(pauseRequests[0].externalId, '/c/pause-check-001', 'pause request correct conversation');
+
+      // 暂停后：该对话新内容不提交（扩展端本地拦截，不发请求）
+      await page.evaluate(() => {
+        const thread = document.querySelector('main#thread');
+        const turn = document.createElement('div');
+        turn.setAttribute('data-message-author-role', 'user');
+        const textDiv = document.createElement('div');
+        textDiv.className = 'text';
+        textDiv.textContent = '暂停后新增内容不应上传 PAUSEDMARK';
+        turn.appendChild(textDiv);
+        thread.appendChild(turn);
+      });
+      await page.waitForTimeout(5000);
+      eq(batches.length, beforePause, 'no batches from paused conversation');
+      ok(
+        !batches.some((b) => b.turns.some((t) => t.text.includes('PAUSEDMARK'))),
+        'paused conversation content never uploaded',
+      );
+
+      // 继续后：恢复提交（新增一轮触发新批次；包含暂停期间出现的内容）
+      const popup2 = await context.newPage();
+      await popup2.goto(m[1] + '/popup.html');
+      await popup2.waitForSelector('#pause-current', { state: 'visible' });
+      await popup2.click('#pause-current'); // 继续
+      await popup2.waitForTimeout(300);
+      await popup2.close();
+      // 新 DOM 变化触发提交（扩展按可见内容重传，包含暂停期间的新轮次）
+      await page.evaluate(() => {
+        const thread = document.querySelector('main#thread');
+        const turn = document.createElement('div');
+        turn.setAttribute('data-message-author-role', 'assistant');
+        const textDiv = document.createElement('div');
+        textDiv.className = 'text';
+        textDiv.textContent = '继续后的新回答';
+        turn.appendChild(textDiv);
+        thread.appendChild(turn);
+      });
+      await waitFor(() => batches.length > beforePause, 20_000, 'batch after resume submitted');
+      ok(
+        batches[batches.length - 1].turns.some((t) => t.text.includes('PAUSEDMARK')),
+        'resumed conversation uploads new content',
       );
       await page.close();
     }

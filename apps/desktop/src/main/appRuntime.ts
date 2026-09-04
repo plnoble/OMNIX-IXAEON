@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   ArchiveService,
   AskService,
@@ -142,6 +142,10 @@ export class AppRuntime {
         runtimeRef.current.config = mutate(runtimeRef.current.config);
         saveConfig(layout.configFile, runtimeRef.current.config);
       },
+      // 采集成功回调（修复 P1-6.1）：autoAnalyze=true 时排队提取任务
+      onCaptured: (sourceId: string): void => {
+        runtimeRef.current?.enqueueAutoExtraction(sourceId);
+      },
     });
 
     const runtime = new AppRuntime({
@@ -165,6 +169,22 @@ export class AppRuntime {
     jobs.start();
     await runtime.startServer();
     return runtime;
+  }
+
+  /** 自动分析队列（来源去重：任务表中已有同来源 queued/running 提取则跳过）。 */
+  private enqueueAutoExtraction(sourceId: string): void {
+    const dup = this.db
+      .prepare(
+        `SELECT 1 AS one FROM jobs
+         WHERE kind = 'extract' AND status IN ('queued', 'running')
+           AND payload_json LIKE ?
+         LIMIT 1`,
+      )
+      .get(`%"sourceId":"${sourceId}"%`) as { one: number } | undefined;
+    if (dup) return;
+    const job = this.jobs.enqueue('extract', { sourceId, auto: true });
+    recordAudit(this.db, 'capture.auto_extract_job', { jobId: job.id, sourceId });
+    this.jobs.kick();
   }
 
   private registerJobHandlers(): void {
@@ -234,7 +254,7 @@ export class AppRuntime {
       .all(projectId, limit) as WorkRun[];
   }
 
-  // --- 导出 / 恢复（M5） ---
+  // --- 导出 / 恢复（M5；修复 P1-7） ---
 
   /** 导出全部数据到 ZIP。 */
   exportData(targetPath: string): Promise<ExportResult> {
@@ -247,7 +267,7 @@ export class AppRuntime {
     return archive.exportData(targetPath);
   }
 
-  /** 恢复预览（只读）。 */
+  /** 恢复预览（只读；签发一次性恢复凭证 previewToken）。 */
   previewRestore(zipPath: string): Promise<RestorePreview> {
     const archive = new ArchiveService(this.db, {
       dataDir: this.dataDir,
@@ -258,12 +278,24 @@ export class AppRuntime {
     return archive.previewRestore(zipPath);
   }
 
+  /** 消费恢复凭证（一次预览一次恢复；伪造 / 过期 / 重复使用拒绝）。 */
+  consumeRestoreToken(previewToken: string): string {
+    const archive = new ArchiveService(this.db, {
+      dataDir: this.dataDir,
+      dbPath: join(this.dataDir, 'ixaeon.db'),
+      vault: this.vault,
+      closeCurrentDb: () => {},
+    });
+    return archive.consumePreviewToken(previewToken);
+  }
+
   /**
-   * 恢复（整体替换）。恢复完成后当前进程的数据库/文件句柄已失效，
-   * 调用方应提示用户重启应用（恢复即返回 { ok: true, restartRequired: true }）。
+   * 恢复（整体替换，原子替换 + 失败回滚）。
+   * 恢复在临时目录完成全部校验后原子替换当前数据；失败时原数据保持可用，
+   * 本地服务保持运行。成功后当前进程运行时失效，要求重启应用。
+   * 必须携带 previewRestore 签发的一次性凭证（不允许绕过预览）。
    */
-  async restoreData(zipPath: string): Promise<{ ok: true; restartRequired: true }> {
-    // 先停本地 HTTP 服务（释放 db 并发访问）
+  async restoreData(previewToken: string): Promise<{ ok: true; restartRequired: true }> {
     await this.stopServer();
     const archive = new ArchiveService(this.db, {
       dataDir: this.dataDir,
@@ -282,13 +314,21 @@ export class AppRuntime {
         }
       },
     });
-    await archive.restoreData(zipPath);
+    try {
+      await archive.restoreDataWithToken(previewToken);
+    } catch (err) {
+      // 恢复失败：原数据未被破坏（ArchiveService 保证原子性），恢复本地服务可用
+      this.logger.error('数据恢复失败，保持原数据可用', { error: String(err) });
+      await this.startServer();
+      throw err;
+    }
     // 数据已替换：当前进程所有内存态服务均失效，要求重启
     this.logger.info('数据恢复完成，等待应用重启', {});
     return { ok: true, restartRequired: true };
   }
 
   private async startServer(): Promise<void> {
+    if (this.fastify) return;
     const fastify = Fastify({
       logger: false,
       bodyLimit: 1024 * 1024,
@@ -311,7 +351,7 @@ export class AppRuntime {
     this.logger.info('运行时已停止');
   }
 
-  /** 停止本地 HTTP 服务（恢复数据前调用，避免恢复期间并发访问）。 */
+  /** 停止本地 HTTP 服务（数据恢复前调用，避免恢复期间并发访问）。 */
   private async stopServer(): Promise<void> {
     if (this.fastify) {
       await this.fastify.close();
@@ -341,25 +381,82 @@ export class AppRuntime {
     return this.config;
   }
 
-  /** 首次设置完成：数据目录、模型、第一个项目。 */
-  completeSetup(input: SetupInput): { ok: true } {
-    if (input.dataDir && input.dataDir.trim().length > 0) {
-      // 记录选择（bootstrap.json 指向新目录；本进程继续用当前目录，重启后生效）
-      setDataDirChoice(input.dataDir.trim());
-    }
+  /**
+   * 首次设置完成（修复 P1-8）：用户选择新数据目录时，完整迁移流程为
+   * 「先验证目标可写 + 写好新目录的全部设置 → 最后切换 bootstrap 指针」。
+   * - 新目录写入：config（setupComplete + 模型 + 加密 Key）+ 首个项目；
+   * - 切换失败（目标不可写）时旧目录与旧指针保持不变；
+   * - 成功后本进程运行时仍指向旧目录：返回 restartRequired=true，
+   *   UI 提示重启；绝不在两个目录各留半套数据。
+   */
+  completeSetup(input: SetupInput): { ok: true; restartRequired: boolean } {
+    const customDir = input.dataDir?.trim() ?? '';
     const apiKeyEncrypted =
       input.apiKey.length > 0 ? encryptApiKey(input.apiKey) : this.config.model.apiKeyEncrypted;
-    this.updateConfig((c) => ({
-      ...c,
+
+    if (customDir.length === 0) {
+      // 默认目录：当前进程就地完成（无需重启）
+      this.updateConfig((c) => ({
+        ...c,
+        setupComplete: true,
+        model: {
+          ...c.model,
+          modelName: input.modelName,
+          apiKeyEncrypted,
+          apiKeyPresent: apiKeyEncrypted !== null,
+        },
+      }));
+      this.ensureFirstProject(input);
+      recordAudit(this.db, 'setup.completed', { hasApiKey: input.apiKey.length > 0 });
+      return { ok: true, restartRequired: false };
+    }
+
+    // 自定义目录：全部数据写入新目录，成功后才切换指针
+    const targetDir = resolve(customDir);
+    const layout = ensureDataDirLayout(targetDir); // 不可写/无法创建 → 抛错，旧指针未动
+    const newConfig: AppConfig = {
+      ...this.config,
       setupComplete: true,
       model: {
-        ...c.model,
+        ...this.config.model,
         modelName: input.modelName,
         apiKeyEncrypted,
         apiKeyPresent: apiKeyEncrypted !== null,
       },
-    }));
-    // 创建第一个项目
+    };
+    if (!newConfig.localToken) {
+      newConfig.localToken = randomBytes(32).toString('hex');
+    }
+    // 先写新目录的完整 config（含 localToken），再建库与首个项目
+    saveConfig(layout.configFile, newConfig);
+    const newDb = openDatabase(layout.dbFile);
+    try {
+      migrate(newDb);
+      const newProjects = new ProjectService(newDb);
+      const exists = newProjects
+        .list()
+        .find((p: Project) => p.name.toLowerCase() === input.projectName.toLowerCase());
+      if (!exists) {
+        newProjects.create({
+          name: input.projectName,
+          rootPath: input.projectRootPath,
+          description: null,
+        });
+      }
+      recordAudit(newDb, 'setup.completed', {
+        hasApiKey: input.apiKey.length > 0,
+        dataDir: targetDir,
+      });
+    } finally {
+      newDb.close();
+    }
+    // 全部成功 → 最后切换指针（失败时上面已抛错，指针未改）
+    setDataDirChoice(targetDir);
+    return { ok: true, restartRequired: true };
+  }
+
+  /** 在当前库中确保第一个项目存在（默认目录路径用）。 */
+  private ensureFirstProject(input: SetupInput): void {
     const existing = this.projects
       .list()
       .find((p: Project) => p.name.toLowerCase() === input.projectName.toLowerCase());
@@ -370,8 +467,6 @@ export class AppRuntime {
         description: null,
       });
     }
-    recordAudit(this.db, 'setup.completed', { hasApiKey: input.apiKey.length > 0 });
-    return { ok: true };
   }
 
   /** 模型调用计数（诊断与测试）。 */

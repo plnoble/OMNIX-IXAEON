@@ -10,6 +10,14 @@ files:
   - "!**/*.map"
 asarUnpack:
   - "**/*.node"
+extraResources:
+  # MCP STDIO 服务（修复 P1-3）：随安装包携带，位于 resources/mcp/index.mjs。
+  # 运行用 Electron 自身（ELECTRON_RUN_AS_NODE=1），无需全局 Node.js。
+  - from: ../mcp/dist
+    to: mcp
+    filter:
+      - "**/*"
+      - "!**/*.map"
 win:
   target:
     - nsis

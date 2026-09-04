@@ -3,6 +3,7 @@ import type { CoreDatabase } from '../db/database.js';
 import type { Permission, Project, Segment, Source } from '@ixaeon/contracts';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { sha256 } from '../vault.js';
+import { assertSourceAuthorized } from '../access.js';
 import type { ParsedSource } from '../import/parsers.js';
 
 export interface SourceWithStats {
@@ -92,6 +93,72 @@ export class SourceStore {
     return row ?? null;
   }
 
+  /**
+   * 撤销授权后的读取边界（修复 P1-5）：授权已撤销的来源不返回原文。
+   * 列表（含状态展示）仍可见；读取片段 / 上下文 / 搜索 / 问答 / MCP 均拒绝。
+   */
+  getSegments(
+    sourceId: string,
+    offset: number,
+    limit: number,
+  ): { segments: Segment[]; total: number } {
+    assertSourceAuthorized(this.db, sourceId);
+    const total = (
+      this.db.prepare('SELECT count(*) AS c FROM segments WHERE source_id = ?').get(sourceId) as {
+        c: number;
+      }
+    ).c;
+    const segments = this.db
+      .prepare('SELECT * FROM segments WHERE source_id = ? ORDER BY sequence LIMIT ? OFFSET ?')
+      .all(sourceId, limit, offset) as Segment[];
+    return { segments, total };
+  }
+
+  getSegment(segmentId: string): Segment | null {
+    const row = this.db.prepare('SELECT * FROM segments WHERE id = ?').get(segmentId) as
+      Segment | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * 片段上下文：取同来源中位于该片段前后的原文（字符预算内），
+   * 供引用展开时显示“前后少量上下文”。撤销授权后拒绝。
+   */
+  getSegmentContext(
+    segmentId: string,
+    beforeChars: number,
+    afterChars: number,
+  ): { segment: Segment; before: string; after: string; sourceTitle: string } | null {
+    const seg = this.getSegment(segmentId);
+    if (!seg) return null;
+    assertSourceAuthorized(this.db, seg.source_id);
+    const source = this.get(seg.source_id);
+    if (!source) return null;
+    const beforeRows = this.db
+      .prepare(
+        'SELECT text FROM segments WHERE source_id = ? AND sequence < ? ORDER BY sequence DESC',
+      )
+      .all(seg.source_id, seg.sequence) as Array<{ text: string }>;
+    const afterRows = this.db
+      .prepare(
+        'SELECT text FROM segments WHERE source_id = ? AND sequence > ? ORDER BY sequence ASC',
+      )
+      .all(seg.source_id, seg.sequence) as Array<{ text: string }>;
+    let before = '';
+    for (const r of beforeRows) {
+      if (before.length >= beforeChars) break;
+      before = r.text + '\n\n' + before;
+    }
+    before = before.slice(-beforeChars);
+    let after = '';
+    for (const r of afterRows) {
+      if (after.length >= afterChars) break;
+      after += r.text + '\n\n';
+    }
+    after = after.slice(0, afterChars);
+    return { segment: seg, before, after, sourceTitle: source.title };
+  }
+
   /** 项目查找（名称精确/模糊、ID、根路径）。 */
   resolveProject(ref: string, projects: Project[]): Project | null {
     if (!ref) return null;
@@ -148,70 +215,12 @@ export class SourceStore {
     }));
   }
 
-  getSegments(
-    sourceId: string,
-    offset: number,
-    limit: number,
-  ): { segments: Segment[]; total: number } {
-    const total = (
-      this.db.prepare('SELECT count(*) AS c FROM segments WHERE source_id = ?').get(sourceId) as {
-        c: number;
-      }
-    ).c;
-    const segments = this.db
-      .prepare('SELECT * FROM segments WHERE source_id = ? ORDER BY sequence LIMIT ? OFFSET ?')
-      .all(sourceId, limit, offset) as Segment[];
-    return { segments, total };
-  }
-
-  getSegment(segmentId: string): Segment | null {
-    const row = this.db.prepare('SELECT * FROM segments WHERE id = ?').get(segmentId) as
-      Segment | undefined;
-    return row ?? null;
-  }
-
-  /**
-   * 片段上下文：取同来源中位于该片段前后的原文（字符预算内），
-   * 供引用展开时显示“前后少量上下文”。
-   */
-  getSegmentContext(
-    segmentId: string,
-    beforeChars: number,
-    afterChars: number,
-  ): { segment: Segment; before: string; after: string; sourceTitle: string } | null {
-    const seg = this.getSegment(segmentId);
-    if (!seg) return null;
-    const source = this.get(seg.source_id);
-    if (!source) return null;
-    const beforeRows = this.db
-      .prepare(
-        'SELECT text FROM segments WHERE source_id = ? AND sequence < ? ORDER BY sequence DESC',
-      )
-      .all(seg.source_id, seg.sequence) as Array<{ text: string }>;
-    const afterRows = this.db
-      .prepare(
-        'SELECT text FROM segments WHERE source_id = ? AND sequence > ? ORDER BY sequence ASC',
-      )
-      .all(seg.source_id, seg.sequence) as Array<{ text: string }>;
-    let before = '';
-    for (const r of beforeRows) {
-      if (before.length >= beforeChars) break;
-      before = r.text + '\n\n' + before;
-    }
-    before = before.slice(-beforeChars);
-    let after = '';
-    for (const r of afterRows) {
-      if (after.length >= afterChars) break;
-      after += r.text + '\n\n';
-    }
-    after = after.slice(0, afterChars);
-    return { segment: seg, before, after, sourceTitle: source.title };
-  }
-
   /**
    * 扩展采集：把新轮次追加到 chatgpt_web 来源。
    * 幂等键：(source_id, external_node_id=顺序, content_hash)。
-   * 回答被编辑或重新生成（同顺序不同指纹）时保存为新版本，不覆盖旧版本。
+   * 回答被编辑或重新生成（同顺序不同指纹）时保存为新版本：
+   * 旧版本 is_active_branch 置 0（保留历史、可查看），新版本为唯一活动版本。
+   * 提取默认只使用活动版本（Extractor 过滤）。
    * 返回 {accepted, deduplicated}。
    */
   appendCapturedTurns(
@@ -227,43 +236,64 @@ export class SourceStore {
     const source = this.get(sourceId);
     if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${sourceId}`);
     const existing = this.db
-      .prepare('SELECT sequence, content_hash FROM segments WHERE source_id = ? ORDER BY sequence')
-      .all(sourceId) as Array<{ sequence: number; content_hash: string }>;
+      .prepare(
+        'SELECT sequence, external_node_id, content_hash FROM segments WHERE source_id = ? ORDER BY sequence',
+      )
+      .all(sourceId) as Array<{
+      sequence: number;
+      external_node_id: string | null;
+      content_hash: string;
+    }>;
     const maxSeq = existing.length > 0 ? Math.max(...existing.map((e) => e.sequence)) : -1;
     const insertSegment = this.db.prepare(
       `INSERT INTO segments (id, source_id, sequence, role, external_node_id, external_parent_id,
         is_active_branch, occurred_at, text, content_hash, metadata_json)
        VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?, ?, '{}')`,
     );
+    // 同一 external_node_id 出现新指纹（编辑/重新生成）→ 旧版本全部转为非活动分支
+    const deactivateSiblings = this.db.prepare(
+      'UPDATE segments SET is_active_branch = 0 WHERE source_id = ? AND external_node_id = ? AND content_hash != ?',
+    );
     const existsStmt = this.db.prepare(
       'SELECT 1 AS one FROM segments WHERE source_id = ? AND external_node_id = ? AND content_hash = ?',
     );
+    const activeStmt = this.db.prepare(
+      'SELECT 1 AS one FROM segments WHERE source_id = ? AND external_node_id = ? AND content_hash = ? AND is_active_branch = 1',
+    );
+    const reactivateStmt = this.db.prepare(
+      'UPDATE segments SET is_active_branch = 1 WHERE source_id = ? AND external_node_id = ? AND content_hash = ?',
+    );
     const updateHash = this.db.prepare('UPDATE sources SET content_hash = ? WHERE id = ?');
     const updateTitle = this.db.prepare('UPDATE sources SET title = ? WHERE id = ?');
+    const touchImported = this.db.prepare(
+      'UPDATE sources SET imported_at = ?, captured_at = ? WHERE id = ?',
+    );
     let accepted = 0;
     let deduplicated = 0;
+    const now = new Date().toISOString();
     const tx = this.db.transaction(() => {
       let next = maxSeq + 1;
       const allHashes: string[] = existing.map((e) => e.content_hash);
       for (const turn of [...turns].sort((a, b) => a.order - b.order)) {
         const hash = sha256(turn.text);
+        const node = String(turn.order);
         // 后端不信任扩展端指纹，自行计算并校验
-        const dup = existsStmt.get(sourceId, String(turn.order), hash) as
-          { one: number } | undefined;
+        const dup = existsStmt.get(sourceId, node, hash) as { one: number } | undefined;
         if (dup) {
+          const isActive = activeStmt.get(sourceId, node, hash) as { one: number } | undefined;
+          if (isActive) {
+            deduplicated += 1;
+            continue;
+          }
+          // 该指纹曾作为旧版本存在、当前被替代：同一内容再次成为当前版本 → 重新激活
+          reactivateStmt.run(sourceId, node, hash);
+          deactivateSiblings.run(sourceId, node, hash);
           deduplicated += 1;
           continue;
         }
-        insertSegment.run(
-          randomUUID(),
-          sourceId,
-          next++,
-          turn.role,
-          String(turn.order),
-          null,
-          turn.text,
-          hash,
-        );
+        // 新指纹：同顺序的旧版本保留但转为非活动分支（回答被编辑/重新生成）
+        deactivateSiblings.run(sourceId, node, hash);
+        insertSegment.run(randomUUID(), sourceId, next++, turn.role, node, now, turn.text, hash);
         allHashes.push(hash);
         accepted += 1;
       }
@@ -271,9 +301,97 @@ export class SourceStore {
       if (opts?.title && opts.title.trim().length > 0 && opts.title !== source.title) {
         updateTitle.run(opts.title.trim(), sourceId);
       }
+      // 每次成功追加都刷新「最近同步」（修复 P1-6.6：不再停留在首次采集时间）
+      if (accepted > 0 || deduplicated > 0) {
+        touchImported.run(now, now, sourceId);
+      }
     });
     tx();
     return { accepted, deduplicated };
+  }
+
+  /**
+   * 对话身份合并（修复 P1-6.5）：新对话先用 page:<hash> 身份保存，
+   * ChatGPT 分配正式 /c/<id> 后，把临时来源并入正式来源。
+   * 合并策略：片段按 (external_node_id, content_hash) 幂等搬运（不重复、不丢内容），
+   * 临时来源行随后删除（原文 vault 副本按内容指纹保留，不丢原件）。
+   */
+  mergeConversationSources(
+    fromSourceId: string,
+    intoSourceId: string,
+  ): { moved: number; deduplicated: number } {
+    const from = this.get(fromSourceId);
+    const into = this.get(intoSourceId);
+    if (!from || !into) throw new IxaError(ErrorCodes.NOT_FOUND, '合并来源不存在');
+    if (from.provider !== 'chatgpt_web' || into.provider !== 'chatgpt_web') {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '仅支持 chatgpt_web 来源合并');
+    }
+    const fromSegs = this.db
+      .prepare('SELECT * FROM segments WHERE source_id = ? ORDER BY sequence')
+      .all(fromSourceId) as Segment[];
+    const intoExisting = this.db
+      .prepare('SELECT external_node_id, content_hash FROM segments WHERE source_id = ?')
+      .all(intoSourceId) as Array<{ external_node_id: string | null; content_hash: string }>;
+    const intoKeys = new Set(intoExisting.map((s) => `${s.external_node_id}|${s.content_hash}`));
+    const maxSeq =
+      intoExisting.length > 0
+        ? ((
+            this.db
+              .prepare('SELECT MAX(sequence) AS m FROM segments WHERE source_id = ?')
+              .get(intoSourceId) as { m: number | null }
+          ).m ?? -1)
+        : -1;
+    const insert = this.db.prepare(
+      `INSERT INTO segments (id, source_id, sequence, role, external_node_id, external_parent_id,
+        is_active_branch, occurred_at, text, content_hash, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const moveEvidence = this.db.prepare(
+      'UPDATE item_evidence SET segment_id = ? WHERE segment_id = ?',
+    );
+    const deleteFrom = this.db.prepare('DELETE FROM segments WHERE source_id = ?');
+    const deleteSource = this.db.prepare('DELETE FROM sources WHERE id = ?');
+    let moved = 0;
+    let deduplicated = 0;
+    let next = maxSeq + 1;
+    const tx = this.db.transaction(() => {
+      for (const seg of fromSegs) {
+        const key = `${seg.external_node_id}|${seg.content_hash}`;
+        if (intoKeys.has(key)) {
+          // 临时来源已有的提取依据指向重复片段 → 转挂到正式来源的同内容片段
+          const target = this.db
+            .prepare(
+              'SELECT id FROM segments WHERE source_id = ? AND external_node_id = ? AND content_hash = ? LIMIT 1',
+            )
+            .get(intoSourceId, seg.external_node_id, seg.content_hash) as
+            { id: string } | undefined;
+          if (target) moveEvidence.run(target.id, seg.id);
+          deduplicated += 1;
+          continue;
+        }
+        const newId = randomUUID();
+        insert.run(
+          newId,
+          intoSourceId,
+          next++,
+          seg.role,
+          seg.external_node_id,
+          seg.external_parent_id,
+          seg.is_active_branch,
+          seg.occurred_at,
+          seg.text,
+          seg.content_hash,
+          seg.metadata_json,
+        );
+        moveEvidence.run(newId, seg.id);
+        intoKeys.add(key);
+        moved += 1;
+      }
+      deleteFrom.run(fromSourceId);
+      deleteSource.run(fromSourceId);
+    });
+    tx();
+    return { moved, deduplicated };
   }
 
   /** 来源的派生理解条目数。 */
@@ -307,10 +425,11 @@ export class SourceStore {
     del();
   }
 
-  /** 解析该来源对应的 vault 内容指纹路径（raw_path 存的是 vault 相对路径或绝对路径）。 */
+  /** 解析该来源对应的 vault 内容指纹路径（raw_path 为严格 vault 相对路径；授权撤销后拒绝）。 */
   rawContent(id: string, vaultRead: (path: string) => Buffer): Buffer | null {
     const source = this.get(id);
     if (!source) return null;
+    assertSourceAuthorized(this.db, id);
     try {
       return vaultRead(source.raw_path);
     } catch {

@@ -38,6 +38,13 @@ export const setupInputSchema = z.object({
 });
 export type SetupInput = z.infer<typeof setupInputSchema>;
 
+export const setupResultSchema = z.object({
+  ok: z.literal(true),
+  /** true 表示数据目录已切换，本进程运行时已失效，需要重启应用 */
+  restartRequired: z.boolean(),
+});
+export type SetupResult = z.infer<typeof setupResultSchema>;
+
 export const createProjectInputSchema = z.object({
   name: z.string().min(1).max(200),
   rootPath: z.string().nullable(),
@@ -45,18 +52,42 @@ export const createProjectInputSchema = z.object({
 });
 export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
 
-export const importPathsInputSchema = z.object({
-  /** 用户通过原生对话框明确选择的文件路径（这是授权来源） */
-  paths: z.array(z.string().min(1)).min(1).max(200),
+/**
+ * 原生对话框选择结果：ticket 是主进程签发的一次性授权票据。
+ * 渲染进程只拿到票据（与对话框返回的真实路径），不能自行声明任意路径。
+ * 后续 import/export/restore IPC 只接受票据，不接受渲染层传入的路径。
+ */
+export const pickResultSchema = z.object({
+  ticket: z.string().min(8),
+  paths: z.array(z.string().min(1)).min(1),
+});
+export type PickResult = z.infer<typeof pickResultSchema>;
+
+export const importPickedInputSchema = z.object({
+  /** pickFiles 返回的一次性票据（使用后立即作废） */
+  ticket: z.string().min(8),
   projectId: z.string().uuid().nullable(),
 });
-export type ImportPathsInput = z.infer<typeof importPathsInputSchema>;
+export type ImportPickedInput = z.infer<typeof importPickedInputSchema>;
+
+export const importFailureSchema = z.object({
+  path: z.string(),
+  message: z.string(),
+});
+export type ImportFailure = z.infer<typeof importFailureSchema>;
 
 export const registerProjectDirInputSchema = z.object({
+  /** pickFiles('directory') 返回的一次性票据 */
+  ticket: z.string().min(8),
   projectId: z.string().uuid(),
-  rootPath: z.string().min(1),
 });
 export type RegisterProjectDirInput = z.infer<typeof registerProjectDirInputSchema>;
+
+export const exportDataInputSchema = z.object({
+  /** pickSaveZip 返回的一次性票据（导出目标只能来自原生保存对话框） */
+  ticket: z.string().min(8),
+});
+export type ExportDataInput = z.infer<typeof exportDataInputSchema>;
 
 export type SourceListItem = {
   source: Source;
@@ -150,8 +181,15 @@ export const restorePreviewSchema = z.object({
   counts: z.record(z.string(), z.number()),
   projects: z.array(z.object({ id: z.string(), name: z.string() })),
   warnings: z.array(z.string()),
+  /** 恢复凭证：previewRestore 签发，restoreData 必须携带（防止绕过预览直接恢复） */
+  previewToken: z.string(),
 });
 export type RestorePreview = z.infer<typeof restorePreviewSchema>;
+
+export const restoreDataInputSchema = z.object({
+  previewToken: z.string().min(8),
+});
+export type RestoreDataInput = z.infer<typeof restoreDataInputSchema>;
 
 export const settingsViewSchema = z.object({
   config: z.object({
@@ -186,7 +224,7 @@ export type ExportResult = z.infer<typeof exportResultSchema>;
 export interface IxaIpcApi {
   // 应用状态
   getState(): Promise<AppState>;
-  completeSetup(input: SetupInput): Promise<{ ok: true }>;
+  completeSetup(input: SetupInput): Promise<SetupResult>;
   // 项目
   listProjects(): Promise<Project[]>;
   createProject(input: CreateProjectInput): Promise<Project>;
@@ -194,10 +232,14 @@ export interface IxaIpcApi {
     id: string;
     status: 'active' | 'paused' | 'archived';
   }): Promise<Project>;
-  // 导入（文件选择必须经过原生对话框）
-  pickFiles(kind: 'documents' | 'chatgptExport' | 'directory'): Promise<string[] | null>;
-  pickSaveZip(defaultName: string): Promise<string | null>;
-  importPaths(input: ImportPathsInput): Promise<{ jobIds: string[] }>;
+  // 导入（文件选择必须经过原生对话框；渲染进程只持有一次性票据）
+  pickFiles(kind: 'documents' | 'chatgptExport' | 'directory'): Promise<PickResult | null>;
+  pickSaveZip(defaultName: string): Promise<PickResult | null>;
+  pickRestoreZip(): Promise<PickResult | null>;
+  importPaths(input: ImportPickedInput): Promise<{
+    jobIds: string[];
+    failed: ImportFailure[];
+  }>;
   registerProjectDirectory(input: RegisterProjectDirInput): Promise<{ jobId: string }>;
   // 来源
   listSources(input: { projectId: string | null }): Promise<SourceListItem[]>;
@@ -267,10 +309,10 @@ export interface IxaIpcApi {
     captureEnabled: boolean;
     lastSyncAt: string | null;
   }>;
-  // 导出 / 恢复
-  exportData(targetPath: string): Promise<ExportResult>;
-  previewRestore(zipPath: string): Promise<RestorePreview>;
-  restoreData(zipPath: string): Promise<{ ok: true }>;
+  // 导出 / 恢复（目标与来源路径都只能来自原生对话框票据）
+  exportData(input: ExportDataInput): Promise<ExportResult>;
+  previewRestore(input: { ticket: string }): Promise<RestorePreview>;
+  restoreData(input: RestoreDataInput): Promise<{ ok: true; restartRequired: true }>;
   openLogsFolder(): Promise<{ ok: true }>;
   // 审计（设置页“最近操作”）
   listAuditEvents(limit: number): Promise<AuditEvent[]>;

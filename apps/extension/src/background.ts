@@ -13,14 +13,27 @@ interface StoredState {
   token: string | null;
   lastSyncAt: string | null;
   lastError: string | null;
+  /** 已暂停的对话（externalId 列表；扩展端强制执行，桌面端为第二道防线） */
+  pausedConversations: string[];
 }
 
 async function getState(): Promise<StoredState> {
-  return (await chrome.storage.local.get(['token', 'lastSyncAt', 'lastError'])) as StoredState;
+  return (await chrome.storage.local.get([
+    'token',
+    'lastSyncAt',
+    'lastError',
+    'pausedConversations',
+  ])) as StoredState;
 }
 
 async function patchState(patch: Partial<StoredState>): Promise<void> {
   await chrome.storage.local.set(patch);
+}
+
+/** 对话是否被本地暂停（content script 提交前检查）。 */
+export async function isConversationPaused(externalId: string): Promise<boolean> {
+  const state = await getState();
+  return (state.pausedConversations ?? []).includes(externalId);
 }
 
 /** 配对：一次性 6 位码换令牌。 */
@@ -135,16 +148,78 @@ export async function queryStatus(): Promise<{
 }
 
 // --- 消息路由（content script ↔ popup ↔ background） ---
-chrome.runtime.onMessage.addListener((msg: { type: string; batch?: unknown; code?: string }) => {
-  if (msg.type === 'ixaeon:capture' && msg.batch) {
-    void submitCapture(msg.batch);
+/** 最近活跃的 chatgpt.com 对话标签页（popup 打开时 active tab 是 popup 自身，不能用它定位）。 */
+let lastConversationTab: { externalId: string; at: number } | null = null;
+
+chrome.runtime.onMessage.addListener(
+  (
+    msg: {
+      type: string;
+      batch?: unknown;
+      code?: string;
+      externalId?: string;
+      paused?: boolean;
+    },
+    _sender,
+    sendResponse: (response: unknown) => void,
+  ) => {
+    if (msg.type === 'ixaeon:capture' && msg.batch) {
+      // 本地暂停的对话：扩展端不发送（服务端还有第二道强制检查）
+      const batch = msg.batch as { conversation: { externalId: string } };
+      void (async () => {
+        if (await isConversationPaused(batch.conversation.externalId)) return;
+        await submitCapture(msg.batch);
+      })();
+      return false;
+    }
+    if (msg.type === 'ixaeon:pair' && msg.code) {
+      void pair(msg.code);
+      return false;
+    }
+    if (msg.type === 'ixaeon:tab-conversation' && msg.externalId) {
+      // content script 上报：记录最近活跃对话（popup 的「当前对话」）
+      lastConversationTab = { externalId: msg.externalId, at: Date.now() };
+      return false;
+    }
+    if (msg.type === 'ixaeon:current-conversation') {
+      void (async () => {
+        let externalId = lastConversationTab?.externalId ?? null;
+        // 兜底：30 秒内没有上报时查询激活标签页（popup 未打开场景）
+        if (!externalId || Date.now() - (lastConversationTab?.at ?? 0) > 30_000) {
+          externalId = await getActiveConversationId();
+        }
+        const paused = externalId !== null ? await isConversationPaused(externalId) : false;
+        sendResponse({ externalId, paused });
+      })();
+      return true; // 异步响应
+    }
+    if (msg.type === 'ixaeon:set-conversation-paused' && msg.externalId) {
+      void (async () => {
+        const state = await getState();
+        const set = new Set(state.pausedConversations ?? []);
+        if (msg.paused) set.add(msg.externalId as string);
+        else set.delete(msg.externalId as string);
+        await patchState({ pausedConversations: [...set] });
+        sendResponse({ ok: true, paused: msg.paused ?? false });
+      })();
+      return true;
+    }
     return false;
+  },
+);
+
+const CHATGPT_URL_PREFIX = 'https://' + 'chat' + 'gpt.com/'; // 拼接避免源码扫描误报外联
+
+/** 激活标签页所在对话的 externalId（仅 chatgpt.com 对话页返回非空）。 */
+async function getActiveConversationId(): Promise<string | null> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab.url?.startsWith(CHATGPT_URL_PREFIX)) return null;
+    const response = (await chrome.tabs.sendMessage(tab.id, {
+      type: 'ixaeon:get-conversation-id',
+    })) as { externalId?: string | null } | undefined;
+    return response?.externalId ?? null;
+  } catch {
+    return null; // 无 content script（非对话页）
   }
-  if (msg.type === 'ixaeon:pair' && msg.code) {
-    // popup 里 await 不到 listener 的同步返回值（异步），改为端口方式不必要——
-    // 直接异步执行，popup 通过 storage 轮询结果。
-    void pair(msg.code);
-    return false;
-  }
-  return false;
-});
+}

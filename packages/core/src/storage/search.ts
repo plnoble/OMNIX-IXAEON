@@ -1,5 +1,6 @@
 import type { CoreDatabase } from '../db/database.js';
 import type { SearchResult } from '@ixaeon/contracts';
+import { assertSourceAuthorized } from '../access.js';
 
 export interface SegmentSearchHit {
   segmentId: string;
@@ -14,26 +15,30 @@ export interface SegmentSearchHit {
 /**
  * SQLite FTS5 全文搜索（trigram，支持中文）。
  * 查询词进入 FTS MATCH 前做引号包裹，防止语法注入。
+ *
+ * 项目隔离（修复 P1-4）：指定 projectId 时仅返回明确属于该项目的来源片段
+ * （project_id 严格相等）；未分配资料只在全局检索（projectId=null）出现。
+ * 已撤销授权的来源在任何搜索中都不返回原文。
  */
 export class SearchService {
   constructor(private readonly db: CoreDatabase) {}
 
   private toMatchQuery(query: string): string | null {
     const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      // trigram 最少 3 字符；短词用 LIKE 兜底（见下方）
+    if (trimmed.length < 3) {
+      // trigram 最少 3 字符；更短的关键词（如中文双字词「析衍」）用 LIKE 兜底（见下方）
       return null;
     }
-    // 按空白拆词，每个词做短语引号包裹
+    // 按空白拆词，每个词做短语引号包裹（trigram 要求 ≥3 字符）
     const terms = trimmed
       .split(/\s+/)
-      .filter((t) => t.length >= 2)
+      .filter((t) => t.length >= 3)
       .map((t) => `"${t.replace(/"/g, '""')}"`);
     if (terms.length === 0) return null;
     return terms.join(' OR ');
   }
 
-  /** 片段全文搜索（带来源标题、项目过滤）。 */
+  /** 片段全文搜索（带来源标题、项目隔离与授权过滤）。 */
   searchSegments(
     query: string,
     opts: { projectId?: string | null; limit?: number } = {},
@@ -65,15 +70,17 @@ export class SearchService {
         source_title: string;
         project_id: string | null;
       }>;
-      return rows.map((r) => ({
-        segmentId: r.segment_id,
-        sourceId: r.source_id,
-        sourceTitle: r.source_title,
-        excerpt: r.excerpt ?? '',
-        role: r.role,
-        occurredAt: r.occurred_at,
-        projectId: r.project_id,
-      }));
+      return rows
+        .filter((r) => this.filterAuthorized(r.source_id))
+        .map((r) => ({
+          segmentId: r.segment_id,
+          sourceId: r.source_id,
+          sourceTitle: r.source_title,
+          excerpt: r.excerpt ?? '',
+          role: r.role,
+          occurredAt: r.occurred_at,
+          projectId: r.project_id,
+        }));
     }
     // 短词 LIKE 兜底
     const like = `%${query.replace(/[%_]/g, '')}%`;
@@ -100,15 +107,27 @@ export class SearchService {
       source_title: string;
       project_id: string | null;
     }>;
-    return rows.map((r) => ({
-      segmentId: r.segment_id,
-      sourceId: r.source_id,
-      sourceTitle: r.source_title,
-      excerpt: r.excerpt ?? '',
-      role: r.role,
-      occurredAt: r.occurred_at,
-      projectId: r.project_id,
-    }));
+    return rows
+      .filter((r) => this.filterAuthorized(r.source_id))
+      .map((r) => ({
+        segmentId: r.segment_id,
+        sourceId: r.source_id,
+        sourceTitle: r.source_title,
+        excerpt: r.excerpt ?? '',
+        role: r.role,
+        occurredAt: r.occurred_at,
+        projectId: r.project_id,
+      }));
+  }
+
+  /** 授权过滤：撤销授权的来源不进入任何搜索结果（含 LIKE 兜底路径）。 */
+  private filterAuthorized(sourceId: string): boolean {
+    try {
+      assertSourceAuthorized(this.db, sourceId);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** 结论（items）检索：供 MCP search_context 与问答候选。 */

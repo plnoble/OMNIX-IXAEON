@@ -57,7 +57,7 @@ beforeAll(() => {
   const perms = new PermissionService(db);
   const sources = new SourceStore(db);
   const imports = new ImportService(db, vault, perms, sources);
-  imports.importFile(evilDoc, { projectId, allowedPaths: [evilDoc] });
+  imports.importFile(evilDoc, { projectId, permissionId: perms.grantFile(evilDoc).id });
 });
 
 afterAll(() => {
@@ -118,7 +118,7 @@ describe('M5 安全：文件权限', () => {
     const sources = new SourceStore(db);
     const imports = new ImportService(db, vault, perms, sources);
     const doc = fixturePath('files', 'project-notes.md');
-    expect(() => imports.importFile(doc, { projectId: null, allowedPaths: [] })).toThrowError();
+    expect(() => imports.importFile(doc, { projectId: null, permissionId: "no-permission-id" })).toThrowError();
   });
 
   it('敏感文件（.env）即使在允许列表中也不可导入', () => {
@@ -128,7 +128,7 @@ describe('M5 安全：文件权限', () => {
     const imports = new ImportService(db, vault, perms, sources);
     const envFile = join(dir, 'app.env');
     writeFileSync(envFile, 'SECRET=1');
-    expect(() => imports.importFile(envFile, { projectId: null, allowedPaths: [envFile] })).toThrowError(
+    expect(() => imports.importFile(envFile, { projectId: null, permissionId: perms.grantFile(envFile).id })).toThrowError(
       /敏感|不允许|env/i,
     );
   });
@@ -157,17 +157,43 @@ describe('M5 安全：日志泄漏', () => {
     expect(content).not.toContain('ghi789');
   });
 
-  it('超长字段截断（完整对话正文不落日志）', () => {
+  it('超长正文与敏感字段：正文只保留长度+哈希摘要，绝不出现任何片段（修复 P1-9）', () => {
     const logFile = join(dir, 'test-sec2.log');
     const logger = new Logger({ file: logFile, baseFields: { app: 'ixaeon' } });
+    const uniquePhrase = ` UNIQUE-SECRET-${Date.now()}-MARKER `;
     const unit = '全文对话正文XYZ'; // 9 字符
-    const longText = unit.repeat(3000); // 27000 字符
-    logger.info('批量任务进度', { text: longText, count: 1 });
+    const longText =
+      `开头标记${uniquePhrase}` + unit.repeat(3000) + '结尾标记'; // > 27000 字符
+    logger.info('批量任务进度', { text: longText, content: longText, count: 1 });
+    logger.debug('debug 级别同样清洗', { prompt: longText });
     const content = readFileSync(logFile, 'utf8');
-    // 完整正文不落盘（截断到 2000 字符 + 截断标记）
+    // 修复前缺陷：截断到 2000 字符会把开头/中间/结尾正文写进日志。现在断言
+    // 开头、中间、结尾以及独特短语都不出现（不只是「完整字符串不存在」）
     expect(content).not.toContain(longText);
+    expect(content).not.toContain(uniquePhrase);
+    expect(content).not.toContain('开头标记');
+    expect(content).not.toContain('结尾标记');
     expect(content).not.toContain(unit.repeat(2001));
-    expect(content).toContain(`[truncated ${longText.length}]`);
+    expect(content).not.toContain(unit);
+    // 摘要格式：长度 + 哈希（可核对、不可复原）
+    expect(content).toMatch(/"text":"\[content \d+ chars sha256:[0-9a-f]{12}\]"/);
+    expect(content).toContain('"count":1');
+  });
+
+  it('Error / cause / 模型响应 / HTTP 错误正文同样清洗', () => {
+    const logFile = join(dir, 'test-sec3.log');
+    const logger = new Logger({ file: logFile, baseFields: { app: 'ixaeon' } });
+    const secretPhrase = `用户悄悄话-${Date.now()}-不能出现在日志`;
+    const err = new Error(`模型返回错误：${secretPhrase}`, {
+      cause: new Error(`HTTP 500 body: ${secretPhrase}`),
+    });
+    logger.error('模型调用失败', { error: err, response: `{"message":"${secretPhrase}"}` });
+    const content = readFileSync(logFile, 'utf8');
+    expect(content).not.toContain(secretPhrase);
+    // Error 序列化后 message / cause.message / response 是摘要，不是正文
+    expect(content).toMatch(/"message":"\[content \d+ chars sha256:[0-9a-f]{12}\]"/);
+    expect(content).toMatch(/"cause":\{"name":"Error","message":"\[content \d+ chars sha256:[0-9a-f]{12}\]"\}/);
+    expect(content).toMatch(/"response":"\[content \d+ chars sha256:[0-9a-f]{12}\]"/);
   });
 });
 

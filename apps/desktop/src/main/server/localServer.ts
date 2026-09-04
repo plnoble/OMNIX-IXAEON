@@ -1,4 +1,4 @@
-import { randomBytes, randomInt, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID, createHash } from 'node:crypto';
 import type { CoreDatabase } from '@ixaeon/core';
 import {
   type PermissionService,
@@ -29,6 +29,8 @@ const APP_VERSION = '0.1.0';
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 1024 * 1024; // 扩展单次提交上限 1MB
 const CAPTURE_DOMAIN = 'chatgpt.com';
+/** 每来源自动提取去重窗口（毫秒）：窗口内同一来源重复提交不再生成提取任务 */
+const AUTO_ANALYZE_DEDUPE_MS = 60_000;
 
 /** 一次性配对码（内存保存，10 分钟有效，单次使用）。 */
 interface PairingCode {
@@ -40,15 +42,20 @@ interface PairingCode {
  * 本地 HTTP 接口（仅 127.0.0.1:43191）：
  * - /api/health：无鉴权健康检查（只暴露 ok / 版本 / 设置状态）
  * - /api/extension/*：浏览器扩展配对与增量提交（Bearer 扩展令牌）
+ * - /api/mcp/*：MCP STDIO 转发端点（localToken）
  *
  * 安全规则：
  * - 所有非 health 请求要求 Authorization: Bearer <token>
  * - 扩展端点校验 Origin（chrome-extension://）
  * - 请求体大小限制 1MB
  * - 撤销 chatgpt.com 授权后立即拒绝采集
+ * - 暂停的对话（config.capture.pausedConversations）双方强制执行
+ * - 采集成功且 autoAnalyze=true 时经 onCaptured 回调排队提取（去重防抖）
  */
 export class LocalServer {
   private pairingCode: PairingCode | null = null;
+  /** 最近一次自动提取排队时间（sourceId → ts），去重窗口内不重复入队 */
+  private lastAutoEnqueue = new Map<string, number>();
 
   constructor(
     private readonly deps: {
@@ -58,7 +65,8 @@ export class LocalServer {
       vault: Vault;
       getConfig: () => AppConfig;
       updateConfig: (mutate: (config: AppConfig) => AppConfig) => void;
-      onCaptured?: (sourceId: string) => void;
+      /** 采集成功回调（sourceId + 该批 accepted 数；autoAnalyze=true 时由 AppRuntime 排队提取） */
+      onCaptured?: (sourceId: string, acceptedCount: number) => void;
     },
   ) {}
 
@@ -111,6 +119,11 @@ export class LocalServer {
             ? 400
             : 500;
     return reply.code(status).send(apiErr);
+  }
+
+  /** 对话是否被用户暂停（服务端强制执行，与扩展端双保险）。 */
+  private isConversationPaused(externalId: string): boolean {
+    return this.deps.getConfig().capture.pausedConversations.includes(externalId);
   }
 
   async register(app: FastifyInstance): Promise<void> {
@@ -263,6 +276,53 @@ export class LocalServer {
       },
     });
 
+    // 暂停状态读写（扩展 popup 用；扩展令牌只读，写入走 desktop 设置页也可以）
+    app.get('/api/extension/paused', {
+      config: { bodyLimit: 1024 },
+      handler: async (request, reply) => {
+        try {
+          const which = this.requireToken(request.headers.authorization);
+          if (which !== 'extension') throw new IxaError(ErrorCodes.INVALID_TOKEN, '需要扩展令牌');
+          const config = this.deps.getConfig();
+          return reply.send({ paused: config.capture.pausedConversations });
+        } catch (err) {
+          const apiErr =
+            err instanceof IxaError
+              ? err.toApiError()
+              : { code: ErrorCodes.INVALID_TOKEN, message: String(err) };
+          return reply.code(401).send(apiErr);
+        }
+      },
+    });
+
+    app.post('/api/extension/pause-conversation', {
+      config: { bodyLimit: 4 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          const which = this.requireToken(request.headers.authorization);
+          if (which !== 'extension') throw new IxaError(ErrorCodes.INVALID_TOKEN, '需要扩展令牌');
+          const body = (request.body ?? {}) as { externalId?: unknown; paused?: unknown };
+          if (typeof body.externalId !== 'string' || body.externalId.length === 0) {
+            throw new IxaError(ErrorCodes.VALIDATION_FAILED, '缺少 externalId');
+          }
+          const paused = body.paused !== false; // 默认 true（暂停）
+          this.deps.updateConfig((c) => {
+            const set = new Set(c.capture.pausedConversations);
+            if (paused) set.add(body.externalId as string);
+            else set.delete(body.externalId as string);
+            return { ...c, capture: { ...c.capture, pausedConversations: [...set] } };
+          });
+          recordAudit(this.deps.db, 'extension.pause_conversation', {
+            externalIdHash: hashLabel(body.externalId),
+            paused,
+          });
+          return reply.send({ ok: true, paused });
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
     app.post('/api/extension/capture', {
       config: { bodyLimit: MAX_BODY_BYTES },
       handler: async (request, reply) => {
@@ -293,6 +353,15 @@ export class LocalServer {
             throw new IxaError(ErrorCodes.VALIDATION_FAILED, '采集批次格式错误');
           }
           const batch = parsed.data;
+          // 当前对话暂停：服务端强制拒绝（扩展端也有本地开关，双保险）
+          if (this.isConversationPaused(batch.conversation.externalId)) {
+            throw new IxaError(
+              ErrorCodes.DISABLED,
+              `该对话已被用户暂停，扩展不再提交其内容（externalId: ${hashLabel(
+                batch.conversation.externalId,
+              )}）`,
+            );
+          }
           const response = this.handleCaptureBatch(batch);
           return reply.send(response);
         } catch (err) {
@@ -315,27 +384,102 @@ export class LocalServer {
   }
 
   /**
-   * 幂等处理扩展批次：找到或创建 chatgpt_web 来源，追加去重，
+   * 幂等处理扩展批次：找到或创建 chatgpt_web 来源，追加去重（含版本管理），
    * 并把完整对话原文（按当前全部片段组装）存入 vault。
+   *
+   * 对话身份合并（修复 P1-6.5）：批次带正式 /c/<id> 而库里只有同内容的
+   * page:<hash> 临时来源时，把临时来源合并进正式来源（不重复、不丢内容）。
+   *
+   * 自动分析（修复 P1-6.1）：域授权有效 + 采集开启 + autoAnalyze=true 且本批
+   * 有新内容时，经 onCaptured 回调由 AppRuntime 排队提取任务；去重窗口内
+   * 同一来源不重复入队（防抖）。
    */
   private handleCaptureBatch(batch: CaptureBatch): CaptureBatchResponse {
     const { sources, db, permissions, vault } = this.deps;
     const externalId = batch.conversation.externalId;
-    const existing = db
+    let existing = db
       .prepare(
         "SELECT * FROM sources WHERE provider = 'chatgpt_web' AND external_id = ? ORDER BY imported_at DESC LIMIT 1",
       )
-      .get(externalId) as { id: string } | undefined;
+      .get(externalId) as { id: string; permission_id: string } | undefined;
+
+    // 身份合并：正式 ID 批次 + 库中存在临时（page:<hash>）来源且无正式来源
+    if (!existing && isFormalConversationId(externalId)) {
+      const temp = db
+        .prepare(
+          'SELECT s.id, s.permission_id, s.captured_at, s.title FROM sources s ' +
+            "WHERE s.provider = 'chatgpt_web' AND s.external_id LIKE 'page:%' " +
+            'ORDER BY s.imported_at DESC',
+        )
+        .all() as Array<{
+        id: string;
+        permission_id: string;
+        captured_at: string | null;
+        title: string;
+      }>;
+      for (const t of temp) {
+        // 同一场对话：临时来源的轮次与本批次首轮内容重叠（同 external_node_id+hash）
+        const firstTurn = batch.turns.slice().sort((a, b) => a.order - b.order)[0];
+        const overlap = firstTurn
+          ? (db
+              .prepare(
+                `SELECT 1 AS one FROM segments WHERE source_id = ? AND external_node_id = ? AND content_hash = ? LIMIT 1`,
+              )
+              .get(t.id, String(firstTurn.order), contentHashOf(firstTurn.text)) as
+              { one: number } | undefined)
+          : undefined;
+        if (overlap) {
+          // 先创建正式来源（沿用临时来源的授权），再把临时片段合并进来
+          const now = new Date().toISOString();
+          const formalId = randomUUID();
+          const initialText = batch.turns
+            .slice()
+            .sort((a, b) => a.order - b.order)
+            .map((x) => `${x.role === 'user' ? '用户' : 'AI'}：${x.text}`)
+            .join('\n\n');
+          const { hash } = vault.store(initialText);
+          db.prepare(
+            `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
+              captured_at, imported_at, permission_id, project_id, metadata_json)
+             VALUES (?, 'conversation', 'chatgpt_web', ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+          ).run(
+            formalId,
+            externalId,
+            batch.conversation.title || t.title,
+            hash,
+            Vault.relativePathFor(hash),
+            batch.clientTimestamp,
+            now,
+            t.permission_id,
+            JSON.stringify({ via: 'extension', merged_from: t.id, first_seen: now }),
+          );
+          const result = sources.mergeConversationSources(t.id, formalId);
+          recordAudit(db, 'capture.merge_identity', {
+            fromSourceId: t.id,
+            intoSourceId: formalId,
+            moved: result.moved,
+            deduplicated: result.deduplicated,
+          });
+          existing = db
+            .prepare('SELECT id, permission_id FROM sources WHERE id = ?')
+            .get(formalId) as { id: string; permission_id: string };
+          break;
+        }
+      }
+    }
+
     let sourceId: string;
+    let permissionId: string;
     if (existing) {
       sourceId = existing.id;
+      permissionId = existing.permission_id;
       const result = sources.appendCapturedTurns(
         sourceId,
         batch.turns.map((t) => ({ order: t.order, role: t.role, text: t.text })),
         { title: batch.conversation.title },
       );
       this.persistWebRaw(sourceId, vault);
-      this.deps.onCaptured?.(sourceId);
+      this.maybeAutoAnalyze(sourceId, result.accepted, permissionId);
       return { accepted: result.accepted, deduplicated: result.deduplicated, sourceId };
     }
     // 新对话：创建来源（需要一条 active 的 chatgpt.com 授权）
@@ -372,12 +516,30 @@ export class LocalServer {
     );
     recordAudit(db, 'capture.web', {
       sourceId,
-      externalId,
+      externalIdHash: hashLabel(externalId),
       accepted: result.accepted,
       deduplicated: result.deduplicated,
     });
-    this.deps.onCaptured?.(sourceId);
+    this.maybeAutoAnalyze(sourceId, result.accepted, domainPermission.id);
     return { accepted: result.accepted, deduplicated: result.deduplicated, sourceId };
+  }
+
+  /**
+   * 自动分析排队（防抖去重）：autoAnalyze=true 且本批有新内容时回调 AppRuntime。
+   * 60 秒窗口内同一来源的重复提交不重复生成提取任务（DOM 微小变化防抖）。
+   */
+  private maybeAutoAnalyze(sourceId: string, acceptedCount: number, permissionId: string): void {
+    if (acceptedCount === 0) return;
+    const config = this.deps.getConfig();
+    if (!config.capture.enabled || !config.capture.autoAnalyze) return;
+    // 域授权仍有效（持续采集下的自动分析必须可追溯授权）
+    const domainPermission = this.deps.permissions.activePermissionForDomain(CAPTURE_DOMAIN);
+    if (!domainPermission) return;
+    const last = this.lastAutoEnqueue.get(sourceId) ?? 0;
+    if (Date.now() - last < AUTO_ANALYZE_DEDUPE_MS) return;
+    this.lastAutoEnqueue.set(sourceId, Date.now());
+    recordAudit(this.deps.db, 'capture.auto_analyze_enqueued', { sourceId, permissionId });
+    this.deps.onCaptured?.(sourceId, acceptedCount);
   }
 
   /** 把当前全部片段组装成完整原文写入 vault，并更新 raw_path / content_hash。 */
@@ -398,4 +560,18 @@ export class LocalServer {
       sourceId,
     );
   }
+}
+
+/** 正式对话 ID 形如 /c/<uuid>（临时身份以 page: 开头）。 */
+function isFormalConversationId(externalId: string): boolean {
+  return /^\/c\/[A-Za-z0-9-]{6,}$/.test(externalId);
+}
+
+function contentHashOf(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+/** 日志/审计安全标签：externalId 本身可能含对话标题哈希，不可逆显示。 */
+function hashLabel(label: string): string {
+  return createHash('sha256').update(label).digest('hex').slice(0, 12);
 }

@@ -4,12 +4,19 @@ import { Button, Card, ErrorBanner, Field } from '../ui.js';
 
 /**
  * 首次设置向导：数据目录 → 模型 → 第一个项目。
- * 完成后写入 setupComplete；数据目录选择重启后生效。
+ * 自定义目录模式下完成设置会把全部数据写入新目录并要求重启（主进程原子切换）。
  */
-export function SetupWizard({ state, onDone }: { state: AppState; onDone: () => void }) {
+export function SetupWizard({
+  state,
+  onDone,
+}: {
+  state: AppState;
+  onDone: (restartRequired: boolean) => void;
+}) {
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [restartNotice, setRestartNotice] = useState<string | null>(null);
 
   const [useCustomDir, setUseCustomDir] = useState(false);
   const [customDir, setCustomDir] = useState('');
@@ -17,14 +24,16 @@ export function SetupWizard({ state, onDone }: { state: AppState; onDone: () => 
   const [apiKey, setApiKey] = useState('');
   const [projectName, setProjectName] = useState('我的项目');
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
+  const [projectRootTicket, setProjectRootTicket] = useState<string | null>(null);
 
   const envOverride = state.dataDir.length > 0; // e2e 环境注入数据目录
 
   const pickDir = async () => {
     try {
-      const paths = await api.pickFiles('directory');
-      if (paths && paths[0]) {
-        setProjectRoot(paths[0]);
+      const picked = await api.pickFiles('directory');
+      if (picked && picked.paths[0]) {
+        setProjectRoot(picked.paths[0]);
+        setProjectRootTicket(picked.ticket);
       }
     } catch (err) {
       setError(errMsg(err));
@@ -38,14 +47,33 @@ export function SetupWizard({ state, onDone }: { state: AppState; onDone: () => 
     }
     setBusy(true);
     try {
-      await api.completeSetup({
+      const result = await api.completeSetup({
         dataDir: useCustomDir && customDir.trim().length > 0 ? customDir.trim() : null,
         modelName: modelName.trim() || 'gpt-5.2',
         apiKey,
         projectName: projectName.trim(),
         projectRootPath: projectRoot,
       });
-      onDone();
+      if (result.restartRequired) {
+        // 自定义目录：数据已写入新目录，重启后从新目录启动
+        setRestartNotice('设置已保存到新数据目录。请关闭并重新打开 IXAEON，之后将直接进入主界面。');
+        return;
+      }
+      // 默认目录：目录票据已在向导持有 → 登记项目目录（folder 授权走主进程）
+      if (projectRootTicket) {
+        try {
+          const projects = await api.listProjects();
+          const mine = projects.find(
+            (p) => p.name.toLowerCase() === projectName.trim().toLowerCase(),
+          );
+          if (mine) {
+            await api.registerProjectDirectory({ ticket: projectRootTicket, projectId: mine.id });
+          }
+        } catch {
+          // 目录登记失败不阻塞首次设置完成
+        }
+      }
+      onDone(false);
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -63,6 +91,11 @@ export function SetupWizard({ state, onDone }: { state: AppState; onDone: () => 
       </header>
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {restartNotice && (
+        <Card title="设置完成 — 需要重启" testId="setup-restart-notice">
+          <p className="note">{restartNotice}</p>
+        </Card>
+      )}
 
       <Card title={`步骤 ${step + 1} / 3 — 数据目录`} testId="setup-step-dir">
         <p className="note">

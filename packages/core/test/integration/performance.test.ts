@@ -95,7 +95,7 @@ describe('M5 性能（50,000 条消息）', () => {
     const started = Date.now();
     const result = imports.importFile(file, {
       projectId,
-      allowedPaths: [file],
+      permissionId: perms.grantFile(file).id,
     });
     const seconds = (Date.now() - started) / 1000;
     console.log(`import 50k messages: ${seconds.toFixed(2)}s`);

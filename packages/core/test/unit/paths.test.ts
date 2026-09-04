@@ -79,29 +79,39 @@ describe('ZIP 条目安全拼接（Zip Slip 防护）', () => {
   });
 });
 
-describe('日志敏感字段遮盖', () => {
-  it('按 key 名遮盖', () => {
+describe('日志敏感字段遮盖（P1-9 白名单式清洗）', () => {
+  it('按 key 名遮盖：敏感键只留长度+哈希摘要（不可复原）', () => {
     const out = redactValue({
       apiKey: 'sk-abc123def456ghi789',
       authorization: 'Bearer xyz',
-      nested: { user_token: 't', ok: 'fine' },
+      nested: { user_token: 'topsecret-value', ok: 'fine' },
     }) as Record<string, unknown>;
-    expect(out['apiKey']).toBe('[REDACTED]');
-    expect(out['authorization']).toBe('[REDACTED]');
+    // 敏感键值不落日志（摘要形式，非原文）
+    expect(String(out['apiKey'])).toMatch(/^\[content \d+ chars sha256:[0-9a-f]{12}\]$/);
+    expect(String(out['apiKey'])).not.toContain('sk-abc123');
+    expect(String(out['authorization'])).toMatch(/^\[content \d+ chars sha256:[0-9a-f]{12}\]$/);
+    expect(String(out['authorization'])).not.toContain('Bearer xyz');
     const nested = out['nested'] as Record<string, unknown>;
-    expect(nested['user_token']).toBe('[REDACTED]');
+    expect(String(nested['user_token'])).not.toContain('topsecret-value');
     expect(nested['ok']).toBe('fine');
   });
 
-  it('字符串中的 sk- 形态密钥被遮盖', () => {
+  it('字符串中的 sk- / Bearer 形态密钥被遮盖', () => {
     const out = redactValue('error calling with sk-AbCdEfGhIjKlMnOp1234') as string;
     expect(out).not.toContain('sk-AbCdEfGhIjKlMnOp1234');
-    expect(out).toContain('[SK-REDACTED]');
+    expect(out).toContain('[REDACTED]');
+    const out2 = redactValue('auth Bearer aVeryLongTokenValue1234567890') as string;
+    expect(out2).not.toContain('aVeryLongTokenValue1234567890');
   });
 
-  it('超长字符串被截断（防原文正文入日志）', () => {
-    const long = 'x'.repeat(5000);
+  it('正文键不截断而是整体摘要（修复 P1-9：开头/中间/结尾都不落日志）', () => {
+    const long = 'HEADMARK'.padEnd(5000, 'x') + 'TAILMARK';
     const out = redactValue({ text: long }) as Record<string, unknown>;
-    expect(String(out['text']).length).toBeLessThan(2200);
+    expect(String(out['text'])).toMatch(/^\[content 5008 chars sha256:[0-9a-f]{12}\]$/);
+    expect(String(out['text'])).not.toContain('HEADMARK');
+    expect(String(out['text'])).not.toContain('TAILMARK');
+    // 普通短字符串仍保留（截断上限 300）
+    const out2 = redactValue({ note: '正常日志字段' }) as Record<string, unknown>;
+    expect(out2['note']).toBe('正常日志字段');
   });
 });

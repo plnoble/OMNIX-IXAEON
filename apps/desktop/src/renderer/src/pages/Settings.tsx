@@ -79,16 +79,16 @@ export function SettingsPage() {
     }
   };
 
-  // --- 导出 / 恢复（M5） ---
+  // --- 导出 / 恢复（M5；票据制：目标与来源都来自原生对话框） ---
 
   const doExport = async () => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const target = await api.pickSaveZip('ixaeon-export.zip');
-      if (!target) return;
-      const result: ExportResult = await api.exportData(target);
+      const picked = await api.pickSaveZip('ixaeon-export.zip');
+      if (!picked || picked.paths.length === 0) return;
+      const result: ExportResult = await api.exportData({ ticket: picked.ticket });
       setNotice(
         `已导出 ${result.fileCount} 个文件（${result.totalChars} 字符）到 ${result.zipPath}`,
       );
@@ -105,14 +105,10 @@ export function SettingsPage() {
     setNotice(null);
     setRestorePreview(null);
     try {
-      const picked = await api.pickFiles('chatgptExport');
-      const zipPath = picked?.[0];
-      if (!zipPath?.toLowerCase().endsWith('.zip')) {
-        setError('请选择 .zip 导出包（文件选择必须经过系统对话框）');
-        return;
-      }
-      const preview = await api.previewRestore(zipPath);
-      setRestorePreview({ ...preview, zipPath });
+      const picked = await api.pickRestoreZip();
+      if (!picked || picked.paths.length === 0) return;
+      const preview = await api.previewRestore({ ticket: picked.ticket });
+      setRestorePreview({ ...preview, zipPath: picked.paths[0]! });
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -125,7 +121,8 @@ export function SettingsPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.restoreData(restorePreview.zipPath);
+      // 恢复必须携带预览凭证（主进程一次性消费；未预览直接恢复会被拒绝）
+      await api.restoreData({ previewToken: restorePreview.previewToken });
       setRestorePreview(null);
       setNotice('恢复完成。请重启应用以加载恢复的数据（旧数据已自动备份）。');
     } catch (err) {
