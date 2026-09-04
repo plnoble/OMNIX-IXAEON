@@ -20,9 +20,9 @@ describe('数据库迁移', () => {
     migrate(db);
     expect(currentMigrationVersion(db)).toBeGreaterThan(0);
     const tables = (
-      db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        .all() as Array<{ name: string }>
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as Array<{
+        name: string;
+      }>
     ).map((r) => r.name);
     for (const expected of [
       'permissions',
@@ -60,7 +60,9 @@ describe('数据库迁移', () => {
     // 外键约束实际拦截非法插入
     expect(() =>
       db
-        .prepare('INSERT INTO segments (id, source_id, sequence, role, is_active_branch, text, content_hash) VALUES (?, ?, 0, ?, 1, ?, ?)')
+        .prepare(
+          'INSERT INTO segments (id, source_id, sequence, role, is_active_branch, text, content_hash) VALUES (?, ?, 0, ?, 1, ?, ?)',
+        )
         .run('seg-x', 'nonexistent-source', 'user', 'x', sha256('x')),
     ).toThrow();
     db.close();
@@ -74,7 +76,17 @@ describe('数据库迁移', () => {
     ).run('p1', 'file', 'C:/tmp/x.md', 'once', 'active', new Date().toISOString());
     db.prepare(
       'INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path, imported_at, permission_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run('s1', 'document', 'local_file', 'C:/tmp/x.md', '测试', sha256('raw'), 'vault/x', new Date().toISOString(), 'p1');
+    ).run(
+      's1',
+      'document',
+      'local_file',
+      'C:/tmp/x.md',
+      '测试',
+      sha256('raw'),
+      'vault/x',
+      new Date().toISOString(),
+      'p1',
+    );
     db.prepare(
       'INSERT INTO segments (id, source_id, sequence, role, is_active_branch, text, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
     ).run('seg1', 's1', 0, 'document', 1, 'IXAEON 是正式系统名，中文名是析衍', sha256('seg1'));

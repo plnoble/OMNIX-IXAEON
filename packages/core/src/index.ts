@@ -46,3 +46,4 @@ export {
 export { ItemService } from './storage/itemStore.js';
 export { AskService, type AskResult } from './storage/askStore.js';
 export { McpService } from './storage/mcpStore.js';
+export { ArchiveService } from './storage/archiveStore.js';

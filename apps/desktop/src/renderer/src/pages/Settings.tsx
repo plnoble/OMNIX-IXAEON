@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, errMsg, type AuditEvent, type SettingsView } from '../api.js';
+import {
+  api,
+  errMsg,
+  type AuditEvent,
+  type ExportResult,
+  type RestorePreview,
+  type SettingsView,
+} from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 
-/** 设置页：模型接入、采集开关、扩展配对、MCP 接入片段、最近操作。 */
+/** 恢复预览状态（含所选 ZIP 路径）。 */
+type RestorePreviewState = RestorePreview & { zipPath: string };
+
+/** 设置页：模型接入、采集开关、扩展配对、MCP 接入片段、导出恢复、最近操作。 */
 export function SettingsPage() {
   const [view, setView] = useState<SettingsView | null>(null);
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
@@ -10,6 +20,7 @@ export function SettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ modelName: '', apiKey: '' });
+  const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -61,6 +72,62 @@ export function SettingsPage() {
     try {
       await api.setAutoAnalyze(enabled);
       await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // --- 导出 / 恢复（M5） ---
+
+  const doExport = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const target = await api.pickSaveZip('ixaeon-export.zip');
+      if (!target) return;
+      const result: ExportResult = await api.exportData(target);
+      setNotice(
+        `已导出 ${result.fileCount} 个文件（${result.totalChars} 字符）到 ${result.zipPath}`,
+      );
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doPreviewRestore = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    setRestorePreview(null);
+    try {
+      const picked = await api.pickFiles('chatgptExport');
+      const zipPath = picked?.[0];
+      if (!zipPath?.toLowerCase().endsWith('.zip')) {
+        setError('请选择 .zip 导出包（文件选择必须经过系统对话框）');
+        return;
+      }
+      const preview = await api.previewRestore(zipPath);
+      setRestorePreview({ ...preview, zipPath });
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doRestore = async () => {
+    if (!restorePreview) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.restoreData(restorePreview.zipPath);
+      setRestorePreview(null);
+      setNotice('恢复完成。请重启应用以加载恢复的数据（旧数据已自动备份）。');
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -154,9 +221,62 @@ export function SettingsPage() {
           数据目录：<code>{view.dataDir}</code>
         </p>
         <p className="warn">{view.encryptionNotice}</p>
-        <Button onClick={() => void api.openLogsFolder()} testId="settings-open-logs">
-          打开日志目录
-        </Button>
+        <div className="field-row">
+          <Button onClick={() => void api.openLogsFolder()} testId="settings-open-logs">
+            打开日志目录
+          </Button>
+          <Button
+            kind="primary"
+            disabled={busy}
+            onClick={() => void doExport()}
+            testId="settings-export"
+          >
+            导出全部数据（ZIP）
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={() => void doPreviewRestore()}
+            testId="settings-restore-pick"
+          >
+            从导出包恢复…
+          </Button>
+        </div>
+
+        {restorePreview && (
+          <div className="restore-preview" data-testid="settings-restore-preview">
+            <h4>恢复预览</h4>
+            <ul>
+              <li>
+                导出时间：<code>{restorePreview.exportedAt.slice(0, 19).replace('T', ' ')}</code>
+                （应用版本 {restorePreview.appVersion || '未知'}）
+              </li>
+              <li>
+                包含：{restorePreview.counts.projects ?? 0} 项目 /{' '}
+                {restorePreview.counts.sources ?? 0} 来源 / {restorePreview.counts.items ?? 0}{' '}
+                条结论
+              </li>
+              {restorePreview.projects.length > 0 && (
+                <li>项目：{restorePreview.projects.map((p) => p.name).join('、')}</li>
+              )}
+              {restorePreview.warnings.map((w) => (
+                <li key={w} className="warn">
+                  ⚠ {w}
+                </li>
+              ))}
+            </ul>
+            <div className="wizard-nav">
+              <Button
+                kind="danger"
+                disabled={busy}
+                onClick={() => void doRestore()}
+                testId="settings-restore-confirm"
+              >
+                确认恢复（替换当前全部数据）
+              </Button>
+              <Button onClick={() => setRestorePreview(null)}>取消</Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card title="最近操作（审计）" testId="settings-audit">

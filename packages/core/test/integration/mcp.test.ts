@@ -149,9 +149,7 @@ describe('M3 search_context + get_source_excerpt（计划 6.2 / 6.3）', () => {
   });
 
   it('无效引用报 INVALID_REFERENCE，不猜测', () => {
-    expect(() => mcp.getSourceExcerpt('not-a-real-id', 2000)).toThrowError(
-      /引用不存在/,
-    );
+    expect(() => mcp.getSourceExcerpt('not-a-real-id', 2000)).toThrowError(/引用不存在/);
   });
 
   it('无 project_ref 时跨项目检索', () => {

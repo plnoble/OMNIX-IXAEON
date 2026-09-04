@@ -11,7 +11,18 @@ const desktop = resolve(root, 'apps', 'desktop');
 function run(label, command, args, cwd) {
   const started = Date.now();
   console.log(`\n▶ ${label}`);
-  const result = spawnSync(command, args, { cwd, shell: isWindows, stdio: 'inherit' });
+  const result = spawnSync(command, args, {
+    cwd,
+    shell: isWindows,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      // NSIS / Electron 二进制按需下载（走系统代理）
+      ELECTRON_GET_USE_PROXY: process.env.ELECTRON_GET_USE_PROXY ?? 'true',
+      HTTP_PROXY: process.env.HTTP_PROXY ?? '',
+      HTTPS_PROXY: process.env.HTTPS_PROXY ?? '',
+    },
+  });
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   if (result.status !== 0) {
     console.error(`✗ ${label} 失败（${seconds}s）`);

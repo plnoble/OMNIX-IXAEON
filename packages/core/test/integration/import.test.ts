@@ -145,7 +145,9 @@ describe('ChatGPT conversations.json 导入', () => {
     const file = join(dir, 'conversations-branched.json');
     writeFileSync(
       file,
-      JSON.stringify([makeFakeConversation({ title: '带分支对话', turns: 2, withInactiveBranch: true })]),
+      JSON.stringify([
+        makeFakeConversation({ title: '带分支对话', turns: 2, withInactiveBranch: true }),
+      ]),
       'utf8',
     );
     const result = imports.importChatgptExport(file, { projectId: null, allowedPaths: [file] });

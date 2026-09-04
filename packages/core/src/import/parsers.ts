@@ -261,14 +261,23 @@ export function parseChatgptConversations(
       cursor = mapping[cursor]?.parent ?? null;
     }
 
-    // 从根开始 DFS（父节点先于子节点），按访问顺序编号
+    // 从根开始遍历（父节点先于子节点），按访问顺序编号。
+    // 迭代式（显式栈）：官方导出可含数万消息的长链，递归会栈溢出。
     const roots = Object.values(mapping).filter((n) => n.parent === null);
     const segments: ParsedSegment[] = [];
     const visited = new Set<string>();
     let sequence = 0;
+    // contentHash 基于消息内容增量哈希（不整体 JSON.stringify —— 50k 消息时
+    // 会把整个对话再复制成一份巨大字符串，违反流式底线）
+    let hashInput = '';
 
-    const dfs = (node: RawNode, parentActive: boolean): void => {
-      if (visited.has(node.id)) return;
+    const stack: Array<{ node: RawNode; parentActive: boolean }> = roots.map((r) => ({
+      node: r,
+      parentActive: true,
+    }));
+    while (stack.length > 0) {
+      const { node, parentActive } = stack.pop()!;
+      if (visited.has(node.id)) continue;
       visited.add(node.id);
       const isActive = activeNodes.has(node.id) && parentActive;
       const msg = node.message;
@@ -292,14 +301,17 @@ export function parseChatgptConversations(
             text,
             metadata,
           });
+          hashInput += `${node.id}|${role}|${msg.create_time ?? ''}|${text}\n`;
         }
       }
-      for (const childId of node.children) {
-        const child = mapping[childId];
-        if (child) dfs(child, isActive);
+      // 子节点逆序入栈，保证出栈顺序与原递归 DFS（先序）一致
+      const children = node.children
+        .map((cid) => mapping[cid])
+        .filter((c): c is RawNode => c !== undefined);
+      for (let i = children.length - 1; i >= 0; i--) {
+        stack.push({ node: children[i]!, parentActive: isActive });
       }
-    };
-    for (const root of roots) dfs(root, true);
+    }
 
     const externalId =
       typeof conv.conversation_id === 'string' && conv.conversation_id.length > 0
@@ -311,7 +323,9 @@ export function parseChatgptConversations(
       provider: 'chatgpt_export',
       externalId,
       title,
-      contentHash: sha256(JSON.stringify(conv)),
+      contentHash: sha256(
+        `${externalId}|${title}|${conv.create_time ?? ''}|${conv.update_time ?? ''}|${hashInput}`,
+      ),
       capturedAt: unixToIso(conv.update_time ?? conv.create_time),
       segments,
       metadata: {

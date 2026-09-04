@@ -30,10 +30,6 @@ export function registerIpc(runtime: AppRuntime): void {
     return new Error(`${api.code} ${api.message}`);
   };
 
-  const notReady = (feature: string): never => {
-    throw new IxaError(ErrorCodes.DISABLED, `${feature}将在后续里程碑启用`);
-  };
-
   const enqueueExtractions = (
     sources: Array<{ id: string }>,
     projectId: string | null,
@@ -253,9 +249,9 @@ export function registerIpc(runtime: AppRuntime): void {
     },
 
     // --- 导出 / 恢复（M5） ---
-    exportData: async () => notReady('导出功能'),
-    previewRestore: async () => notReady('恢复功能'),
-    restoreData: async () => notReady('恢复功能'),
+    exportData: async (targetPath) => runtime.exportData(targetPath),
+    previewRestore: async (zipPath) => runtime.previewRestore(zipPath),
+    restoreData: async (zipPath) => runtime.restoreData(zipPath),
     openLogsFolder: async () => {
       await shell.openPath(join(runtime.state.dataDir, 'logs'));
       return { ok: true as const };

@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
+  ArchiveService,
   AskService,
   Extractor,
   FakeProvider,
@@ -32,7 +33,9 @@ import {
   IxaError,
   LOCAL_HTTP_PORT,
   type AppConfig,
+  type ExportResult,
   type Project,
+  type RestorePreview,
   type SetupInput,
   type WorkRun,
 } from '@ixaeon/contracts';
@@ -231,6 +234,60 @@ export class AppRuntime {
       .all(projectId, limit) as WorkRun[];
   }
 
+  // --- 导出 / 恢复（M5） ---
+
+  /** 导出全部数据到 ZIP。 */
+  exportData(targetPath: string): Promise<ExportResult> {
+    const archive = new ArchiveService(this.db, {
+      dataDir: this.dataDir,
+      dbPath: join(this.dataDir, 'ixaeon.db'),
+      vault: this.vault,
+      closeCurrentDb: () => {},
+    });
+    return archive.exportData(targetPath);
+  }
+
+  /** 恢复预览（只读）。 */
+  previewRestore(zipPath: string): Promise<RestorePreview> {
+    const archive = new ArchiveService(this.db, {
+      dataDir: this.dataDir,
+      dbPath: join(this.dataDir, 'ixaeon.db'),
+      vault: this.vault,
+      closeCurrentDb: () => {},
+    });
+    return archive.previewRestore(zipPath);
+  }
+
+  /**
+   * 恢复（整体替换）。恢复完成后当前进程的数据库/文件句柄已失效，
+   * 调用方应提示用户重启应用（恢复即返回 { ok: true, restartRequired: true }）。
+   */
+  async restoreData(zipPath: string): Promise<{ ok: true; restartRequired: true }> {
+    // 先停本地 HTTP 服务（释放 db 并发访问）
+    await this.stopServer();
+    const archive = new ArchiveService(this.db, {
+      dataDir: this.dataDir,
+      dbPath: join(this.dataDir, 'ixaeon.db'),
+      vault: this.vault,
+      closeCurrentDb: () => {
+        try {
+          this.jobs.stop();
+        } catch {
+          // job 轮询停止失败不影响恢复
+        }
+        try {
+          this.db.close();
+        } catch {
+          // 已关闭
+        }
+      },
+    });
+    await archive.restoreData(zipPath);
+    // 数据已替换：当前进程所有内存态服务均失效，要求重启
+    this.logger.info('数据恢复完成，等待应用重启', {});
+    return { ok: true, restartRequired: true };
+  }
+
   private async startServer(): Promise<void> {
     const fastify = Fastify({
       logger: false,
@@ -249,12 +306,18 @@ export class AppRuntime {
 
   async stop(): Promise<void> {
     this.jobs.stop();
+    await this.stopServer();
+    this.db.close();
+    this.logger.info('运行时已停止');
+  }
+
+  /** 停止本地 HTTP 服务（恢复数据前调用，避免恢复期间并发访问）。 */
+  private async stopServer(): Promise<void> {
     if (this.fastify) {
       await this.fastify.close();
       this.fastify = null;
+      this.logger.info('本地服务已停止（数据恢复）');
     }
-    this.db.close();
-    this.logger.info('运行时已停止');
   }
 
   get state() {

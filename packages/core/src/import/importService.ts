@@ -21,6 +21,16 @@ import { recordAudit } from '../audit.js';
 /** 单文件读取上限（与项目目录规则一致）。 */
 export const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 
+/**
+ * ChatGPT 官方导出（conversations.json）上限 512MB：
+ * 单文件包含全部历史对话，10MB 不足以覆盖长期使用（性能底线要求 50k 消息可导入）。
+ */
+export const MAX_CHATGPT_EXPORT_BYTES = 512 * 1024 * 1024;
+
+/** conversations.json（ChatGPT 官方导出文件名）走大文件上限。 */
+const isChatgptExportFile = (absPath: string): boolean =>
+  basename(absPath).toLowerCase() === 'conversations.json';
+
 export interface ImportFileResult {
   /** 新导入的来源 */
   created: Source[];
@@ -49,15 +59,20 @@ export class ImportService {
     private readonly sources: SourceStore,
   ) {}
 
-  private readAuthorized(absPath: string): { content: string; hash: string } {
+  private readAuthorized(
+    absPath: string,
+    opts: { maxBytes?: number } = {},
+  ): { content: string; hash: string } {
     this.permissions.assertPathAllowed(absPath);
+    const maxBytes =
+      opts.maxBytes ?? (isChatgptExportFile(absPath) ? MAX_CHATGPT_EXPORT_BYTES : MAX_IMPORT_BYTES);
     let raw: Buffer;
     try {
       const st = statSync(absPath);
-      if (st.size > MAX_IMPORT_BYTES) {
+      if (st.size > maxBytes) {
         throw new IxaError(
           ErrorCodes.FILE_TOO_LARGE,
-          `文件超过 10MB 上限（${st.size} 字节）：${absPath}`,
+          `文件超过 ${Math.floor(maxBytes / 1024 / 1024)}MB 上限（${st.size} 字节）：${absPath}`,
         );
       }
       raw = readFileSync(absPath);
@@ -84,7 +99,7 @@ export class ImportService {
    */
   importFile(
     absPath: string,
-    opts: { projectId: string | null; allowedPaths: string[] },
+    opts: { projectId: string | null; allowedPaths: string[]; maxBytes?: number },
   ): ImportFileResult {
     const allowed = new Set(opts.allowedPaths.map((p) => norm(p)));
     if (!allowed.has(norm(absPath))) {
@@ -94,7 +109,7 @@ export class ImportService {
       );
     }
     const permission = this.permissions.grantFile(absPath);
-    const { content, hash: fileHash } = this.readAuthorized(absPath);
+    const { content, hash: fileHash } = this.readAuthorized(absPath, { maxBytes: opts.maxBytes });
     const name = basename(absPath);
     const created: Source[] = [];
     const deduplicated: Source[] = [];
