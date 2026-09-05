@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   ArchiveService,
@@ -289,13 +290,22 @@ export class AppRuntime {
 
   /**
    * 恢复（整体替换，原子替换 + 失败回滚）。
-   * 恢复在临时目录完成全部校验后原子替换当前数据；失败时按步骤精确回滚
-   * （修复 R2），随后重开数据库、重建全部依赖服务并恢复本地服务与任务队列，
-   * 保证界面与本地接口继续可用。成功后当前进程运行时失效，要求重启应用。
+   * 恢复在临时目录完成全部校验后原子替换当前数据。
+   * 失败处理按实际进度分类（修复 N4/N5）：
+   * - 凭证/预校验失败（发生在关库之前）：原运行时未被触动，直接复用，
+   *   重启本地服务后重新抛出 —— 不叠加第二套服务（否则后续合法恢复会
+   *   因旧连接占用数据库文件而 EBUSY）；
+   * - 磁盘替换失败且回滚完整：重开数据库、重建全部依赖服务并恢复本地
+   *   服务与任务队列（修复 R2 运行时缺口）；
+   * - 回滚自身未完成：进入明确的恢复故障状态 —— 不重建、不启动服务、
+   *   不自动创建空数据库，保留备份目录位置并如实记录日志。
    * 必须携带 previewRestore 签发的一次性凭证（不允许绕过预览）。
    */
   async restoreData(previewToken: string): Promise<{ ok: true; restartRequired: true }> {
     await this.stopServer();
+    // 修复 N3：先停止本地服务的后台补分析计时器，再关闭数据库 ——
+    // 避免恢复完成后旧回调访问已关闭的连接（可选链：运行时可能尚未完全装配）
+    this.localServer?.stopBackgroundTasks();
     const archive = new ArchiveService(this.db, {
       dataDir: this.dataDir,
       dbPath: join(this.dataDir, 'ixaeon.db'),
@@ -316,13 +326,34 @@ export class AppRuntime {
     try {
       await archive.restoreDataWithToken(previewToken);
     } catch (err) {
-      // 恢复失败：磁盘数据已由 ArchiveService 回滚到旧状态；
-      // 运行时侧必须重开数据库、重建服务（修复 R2 运行时缺口），再恢复服务
-      this.logger.error('数据恢复失败，正在恢复运行时可用状态', { error: String(err) });
+      const rollbackIncomplete =
+        (err as { rollbackIncomplete?: boolean }).rollbackIncomplete === true;
+      const dbStillOpen = this.db.open === true;
+      if (dbStillOpen && !rollbackIncomplete) {
+        // 关库之前失败（凭证无效/过期/包损坏等）：磁盘与运行时都未被触动，
+        // 原运行时仍然有效 —— 直接复用，不叠加第二套服务（修复 N4/T7）
+        this.logger.warn('数据恢复被拒绝（原运行时保持可用）', { error: String(err) });
+        await this.startServer();
+        throw err;
+      }
+      if (rollbackIncomplete) {
+        // 修复 N5/T8：回滚自身未完成 —— 磁盘状态不一致，旧数据仅在备份目录。
+        // 进入恢复故障状态：不重建、不创建空库、不恢复正常写入。
+        this.logger.error(
+          '数据恢复失败且回滚未完成：进入恢复故障状态（不自动重建）。' +
+            '旧数据完整保留在备份目录中，请根据日志中的备份路径手动恢复后重启应用',
+          { error: String(err) },
+        );
+        throw err;
+      }
+      // 磁盘替换失败但回滚完整：重开数据库、重建服务，再恢复本地服务
+      this.logger.error('数据恢复失败，磁盘已回滚，正在恢复运行时可用状态', {
+        error: String(err),
+      });
       try {
         this.rebuildRuntimeServices();
       } catch (rebuildErr) {
-        this.logger.error('运行时重建失败（数据文件完好，需重启应用）', {
+        this.logger.error('运行时重建失败（数据文件已回滚，需重启应用）', {
           error: String(rebuildErr),
         });
         throw err;
@@ -341,6 +372,13 @@ export class AppRuntime {
    */
   private rebuildRuntimeServices(): void {
     const dbPath = join(this.dataDir, 'ixaeon.db');
+    // 修复 N5 兜底：回滚未完成时正式位置可能没有数据库文件 ——
+    // 此时绝不能让 openDatabase 静默创建一个空库当作运行数据库。
+    if (!existsSync(dbPath)) {
+      throw new Error(
+        'IXA0019 数据库文件缺失（恢复回滚未完成）：拒绝创建空数据库，请从备份目录手动恢复',
+      );
+    }
     const db = openDatabase(dbPath);
     // 按回滚后的磁盘数据重建（结构化迁移在 openDatabase 后执行）
     migrate(db);
@@ -391,6 +429,8 @@ export class AppRuntime {
   }
 
   async stop(): Promise<void> {
+    // 修复 N3：应用退出时清理本地服务的后台补分析计时器，无残留回调
+    this.localServer?.stopBackgroundTasks();
     this.jobs.stop();
     await this.stopServer();
     this.db.close();

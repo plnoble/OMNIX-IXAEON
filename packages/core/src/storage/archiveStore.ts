@@ -454,10 +454,17 @@ export class ArchiveService {
       }
       await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
       if (rollbackError) {
-        throw new IxaError(
+        // 修复 N5：回滚自身失败是独立的故障状态 —— 抛出的错误携带
+        // rollbackIncomplete 标记，调用方（AppRuntime）据此进入恢复故障态，
+        // 不得自动创建空数据库或恢复正常写入。
+        const fault = new IxaError(
           ErrorCodes.UNKNOWN,
           `恢复失败且回滚未完成（旧数据完整保留在备份目录 ${backupDir}，需手动恢复）：${String(rollbackError)}`,
         );
+        (fault as IxaError & { rollbackIncomplete: true; backupDir: string }).rollbackIncomplete =
+          true;
+        (fault as IxaError & { rollbackIncomplete: true; backupDir: string }).backupDir = backupDir;
+        throw fault;
       }
       if (closed) {
         // 连接已关闭且数据已回滚：调用方（AppRuntime）负责重开数据库并重启服务

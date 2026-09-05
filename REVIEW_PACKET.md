@@ -1,9 +1,10 @@
 # IXAEON v0.1 审核材料（REVIEW_PACKET）
 
 > 按 `IXAEON_v0.1_开发计划.md` 第 12 章要求交付，并逐项回应
-> `IXAEON_v0.1_验收问题与修复任务.md`（验收基线）与
-> `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）。
-> 更新时间：2026-09-05（二轮修复后）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_v0.1_验收问题与修复任务.md`（验收基线）、
+> `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）与
+> `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）。
+> 更新时间：2026-09-05（三轮修复后）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -43,6 +44,25 @@
 | R7 60 秒窗口漏分析 | maybeAutoAnalyze 重写：窗口内新内容标记 pending 并安排**窗口结束后的补分析计时器**（每来源一个、多次变更合并）；补分析前复查采集开关/autoAnalyze/域授权；AppRuntime 入队不再因「已有排队/运行中任务」丢弃需求（提取幂等，最终状态=最新版本） | review R7（fake timers：窗口内新内容最终获得第 2 次分析回调） | ✅ 自动化已验证 |
 | R8 误合并 + 暂停失效 | 合并候选判定 `isMergeCandidate`：a) 双方都有 sessionId 时必须一致；b) 缺 sessionId 时回退**完整包含检查**（临时来源全部片段必须在批次内）——仅首句相同绝不合并。扩展新增采集会话标识 `sessionId`（同标签页同对话跨 URL 转正保持，跨标签页/新对话必不同）。合并前若候选来源被暂停 → **暂停状态随身份转正迁移**并立即 403 | review R8a（两个来源）/ R8b（403 且内容未入库） | ✅ 自动化已验证 |
 | R9 自定义目录勾选框误禁用 | AppState 新增 `envOverride` + `dataDirSource`（主进程按 resolveDataDir 真实解析返回）；Setup.tsx 改用 `state.envOverride`，不再用「目录字符串非空」推断 | review 打包脚本「custom directory checkbox without IXAEON_DATA_DIR override → ok, disabled:false」 | ✅ 自动化已验证 |
+
+---
+
+## 0.6 三次验收修复（对 `IXAEON_v0.1_三次验收报告_2026-09-05.md` N1–N6 逐项）
+
+三轮审核的 13 项相邻场景检查（`apps/desktop/test/review/*round3.test.ts`）修复前
+12 项失败（T9 正向对照通过），修复后 **13/13 通过**，并已纳入 `pnpm verify`
+持续回归（verify 新增 review-round3 步骤）。报告确认上轮 R1–R9 的原始复现全部
+保持解决。
+
+| 问题 | 修复 | 回归测试 | 状态 |
+| --- | --- | --- | --- |
+| N1 会话编号未参与来源隔离 | ①创建来源时持久化 `sessionId` 到 metadata（T1 断言）；②来源查找增加会话比对：同 externalId 但 sessionId 不同 → 视为不同对话（T2 两个同路径标签页各自成源）；③合并候选判定：双方都有 sessionId 时必须一致（不再退化为「仅首句相同就合并」） | round3 T1/T2/T3 | ✅ 自动化已验证 |
+| N2 转正后无法恢复采集 | 暂停状态绑定到稳定会话：config 新增 `pausedSessions`（按 sessionId）与 `sessionAliases`（externalId→sessionId，任何拒绝路径之前记录）；恢复操作清除该会话的全部有效别名（临时 ID + 正式 ID） | round3 T4（暂停→转正→明确继续→200 闭环） | ✅ 自动化已验证 |
+| N3 补分析计时器不随暂停/恢复停止 | 计时器携带对话身份（externalId+sessionId），触发前复查该会话暂停状态；`pause-conversation` 时同步取消该会话的计时器与 pending；AppRuntime 恢复前与退出时调用 `localServer.stopBackgroundTasks()`（先停计时器再关数据库） | round3 T5（暂停后不再触发）/ T6（恢复后 61 秒无旧回调访问关闭的连接） | ✅ 自动化已验证 |
+| N4 无效凭证后合法恢复 EBUSY | AppRuntime.restoreData 失败分类：关库之前的失败（凭证/预校验）→ 原运行时未被触动，直接复用（不叠加第二套服务、不重建） | round3 T7（无效凭证后仍是一套运行时/队列）/ T7b（随后合法恢复成功） | ✅ 自动化已验证 |
+| N5 回滚未完成却新建空库 | archiveStore 回滚自身失败时抛出携带 `rollbackIncomplete` 标记的错误；AppRuntime 据此进入**恢复故障态**：不重建、不启动服务、不写数据；`rebuildRuntimeServices` 增加 `existsSync(dbPath)` 兜底，拒绝 openDatabase 静默建空库；日志如实记录备份位置 | round3 T8（双重注入失败：不建空库、不 startServer；T9 正向对照保持通过） | ✅ 自动化已验证 |
+| N6 长段子块突破 8000 | buildBlocks 预算按「真实编号+角色头」计算并为后缀位数留余量，切分后用真实头逐一校验、超限收紧重切 | round3 T10（30,000 字符无换行 user 片段：所有完整块 ≤8000） | ✅ 自动化已验证 |
+| T11/T12 客户端会话身份 | content.ts 弃用「正文超集」判据，改为**会话生命周期**：同 URL 同会话（编辑/重新生成不变）；formal→不同 formal 永远新会话；仅 page:→/c/ 且首条用户消息一致视为转正 | round3 T11（不同正式 URL 不同会话）/ T12（重新生成不变） | ✅ 自动化已验证 |
 
 ---
 
@@ -139,6 +159,7 @@ corepack pnpm verify
       performance 4 / fixes 15 / archiveFixes 8 / semanticAcceptance 4 /
       localServer 9
   ✓ review（二次验收独立业务测试） 通过 —— 11 passed（R1–R9 回归，已纳入 verify）
+  ✓ review-round3（三次验收相邻场景） 通过 —— 13 passed（N1–N6 回归，已纳入 verify）
   ✓ build（desktop / mcp / extension） 通过
 
 corepack pnpm test:e2e
@@ -369,9 +390,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（二轮修复后重建）
-  - 大小：122,566,050 字节（≈116.9 MB）
-  - SHA-256：`4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（三轮修复后重建）
+  - 大小：122,568,319 字节（≈116.9 MB）
+  - SHA-256：`D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

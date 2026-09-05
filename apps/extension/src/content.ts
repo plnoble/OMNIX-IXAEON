@@ -98,19 +98,25 @@ export function shouldSubmit(turns: TurnDraft[]): boolean {
 }
 
 /**
- * 采集会话标识（修复 R8）：同一标签页内同一场对话保持不变
+ * 采集会话标识（修复 R8/N1）：同一标签页内同一场对话保持不变
  * （含新对话 page:<hash> → 正式 /c/<id> 的身份转正），不同对话 /
  * 不同标签页互不相同。服务端以它作为身份合并的可靠绑定依据。
  *
- * 身份转正判定：externalId 变化时，若当前可见轮次完整覆盖上一次提交的
- * 全部轮次（DOM 快照是超集）→ 视为同一场对话延续，保留 sessionId；
- * 否则视为新对话，生成新的 sessionId。
+ * 身份判定按「会话生命周期」（修复 T11/T12，不按正文相似性猜测）：
+ * - 同一 URL：同一会话 —— 编辑/重新生成回答不改变会话身份；
+ * - 不同正式 URL：不同会话 —— 永不共享；
+ * - 临时 page:<hash> → 正式 /c/<id>（同标签页）：视为该临时对话被
+ *   分配正式 ID 的转正时刻，延续同一会话（首条用户消息一致作为
+ *   转正确认信号；正文其余部分变化不影响）；
+ * - 其余 URL 变化（formal→formal、formal→draft、draft→另一个 draft）：
+ *   新会话。
+ * 不同标签页的 sessionStorage 天然隔离，无需内容比对。
  */
 export interface CaptureSession {
   sessionId: string;
   externalId: string | null;
-  /** 上一次提交的轮次键（order|hash） */
-  turnKeys: string[];
+  /** 首条用户消息的内容键（转正确认信号） */
+  firstTurnKey: string | null;
 }
 
 let sessionState: CaptureSession | null = null;
@@ -121,19 +127,34 @@ function randomSessionId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function isDraftExternalId(externalId: string): boolean {
+  return externalId.startsWith('page:');
+}
+
 export function currentCaptureSession(externalId: string, turns: TurnDraft[]): CaptureSession {
-  const keys = turns.map((t) => `${t.order}|${hashText(t.text)}`);
+  const first = turns[0];
+  const firstKey = first ? `${first.order}|${hashText(first.text)}` : null;
   const prev = sessionState;
-  const continuing =
-    prev !== null &&
-    prev.externalId !== null &&
-    prev.turnKeys.length > 0 &&
-    prev.turnKeys.every((k) => keys.includes(k));
-  if (prev !== null && continuing) {
-    sessionState = { sessionId: prev.sessionId, externalId, turnKeys: keys };
+  if (prev !== null && prev.externalId === externalId) {
+    // 同一 URL：同一会话（编辑/重新生成不改变身份，修复 T12）
+    sessionState = { sessionId: prev.sessionId, externalId, firstTurnKey: firstKey };
     return sessionState;
   }
-  sessionState = { sessionId: randomSessionId(), externalId, turnKeys: keys };
+  if (prev !== null && prev.externalId !== null) {
+    const promotion =
+      isDraftExternalId(prev.externalId) &&
+      !isDraftExternalId(externalId) &&
+      prev.firstTurnKey !== null &&
+      firstKey !== null &&
+      prev.firstTurnKey === firstKey;
+    if (promotion) {
+      // 临时身份转正：延续同一会话（修复 T3/T4 的暂停继承链路）
+      sessionState = { sessionId: prev.sessionId, externalId, firstTurnKey: firstKey };
+      return sessionState;
+    }
+  }
+  // 新会话（首次采集 / 不同正式 URL / 其余 URL 变化，修复 T11）
+  sessionState = { sessionId: randomSessionId(), externalId, firstTurnKey: firstKey };
   return sessionState;
 }
 

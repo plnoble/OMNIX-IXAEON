@@ -21,6 +21,14 @@ export const appConfigSchema = z.object({
     autoAnalyze: z.boolean(),
     /** 已暂停采集的对话（externalId 列表；扩展与本地服务双方强制执行） */
     pausedConversations: z.array(z.string().min(1)).default([]),
+    /**
+     * 已暂停采集的会话（sessionId 列表，修复 N1/N2）：暂停绑定到稳定会话，
+     * 身份转正（page:<hash> → /c/<id>）后暂停随会话延续；用户恢复时清除
+     * 该会话的全部有效别名。
+     */
+    pausedSessions: z.array(z.string().min(1)).default([]),
+    /** externalId → sessionId 别名表（采集时记录，用于暂停/恢复解析同一会话） */
+    sessionAliases: z.record(z.string().min(1), z.string().min(1)).default({}),
   }),
   extension: z.object({
     /** 配对成功后发放给扩展的访问令牌 */
@@ -42,7 +50,13 @@ export function defaultAppConfig(): AppConfig {
       apiKeyEncrypted: null,
       apiKeyPresent: false,
     },
-    capture: { enabled: false, autoAnalyze: false, pausedConversations: [] },
+    capture: {
+      enabled: false,
+      autoAnalyze: false,
+      pausedConversations: [],
+      pausedSessions: [],
+      sessionAliases: {},
+    },
     extension: { token: null, pairedAt: null },
     localToken: null,
   };

@@ -177,7 +177,8 @@
 | `corepack pnpm package:windows` | 成功（extraResources 携带 mcp/index.mjs） |
 | 安装版 MCP 握手（win-unpacked + ELECTRON_RUN_AS_NODE） | initialize ✅ tools/list 4 工具 ✅ 桌面未运行错误可操作 ✅ |
 | 安装包（一轮） | 122,562,511 字节，SHA-256 `CE4631447B7165BB203D2D6035E703B9F6471AC12244A917C5EF81371616C039` |
-| 安装包（二轮，最终交付物） | 122,566,050 字节，SHA-256 `4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607` |
+| 安装包（二轮） | 122,566,050 字节，SHA-256 `4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607` |
+| 安装包（三轮，最终交付物） | 122,568,319 字节，SHA-256 `D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -296,3 +297,93 @@ pending。`AppRuntime.enqueueAutoAnalyze` 不再因「已有排队/运行中任�
 2. 当前真实 chatgpt.com 页面的人工验收（扩展 e2e 是受控测试页面）。
 3. NSIS 安装、卸载和全新 Windows 用户全流程（本轮实跑的是交付目录中的
    win-unpacked 副本，未安装到用户系统）。
+
+---
+
+# 三轮修复记录（2026-09-05，回应三次验收报告 N1–N6）
+
+三次验收确认上轮 R1–R9 原始复现全部保持解决，但以 13 项相邻场景检查
+（`apps/desktop/test/review/*round3.test.ts`）发现 N1–N6：修复前 12 项失败
+（T9 正向对照通过），修复后 **13/13 通过**并纳入 `pnpm verify` 持续回归。
+
+## N1 · 会话编号真正参与来源隔离
+
+审核复现：扩展发了 sessionId，但桌面端建源时没存、查询时也不看 —— 不同会话
+同首句仍被合并；两个同路径标签页共用一个来源。
+
+修复：
+1. 创建来源时把 sessionId 写入 `metadata_json`（T1 直接断言）；
+2. 来源查找增加会话比对：同 externalId 但 sessionId 不同 → 视为不同对话
+   （T2：两个同路径/同标题标签页各自成源）；
+3. 合并候选判定收紧：双方都有 sessionId 时必须一致；「完整包含兜底」只用于
+   双方都没有 sessionId 的旧客户端，且要求临时来源**全部**片段都在批次内。
+
+## N2 · 暂停绑定到稳定会话，恢复闭环
+
+审核复现：暂停临时对话 → 转正被 403 → 用户在正式对话上点「继续」→ 下一批
+又被 403（临时 ID 的暂停没被清除）。
+
+修复：暂停状态双落点 —— `pausedConversations`（externalId，兼容）+
+`pausedSessions`（sessionId，稳定身份），并用 `sessionAliases`
+（externalId→sessionId，在任何拒绝路径之前记录）把它们关联。恢复操作解析
+该对话的会话，清除**全部有效别名**的暂停。链路「暂停临时 → 转正 403 →
+明确继续 → 200 采集」闭环（T4）。
+
+## N3 · 补分析计时器跟随暂停/恢复/停止
+
+- 计时器携带对话身份（externalId + sessionId），触发前复查该会话暂停状态
+  （T5：暂停后不再触发待补分析）；
+- `pause-conversation` 时同步取消该会话的计时器与 pending；
+- `AppRuntime.restoreData` 在关闭数据库**之前**调用
+  `localServer.stopBackgroundTasks()`（T6：恢复成功后推进 61 秒，无旧回调
+  访问已关闭连接）；应用退出（stop）同样清理。
+
+## N4 · 凭证拒绝后不再叠加第二套运行时
+
+审核复现：无效凭证被拒时旧连接/旧队列还在，失败分支却无条件 rebuild ——
+打开第二个连接、建第二个队列；随后合法恢复真实报 EBUSY（文件被旧连接占用）。
+
+修复：失败处理按实际进度分类。关库之前的失败（凭证无效/过期/包损坏）→
+原运行时未被触动，直接复用并重启本地服务，不重建。T7（仍是一套运行时与队列）、
+T7b（随后合法恢复成功，无需重启解锁）通过。
+
+## N5 · 回滚未完成 = 明确的恢复故障态
+
+审核复现：安装 vault 与回滚 vault 双双重命名失败时，归档层正确报「回滚未完成」，
+但 AppRuntime 仍无条件 rebuild —— openDatabase 静默创建了空库并启动服务。
+
+修复：归档层在回滚自身失败时抛出携带 `rollbackIncomplete` 标记的错误；
+AppRuntime 据此进入恢复故障态 —— 不重建、不启动服务、不写数据，日志如实
+记录「旧数据完整保留在备份目录」。`rebuildRuntimeServices` 另加
+`existsSync(dbPath)` 兜底，拒绝创建空库。T8（不建空库、不 startServer）通过；
+T9 正向对照（单次安装失败 → 回滚 → 运行时可用 → MCP 200）保持通过。
+
+## N6 · 长段子块编号头预算
+
+审核复现：30,000 字符无换行 user 片段切分后，最大完整块 8001 字符 ——
+预算只按 `[S1]` 头计算，第二块实际用 `[S1.2]` 头。
+
+修复：预算按基础头 + 后缀位数余量（12 字符）计算，切分后用真实头逐一校验，
+超限收紧预算（×0.85）重切；任何完整包装块都不超过 8000（T10）。
+
+## T11/T12 · 客户端会话身份按生命周期
+
+弃用「正文超集」判据（两个不同对话同文本会误绑；重新生成会误断），改为：
+同 URL 同会话；formal→不同 formal 永远新会话；仅 page:→/c/ 且首条用户消息
+一致视为转正延续。T11/T12 通过。
+
+## 三轮验证结果（全部实跑）
+
+| 命令 | 结果 |
+| --- | --- |
+| `node node_modules/vitest/vitest.mjs run --config apps/desktop/test/review/vitest.round3.config.ts` | **13/13 通过**（修复前 12/13 失败） |
+| `corepack pnpm verify` | 全绿（unit 16 / integration 98 / review 11 / **review-round3 13** / build） |
+| `corepack pnpm test:e2e` | desktop 10 passed + extension 全断言 |
+| `node apps/desktop/test/review/packaged-20260905.mjs` | 3 项检查全部通过 |
+| `corepack pnpm package:windows` | 成功；安装包 122,568,319 字节，SHA-256 `D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7` |
+
+## 三轮后仍未验证事项（如实）
+
+1. 真实 OpenAI 模型的六组语义问答（需用户 API Key）。
+2. 当前真实 chatgpt.com 页面的人工验收（扩展 e2e 为受控测试页面）。
+3. NSIS 安装、卸载和全新 Windows 用户全流程（实测为 win-unpacked 测试副本）。

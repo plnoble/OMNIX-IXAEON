@@ -212,13 +212,27 @@ export class Extractor {
     segments: Array<{ id: string; sequence: number; role: string; text: string }>,
     maxChars = MAX_BLOCK_CHARS,
   ): Array<{ userText: string; refMap: Map<string, string> }> {
-    // 展开超长片段 → 引用编号列表（S1、S1.2 …）→ 片段 ID（保留原始 role）
+    // 展开超长片段 → 引用编号列表（S1、S1.2 …）→ 片段 ID（保留原始 role）。
+    // 修复 N6：按「真实编号 + 角色头」计算每块预算，并为后缀位数的增长留出余量；
+    // 切分后用真实头逐一校验，超限则收紧预算重切 —— 任何完整包装块都不超过上限。
     const refs: Array<{ ref: string; segId: string; role: string; piece: string }> = [];
     for (const seg of segments) {
       const base = `S${seg.sequence + 1}`;
-      const header = `[${base}]（${seg.role}）\n`;
-      // 单段展开后的多个子块（不超上限），ref 为 S1 / S1.1 / S1.2 …
-      const parts = splitTextToFit(seg.text, maxChars - header.length - 1, base);
+      const baseHeader = `[${base}]（${seg.role}）\n`;
+      // 余量覆盖多级后缀（如 S1.10、S1.100 的编号增长）+ 拼接换行
+      let budget = maxChars - baseHeader.length - 12;
+      if (budget < 200) budget = 200;
+      let parts = splitTextToFit(seg.text, budget, base);
+      // 用真实头校验；发现超限（后缀位数超出余量等）→ 收紧预算重切
+      for (let guard = 0; guard < 16; guard++) {
+        const overflow = parts.some((p, i) => {
+          const ref = i === 0 ? base : `${base}.${i + 1}`;
+          return `[${ref}]（${seg.role}）\n${p}`.length > maxChars;
+        });
+        if (!overflow) break;
+        budget = Math.floor(budget * 0.85);
+        parts = splitTextToFit(seg.text, budget, base);
+      }
       parts.forEach((part, i) => {
         const ref = i === 0 ? base : `${base}.${i + 1}`;
         refs.push({ ref, segId: seg.id, role: seg.role, piece: part });

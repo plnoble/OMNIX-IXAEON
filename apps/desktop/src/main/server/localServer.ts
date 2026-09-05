@@ -70,9 +70,12 @@ export class LocalServer {
   private deps: LocalServerDeps;
   /** 窗口内已有排队任务、且窗口期间又到了新内容的来源（窗口结束后补一次分析，修复 R7） */
   private pendingAnalysis = new Map<string, boolean>();
-  /** 补分析计时器（每来源一个，重复变更合并） */
-  private trailingTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** 最近一次自动提取排队时间（sourceId → ts）；防抖窗口依据 */
+  /** 补分析计时器（key = externalId，携带对话身份供暂停复查；修复 N3） */
+  private trailingTimers = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; sourceId: string; sessionId: string | null }
+  >();
+  /** 最近一次自动提取排队时间（externalId → ts）；防抖窗口依据 */
   private lastAutoEnqueue = new Map<string, number>();
 
   constructor(deps: LocalServerDeps) {
@@ -138,9 +141,83 @@ export class LocalServer {
     return reply.code(status).send(apiErr);
   }
 
-  /** 对话是否被用户暂停（服务端强制执行，与扩展端双保险）。 */
-  private isConversationPaused(externalId: string): boolean {
-    return this.deps.getConfig().capture.pausedConversations.includes(externalId);
+  /**
+   * 对话是否被用户暂停（服务端强制执行，与扩展端双保险）。
+   * 修复 N1：暂停同时覆盖 externalId 与稳定会话标识（sessionId）——
+   * 身份转正后旧 externalId 的暂停状态经会话延续。
+   */
+  private isConversationPaused(externalId: string, sessionId: string | null): boolean {
+    const capture = this.deps.getConfig().capture;
+    if (capture.pausedConversations.includes(externalId)) return true;
+    if (sessionId !== null && capture.pausedSessions.includes(sessionId)) return true;
+    // 该 externalId 的会话曾被暂停（经别名解析）
+    const aliased = capture.sessionAliases[externalId];
+    if (aliased !== undefined && capture.pausedSessions.includes(aliased)) return true;
+    return false;
+  }
+
+  /**
+   * 暂停/恢复对话（修复 N2）：暂停同时落到 externalId 与其稳定会话（sessionId）；
+   * 恢复时清除该会话的全部有效别名（临时 ID + 正式 ID），保证
+   * 「暂停临时对话 → 身份转正 → 明确继续 → 成功采集」完整闭环。
+   * 同时取消该会话的待补分析计时器（修复 N3）。
+   */
+  private setConversationPaused(
+    externalId: string,
+    sessionId: string | null,
+    paused: boolean,
+  ): void {
+    this.deps.updateConfig((c) => {
+      const pc = new Set(c.capture.pausedConversations);
+      const ps = new Set(c.capture.pausedSessions);
+      const aliases = { ...c.capture.sessionAliases };
+      const session = sessionId ?? aliases[externalId] ?? null;
+      if (paused) {
+        pc.add(externalId);
+        if (session !== null) ps.add(session);
+        if (session !== null && !aliases[externalId]) aliases[externalId] = session;
+      } else {
+        pc.delete(externalId);
+        if (session !== null) {
+          ps.delete(session);
+          // 清除同一会话的全部有效别名暂停（临时 ID + 已知正式 ID）
+          for (const [ext, sess] of Object.entries(aliases)) {
+            if (sess === session) pc.delete(ext);
+          }
+        }
+      }
+      return {
+        ...c,
+        capture: {
+          ...c.capture,
+          pausedConversations: [...pc],
+          pausedSessions: [...ps],
+          sessionAliases: aliases,
+        },
+      };
+    });
+    if (paused) this.cancelPendingAnalysisFor(externalId, sessionId);
+  }
+
+  /** 取消一个对话（及其会话别名）的待补分析计时器（修复 N3）。 */
+  private cancelPendingAnalysisFor(externalId: string, sessionId: string | null): void {
+    const aliases = this.deps.getConfig().capture.sessionAliases;
+    const session = sessionId ?? aliases[externalId] ?? null;
+    for (const [key, entry] of [...this.trailingTimers.entries()]) {
+      const keySession = aliases[key] ?? null;
+      if (key === externalId || (session !== null && keySession === session)) {
+        clearTimeout(entry.timer);
+        this.trailingTimers.delete(key);
+        this.pendingAnalysis.delete(key);
+      }
+    }
+  }
+
+  /** 停止全部后台补分析计时器（恢复前、应用退出时调用，修复 N3）。 */
+  stopBackgroundTasks(): void {
+    for (const entry of this.trailingTimers.values()) clearTimeout(entry.timer);
+    this.trailingTimers.clear();
+    this.pendingAnalysis.clear();
   }
 
   async register(app: FastifyInstance): Promise<void> {
@@ -318,17 +395,20 @@ export class LocalServer {
         try {
           const which = this.requireToken(request.headers.authorization);
           if (which !== 'extension') throw new IxaError(ErrorCodes.INVALID_TOKEN, '需要扩展令牌');
-          const body = (request.body ?? {}) as { externalId?: unknown; paused?: unknown };
+          const body = (request.body ?? {}) as {
+            externalId?: unknown;
+            paused?: unknown;
+            sessionId?: unknown;
+          };
           if (typeof body.externalId !== 'string' || body.externalId.length === 0) {
             throw new IxaError(ErrorCodes.VALIDATION_FAILED, '缺少 externalId');
           }
           const paused = body.paused !== false; // 默认 true（暂停）
-          this.deps.updateConfig((c) => {
-            const set = new Set(c.capture.pausedConversations);
-            if (paused) set.add(body.externalId as string);
-            else set.delete(body.externalId as string);
-            return { ...c, capture: { ...c.capture, pausedConversations: [...set] } };
-          });
+          this.setConversationPaused(
+            body.externalId,
+            typeof body.sessionId === 'string' && body.sessionId.length > 0 ? body.sessionId : null,
+            paused,
+          );
           recordAudit(this.deps.db, 'extension.pause_conversation', {
             externalIdHash: hashLabel(body.externalId),
             paused,
@@ -370,8 +450,29 @@ export class LocalServer {
             throw new IxaError(ErrorCodes.VALIDATION_FAILED, '采集批次格式错误');
           }
           const batch = parsed.data;
-          // 当前对话暂停：服务端强制拒绝（扩展端也有本地开关，双保险）
-          if (this.isConversationPaused(batch.conversation.externalId)) {
+          // 记录 externalId → sessionId 别名（修复 N1/N2：在任何拒绝路径之前记录，
+          // 用户恢复正式对话时才能解析到同一会话并清除其全部有效别名）
+          if (batch.conversation.sessionId) {
+            const sid = batch.conversation.sessionId;
+            this.deps.updateConfig((cf) => ({
+              ...cf,
+              capture: {
+                ...cf.capture,
+                sessionAliases: {
+                  ...cf.capture.sessionAliases,
+                  [batch.conversation.externalId]: sid,
+                },
+              },
+            }));
+          }
+          // 当前对话暂停：服务端强制拒绝（扩展端也有本地开关，双保险）。
+          // 暂停检查同时覆盖 externalId 与稳定会话标识（修复 N1）。
+          if (
+            this.isConversationPaused(
+              batch.conversation.externalId,
+              batch.conversation.sessionId ?? null,
+            )
+          ) {
             throw new IxaError(
               ErrorCodes.DISABLED,
               `该对话已被用户暂停，扩展不再提交其内容（externalId: ${hashLabel(
@@ -414,11 +515,20 @@ export class LocalServer {
   private handleCaptureBatch(batch: CaptureBatch): CaptureBatchResponse {
     const { sources, db, permissions, vault } = this.deps;
     const externalId = batch.conversation.externalId;
+    const batchSession = batch.conversation.sessionId ?? null;
     let existing = db
       .prepare(
         "SELECT * FROM sources WHERE provider = 'chatgpt_web' AND external_id = ? ORDER BY imported_at DESC LIMIT 1",
       )
-      .get(externalId) as { id: string; permission_id: string } | undefined;
+      .get(externalId) as { id: string; permission_id: string; metadata_json: string } | undefined;
+    // 修复 N1/T2：同一 externalId 但会话标识不同 → 是不同对话（例如两个新对话
+    // 标签页路径+标题相同），绝不把内容并进别人的来源。
+    if (existing && batchSession !== null) {
+      const existingSession = safeParseMetadata(existing.metadata_json).sessionId;
+      if (typeof existingSession === 'string' && existingSession !== batchSession) {
+        existing = undefined;
+      }
+    }
 
     // 身份合并（修复 R8）：仅当存在可靠绑定关系时才迁移身份；证据不足保留两个来源
     if (!existing && isFormalConversationId(externalId)) {
@@ -439,17 +549,33 @@ export class LocalServer {
       for (const t of temp) {
         // 修复 R8：仅当存在可靠绑定关系时才识别为同一场对话（见 isMergeCandidate）
         if (!this.isMergeCandidate(db, t, batch)) continue;
-        // 修复 R8b：临时身份被暂停时，正式身份继承暂停状态并立即拒绝采集，
-        // 绝不允许借身份变化绕过暂停
+        // 修复 R8b/N2：临时身份被暂停时，正式身份继承暂停状态并立即拒绝采集，
+        // 绝不允许借身份变化绕过暂停。迁移按会话进行（externalId + sessionId
+        // 双落点），用户在正式对话上点「继续」即可清除整个会话的暂停。
         const config = this.deps.getConfig();
         if (config.capture.pausedConversations.includes(t.external_id)) {
-          this.deps.updateConfig((cf) => ({
-            ...cf,
-            capture: {
-              ...cf.capture,
-              pausedConversations: [...new Set([...cf.capture.pausedConversations, externalId])],
-            },
-          }));
+          this.deps.updateConfig((cf) => {
+            const session =
+              batchSession ??
+              (typeof safeParseMetadata(t.metadata_json).sessionId === 'string'
+                ? (safeParseMetadata(t.metadata_json).sessionId as string)
+                : null);
+            return {
+              ...cf,
+              capture: {
+                ...cf.capture,
+                pausedConversations: [...new Set([...cf.capture.pausedConversations, externalId])],
+                pausedSessions:
+                  session !== null
+                    ? [...new Set([...cf.capture.pausedSessions, session])]
+                    : cf.capture.pausedSessions,
+                sessionAliases: {
+                  ...cf.capture.sessionAliases,
+                  [externalId]: session ?? externalId,
+                },
+              },
+            };
+          });
           recordAudit(db, 'capture.merge_identity_paused', {
             fromExternalIdHash: hashLabel(t.external_id),
             toExternalIdHash: hashLabel(externalId),
@@ -492,8 +618,8 @@ export class LocalServer {
           boundBy: batch.conversation.sessionId ? 'sessionId' : 'content-containment',
         });
         existing = db
-          .prepare('SELECT id, permission_id FROM sources WHERE id = ?')
-          .get(formalId) as { id: string; permission_id: string };
+          .prepare('SELECT id, permission_id, metadata_json FROM sources WHERE id = ?')
+          .get(formalId) as { id: string; permission_id: string; metadata_json: string };
         break;
       }
     }
@@ -503,13 +629,24 @@ export class LocalServer {
     if (existing) {
       sourceId = existing.id;
       permissionId = existing.permission_id;
+      // 修复 N1：来源缺少会话标识而批次携带时，补绑（供后续身份判定与合并）
+      if (batchSession !== null) {
+        const meta = safeParseMetadata(existing.metadata_json);
+        if (typeof meta.sessionId !== 'string') {
+          meta.sessionId = batchSession;
+          db.prepare('UPDATE sources SET metadata_json = ? WHERE id = ?').run(
+            JSON.stringify(meta),
+            sourceId,
+          );
+        }
+      }
       const result = sources.appendCapturedTurns(
         sourceId,
         batch.turns.map((t) => ({ order: t.order, role: t.role, text: t.text })),
         { title: batch.conversation.title },
       );
       this.persistWebRaw(sourceId, vault);
-      this.maybeAutoAnalyze(sourceId, result.accepted, permissionId);
+      this.maybeAutoAnalyze(externalId, sourceId, result.accepted, permissionId);
       return { accepted: result.accepted, deduplicated: result.deduplicated, sourceId };
     }
     // 新对话：创建来源（需要一条 active 的 chatgpt.com 授权）
@@ -525,6 +662,9 @@ export class LocalServer {
       .map((t) => `${t.role === 'user' ? '用户' : 'AI'}：${t.text}`)
       .join('\n\n');
     const { hash } = vault.store(initialText);
+    // 修复 N1/T1：创建来源时持久化可靠的会话标识（后续身份判定与隔离的依据）
+    const newMetadata: Record<string, unknown> = { via: 'extension', first_seen: now };
+    if (batchSession !== null) newMetadata.sessionId = batchSession;
     db.prepare(
       `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
         captured_at, imported_at, permission_id, project_id, metadata_json)
@@ -538,7 +678,7 @@ export class LocalServer {
       batch.clientTimestamp,
       now,
       domainPermission.id,
-      JSON.stringify({ via: 'extension', first_seen: now }),
+      JSON.stringify(newMetadata),
     );
     const result = sources.appendCapturedTurns(
       sourceId,
@@ -550,7 +690,7 @@ export class LocalServer {
       accepted: result.accepted,
       deduplicated: result.deduplicated,
     });
-    this.maybeAutoAnalyze(sourceId, result.accepted, domainPermission.id);
+    this.maybeAutoAnalyze(externalId, sourceId, result.accepted, domainPermission.id);
     return { accepted: result.accepted, deduplicated: result.deduplicated, sourceId };
   }
 
@@ -562,7 +702,12 @@ export class LocalServer {
    *   新内容最终都会进入最新一次分析；
    * - 补分析前复查：采集开关、自动分析开关、域授权。
    */
-  private maybeAutoAnalyze(sourceId: string, acceptedCount: number, permissionId: string): void {
+  private maybeAutoAnalyze(
+    externalId: string,
+    sourceId: string,
+    acceptedCount: number,
+    permissionId: string,
+  ): void {
     if (acceptedCount === 0) return;
     const config = this.deps.getConfig();
     if (!config.capture.enabled || !config.capture.autoAnalyze) return;
@@ -570,41 +715,48 @@ export class LocalServer {
     const domainPermission = this.deps.permissions.activePermissionForDomain(CAPTURE_DOMAIN);
     if (!domainPermission) return;
     const now = Date.now();
-    const last = this.lastAutoEnqueue.get(sourceId) ?? 0;
+    const last = this.lastAutoEnqueue.get(externalId) ?? 0;
     if (now - last < AUTO_ANALYZE_DEDUPE_MS) {
       // 窗口内：合并变更，窗口结束后补一次分析（修复 R7）
-      this.pendingAnalysis.set(sourceId, true);
-      this.scheduleTrailingAnalysis(sourceId, permissionId, now - last);
+      this.pendingAnalysis.set(externalId, true);
+      this.scheduleTrailingAnalysis(externalId, sourceId, permissionId, now - last);
       return;
     }
-    this.lastAutoEnqueue.set(sourceId, now);
-    this.pendingAnalysis.set(sourceId, false);
+    this.lastAutoEnqueue.set(externalId, now);
+    this.pendingAnalysis.set(externalId, false);
     recordAudit(this.deps.db, 'capture.auto_analyze_enqueued', { sourceId, permissionId });
     this.deps.onCaptured?.(sourceId, acceptedCount);
   }
 
-  /** 窗口结束后的补分析（每来源只安排一个计时器；窗口内多次变更合并为一次）。 */
+  /**
+   * 窗口结束后的补分析（每来源只安排一个计时器；窗口内多次变更合并为一次）。
+   * 计时器携带对话身份（修复 N3）：触发前复查该会话的暂停状态 —— 用户暂停后
+   * 不再触发待补分析；应用恢复/退出前由 stopBackgroundTasks 统一清理。
+   */
   private scheduleTrailingAnalysis(
+    externalId: string,
     sourceId: string,
     permissionId: string,
     elapsedMs: number,
   ): void {
-    if (this.trailingTimers.has(sourceId)) return;
+    if (this.trailingTimers.has(externalId)) return;
+    const sessionId = this.deps.getConfig().capture.sessionAliases[externalId] ?? null;
     const remaining = Math.max(AUTO_ANALYZE_DEDUPE_MS - elapsedMs, 0) + 250;
     const timer = setTimeout(() => {
-      this.trailingTimers.delete(sourceId);
-      if (!this.pendingAnalysis.get(sourceId)) return; // 窗口内无新增变更
-      this.pendingAnalysis.set(sourceId, false);
-      // 补分析前复查（R7）：开关与授权仍有效才排队
+      this.trailingTimers.delete(externalId);
+      if (!this.pendingAnalysis.get(externalId)) return; // 窗口内无新增变更
+      this.pendingAnalysis.set(externalId, false);
+      // 补分析前复查（R7 + N3）：开关、授权与该会话的暂停状态
       const config = this.deps.getConfig();
       if (!config.capture.enabled || !config.capture.autoAnalyze) return;
       if (!this.deps.permissions.activePermissionForDomain(CAPTURE_DOMAIN)) return;
-      this.lastAutoEnqueue.set(sourceId, Date.now());
+      if (this.isConversationPaused(externalId, sessionId)) return;
+      this.lastAutoEnqueue.set(externalId, Date.now());
       recordAudit(this.deps.db, 'capture.auto_analyze_trailing', { sourceId, permissionId });
       this.deps.onCaptured?.(sourceId, 0);
     }, remaining);
     (timer as { unref?: () => void }).unref?.();
-    this.trailingTimers.set(sourceId, timer);
+    this.trailingTimers.set(externalId, { timer, sourceId, sessionId });
   }
 
   /**
