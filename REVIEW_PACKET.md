@@ -5,8 +5,8 @@
 > `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）、
 > `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）、
 > `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4），并实施
-> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 稳定性收尾**。
-> 更新时间：2026-09-05（M0 收尾完成）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 稳定性收尾 + M1.1 归属继承 + M1.2 真实状态**。
+> 更新时间：2026-09-05（M1.2 完成）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -104,6 +104,18 @@
 | M0.2 第 8 条 退出等待 | `stop()` 停止接收 → 等待在途任务结束（`jobs.idle()`）→ 关库；恢复失败不丢待处理（F3/U5 保持） | m0-gates 门槛 4 + round3 T6/T7/T8/T9 保持 | ✅ 自动化已验证 |
 | M0.1 迁移 | 迁移 2 在旧库（仅迁移 1 + 数据）上验证：列补齐、行完整、回填策略明确（旧行标记 1/1，不批量触发补分析；需重分析可手动） | m0-core「旧库升级」 | ✅ 自动化已验证 |
 | 附加修复 | sessionAliases 迁入 SQLite `session_aliases` 表（上限 500 裁剪）——修复每批采集重写整份 config.json 且别名无限增长的问题；恢复对话/重新开启开关后自动补齐欠分析（`onConversationResumed` / `sweepPendingAnalysis`） | round3 T1–T4 全部保持 | ✅ 自动化已验证 |
+
+---
+
+## 0.9 M1.2 展示真实状态（对《下一阶段开发计划》M1.2）
+
+| 计划要求 | 实现 | 测试 | 状态 |
+| --- | --- | --- | --- |
+| 每来源可见：所属项目/最后收到时间/内容版本/已分析版本/最后成功分析时间/任务状态/错误原因 | 迁移 4 新增 `sources.analyzed_at`（最后成功分析时间，仅在 analyzed 前进时更新）；`SourceStore.list` 联查项目名与最近 extract 任务状态/错误；`SourceListItem` 契约新增 `projectName` + `analysis` 对象 | m1-status 4 项（等待分析/追平/欠分析可见/失败原因可见） | ✅ 自动化已验证 |
+| 普通人文案 | Sources 表格新增「所属项目」与「状态」列，`analysisStatus()` 把版本差+任务状态映射为：已收到等待分析 / 正在分析… / 已分析最新内容 / 有新内容尚未分析，当前显示旧理解 / 自动分析已关闭 / 授权已撤销 / 分析失败可以重试（含错误摘要与重试按钮） | UI 渲染 + desktop e2e 全部保持通过 | ✅ 自动化已验证（文案映射） |
+| 「收到资料」与「模型理解完成」不共用标记 | content_revision 与 analyzed_revision 分别记录；analyzed_at 独立于 imported_at | m1-status | ✅ 自动化已验证 |
+| 状态刷新不靠切页、不调模型 | Sources 页 5 秒低频轮询（页面可见时才刷新，静默更新不闪烁） | desktop e2e 保持通过 | ✅ 自动化已验证 |
+| 分析失败可重试 | 失败行内「重试」按钮调用已有 reextractSource（手动任务，不受自动开关约束） | UI + round4 U7 语义 | ✅ 自动化已验证 |
 
 ---
 
@@ -438,9 +450,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M0 收尾后重建）
-  - 大小：122,573,413 字节（≈116.9 MB）
-  - SHA-256：`616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M1.2 完成后重建）
+  - 大小：122,576,020 字节（≈116.9 MB）
+  - SHA-256：`220B1D35129E7AC5320D86F09171EC037AC838D06848B5A53B8DA9AA80A158D4`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

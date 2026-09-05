@@ -20,6 +20,46 @@ import {
 
 const PAGE_SIZE = 50;
 
+/**
+ * M1.2：把来源的真实状态数据翻译成普通人能读懂的文案。
+ * 依据：版本差（content > analyzed = 还有内容未分析）、最近任务状态、授权状态。
+ */
+export function analysisStatus(
+  item: SourceListItem,
+  capture: { enabled: boolean; autoAnalyze: boolean },
+): { text: string; detail?: string; tone: 'ok' | 'warn' | 'bad' | 'muted' } {
+  const a = item.analysis;
+  if (item.permissionStatus === 'revoked') {
+    return { text: '授权已撤销', detail: '不再读取原文；已导入的理解保留', tone: 'bad' };
+  }
+  if (a.lastJobStatus === 'running') return { text: '正在分析…', tone: 'muted' };
+  if (a.lastJobStatus === 'queued') {
+    return {
+      text: a.analyzedRevision > 0 ? '有新内容排队等待分析' : '已收到，等待分析',
+      tone: 'muted',
+    };
+  }
+  if (a.lastJobStatus === 'failed') {
+    return {
+      text: '分析失败，可以重试',
+      detail: a.lastJobError ? a.lastJobError.slice(0, 120) : undefined,
+      tone: 'bad',
+    };
+  }
+  if (a.contentRevision > a.analyzedRevision) {
+    const pending =
+      item.source.provider === 'chatgpt_web' && (!capture.enabled || !capture.autoAnalyze)
+        ? '自动分析已关闭，开启后处理'
+        : undefined;
+    if (a.analyzedRevision === 0) {
+      return { text: '已收到，等待分析', detail: pending, tone: 'muted' };
+    }
+    return { text: '有新内容尚未分析，当前显示旧理解', detail: pending, tone: 'warn' };
+  }
+  if (a.analyzedRevision > 0) return { text: '已分析最新内容', tone: 'ok' };
+  return { text: '已收到', tone: 'muted' };
+}
+
 /** 来源页：导入 → 列表 → 详情（片段阅读器 + 上下文查看）。 */
 export function SourcesPage({
   projects,
@@ -31,6 +71,7 @@ export function SourcesPage({
   onProjectChange: (id: string | null) => void;
 }) {
   const [list, setList] = useState<SourceListItem[] | null>(null);
+  const [captureFlags, setCaptureFlags] = useState({ enabled: true, autoAnalyze: false });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<{
@@ -39,18 +80,38 @@ export function SourcesPage({
     total: number;
   } | null>(null);
 
-  const reload = useCallback(async () => {
-    setList(null);
-    try {
-      setList(await api.listSources({ projectId }));
-    } catch (err) {
-      setError(errMsg(err));
-    }
-  }, [projectId]);
+  const reload = useCallback(
+    async (silent = false) => {
+      if (!silent) setList(null);
+      try {
+        const [list, settings] = await Promise.all([
+          api.listSources({ projectId }),
+          api.getSettings(),
+        ]);
+        setList(list);
+        setCaptureFlags({
+          enabled: settings.config.captureEnabled,
+          autoAnalyze: settings.config.autoAnalyze,
+        });
+        setError(null);
+      } catch (err) {
+        setError(errMsg(err));
+      }
+    },
+    [projectId],
+  );
 
   useEffect(() => {
     void reload();
     setDetail(null);
+  }, [reload]);
+
+  // M1.2：低频轮询刷新状态（不调用模型；页面可见时才刷新）
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void reload(true);
+    }, 5000);
+    return () => clearInterval(timer);
   }, [reload]);
 
   const importDocuments = async () => {
@@ -111,6 +172,16 @@ export function SourcesPage({
     setDetail({ ...detail, segments: detail.segments.concat(next.segments), total: next.total });
   };
 
+  const retryAnalysis = async (id: string) => {
+    setError(null);
+    try {
+      await api.reextractSource(id);
+      await reload(true);
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+
   const removeSource = async (id: string) => {
     setBusy(true);
     try {
@@ -166,29 +237,53 @@ export function SourcesPage({
             <thead>
               <tr>
                 <th>标题</th>
+                <th>所属项目</th>
                 <th>类型</th>
-                <th>提供者</th>
+                <th>状态</th>
                 <th>片段</th>
                 <th>条目</th>
-                <th>导入时间</th>
+                <th>最近收到内容</th>
               </tr>
             </thead>
             <tbody>
-              {list.map((item) => (
-                <tr
-                  key={item.source.id}
-                  onClick={() => void openDetail(item.source.id)}
-                  className="row-click"
-                  data-testid={`source-row-${item.source.id}`}
-                >
-                  <td>{item.source.title}</td>
-                  <td>{sourceKindLabel(item.source.kind)}</td>
-                  <td>{providerLabel(item.source.provider)}</td>
-                  <td>{item.segmentCount}</td>
-                  <td>{item.itemCount}</td>
-                  <td>{item.source.imported_at.slice(0, 19).replace('T', ' ')}</td>
-                </tr>
-              ))}
+              {list.map((item) => {
+                const status = analysisStatus(item, captureFlags);
+                return (
+                  <tr
+                    key={item.source.id}
+                    onClick={() => void openDetail(item.source.id)}
+                    className="row-click"
+                    data-testid={`source-row-${item.source.id}`}
+                  >
+                    <td>{item.source.title}</td>
+                    <td>{item.projectName ?? '未归属'}</td>
+                    <td>{sourceKindLabel(item.source.kind)}</td>
+                    <td data-testid={`source-status-${item.source.id}`}>
+                      <span className={status.tone}>{status.text}</span>
+                      {status.detail && (
+                        <div className="muted" style={{ fontSize: 11 }}>
+                          {status.detail}
+                        </div>
+                      )}
+                      {item.analysis.lastJobStatus === 'failed' && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void retryAnalysis(item.source.id);
+                          }}
+                        >
+                          重试
+                        </button>
+                      )}
+                    </td>
+                    <td>{item.segmentCount}</td>
+                    <td>{item.itemCount}</td>
+                    <td>{item.source.imported_at.slice(0, 19).replace('T', ' ')}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

@@ -6,11 +6,24 @@ import { sha256 } from '../vault.js';
 import { assertSourceAuthorized } from '../access.js';
 import type { ParsedSource } from '../import/parsers.js';
 
+export interface SourceAnalysisStatus {
+  contentRevision: number;
+  analyzedRevision: number;
+  analyzedAt: string | null;
+  lastJobStatus: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
+  lastJobError: string | null;
+  lastJobAt: string | null;
+}
+
 export interface SourceWithStats {
   source: Source;
   permissionStatus: Permission['status'];
   segmentCount: number;
   itemCount: number;
+  /** 所属项目名（未归属为 null；M1.2） */
+  projectName: string | null;
+  /** 真实状态数据（M1.2）：收到/已分析版本、最后成功分析时间、最近任务状态 */
+  analysis: SourceAnalysisStatus;
 }
 
 /** 来源与片段存储。所有写入都在事务中：要么完整入库，要么回滚不留半套数据。 */
@@ -179,9 +192,17 @@ export class SourceStore {
     const sql = `
       SELECT s.*, p.status AS permission_status,
         (SELECT count(*) FROM segments sg WHERE sg.source_id = s.id) AS segment_count,
-        (SELECT count(*) FROM items i WHERE i.extracted_from_source_id = s.id) AS item_count
+        (SELECT count(*) FROM items i WHERE i.extracted_from_source_id = s.id) AS item_count,
+        pj.name AS project_name,
+        (SELECT status FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
+          ORDER BY created_at DESC LIMIT 1) AS last_job_status,
+        (SELECT error FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
+          ORDER BY created_at DESC LIMIT 1) AS last_job_error,
+        (SELECT created_at FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
+          ORDER BY created_at DESC LIMIT 1) AS last_job_at
       FROM sources s
       JOIN permissions p ON p.id = s.permission_id
+      LEFT JOIN projects pj ON pj.id = s.project_id
       ${opts.projectId ? 'WHERE s.project_id = ?' : ''}
       ORDER BY s.imported_at DESC
     `;
@@ -192,9 +213,25 @@ export class SourceStore {
         permission_status: Permission['status'];
         segment_count: number;
         item_count: number;
+        project_name: string | null;
+        content_revision: number | null;
+        analyzed_revision: number | null;
+        analyzed_at: string | null;
+        last_job_status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
+        last_job_error: string | null;
+        last_job_at: string | null;
       }
     >;
     return rows.map((r) => ({
+      projectName: r.project_name,
+      analysis: {
+        contentRevision: r.content_revision ?? 0,
+        analyzedRevision: r.analyzed_revision ?? 0,
+        analyzedAt: r.analyzed_at,
+        lastJobStatus: r.last_job_status,
+        lastJobError: r.last_job_error,
+        lastJobAt: r.last_job_at,
+      },
       source: {
         id: r.id,
         kind: r.kind,
@@ -323,9 +360,13 @@ export class SourceStore {
    * 覆盖较新结果。返回推进后的 analyzed_revision。
    */
   advanceAnalyzedRevision(sourceId: string, targetRevision: number): number {
+    // M1.2：记录最后成功分析时间（仅在确实前进时更新）
+    const analyzedAt = new Date().toISOString();
     this.db
-      .prepare('UPDATE sources SET analyzed_revision = ? WHERE id = ? AND analyzed_revision < ?')
-      .run(targetRevision, sourceId, targetRevision);
+      .prepare(
+        'UPDATE sources SET analyzed_revision = ?, analyzed_at = ? WHERE id = ? AND analyzed_revision < ?',
+      )
+      .run(targetRevision, analyzedAt, sourceId, targetRevision);
     const row = this.db
       .prepare('SELECT analyzed_revision AS a FROM sources WHERE id = ?')
       .get(sourceId) as { a: number } | undefined;

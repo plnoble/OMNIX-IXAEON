@@ -97,6 +97,19 @@ export const exportDataInputSchema = z.object({
 });
 export type ExportDataInput = z.infer<typeof exportDataInputSchema>;
 
+export type SourceAnalysisStatusView = {
+  /** 可用内容版本（收到/编辑/分支切换递增） */
+  contentRevision: number;
+  /** 已成功生成理解的版本 */
+  analyzedRevision: number;
+  /** 最后成功分析时间（未分析过为 null） */
+  analyzedAt: string | null;
+  /** 最近一次提取任务状态 */
+  lastJobStatus: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
+  lastJobError: string | null;
+  lastJobAt: string | null;
+};
+
 export type SourceListItem = {
   source: Source;
   permissionStatus: 'active' | 'revoked';
@@ -104,6 +117,10 @@ export type SourceListItem = {
   itemCount: number;
   /** 最近一次提取任务状态（M2 起填充） */
   extractState?: 'pending' | 'running' | 'done' | 'failed' | 'skipped' | null;
+  /** 所属项目名（未归属为 null；M1.2） */
+  projectName: string | null;
+  /** 真实状态数据（M1.2） */
+  analysis: SourceAnalysisStatusView;
 };
 
 /** 片段搜索结果（渲染进程来源页/搜索用，字段比 MCP SearchResult 精简）。 */

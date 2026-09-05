@@ -196,6 +196,13 @@ UPDATE sources SET content_revision = 1, analyzed_revision = 1;
 ALTER TABLE items ADD COLUMN suggested_project_id TEXT REFERENCES projects(id);
 `,
   },
+  {
+    id: 4,
+    name: 'source-analyzed-at',
+    sql: `
+ALTER TABLE sources ADD COLUMN analyzed_at TEXT;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

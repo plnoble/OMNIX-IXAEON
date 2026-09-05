@@ -180,7 +180,8 @@
 | 安装包（二轮） | 122,566,050 字节，SHA-256 `4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607` |
 | 安装包（三轮） | 122,568,319 字节，SHA-256 `D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7` |
 | 安装包（四轮） | 122,569,581 字节，SHA-256 `5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7` |
-| 安装包（M0 收尾，最终交付物） | 122,573,413 字节，SHA-256 `616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051` |
+| 安装包（M0 收尾） | 122,573,413 字节，SHA-256 `616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051` |
+| 安装包（M1.2，最终交付物） | 122,576,020 字节，SHA-256 `220B1D35129E7AC5320D86F09171EC037AC838D06848B5A53B8DA9AA80A158D4` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -533,3 +534,34 @@ M0 门槛对照：本轮 4 项门槛测试（运行中到达新版本/窗口内�
 2. 当前真实 chatgpt.com 页面人工验收。
 3. NSIS 安装、卸载和全新 Windows 用户全流程。
 4. v0.2 M1–M3（归属继承/状态展示/确认动作/编码闭环）按计划待 M0 通过审核后分批实施。
+
+---
+
+# M1.2 实施记录（2026-09-05，展示真实状态）
+
+按《下一阶段开发计划》M1.2 实施「来源真实状态」：
+
+## 1. 数据层
+- 迁移 4：`sources.analyzed_at`（最后成功分析时间；仅在 analyzed_revision 前进时
+  由 `advanceAnalyzedRevision` 更新，与 imported_at 分离）。
+- `SourceStore.list`：联查项目名（LEFT JOIN projects）与最近 extract 任务
+  （status/error/created_at，按 payload LIKE sourceId 取最新）；
+  `SourceWithStats` 新增 `projectName` + `analysis` 对象；
+  契约 `SourceListItem` 同步扩展。
+
+## 2. UI（Sources 页）
+- 表格新增「所属项目」「状态」列；「最近收到内容」替换原「导入时间」列。
+- `analysisStatus()` 文案映射（普通人可读）：
+  已收到，等待分析 / 正在分析… / 已分析最新内容 / 有新内容尚未分析，当前显示
+  旧理解 / 自动分析已关闭，开启后处理 / 授权已撤销 / 分析失败，可以重试
+  （附错误摘要 + 行内重试按钮，调用 reextractSource 手动任务）。
+- 5 秒低频轮询（页面可见时才刷新，静默更新不清空列表）；状态刷新不调用模型。
+
+## 3. 验证（全部实跑）
+- m1-status 4 项（等待分析/追平+analyzed_at/欠分析可见/失败原因可见）纳入 verify；
+- verify 全绿（integration 111），desktop e2e 10、extension 全断言、serial 串联 PASS；
+- 打包复核 3 项；安装包 122,576,020 字节，SHA-256
+  `220B1D35129E7AC5320D86F09171EC037AC838D06848B5A53B8DA9AA80A158D4`。
+
+## 4. 未完成
+M1 验收的界面级人工确认、M2/M3 批次按计划待续；真人验收 A–D 待用户执行。
