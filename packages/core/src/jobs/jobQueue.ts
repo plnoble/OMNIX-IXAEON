@@ -126,8 +126,17 @@ export class JobQueue {
           this.finishJob(job.id, 'succeeded', null);
         }
       } catch (err) {
-        this.logger.warn('任务失败', { jobId: job.id, kind: job.kind, error: String(err) });
-        this.finishJob(job.id, 'failed', err instanceof Error ? err.message : String(err));
+        // 修复 F4 要求 5：取消/暂停类中止必须有可见状态，不得伪装成成功或普通失败。
+        // 处理器抛出带 jobCancelled 标记的错误时，任务以 cancelled 落库（可重试）。
+        const cancelled = (err as { jobCancelled?: boolean }).jobCancelled === true;
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn('任务结束', {
+          jobId: job.id,
+          kind: job.kind,
+          status: cancelled ? 'cancelled' : 'failed',
+          error: message,
+        });
+        this.finishJob(job.id, cancelled ? 'cancelled' : 'failed', message);
       } finally {
         this.currentAbort = null;
         this.currentJobId = null;

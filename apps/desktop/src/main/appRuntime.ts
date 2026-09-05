@@ -186,11 +186,66 @@ export class AppRuntime {
     this.jobs.kick();
   }
 
+  /**
+   * 来源所属对话是否被用户暂停（修复 F4）：按来源的 externalId 与其绑定的
+   * 会话标识（含别名解析）检查暂停状态。自动任务执行前与各块之间复查用。
+   */
+  isSourceConversationPaused(sourceId: string): boolean {
+    const source = this.sources.get(sourceId);
+    if (!source) return false;
+    const capture = this.getConfig().capture;
+    if (capture.pausedConversations.includes(source.external_id)) return true;
+    const meta = (() => {
+      try {
+        const parsed = JSON.parse(source.metadata_json) as unknown;
+        return parsed !== null && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : {};
+      } catch {
+        return {};
+      }
+    })();
+    const sessionId = typeof meta.sessionId === 'string' ? meta.sessionId : null;
+    if (sessionId !== null && capture.pausedSessions.includes(sessionId)) return true;
+    const aliased = capture.sessionAliases[source.external_id];
+    if (aliased !== undefined && capture.pausedSessions.includes(aliased)) return true;
+    if (sessionId !== null && capture.pausedSessions.includes(sessionId)) return true;
+    return false;
+  }
+
   private registerJobHandlers(): void {
     // 提取任务（M2）：结构化提取 → items + item_evidence。
     // 模型未配置时任务失败并给出明确原因（配置后可重试）。
     this.jobs.register('extract', async (job) => {
-      const payload = JSON.parse(job.payload_json) as { sourceId: string };
+      const payload = JSON.parse(job.payload_json) as {
+        sourceId: string;
+        /** 自动分析任务标记：执行时复查开关/暂停；手动任务不查自动分析开关 */
+        auto?: boolean;
+      };
+      const isAuto = payload.auto === true;
+      // 修复 F4：自动任务在真正执行前重新检查开关、来源授权与对话暂停状态 ——
+      // 排队时允许不代表执行时仍被允许。手动任务只受授权约束（关闭自动分析
+      // 不封死仍获授权的手动操作；撤销授权则一律禁止，由提取器内检查）。
+      const autoGuardSatisfied = (): boolean => {
+        if (!isAuto) return true;
+        const cfg = this.getConfig();
+        if (!cfg.capture.autoAnalyze) return false;
+        if (!cfg.capture.enabled) return false;
+        if (this.isSourceConversationPaused(payload.sourceId)) return false;
+        return true;
+      };
+      if (!autoGuardSatisfied()) {
+        const err = new IxaError(
+          ErrorCodes.JOB_CANCELLED,
+          '自动提取已取消（自动分析开关、采集开关或对话暂停状态在排队后发生变化）',
+        ) as IxaError & { jobCancelled: boolean };
+        err.jobCancelled = true;
+        recordAudit(this.db, 'extract.cancelled_before_model', {
+          sourceId: payload.sourceId,
+          auto: isAuto,
+        });
+        throw err;
+      }
       const provider = this.getProvider();
       if (!provider) {
         throw new Error(
@@ -198,9 +253,13 @@ export class AppRuntime {
         );
       }
       const extractor = new Extractor(this.db, provider);
-      const stats = await extractor.extractSource(payload.sourceId);
+      const stats = await extractor.extractSource(payload.sourceId, {
+        // 修复 F4 要求 3：多块提取间与提交前复查（取消后不发新块、不提交结果）
+        shouldContinue: autoGuardSatisfied,
+      });
       recordAudit(this.db, 'extract.completed', {
         sourceId: payload.sourceId,
+        auto: isAuto,
         inserted: stats.inserted,
         skippedBadRef: stats.skippedBadRef,
         disputed: stats.disputed,
@@ -303,14 +362,17 @@ export class AppRuntime {
    */
   async restoreData(previewToken: string): Promise<{ ok: true; restartRequired: true }> {
     await this.stopServer();
-    // 修复 N3：先停止本地服务的后台补分析计时器，再关闭数据库 ——
-    // 避免恢复完成后旧回调访问已关闭的连接（可选链：运行时可能尚未完全装配）
-    this.localServer?.stopBackgroundTasks();
+    // 修复 F3：不再在凭证校验前清空待分析状态 —— 无效/过期凭证等早期失败
+    // 必须完整保留原运行时（含待补分析计时器）。清理移入 closeCurrentDb 回调：
+    // 只有校验全部通过、即将替换磁盘数据时才停止后台任务。
     const archive = new ArchiveService(this.db, {
       dataDir: this.dataDir,
       dbPath: join(this.dataDir, 'ixaeon.db'),
       vault: this.vault,
       closeCurrentDb: () => {
+        // 修复 N3：先停止本地服务的后台补分析计时器，再关闭数据库 ——
+        // 替换后旧回调不得访问已关闭的连接（可选链：运行时可能尚未完全装配）
+        this.localServer?.stopBackgroundTasks();
         try {
           this.jobs.stop();
         } catch {

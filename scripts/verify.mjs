@@ -91,6 +91,15 @@ results.push(
   ]),
 );
 
+results.push(
+  run('review-round4（四次验收连续性 7 项，修复 F1-F4 回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.round4.config.ts',
+  ]),
+);
+
 process.stdout.write(`\n\u001b[32m全部通过（IXAEON v0.1 验证完成）\u001b[0m\n`);
 for (const r of results) {
   process.stdout.write(`  ✓ ${r.label} — ${r.seconds}s\n`);

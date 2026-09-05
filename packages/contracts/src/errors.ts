@@ -48,6 +48,8 @@ export const ErrorCodes = {
   BAD_ORIGIN: 'IXA0021',
   /** 功能被当前设置禁用 */
   DISABLED: 'IXA0022',
+  /** 后台任务被取消（开关/暂停/状态在执行期间变化；可重试） */
+  JOB_CANCELLED: 'IXA0023',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

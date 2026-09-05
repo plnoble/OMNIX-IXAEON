@@ -2,9 +2,10 @@
 
 > 按 `IXAEON_v0.1_开发计划.md` 第 12 章要求交付，并逐项回应
 > `IXAEON_v0.1_验收问题与修复任务.md`（验收基线）、
-> `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）与
-> `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）。
-> 更新时间：2026-09-05（三轮修复后）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）、
+> `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）与
+> `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4）。
+> 更新时间：2026-09-05（四轮修复后，v0.1.1 稳定性收口）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -63,6 +64,25 @@
 | N5 回滚未完成却新建空库 | archiveStore 回滚自身失败时抛出携带 `rollbackIncomplete` 标记的错误；AppRuntime 据此进入**恢复故障态**：不重建、不启动服务、不写数据；`rebuildRuntimeServices` 增加 `existsSync(dbPath)` 兜底，拒绝 openDatabase 静默建空库；日志如实记录备份位置 | round3 T8（双重注入失败：不建空库、不 startServer；T9 正向对照保持通过） | ✅ 自动化已验证 |
 | N6 长段子块突破 8000 | buildBlocks 预算按「真实编号+角色头」计算并为后缀位数留余量，切分后用真实头逐一校验、超限收紧重切 | round3 T10（30,000 字符无换行 user 片段：所有完整块 ≤8000） | ✅ 自动化已验证 |
 | T11/T12 客户端会话身份 | content.ts 弃用「正文超集」判据，改为**会话生命周期**：同 URL 同会话（编辑/重新生成不变）；formal→不同 formal 永远新会话；仅 page:→/c/ 且首条用户消息一致视为转正 | round3 T11（不同正式 URL 不同会话）/ T12（重新生成不变） | ✅ 自动化已验证 |
+
+---
+
+## 0.7 四次验收修复（对 `IXAEON_v0.1_四次验收报告_2026-09-05.md` F1–F4 逐项）
+
+四轮审核的 7 项连续性检查（`apps/desktop/test/review/continuity-round4.test.ts`）
+修复前 6 项失败（U7 正向对照通过），修复后 **7/7 通过**，已纳入 `pnpm verify`。
+**放行条件 2 已完成**：新增真浏览器扩展 → 真实桌面本地服务 → 真实 SQLite 的
+串联验收（`apps/extension/e2e/serial-real.cjs`，已接入 `pnpm test:e2e`），
+覆盖真实配对码配对、正式对话采集、真实浏览器刷新（sessionId 必然变化）不重复
+建档、追加内容增量入库、暂停/继续、SPA pushState 草稿转正合并。
+身份与任务生命周期规则记录于 `docs/identity-lifecycle.md`。
+
+| 问题 | 修复 | 回归测试 | 状态 |
+| --- | --- | --- | --- |
+| F1 页面采集会话被当成对话身份 | 身份模型重定义（docs/identity-lifecycle.md）：正式对话身份 = URL（任意 sessionId 落同一来源，U1/U2）；草稿身份 = sessionId，按「同路径 + metadata.sessionId 精确匹配」找回（草稿 A→B→A 各自归位，U3）；旧客户端无标识保守新建；建源+片段登记/建正式源+合并在同一事务（失败完整回滚，不留半成品） | round4 U1/U2/U3 + round3 全部（T1–T4 暂停/转正语义保持） | ✅ 自动化已验证 |
+| F2 多草稿共用一个分析计时器 | 防抖/待分析/计时器全部改按 **sourceId**（稳定来源身份）而非临时网页地址；同来源多次更新仍合并，不同来源互不覆盖 | round4 U4（三个草稿全部获得补分析回调） | ✅ 自动化已验证 |
+| F3 恢复拒绝后待分析工作消失 | `stopBackgroundTasks` 从凭证校验之前移入 `closeCurrentDb` 回调 —— 只有校验全部通过、即将替换磁盘时才停止后台任务；早期失败完整保留原运行时与待分析状态 | round4 U5（无效凭证拒绝后第二次分析仍发生）+ round3 T6/T7/T7b（恢复/凭证语义保持） | ✅ 自动化已验证 |
+| F4 关闭自动分析后排队任务仍调模型 | 任务执行前复查（auto 任务：autoAnalyze、capture.enabled、来源授权、所属会话暂停；手动任务只查授权）；每个模型块前与结果提交前通过 `shouldContinue` 再复查；取消以 `cancelled` 状态落库（新增 IXA0023 JOB_CANCELLED，可见、可重试），不伪装成功 | round4 U6（关闭开关后 0 次模型调用）/ U7 对照（开启时正常执行成功） | ✅ 自动化已验证 |
 
 ---
 
@@ -160,6 +180,7 @@ corepack pnpm verify
       localServer 9
   ✓ review（二次验收独立业务测试） 通过 —— 11 passed（R1–R9 回归，已纳入 verify）
   ✓ review-round3（三次验收相邻场景） 通过 —— 13 passed（N1–N6 回归，已纳入 verify）
+  ✓ review-round4（四次验收连续性） 通过 —— 7 passed（F1–F4 回归，已纳入 verify）
   ✓ build（desktop / mcp / extension） 通过
 
 corepack pnpm test:e2e
@@ -168,6 +189,11 @@ corepack pnpm test:e2e
               9 页面截图采集）
   extension e2e：全部断言通过（真实 Chromium + 真实扩展 + mock chatgpt.com；
               含暂停/继续当前对话闭环、会话标识提交）
+
+serial e2e（串联验收，`pnpm test:e2e` 第三阶段；真扩展 → 真实服务 → 真库）：
+  ✓ 真实配对码配对 ✓ 正式对话采集入库 ✓ 真实浏览器刷新不重复建档且
+    sourceId 不变 ✓ 追加内容增量入库 ✓ 暂停后不入库/继续后恢复 ✓
+    SPA pushState 草稿转正合并（临时来源消失、来源总数正确）
 
 打包产物复核（审核提供的 apps/desktop/test/review/packaged-20260905.mjs）：
   ✓ R9：无 IXAEON_DATA_DIR 时自定义目录勾选框可用（disabled:false）
@@ -390,9 +416,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（三轮修复后重建）
-  - 大小：122,568,319 字节（≈116.9 MB）
-  - SHA-256：`D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（四轮修复后重建）
+  - 大小：122,569,581 字节（≈116.9 MB）
+  - SHA-256：`5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

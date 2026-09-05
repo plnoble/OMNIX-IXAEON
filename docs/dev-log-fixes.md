@@ -178,7 +178,8 @@
 | 安装版 MCP 握手（win-unpacked + ELECTRON_RUN_AS_NODE） | initialize ✅ tools/list 4 工具 ✅ 桌面未运行错误可操作 ✅ |
 | 安装包（一轮） | 122,562,511 字节，SHA-256 `CE4631447B7165BB203D2D6035E703B9F6471AC12244A917C5EF81371616C039` |
 | 安装包（二轮） | 122,566,050 字节，SHA-256 `4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607` |
-| 安装包（三轮，最终交付物） | 122,568,319 字节，SHA-256 `D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7` |
+| 安装包（三轮） | 122,568,319 字节，SHA-256 `D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7` |
+| 安装包（四轮，最终交付物） | 122,569,581 字节，SHA-256 `5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -387,3 +388,86 @@ T9 正向对照（单次安装失败 → 回滚 → 运行时可用 → MCP 200�
 1. 真实 OpenAI 模型的六组语义问答（需用户 API Key）。
 2. 当前真实 chatgpt.com 页面的人工验收（扩展 e2e 为受控测试页面）。
 3. NSIS 安装、卸载和全新 Windows 用户全流程（实测为 win-unpacked 测试副本）。
+
+---
+
+# 四轮修复记录（2026-09-05，回应四次验收报告 F1–F4，v0.1.1 稳定性收口）
+
+四次验收确认前两轮 24 项独立回归全部通过，但以 7 项连续性检查发现 F1–F4
+（修复前 6 项失败，U7 对照通过）。修复后 **7/7 通过**并纳入 verify；
+**放行条件 2（真浏览器→真实服务串联验收）已完成**。
+
+## 身份与任务状态设计记录
+
+新增 `docs/identity-lifecycle.md`（下一阶段计划 M0 第一步要求）：区分对话身份
+（正式=URL / 草稿=sessionId）、采集实例（可变的页面会话）与内容版本，并列出
+刷新、多标签、A→B→A、转正、暂停转正、开关变化等场景的 ID 变化规则表。
+
+## F1 · 身份模型重定义
+
+审核复现：同一正式 URL 刷新后 sessionId 变化 → 服务端当成新对话（U1 甚至撞
+唯一约束 400；U2 拆成两个来源）；同路径草稿 A→B→A 产生三个来源（U3）。
+
+修复（`handleCaptureBatch` 重写查找逻辑）：
+- 正式对话：身份 = URL。查找该 URL 的来源，任意 sessionId 都归属同一来源；
+- 草稿：身份 = sessionId。按「同路径 + metadata.sessionId 精确匹配」找回
+  自己的来源；找不到保守新建并持久化 sessionId（旧客户端无标识时仅在
+  「同路径唯一且同样无标识」时延续）；
+- 建源+片段登记、建正式源+合并在**同一事务**（失败完整回滚，不留半成品）。
+
+## F2 · 分析合并按稳定来源身份
+
+`lastAutoEnqueue` / `pendingAnalysis` / `trailingTimers` 全部改按 **sourceId**。
+同路径的草稿 A/B/C 各有独立待分析状态与计时器（U4：三个来源全部收到补分析）；
+同一来源多次更新仍合并为一次；计时器条目携带 externalId/sessionId 供暂停复查。
+
+## F3 · 恢复拒绝不丢待分析工作
+
+`stopBackgroundTasks()` 从凭证校验之前移入 `closeCurrentDb` 回调 —— 无效凭证、
+包损坏等早期失败发生在关库之前，原运行时（含待补分析计时器）完整保留
+（U5：拒绝后窗口结束，第二次分析照常发生）。成功/回滚/故障三条路径的
+N3–N5 语义保持（T6/T7/T7b/T8/T9 仍绿）。
+
+## F4 · 自动任务执行时复查开关
+
+- `registerJobHandlers`：auto 任务执行前复查 autoAnalyze、capture.enabled、
+  来源授权、所属会话暂停（`isSourceConversationPaused`，按 metadata.sessionId
+  与别名解析）；不满足 → 以 `cancelled` 状态落库（不调模型、可见、可重试）。
+  手动任务不受自动分析开关约束（关闭自动分析不封死手动操作）。
+- 提取器接受 `shouldContinue` 注入：每个模型块前与结果提交前复查
+  （U6：关闭开关后 0 次模型调用；U7 对照正常成功）。
+- 新增错误码 IXA0023 JOB_CANCELLED；JobQueue 识别 jobCancelled 标记落
+  cancelled 状态。
+
+## 串联验收（放行条件 2）
+
+新增 `apps/extension/e2e/serial-real.cjs`（接入 `pnpm test:e2e` 第三阶段）：
+真实 Chromium 加载构建产物扩展 → 真实桌面应用（临时数据目录，真实配对码，
+公开 IPC 完成设置并开启采集）→ 扩展把 mock chatgpt.com 页面采集进**真实**
+本地服务与 SQLite。断言直接读真实数据库：
+
+1. 真实配对码配对成功；2. 正式对话采集入库（2 片段）；3. 真实浏览器 reload
+（sessionId 必然变化）不重复建档且 sourceId 不变；4. 追加内容增量入库；
+5. 暂停当前对话后新内容不入库、继续后恢复；6. SPA pushState 草稿转正合并
+（临时来源消失、来源总数正确）。模型 0 调用（autoAnalyze 关闭）。
+
+## 四轮验证结果（全部实跑）
+
+| 命令 | 结果 |
+| --- | --- |
+| `node node_modules/vitest/vitest.mjs run --config apps/desktop/test/review/vitest.round4.config.ts` | **7/7 通过**（修复前 6/7 失败） |
+| `corepack pnpm verify` | 全绿（unit 16 / integration 98 / review 11 / round3 13 / **round4 7** / build） |
+| `corepack pnpm test:e2e` | desktop 10 + extension 全断言 + **serial 串联验收 PASS** |
+| `node apps/desktop/test/review/packaged-20260905.mjs` | 3 项检查全部通过（新产物） |
+| `corepack pnpm package:windows` | 成功；安装包 122,569,581 字节，SHA-256 `5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7` |
+
+## 四轮后仍未验证事项（如实）
+
+1. 真实 OpenAI 模型六组语义问答（需用户 API Key）。
+2. 当前真实 chatgpt.com 页面人工验收（串联验收用的是本地 mock 页面 +
+   真实服务/数据库；真实站点结构兼容性仍需人工）。
+3. NSIS 安装、卸载和全新 Windows 用户全流程（实测为 win-unpacked 副本）。
+4. 下一阶段计划 v0.1.1 M0.2 的持久化版本三元组
+   （contentRevision/analyzedRevision/targetRevision）未实现 —— 当前
+   「待分析」状态仍部分依赖内存计时器（已在 docs/identity-lifecycle.md
+   第 4 节列为演进项）；崩溃重启后的待分析恢复属该项范围。

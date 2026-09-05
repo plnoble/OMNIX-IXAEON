@@ -63,7 +63,24 @@ export class Extractor {
   ) {}
 
   /** 对一个来源执行提取（原子替换：模型全部成功前不删旧理解）。 */
-  async extractSource(sourceId: string): Promise<ExtractStats> {
+  async extractSource(
+    sourceId: string,
+    opts: { shouldContinue?: () => boolean } = {},
+  ): Promise<ExtractStats> {
+    // 修复 F4 要求 3：接入取消信号 —— shouldContinue 在每个模型块之前与
+    // 结果提交之前复查（开关/暂停/授权等由调用方注入）；返回 false 时以
+    // 「已取消」中止：不再发新块，也不会把取消的结果当作最新理解提交。
+    const ensureContinuing = (): void => {
+      if (opts.shouldContinue && !opts.shouldContinue()) {
+        const err = new IxaError(
+          ErrorCodes.JOB_CANCELLED,
+          '提取已取消（自动分析开关、采集开关或对话状态在执行期间发生变化）',
+        ) as IxaError & { jobCancelled: boolean };
+        err.jobCancelled = true;
+        throw err;
+      }
+    };
+    ensureContinuing();
     const source = this.db
       .prepare('SELECT id, title, project_id FROM sources WHERE id = ?')
       .get(sourceId) as { id: string; title: string; project_id: string | null } | undefined;
@@ -107,6 +124,7 @@ export class Extractor {
     // 修复 R3b：每次模型请求前重新检查授权 —— 撤销后立即停止发送尚未发送的块
     //（已经发出的网络请求无法收回，但撤销之后不再发送任何新内容）。
     for (const block of this.buildBlocks(pool)) {
+      ensureContinuing();
       assertSourceAuthorized(this.db, sourceId);
       const output = await this.provider.chatStructured({
         system: EXTRACT_SYSTEM_PROMPT,
@@ -146,6 +164,8 @@ export class Extractor {
 
     // 修复 R3b：提交新理解前最后一次授权检查（提取过程中被撤销则放弃提交）
     assertSourceAuthorized(this.db, sourceId);
+    // 修复 F4 要求 3：结果提交前复查取消条件（开关/暂停在提取期间变化则放弃提交）
+    ensureContinuing();
 
     // 2) 单个短事务：删除旧 current AI 条目 + 写入新结论 + 冲突标记（原子替换）
     const now = new Date().toISOString();
