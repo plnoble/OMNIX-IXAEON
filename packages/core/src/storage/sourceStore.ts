@@ -341,6 +341,38 @@ export class SourceStore {
   }
 
   /**
+   * 绑定/重新绑定/解绑来源的项目（M1.1：一次归属，后续继承）。
+   * 受控事务：
+   * - 来源行与「派生 AI 条目」（origin='ai' 且未废弃）的有效归属一起更新；
+   * - 人工纠正/手工条目（origin='user'）不搬（人工归属不能被静默带走）；
+   * - 解绑时派生条目回到未分配并进入待讨论；
+   * - superseded 条目属于历史，不参与归属变更。
+   * 返回移动的条目数。
+   */
+  bindProject(sourceId: string, projectId: string | null): { movedItems: number } {
+    const source = this.get(sourceId);
+    if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${sourceId}`);
+    if (projectId !== null) {
+      const p = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
+      if (!p) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在: ${projectId}`);
+    }
+    let movedItems = 0;
+    const tx = this.db.transaction(() => {
+      this.db.prepare('UPDATE sources SET project_id = ? WHERE id = ?').run(projectId, sourceId);
+      const r = this.db
+        .prepare(
+          `UPDATE items SET project_id = ?,
+             needs_review = CASE WHEN ? IS NULL THEN 1 ELSE 0 END
+           WHERE extracted_from_source_id = ? AND origin = 'ai' AND state != 'superseded'`,
+        )
+        .run(projectId, projectId, sourceId);
+      movedItems = r.changes;
+    });
+    tx();
+    return { movedItems };
+  }
+
+  /**
    * 对话身份合并（修复 P1-6.5）：新对话先用 page:<hash> 身份保存，
    * ChatGPT 分配正式 /c/<id> 后，把临时来源并入正式来源。
    * 合并策略：片段按 (external_node_id, content_hash) 幂等搬运（不重复、不丢内容），
@@ -417,8 +449,20 @@ export class SourceStore {
         intoKeys.add(key);
         moved += 1;
       }
+      // M1.1：先读取被合并方的项目绑定（删除前），随身份转正继承
+      const fromProject =
+        (
+          this.db.prepare('SELECT project_id AS p FROM sources WHERE id = ?').get(fromSourceId) as
+            | {
+                p: string | null;
+              }
+            | undefined
+        )?.p ?? null;
       deleteFrom.run(fromSourceId);
       deleteSource.run(fromSourceId);
+      this.db
+        .prepare('UPDATE sources SET project_id = ? WHERE id = ? AND project_id IS NULL')
+        .run(fromProject, intoSourceId);
       // 合并改变了正式来源的可用内容 → 递增内容版本（待分析状态持久化）
       if (moved > 0) {
         this.db

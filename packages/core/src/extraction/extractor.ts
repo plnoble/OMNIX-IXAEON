@@ -172,8 +172,8 @@ export class Extractor {
     const insertItem = this.db.prepare(
       `INSERT INTO items (id, project_id, type, statement, rationale, state, confidence,
          origin, observed_at, created_at, updated_at, extracted_from_source_id,
-         prompt_version, model_name, needs_review)
-       VALUES (?, ?, ?, ?, ?, 'current', ?, 'ai', ?, ?, ?, ?, ?, ?, ?)`,
+         prompt_version, model_name, needs_review, suggested_project_id)
+       VALUES (?, ?, ?, ?, ?, 'current', ?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertEvidence = this.db.prepare(
       `INSERT INTO item_evidence (item_id, segment_id, excerpt, relevance)
@@ -188,14 +188,17 @@ export class Extractor {
       deleteOld.run(sourceId);
       for (const { row, segmentId } of collected) {
         const itemId = crypto.randomUUID();
-        // 项目归属：来源绑定项目 → 直接归属；否则尝试 project_hint 匹配名
-        let projectId = source.project_id;
+        // 项目归属（M1.1）：只有来源被用户/导入明确绑定项目时才直接归属；
+        // 模型的 project_hint 猜测只是建议 —— 条目进入待讨论并记录建议项目，
+        // 不悄悄加入某个项目的正式背景。
+        const projectId = source.project_id;
         let needsReview = 0;
+        let suggestedProjectId: string | null = null;
         if (!projectId && row.project_hint) {
           const m = this.db
             .prepare('SELECT id FROM projects WHERE name = ? COLLATE NOCASE')
             .get(row.project_hint) as { id: string } | undefined;
-          if (m) projectId = m.id;
+          if (m) suggestedProjectId = m.id;
         }
         if (!projectId) needsReview = 1; // 待讨论（计划 5.1.8）
         insertItem.run(
@@ -212,6 +215,7 @@ export class Extractor {
           EXTRACT_PROMPT_VERSION,
           this.provider.modelName,
           needsReview,
+          suggestedProjectId,
         );
         insertEvidence.run(itemId, segmentId, row.excerpt, row.confidence);
         stats.inserted++;

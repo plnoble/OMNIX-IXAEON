@@ -19,6 +19,7 @@ const api: IxaIpcApi = {
   registerProjectDirectory: (input) => ipcRenderer.invoke('ixaeon:registerProjectDirectory', input),
   listSources: (input) => ipcRenderer.invoke('ixaeon:listSources', input),
   getSource: (id) => ipcRenderer.invoke('ixaeon:getSource', id),
+  bindSourceProject: (input) => ipcRenderer.invoke('ixaeon:bindSourceProject', input),
   getSourceSegments: (input) => ipcRenderer.invoke('ixaeon:getSourceSegments', input),
   getSegmentContext: (input) => ipcRenderer.invoke('ixaeon:getSegmentContext', input),
   searchSegments: (input) => ipcRenderer.invoke('ixaeon:searchSegments', input),

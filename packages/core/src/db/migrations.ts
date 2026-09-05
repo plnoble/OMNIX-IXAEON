@@ -189,6 +189,13 @@ CREATE TABLE session_aliases (
 UPDATE sources SET content_revision = 1, analyzed_revision = 1;
 `,
   },
+  {
+    id: 3,
+    name: 'item-suggested-project',
+    sql: `
+ALTER TABLE items ADD COLUMN suggested_project_id TEXT REFERENCES projects(id);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

@@ -593,7 +593,7 @@ export class LocalServer {
     if (!existing && isFormalConversationId(externalId)) {
       const temp = db
         .prepare(
-          'SELECT s.id, s.permission_id, s.captured_at, s.title, s.metadata_json, s.external_id FROM sources s ' +
+          'SELECT s.id, s.permission_id, s.captured_at, s.title, s.metadata_json, s.external_id, s.project_id FROM sources s ' +
             "WHERE s.provider = 'chatgpt_web' AND s.external_id LIKE 'page:%' " +
             'ORDER BY s.imported_at DESC',
         )
@@ -604,6 +604,7 @@ export class LocalServer {
         title: string;
         metadata_json: string;
         external_id: string;
+        project_id: string | null;
       }>;
       for (const t of temp) {
         // 修复 R8：仅当存在可靠绑定关系时才识别为同一场对话（见 isMergeCandidate）
@@ -655,7 +656,7 @@ export class LocalServer {
           db.prepare(
             `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
               captured_at, imported_at, permission_id, project_id, metadata_json, content_revision)
-             VALUES (?, 'conversation', 'chatgpt_web', ?, ?, ?, ?, ?, ?, ?, NULL, ?, 1)`,
+             VALUES (?, 'conversation', 'chatgpt_web', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
           ).run(
             formalId,
             externalId,
@@ -665,6 +666,7 @@ export class LocalServer {
             batch.clientTimestamp,
             now,
             t.permission_id,
+            t.project_id, // M1.1：草稿的项目绑定随身份转正继承
             JSON.stringify(mergeMetadata(batch.conversation.sessionId, t.metadata_json)),
           );
           return sources.mergeConversationSources(t.id, formalId);

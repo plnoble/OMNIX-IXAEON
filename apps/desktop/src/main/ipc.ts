@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
-import { listAuditEvents } from '@ixaeon/core';
+import { listAuditEvents, recordAudit } from '@ixaeon/core';
 import {
   ErrorCodes,
   IxaError,
@@ -226,6 +226,15 @@ export function registerIpc(runtime: AppRuntime): void {
     listSources: async (input): Promise<SourceListItem[]> =>
       runtime.sources.list({ projectId: input.projectId }),
     getSource: async (id): Promise<Source | null> => runtime.sources.get(id),
+    bindSourceProject: async (input) => {
+      const result = runtime.sources.bindProject(input.sourceId, input.projectId);
+      recordAudit(runtime.db, 'source.project_bound', {
+        sourceId: input.sourceId,
+        projectId: input.projectId,
+        movedItems: result.movedItems,
+      });
+      return result;
+    },
     getSourceSegments: async (input) =>
       runtime.sources.getSegments(input.sourceId, input.offset, input.limit),
     getSegmentContext: async (input) =>

@@ -197,9 +197,16 @@ export function SourcesPage({
       {detail && (
         <SourceDetail
           detail={detail}
+          projects={projects}
           onClose={() => setDetail(null)}
           onLoadMore={loadMore}
           onDelete={() => removeSource(detail.source.id)}
+          onProjectBound={async (projectId) => {
+            await api.bindSourceProject({ sourceId: detail.source.id, projectId });
+            await reload();
+            const source = await api.getSource(detail.source.id);
+            if (source) setDetail({ ...detail, source });
+          }}
         />
       )}
     </div>
@@ -208,14 +215,18 @@ export function SourcesPage({
 
 function SourceDetail({
   detail,
+  projects,
   onClose,
   onLoadMore,
   onDelete,
+  onProjectBound,
 }: {
   detail: { source: Source; segments: Segment[]; total: number };
+  projects: Project[];
   onClose: () => void;
   onLoadMore: () => void;
   onDelete: () => void;
+  onProjectBound: (projectId: string | null) => Promise<void>;
 }) {
   const { source, segments, total } = detail;
   const [context, setContext] = useState<{
@@ -262,6 +273,21 @@ function SourceDetail({
       }
     >
       {ctxError && <ErrorBanner message={ctxError} onDismiss={() => setCtxError(null)} />}
+      <div className="field-row">
+        <label className="muted">所属项目（一次归属，后续新增内容继承）</label>
+        <select
+          value={source.project_id ?? ''}
+          onChange={(e) => void onProjectBound(e.target.value || null)}
+          data-testid="source-project-select"
+        >
+          <option value="">未归属</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
       <p className="note">
         共 {total} 个片段；显示 {segments.length} 个。点击“上下文”查看该片段前后原文（证据核验）。
       </p>

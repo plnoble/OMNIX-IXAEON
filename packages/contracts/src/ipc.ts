@@ -117,6 +117,13 @@ export type SegmentHit = {
   projectId: string | null;
 };
 
+export const bindSourceProjectInputSchema = z.object({
+  sourceId: z.string().uuid(),
+  /** null 表示解绑（回到未归属） */
+  projectId: z.string().uuid().nullable(),
+});
+export type BindSourceProjectInput = z.infer<typeof bindSourceProjectInputSchema>;
+
 export const searchInputSchema = z.object({
   query: z.string().min(1).max(2000),
   projectId: z.string().uuid().nullable(),
@@ -252,6 +259,8 @@ export interface IxaIpcApi {
   // 来源
   listSources(input: { projectId: string | null }): Promise<SourceListItem[]>;
   getSource(id: string): Promise<Source | null>;
+  /** 绑定/重新绑定/解绑来源的项目（M1.1：一次归属，后续继承；人工条目不搬） */
+  bindSourceProject(input: BindSourceProjectInput): Promise<{ movedItems: number }>;
   getSourceSegments(input: {
     sourceId: string;
     offset: number;
