@@ -52,23 +52,40 @@ interface PairingCode {
  * - 暂停的对话（config.capture.pausedConversations）双方强制执行
  * - 采集成功且 autoAnalyze=true 时经 onCaptured 回调排队提取（去重防抖）
  */
+/** LocalServer 依赖（rebindDeps 支持运行时重建，修复 R2）。 */
+interface LocalServerDeps {
+  db: CoreDatabase;
+  permissions: PermissionService;
+  sources: SourceStore;
+  vault: Vault;
+  getConfig: () => AppConfig;
+  updateConfig: (mutate: (config: AppConfig) => AppConfig) => void;
+  /** 采集成功回调（sourceId + 该批 accepted 数；autoAnalyze=true 时由 AppRuntime 排队提取） */
+  onCaptured?: (sourceId: string, acceptedCount: number) => void;
+}
+
 export class LocalServer {
   private pairingCode: PairingCode | null = null;
-  /** 最近一次自动提取排队时间（sourceId → ts），去重窗口内不重复入队 */
+  /** deps 允许重绑（恢复失败后的运行时重建，修复 R2） */
+  private deps: LocalServerDeps;
+  /** 窗口内已有排队任务、且窗口期间又到了新内容的来源（窗口结束后补一次分析，修复 R7） */
+  private pendingAnalysis = new Map<string, boolean>();
+  /** 补分析计时器（每来源一个，重复变更合并） */
+  private trailingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** 最近一次自动提取排队时间（sourceId → ts）；防抖窗口依据 */
   private lastAutoEnqueue = new Map<string, number>();
 
-  constructor(
-    private readonly deps: {
-      db: CoreDatabase;
-      permissions: PermissionService;
-      sources: SourceStore;
-      vault: Vault;
-      getConfig: () => AppConfig;
-      updateConfig: (mutate: (config: AppConfig) => AppConfig) => void;
-      /** 采集成功回调（sourceId + 该批 accepted 数；autoAnalyze=true 时由 AppRuntime 排队提取） */
-      onCaptured?: (sourceId: string, acceptedCount: number) => void;
-    },
-  ) {}
+  constructor(deps: LocalServerDeps) {
+    this.deps = deps;
+  }
+
+  /**
+   * 恢复失败后的运行时重建（修复 R2）：把数据/权限/来源服务重绑到新数据库句柄。
+   * 配置回调闭包不依赖 db，无需更换。
+   */
+  rebindDeps(next: Pick<LocalServerDeps, 'db' | 'permissions' | 'sources' | 'vault'>): void {
+    this.deps = { ...this.deps, ...next };
+  }
 
   generatePairingCode(): { code: string; expiresAt: string } {
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
@@ -403,11 +420,11 @@ export class LocalServer {
       )
       .get(externalId) as { id: string; permission_id: string } | undefined;
 
-    // 身份合并：正式 ID 批次 + 库中存在临时（page:<hash>）来源且无正式来源
+    // 身份合并（修复 R8）：仅当存在可靠绑定关系时才迁移身份；证据不足保留两个来源
     if (!existing && isFormalConversationId(externalId)) {
       const temp = db
         .prepare(
-          'SELECT s.id, s.permission_id, s.captured_at, s.title FROM sources s ' +
+          'SELECT s.id, s.permission_id, s.captured_at, s.title, s.metadata_json, s.external_id FROM sources s ' +
             "WHERE s.provider = 'chatgpt_web' AND s.external_id LIKE 'page:%' " +
             'ORDER BY s.imported_at DESC',
         )
@@ -416,55 +433,68 @@ export class LocalServer {
         permission_id: string;
         captured_at: string | null;
         title: string;
+        metadata_json: string;
+        external_id: string;
       }>;
       for (const t of temp) {
-        // 同一场对话：临时来源的轮次与本批次首轮内容重叠（同 external_node_id+hash）
-        const firstTurn = batch.turns.slice().sort((a, b) => a.order - b.order)[0];
-        const overlap = firstTurn
-          ? (db
-              .prepare(
-                `SELECT 1 AS one FROM segments WHERE source_id = ? AND external_node_id = ? AND content_hash = ? LIMIT 1`,
-              )
-              .get(t.id, String(firstTurn.order), contentHashOf(firstTurn.text)) as
-              { one: number } | undefined)
-          : undefined;
-        if (overlap) {
-          // 先创建正式来源（沿用临时来源的授权），再把临时片段合并进来
-          const now = new Date().toISOString();
-          const formalId = randomUUID();
-          const initialText = batch.turns
-            .slice()
-            .sort((a, b) => a.order - b.order)
-            .map((x) => `${x.role === 'user' ? '用户' : 'AI'}：${x.text}`)
-            .join('\n\n');
-          const { hash } = vault.store(initialText);
-          db.prepare(
-            `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
+        // 修复 R8：仅当存在可靠绑定关系时才识别为同一场对话（见 isMergeCandidate）
+        if (!this.isMergeCandidate(db, t, batch)) continue;
+        // 修复 R8b：临时身份被暂停时，正式身份继承暂停状态并立即拒绝采集，
+        // 绝不允许借身份变化绕过暂停
+        const config = this.deps.getConfig();
+        if (config.capture.pausedConversations.includes(t.external_id)) {
+          this.deps.updateConfig((cf) => ({
+            ...cf,
+            capture: {
+              ...cf.capture,
+              pausedConversations: [...new Set([...cf.capture.pausedConversations, externalId])],
+            },
+          }));
+          recordAudit(db, 'capture.merge_identity_paused', {
+            fromExternalIdHash: hashLabel(t.external_id),
+            toExternalIdHash: hashLabel(externalId),
+          });
+          throw new IxaError(
+            ErrorCodes.DISABLED,
+            '该对话已被用户暂停（临时身份的暂停状态已随身份转正继承），扩展不再提交其内容',
+          );
+        }
+        // 先创建正式来源（沿用临时来源的授权），再把临时片段合并进来
+        const now = new Date().toISOString();
+        const formalId = randomUUID();
+        const initialText = batch.turns
+          .slice()
+          .sort((a, b) => a.order - b.order)
+          .map((x) => `${x.role === 'user' ? '用户' : 'AI'}：${x.text}`)
+          .join('\n\n');
+        const { hash } = vault.store(initialText);
+        db.prepare(
+          `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
               captured_at, imported_at, permission_id, project_id, metadata_json)
              VALUES (?, 'conversation', 'chatgpt_web', ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-          ).run(
-            formalId,
-            externalId,
-            batch.conversation.title || t.title,
-            hash,
-            Vault.relativePathFor(hash),
-            batch.clientTimestamp,
-            now,
-            t.permission_id,
-            JSON.stringify({ via: 'extension', merged_from: t.id, first_seen: now }),
-          );
-          const result = sources.mergeConversationSources(t.id, formalId);
-          recordAudit(db, 'capture.merge_identity', {
-            fromSourceId: t.id,
-            intoSourceId: formalId,
-            moved: result.moved,
-            deduplicated: result.deduplicated,
-          });
-          existing = db
-            .prepare('SELECT id, permission_id FROM sources WHERE id = ?')
-            .get(formalId) as { id: string; permission_id: string };
-          break;
-        }
+        ).run(
+          formalId,
+          externalId,
+          batch.conversation.title || t.title,
+          hash,
+          Vault.relativePathFor(hash),
+          batch.clientTimestamp,
+          now,
+          t.permission_id,
+          JSON.stringify(mergeMetadata(batch.conversation.sessionId, t.metadata_json)),
+        );
+        const result = sources.mergeConversationSources(t.id, formalId);
+        recordAudit(db, 'capture.merge_identity', {
+          fromSourceId: t.id,
+          intoSourceId: formalId,
+          moved: result.moved,
+          deduplicated: result.deduplicated,
+          boundBy: batch.conversation.sessionId ? 'sessionId' : 'content-containment',
+        });
+        existing = db
+          .prepare('SELECT id, permission_id FROM sources WHERE id = ?')
+          .get(formalId) as { id: string; permission_id: string };
+        break;
       }
     }
 
@@ -525,8 +555,12 @@ export class LocalServer {
   }
 
   /**
-   * 自动分析排队（防抖去重）：autoAnalyze=true 且本批有新内容时回调 AppRuntime。
-   * 60 秒窗口内同一来源的重复提交不重复生成提取任务（DOM 微小变化防抖）。
+   * 自动分析排队（修复 P1-6 + R7）：
+   * - 窗口外新内容：立即排队提取；
+   * - 窗口内（60 秒防抖）又到新内容：标记 pending，窗口结束后补一次最新版本分析；
+   * - 重复内容（accepted=0）：不触发，也不清除 pending —— 保证窗口内到达的
+   *   新内容最终都会进入最新一次分析；
+   * - 补分析前复查：采集开关、自动分析开关、域授权。
    */
   private maybeAutoAnalyze(sourceId: string, acceptedCount: number, permissionId: string): void {
     if (acceptedCount === 0) return;
@@ -535,11 +569,67 @@ export class LocalServer {
     // 域授权仍有效（持续采集下的自动分析必须可追溯授权）
     const domainPermission = this.deps.permissions.activePermissionForDomain(CAPTURE_DOMAIN);
     if (!domainPermission) return;
+    const now = Date.now();
     const last = this.lastAutoEnqueue.get(sourceId) ?? 0;
-    if (Date.now() - last < AUTO_ANALYZE_DEDUPE_MS) return;
-    this.lastAutoEnqueue.set(sourceId, Date.now());
+    if (now - last < AUTO_ANALYZE_DEDUPE_MS) {
+      // 窗口内：合并变更，窗口结束后补一次分析（修复 R7）
+      this.pendingAnalysis.set(sourceId, true);
+      this.scheduleTrailingAnalysis(sourceId, permissionId, now - last);
+      return;
+    }
+    this.lastAutoEnqueue.set(sourceId, now);
+    this.pendingAnalysis.set(sourceId, false);
     recordAudit(this.deps.db, 'capture.auto_analyze_enqueued', { sourceId, permissionId });
     this.deps.onCaptured?.(sourceId, acceptedCount);
+  }
+
+  /** 窗口结束后的补分析（每来源只安排一个计时器；窗口内多次变更合并为一次）。 */
+  private scheduleTrailingAnalysis(
+    sourceId: string,
+    permissionId: string,
+    elapsedMs: number,
+  ): void {
+    if (this.trailingTimers.has(sourceId)) return;
+    const remaining = Math.max(AUTO_ANALYZE_DEDUPE_MS - elapsedMs, 0) + 250;
+    const timer = setTimeout(() => {
+      this.trailingTimers.delete(sourceId);
+      if (!this.pendingAnalysis.get(sourceId)) return; // 窗口内无新增变更
+      this.pendingAnalysis.set(sourceId, false);
+      // 补分析前复查（R7）：开关与授权仍有效才排队
+      const config = this.deps.getConfig();
+      if (!config.capture.enabled || !config.capture.autoAnalyze) return;
+      if (!this.deps.permissions.activePermissionForDomain(CAPTURE_DOMAIN)) return;
+      this.lastAutoEnqueue.set(sourceId, Date.now());
+      recordAudit(this.deps.db, 'capture.auto_analyze_trailing', { sourceId, permissionId });
+      this.deps.onCaptured?.(sourceId, 0);
+    }, remaining);
+    (timer as { unref?: () => void }).unref?.();
+    this.trailingTimers.set(sourceId, timer);
+  }
+
+  /**
+   * 合并候选判定（修复 R8）：可靠绑定优先。
+   * a) 双方都有 sessionId → 必须一致（跨标签页/新对话必然不同）；
+   * b) 任一方缺 sessionId → 回退完整包含检查：临时来源的全部片段
+   *    （order+hash）都必须出现在本批次 —— 仅首句相同绝不构成合并依据。
+   */
+  private isMergeCandidate(
+    db: CoreDatabase,
+    temp: { id: string; metadata_json: string },
+    batch: CaptureBatch,
+  ): boolean {
+    const tempMeta = safeParseMetadata(temp.metadata_json);
+    const tempSession = typeof tempMeta.sessionId === 'string' ? tempMeta.sessionId : null;
+    const batchSession = batch.conversation.sessionId ?? null;
+    if (tempSession !== null && batchSession !== null) {
+      return tempSession === batchSession;
+    }
+    const tempSegs = db
+      .prepare('SELECT external_node_id, content_hash FROM segments WHERE source_id = ?')
+      .all(temp.id) as Array<{ external_node_id: string | null; content_hash: string }>;
+    if (tempSegs.length === 0) return false;
+    const batchKeys = new Set(batch.turns.map((t) => `${t.order}|${contentHashOf(t.text)}`));
+    return tempSegs.every((s) => batchKeys.has(`${s.external_node_id}|${s.content_hash}`));
   }
 
   /** 把当前全部片段组装成完整原文写入 vault，并更新 raw_path / content_hash。 */
@@ -574,4 +664,27 @@ function contentHashOf(text: string): string {
 /** 日志/审计安全标签：externalId 本身可能含对话标题哈希，不可逆显示。 */
 function hashLabel(label: string): string {
   return createHash('sha256').update(label).digest('hex').slice(0, 12);
+}
+
+/** 安全解析来源 metadata_json（损坏时回落空对象）。 */
+function safeParseMetadata(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** 合并后的来源 metadata：绑定采集会话标识（修复 R8，供后续身份延续判定）。 */
+function mergeMetadata(
+  batchSessionId: string | undefined,
+  tempRaw: string,
+): Record<string, unknown> {
+  const meta: Record<string, unknown> = {
+    ...safeParseMetadata(tempRaw),
+    via: 'extension',
+  };
+  if (batchSessionId) meta.sessionId = batchSessionId;
+  return meta;
 }

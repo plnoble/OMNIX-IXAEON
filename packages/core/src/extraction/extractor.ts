@@ -101,9 +101,13 @@ export class Extractor {
       row: z.infer<typeof extractionOutputSchema>['items'][number];
       segmentId: string;
     }> = [];
+    const textById = new Map(pool.map((s) => [s.id, s.text]));
 
-    // 1) 全部模型调用（跨网络，不持锁）。任一失败直接抛出 —— 旧 current 理解保持不变
+    // 1) 全部模型调用（跨网络，不持锁）。任一失败直接抛出 —— 旧 current 理解保持不变。
+    // 修复 R3b：每次模型请求前重新检查授权 —— 撤销后立即停止发送尚未发送的块
+    //（已经发出的网络请求无法收回，但撤销之后不再发送任何新内容）。
     for (const block of this.buildBlocks(pool)) {
+      assertSourceAuthorized(this.db, sourceId);
       const output = await this.provider.chatStructured({
         system: EXTRACT_SYSTEM_PROMPT,
         user: block.userText,
@@ -115,9 +119,33 @@ export class Extractor {
           stats.skippedBadRef++;
           continue;
         }
+        // 修复 R5：摘录必须真实来自所引用的片段 —— 空白规范化后做子串校验，
+        // 引用编号真实但摘录是模型自编（或来自其他片段）的，一律视为无效依据。
+        const segText = textById.get(segmentId) ?? '';
+        if (!isExcerptGroundedInSegment(item.excerpt, segText)) {
+          stats.skippedBadRef++;
+          continue;
+        }
         collected.push({ row: item, segmentId });
       }
     }
+
+    // 2) 替换前置校验（修复 R4）：引用校验是整次替换的前置条件 ——
+    // 存在无效引用（含虚构摘录）时明确失败并保留旧状态，绝不「跳过后继续替换」。
+    // 与「合法分析结果为空」（模型未给出任何结论，保持旧理解、返回 0 inserted）区分。
+    if (stats.skippedBadRef > 0) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        `模型返回 ${stats.skippedBadRef} 条无效引用/依据，本次提取已取消，现有理解保持不变`,
+      );
+    }
+    if (collected.length === 0) {
+      // 合法分析结果为空：模型确认没有可提取结论 —— 旧理解保持不变
+      return stats;
+    }
+
+    // 修复 R3b：提交新理解前最后一次授权检查（提取过程中被撤销则放弃提交）
+    assertSourceAuthorized(this.db, sourceId);
 
     // 2) 单个短事务：删除旧 current AI 条目 + 写入新结论 + 冲突标记（原子替换）
     const now = new Date().toISOString();
@@ -184,8 +212,8 @@ export class Extractor {
     segments: Array<{ id: string; sequence: number; role: string; text: string }>,
     maxChars = MAX_BLOCK_CHARS,
   ): Array<{ userText: string; refMap: Map<string, string> }> {
-    // 展开超长片段 → 引用编号列表（S1、S1.2 …）→ 片段 ID
-    const refs: Array<{ ref: string; segId: string; piece: string }> = [];
+    // 展开超长片段 → 引用编号列表（S1、S1.2 …）→ 片段 ID（保留原始 role）
+    const refs: Array<{ ref: string; segId: string; role: string; piece: string }> = [];
     for (const seg of segments) {
       const base = `S${seg.sequence + 1}`;
       const header = `[${base}]（${seg.role}）\n`;
@@ -193,7 +221,7 @@ export class Extractor {
       const parts = splitTextToFit(seg.text, maxChars - header.length - 1, base);
       parts.forEach((part, i) => {
         const ref = i === 0 ? base : `${base}.${i + 1}`;
-        refs.push({ ref, segId: seg.id, piece: part });
+        refs.push({ ref, segId: seg.id, role: seg.role, piece: part });
       });
     }
 
@@ -213,7 +241,9 @@ export class Extractor {
     };
 
     for (const r of refs) {
-      const piece = `[${r.ref}]（doc）\n${r.piece}`;
+      // 修复 R6：保留真实说话人角色（user/assistant/system/document），
+      // 不允许把对话统一改写成 doc —— 模型必须能区分「用户决定」和「助手提议」
+      const piece = `[${r.ref}]（${r.role}）\n${r.piece}`;
       if (currentLen + piece.length + 1 > maxChars) flush();
       if (piece.length > maxChars) {
         // splitTextToFit 已按上限拆分，这里兜底（极端小上限）
@@ -305,4 +335,22 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   let inter = 0;
   for (const x of a) if (b.has(x)) inter++;
   return inter / (a.size + b.size - inter);
+}
+
+/**
+ * 摘录真实性校验（修复 R5）：引用编号真实不代表引用的那句话真实。
+ * 规则（明确、有限、可追溯）：把摘录与片段文本都做空白规范化
+ * （删除全部空白字符与零宽字符）后，摘录必须是片段文本的子串。
+ * 模型自编的概述（FABRICATED_…）或来自其他片段的摘录都无法通过；
+ * 用户看到的每一段引文都能在对应原文中定位。
+ */
+export function isExcerptGroundedInSegment(excerpt: string, segmentText: string): boolean {
+  const norm = (s: string): string =>
+    s
+      .replace(/[\s\u200b\u200c\u200d\ufeff]/g, '')
+      .replace(/[“”«»„]/g, '"')
+      .replace(/[‘’]/g, "'");
+  const e = norm(excerpt);
+  if (e.length === 0) return false;
+  return norm(segmentText).includes(e);
 }

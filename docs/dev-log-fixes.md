@@ -176,7 +176,8 @@
 | `corepack pnpm test:e2e` | desktop e2e 9 passed；extension e2e 全部断言通过 |
 | `corepack pnpm package:windows` | 成功（extraResources 携带 mcp/index.mjs） |
 | 安装版 MCP 握手（win-unpacked + ELECTRON_RUN_AS_NODE） | initialize ✅ tools/list 4 工具 ✅ 桌面未运行错误可操作 ✅ |
-| 安装包 | 122,562,511 字节，SHA-256 `CE4631447B7165BB203D2D6035E703B9F6471AC12244A917C5EF81371616C039` |
+| 安装包（一轮） | 122,562,511 字节，SHA-256 `CE4631447B7165BB203D2D6035E703B9F6471AC12244A917C5EF81371616C039` |
+| 安装包（二轮，最终交付物） | 122,566,050 字节，SHA-256 `4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -190,3 +191,108 @@ desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
 2. 真实 OpenAI 模型的六组语义问答未人工执行（需用户 API Key；自动化覆盖检索与
    引用层）。
 3. 真实 chatgpt.com 的人工验收未执行（扩展 e2e 为 mock 页面全流程）。
+
+---
+
+# 二轮修复记录（2026-09-05，回应二次验收报告 R1–R9）
+
+二次验收报告（`IXAEON_v0.1_二次验收报告_2026-09-05.md`）以 11 项独立业务测试
+（`apps/desktop/test/review/review-20260905.test.ts`）复现了 R1–R8 九组问题，
+并在打包产物上复现 R9。本轮按报告建议顺序逐项修复；修复前独立测试 11/11 失败，
+修复后 **11/11 通过**，并纳入 `pnpm verify` 持续回归。
+
+## R1 · 恢复凭证实例隔离
+
+审核复现：`previewRestore()` 与 `restoreData()` 各自 new 一个 ArchiveService，
+previewToken 存在实例内存 Map 里 —— 预览后确认恢复报「恢复凭证无效」。
+
+修复：把凭证注册表提升为**进程级模块单例**（`archiveStore.ts` 的
+`restoreTokenStore` + `issueRestoreToken()`），同进程内任意实例核销；
+一次性使用、10 分钟有效期、未预览拒绝的规则全部保留。
+对应更新了 archiveFixes.test.ts 的凭证用例（跨实例核销成功、二次使用失败）。
+
+## R2 · 恢复失败的精确回滚 + 运行时重建
+
+审核复现两个回滚窗口：备份 vault 失败时已移走的旧库不回位；安装 vault 失败时
+留下「新数据库＋旧 vault」。根因是回滚只看单一的 `moved` 标志。
+
+修复：
+- `restoreData` 引入四个步骤状态位（oldDbInBackup / oldVaultInBackup /
+  newDbInstalled / newVaultInstalled），catch 分支按实际完成情况回滚：
+  先移开已安装的新数据（部分安装的 vault 移入 staging 保留核查），
+  再把旧数据库与旧 vault **一起**还原；回滚自身失败时抛出明确错误
+  并声明备份目录位置，不再声称「原数据可用」。
+- `AppRuntime.restoreData` 失败分支新增 `rebuildRuntimeServices()`：
+  重开数据库 → 重建 permissions/sources/projects/search/imports/items/jobs →
+  `LocalServer.rebindDeps()`（新增方法，重绑数据服务）→ 重新注册任务处理器并
+  启动队列 → 重启 HTTP 服务。界面与本地接口在恢复失败后继续可用。
+
+## R3 · 撤销授权的完整覆盖
+
+- `ItemService.getEvidence()`：返回前对每个关联来源 `assertSourceAuthorized`
+  ——撤销后桌面「理解依据」与纠正预览不再暴露片段正文与摘录。
+- 提取器：模型调用循环**每次请求前**重新检查授权（撤销后取消尚未发送的块，
+  review 实测从 4 次模型调用降为 1 次）；事务提交前做最终检查。
+
+## R4 · 无效引用 = 整次替换失败
+
+模型返回的引用（含摘录校验）存在任一无效时，提取明确抛出
+「模型返回 N 条无效引用/依据，本次提取已取消，现有理解保持不变」；
+不再出现「跳过坏引用后仍然清空旧理解」。
+「合法分析结果为空」（模型未给出结论）保持旧理解并返回 0 inserted —— 两种情况
+明确区分。extraction.test.ts 按 R4 契约重写（旧断言把「错误引用跳过」视为成功）。
+
+## R5 · 摘录真实性校验
+
+新增 `isExcerptGroundedInSegment()`：摘录与片段文本经空白/引号规范化后必须
+子串匹配，否则视为无效依据（触发 R4 整次失败）。规则明确、有限、可追溯，
+用户看到的每段引文都能在原文中定位。相关测试的 FakeProvider 摘录全部改为
+引用片段中的真实原文。
+
+## R6 · 说话人角色保留
+
+`buildBlocks` 的引用头改为 `[S1]（user）` / `[S1]（assistant）`（保留片段真实
+role），长段展开（S1.2…）与重新拼块同样保留，不再硬编码 `（doc）`。
+
+## R7 · 防抖窗口后的补分析
+
+`maybeAutoAnalyze` 重写：窗口内（60s）到达的新内容标记 `pendingAnalysis` 并
+安排**窗口结束后的补分析计时器**（每来源一个计时器，多次变更合并为一次）；
+补分析前复查采集开关、autoAnalyze、域授权；重复内容（accepted=0）不清除
+pending。`AppRuntime.enqueueAutoAnalyze` 不再因「已有排队/运行中任务」丢弃
+再次分析的需求（提取幂等，最终状态一定是最新版本）。
+
+## R8 · 可靠的会话绑定 + 暂停迁移
+
+- 契约：`captureBatch.conversation.sessionId`（可选）。
+- 扩展 content.ts：`currentCaptureSession()` —— 同标签页、可见轮次覆盖上一批
+  （DOM 快照超集）视为同一场对话延续（page:→/c/ 转正保留 sessionId）；
+  否则生成新 sessionId。跨标签页/新对话必然不同。
+- 服务端 `isMergeCandidate`：双方都有 sessionId → 必须一致；任一方缺失 →
+  回退「临时来源全部片段都在批次内」的完整包含检查。仅首句相同绝不合并。
+- 暂停迁移：合并前若候选临时来源被暂停 → 把暂停状态迁移到正式 externalId
+  并立即 403，不允许借身份转正绕过暂停。
+
+## R9 · envOverride 由主进程返回
+
+`AppState` 新增 `envOverride` + `dataDirSource`（AppRuntime 按 resolveDataDir
+真实解析返回；主进程 IPC 兜底同步）；Setup.tsx 改用 `state.envOverride`，
+不再用「目录字符串非空」推断（正常启动也有非空默认目录）。
+
+## 二轮验证结果（全部实跑）
+
+| 命令 | 结果 |
+| --- | --- |
+| `node node_modules/vitest/vitest.mjs run --config apps/desktop/test/review/vitest.config.ts` | **11/11 通过**（修复前 11/11 失败） |
+| `corepack pnpm verify` | 全绿（unit 16 / integration **98** / review 11 已纳入 / build） |
+| `corepack pnpm test:e2e` | desktop 10 passed + extension 全断言 |
+| `node apps/desktop/test/review/packaged-20260905.mjs` | 3 项检查全部通过（R9 勾选框可用 / 后端自定义目录+重启保留 / 搬迁产物+无 Node PATH 的 MCP 四工具调用与写回持久化） |
+| `corepack pnpm package:windows` | 成功；安装包 122,566,050 字节，SHA-256 `4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607` |
+
+## 二轮后仍未验证事项（如实）
+
+1. 真实 OpenAI 模型的六组语义问答（需用户 API Key；不把 FakeProvider/检索命中
+   当作语义验收 —— 与二次验收报告口径一致）。
+2. 当前真实 chatgpt.com 页面的人工验收（扩展 e2e 是受控测试页面）。
+3. NSIS 安装、卸载和全新 Windows 用户全流程（本轮实跑的是交付目录中的
+   win-unpacked 副本，未安装到用户系统）。

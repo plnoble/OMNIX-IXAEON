@@ -51,27 +51,27 @@ beforeAll(() => {
         statement: 'IXAEON 是本地优先的项目记忆系统',
         rationale: '文档首行',
         confidence: 0.95,
-        segment_ref: 'S1',
+        segment_ref: 'S2',
         project_hint: null,
-        excerpt: 'IXAEON 析衍',
+        excerpt: '这是 IXAEON 的脱敏测试文档',
       },
       {
         type: 'decision',
         statement: '第一版只做 Windows 桌面端',
         rationale: null,
         confidence: 0.9,
-        segment_ref: 'S1',
+        segment_ref: 'S6',
         project_hint: null,
-        excerpt: 'Windows',
+        excerpt: '数据存储在本机',
       },
       {
         type: 'rejected_option',
-        statement: '否决了手机控制方案',
+        statement: '否决了 Notion 后端方案',
         rationale: null,
         confidence: 0.85,
-        segment_ref: 'S1',
+        segment_ref: 'S8',
         project_hint: null,
-        excerpt: '手机',
+        excerpt: '使用 Notion 作为后端：已否决',
       },
     ],
   });
@@ -104,7 +104,7 @@ describe('M3 prepare_task（计划 6.1）', () => {
     const out = mcp.prepareTask({ project_ref: 'OMNIX 主线', task: '加登录页', max_chars: 12000 });
     expect(out.purpose.length).toBeGreaterThanOrEqual(1);
     expect(out.decisions.some((d) => d.text.includes('Windows'))).toBe(true);
-    expect(out.rejected_options.some((r) => r.text.includes('手机'))).toBe(true);
+    expect(out.rejected_options.some((r) => r.text.includes('Notion'))).toBe(true);
     // 引用 ID 是真实 item id
     const firstRef = out.decisions[0]!.ref;
     expect(items.get(firstRef).id).toBe(firstRef);

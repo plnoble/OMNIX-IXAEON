@@ -97,6 +97,46 @@ export function shouldSubmit(turns: TurnDraft[]): boolean {
   return true;
 }
 
+/**
+ * 采集会话标识（修复 R8）：同一标签页内同一场对话保持不变
+ * （含新对话 page:<hash> → 正式 /c/<id> 的身份转正），不同对话 /
+ * 不同标签页互不相同。服务端以它作为身份合并的可靠绑定依据。
+ *
+ * 身份转正判定：externalId 变化时，若当前可见轮次完整覆盖上一次提交的
+ * 全部轮次（DOM 快照是超集）→ 视为同一场对话延续，保留 sessionId；
+ * 否则视为新对话，生成新的 sessionId。
+ */
+export interface CaptureSession {
+  sessionId: string;
+  externalId: string | null;
+  /** 上一次提交的轮次键（order|hash） */
+  turnKeys: string[];
+}
+
+let sessionState: CaptureSession | null = null;
+
+function randomSessionId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function currentCaptureSession(externalId: string, turns: TurnDraft[]): CaptureSession {
+  const keys = turns.map((t) => `${t.order}|${hashText(t.text)}`);
+  const prev = sessionState;
+  const continuing =
+    prev !== null &&
+    prev.externalId !== null &&
+    prev.turnKeys.length > 0 &&
+    prev.turnKeys.every((k) => keys.includes(k));
+  if (prev !== null && continuing) {
+    sessionState = { sessionId: prev.sessionId, externalId, turnKeys: keys };
+    return sessionState;
+  }
+  sessionState = { sessionId: randomSessionId(), externalId, turnKeys: keys };
+  return sessionState;
+}
+
 /** 提交（经 background，带稳定性去抖）。 */
 function scheduleSubmit(): void {
   if (stabilityTimer !== null) clearTimeout(stabilityTimer);
@@ -106,10 +146,13 @@ function scheduleSubmit(): void {
     if (!shouldSubmit(turns)) return;
     lastSnapshot = JSON.stringify(turns);
     lastSubmissionAt = Date.now();
+    const externalId = conversationExternalId(location);
+    const session = currentCaptureSession(externalId, turns);
     const batch = {
       conversation: {
-        externalId: conversationExternalId(location),
+        externalId,
         title: conversationTitle(),
+        sessionId: session.sessionId,
       },
       turns: turns.map((t) => ({
         order: t.order,

@@ -73,6 +73,15 @@ results.push(
 
 results.push(run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]));
 
+results.push(
+  run('review（二次验收独立业务测试 11 项，修复 R1-R9 回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.config.ts',
+  ]),
+);
+
 process.stdout.write(`\n\u001b[32m全部通过（IXAEON v0.1 验证完成）\u001b[0m\n`);
 for (const r of results) {
   process.stdout.write(`  ✓ ${r.label} — ${r.seconds}s\n`);

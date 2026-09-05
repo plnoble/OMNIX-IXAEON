@@ -46,7 +46,7 @@ afterAll(() => {
 });
 
 describe('M2 提取（FakeProvider）', () => {
-  it('提取：有效 segment_ref 入库 + 无依据的跳过 + prompt_version 记录', async () => {
+  it('提取：有效 segment_ref 入库 + prompt_version 记录（R4 契约：引用校验是替换前置条件）', async () => {
     const doc = fixturePath('files', 'project-notes.md');
     const result = imports.importFile(doc, {
       projectId: null,
@@ -55,18 +55,72 @@ describe('M2 提取（FakeProvider）', () => {
     const source = result.created[0]!;
 
     const fake = new FakeProvider('fake-m2');
-    // 回应：一条带有效 segment_ref（S1 = 第一个片段）、一条无效 ref
+    // 回应：一条带有效 segment_ref（S1 = 第一个片段），摘录来自该片段原文
     fake.enqueueStructured({
       items: [
         {
           type: 'decision',
-          statement: '项目名定为 IXAEON（析衍）',
-          rationale: '文档明确命名',
+          statement: '文档定位为 IXAEON 的脱敏测试资料',
+          rationale: '文档首段明确说明',
           confidence: 0.9,
-          segment_ref: 'S1',
+          segment_ref: 'S2',
           project_hint: null,
-          excerpt: 'IXAEON 析衍',
+          excerpt: '这是 IXAEON 的脱敏测试文档',
         },
+      ],
+    });
+    const extractor = new Extractor(db, fake);
+    const stats = await extractor.extractSource(source.id);
+
+    expect(stats.inserted).toBe(1);
+    expect(stats.needsReview).toBe(1); // project_id null → 待讨论
+
+    const inserted = items.list({ projectId: null, state: 'current' });
+    const found = inserted.find((i) => i.statement.includes('IXAEON'));
+    expect(found).toBeDefined();
+    expect(found?.origin).toBe('ai');
+    expect(found?.prompt_version).toBe(EXTRACT_PROMPT_VERSION);
+    expect(found?.model_name).toBe('fake-m2');
+
+    // 依据必须指向真实片段（S2 = sequence 1，标题独占 S1），摘录可在原文中定位（R5）
+    const evidence = items.getEvidence(found!.id);
+    expect(evidence.length).toBe(1);
+    expect(evidence[0]!.segment.sequence).toBe(1);
+    expect(evidence[0]!.segment.text).toContain('这是 IXAEON 的脱敏测试文档');
+  });
+
+  it('R4 契约：无效 segment_ref 使整次替换失败，旧理解保持不变', async () => {
+    const doc = join(dir, 'r4-contract.md');
+    const seedText = ['# R4 契约测试', '', 'R4UNIQUEMARK 原文正文。'].join('\n');
+    writeFileSync(doc, seedText, 'utf8');
+    const result = imports.importFile(doc, {
+      projectId: null,
+      permissionId: permissions.grantFile(doc).id,
+    });
+    const source = result.created[0]!;
+
+    // 先建立一条有效理解
+    const ok = new FakeProvider('fake-m2-ok');
+    ok.enqueueStructured({
+      items: [
+        {
+          type: 'goal',
+          statement: '有效旧结论',
+          rationale: null,
+          confidence: 0.8,
+          segment_ref: 'S2',
+          project_hint: null,
+          excerpt: 'R4UNIQUEMARK 原文正文',
+        },
+      ],
+    });
+    await new Extractor(db, ok).extractSource(source.id);
+    const before = items.list({ projectId: null, state: 'current' }).map((x) => x.id);
+
+    // 模型只返回无效引用 → 整次替换失败（不再「跳过后继续替换」）
+    const bad = new FakeProvider('fake-m2-bad');
+    bad.enqueueStructured({
+      items: [
         {
           type: 'goal',
           statement: '坏引用条目',
@@ -78,24 +132,12 @@ describe('M2 提取（FakeProvider）', () => {
         },
       ],
     });
-    const extractor = new Extractor(db, fake);
-    const stats = await extractor.extractSource(source.id);
-
-    expect(stats.inserted).toBe(1);
-    expect(stats.skippedBadRef).toBe(1);
-    expect(stats.needsReview).toBe(1); // project_id null → 待讨论
-
-    const inserted = items.list({ projectId: null, state: 'current' });
-    const found = inserted.find((i) => i.statement.includes('IXAEON'));
-    expect(found).toBeDefined();
-    expect(found?.origin).toBe('ai');
-    expect(found?.prompt_version).toBe(EXTRACT_PROMPT_VERSION);
-    expect(found?.model_name).toBe('fake-m2');
-
-    // 依据必须指向真实片段（S1 = sequence 0）
-    const evidence = items.getEvidence(found!.id);
-    expect(evidence.length).toBe(1);
-    expect(evidence[0]!.segment.sequence).toBe(0);
+    await expect(new Extractor(db, bad).extractSource(source.id)).rejects.toThrowError(
+      /无效引用|已取消/,
+    );
+    // 旧理解未被清空
+    const after = items.list({ projectId: null, state: 'current' }).map((x) => x.id);
+    expect(after).toEqual(before);
   });
 
   it('提示词声明防注入（数据非指令）', async () => {
@@ -130,7 +172,7 @@ describe('M2 提取（FakeProvider）', () => {
           confidence: 0.7,
           segment_ref: 'S1',
           project_hint: null,
-          excerpt: '下周发布',
+          excerpt: 'Windows 11 本机运行',
         },
       ],
     });

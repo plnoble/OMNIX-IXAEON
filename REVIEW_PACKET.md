@@ -1,27 +1,48 @@
 # IXAEON v0.1 审核材料（REVIEW_PACKET）
 
 > 按 `IXAEON_v0.1_开发计划.md` 第 12 章要求交付，并逐项回应
-> `IXAEON_v0.1_验收问题与修复任务.md`（验收基线）。
-> 生成时间：2026-09-05。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_v0.1_验收问题与修复任务.md`（验收基线）与
+> `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）。
+> 更新时间：2026-09-05（二轮修复后）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
-> 每项声明附可复现命令或测试名。
+> 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
 
 ---
 
 ## 0. 验收问题修复总览（对修复任务文档逐项）
 
+| 问题                                      | 修复                                                                                                                                                                                                                                                                                                                           | 回归测试                                                                                                          | 状态                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| P1-3 安装版/开发版 MCP 配置不可用         | MCP 入口随包携带（extraResources → `resources/mcp/index.mjs`）；命令 = IXAEON.exe 自身（`ELECTRON_RUN_AS_NODE=1`），零全局 Node 依赖；开发版从 exe 位置向上实查 `apps/mcp/dist/index.mjs`（存在性校验）                                                                                                                        | desktop e2e「MCP 片段命令真实握手」从 win-unpacked 产物完成真实 STDIO initialize + tools/list                     | ✅ 自动化已验证                              |
+| P1-4 问答/MCP 全文搜索失效 + 越过项目边界 | FTS 连接改 `sg.rowid = f.rowid`（askStore / mcpStore）；指定项目仅返回 `project_id` 严格相等资料（未分配不混入）；全局检索含未分配（规则记录于 privacy-model.md）；撤销授权来源不进任何检索；prepare_task 预算按序列化 JSON 长度核算                                                                                           | `fixes.test.ts`（FTS 原文检索 / A·B·未分配三向隔离 / 特殊字符不炸 SQL）+ mcp.test.ts                              | ✅ 自动化已验证                              |
+| P1-5 渲染层可自伪造授权                   | 契约层删除 `allowedPaths`；改为**一次性授权票据**（pickFiles/pickSaveZip/pickRestoreZip 签发，5 分钟有效、单次使用、用途绑定）；核心层 ImportService 不再自行授权，必须传主进程创建的 permissionId（realpath 范围校验）；撤销后 8 个读取入口统一拒绝（阅读/上下文/搜索/问答/MCP segment 路径/MCP item 路径/重提取/vault 读取） | `fixes.test.ts`（伪造票据/A 授权读 B/符号链接逃逸/撤销全入口）+ desktop e2e「渲染层伪造路径导入被拒绝」           | ✅ 自动化已验证                              |
+| P1-6 采集闭环不完整                       | `onCaptured` 接入（autoAnalyze=true 且域授权有效才排队，60s 防抖 + 任务表去重）；popup 新增「暂停/继续当前对话」（扩展本地拦截 + 服务端 403 双重强制）；`page:<hash>` → `/c/<id>` 身份合并（单一来源、不重复不丢内容）；同轮新指纹旧版转 `is_active_branch=0`；每次追加刷新 imported_at                                        | `localServer.test.ts` 9 项 + 扩展 e2e 暂停场景                                                                    | ✅ 自动化已验证                              |
+| P1-7 导出不可读 + 恢复风险                | 导出增加 `data/*.json` 8 份人类可读文件（格式版本 + 稳定字段名）；恢复 = 临时目录全量校验（SQLite 头 / integrity / 迁移兼容 / raw_path 严格格式 + 布局一致 + vault 文件存在）→ 备份 rename（失败即中止，不吞异常）→ 原子替换 → 失败回滚；恢复必须持有 previewRestore 签发的一次性 previewToken                                 | `archiveFixes.test.ts` 8 项（凭证伪造/重复、恶意 raw_path、zip slip、未知条目、数据等价、备份失败回滚）           | ✅ 自动化已验证                              |
+| P1-8 自定义数据目录丢设置                 | completeSetup 重构：先在新目录写全部数据（config 含加密 Key + localToken + 建库 + 首个项目）→ 全部成功后才切 bootstrap 指针；失败旧指针不动；API Key 仍走 safeStorage                                                                                                                                                          | 见已知限制 11.3（自动化覆盖核心层；完整 e2e 见下）                                                                | ✅ 自动化已验证（部分人工见 11.3）           |
+| P1-9 日志保留正文 2000 字符               | 白名单式清洗：正文键（text/content/prompt/…/error/file 等 28 个）→ 仅长度+SHA-256 摘要；敏感键（token/apikey/…）同样摘要；Error/cause/message 递归；普通字符串上限 300；debug 级别同样清洗                                                                                                                                     | security.test.ts（开头/中间/结尾 + 独特短语全断言不存在）+ paths.test.ts                                          | ✅ 自动化已验证                              |
+| P1-10 重提先删旧理解 + 分块不限长         | 提取改为「全部模型块成功 → 单短事务原子替换」；任一块失败旧 current 理解不变；Markdown/TXT 按标题/段落拆 segment（>6000 字符段继续安全切分）；单块完整 user 文本 ≤8000（含编号头）；splitTextToFit 保证可重组                                                                                                                  | `fixes.test.ts`（首块失败旧理解保留 / 原子替换 + superseded 不丢 / 30000 字符单段多块 / 多标题拆分 / 重组完整性） | ✅ 自动化已验证                              |
+| P2-11 材料缺口                            | 真实文档语义验收（两份思想文档导入 + 六组问题检索 + 引用）；生成 `ixaeon-export-sample.zip`；12 张真实截图；端口 43120→43191 修正；本文件逐项标注验证方式                                                                                                                                                                      | `semanticAcceptance.test.ts` + screenshots.spec.ts + 扩展 e2e 截图                                                | ✅ 自动化已验证（真实模型问答除外，见 11.4） |
+
+---
+
+## 0.5 二次验收修复（对 `IXAEON_v0.1_二次验收报告_2026-09-05.md` R1–R9 逐项）
+
+独立验收测试（`apps/desktop/test/review/review-20260905.test.ts`，11 项）修复前 11 项全部失败，
+修复后 **11/11 通过**，并已纳入 `pnpm verify` 持续回归。审核提供的打包产物复核脚本
+（`apps/desktop/test/review/packaged-20260905.mjs`）在重建后的 win-unpacked 上 **3 项检查全部通过**。
+
 | 问题 | 修复 | 回归测试 | 状态 |
-|---|---|---|---|
-| P1-3 安装版/开发版 MCP 配置不可用 | MCP 入口随包携带（extraResources → `resources/mcp/index.mjs`）；命令 = IXAEON.exe 自身（`ELECTRON_RUN_AS_NODE=1`），零全局 Node 依赖；开发版从 exe 位置向上实查 `apps/mcp/dist/index.mjs`（存在性校验） | desktop e2e「MCP 片段命令真实握手」从 win-unpacked 产物完成真实 STDIO initialize + tools/list | ✅ 自动化已验证 |
-| P1-4 问答/MCP 全文搜索失效 + 越过项目边界 | FTS 连接改 `sg.rowid = f.rowid`（askStore / mcpStore）；指定项目仅返回 `project_id` 严格相等资料（未分配不混入）；全局检索含未分配（规则记录于 privacy-model.md）；撤销授权来源不进任何检索；prepare_task 预算按序列化 JSON 长度核算 | `fixes.test.ts`（FTS 原文检索 / A·B·未分配三向隔离 / 特殊字符不炸 SQL）+ mcp.test.ts | ✅ 自动化已验证 |
-| P1-5 渲染层可自伪造授权 | 契约层删除 `allowedPaths`；改为**一次性授权票据**（pickFiles/pickSaveZip/pickRestoreZip 签发，5 分钟有效、单次使用、用途绑定）；核心层 ImportService 不再自行授权，必须传主进程创建的 permissionId（realpath 范围校验）；撤销后 8 个读取入口统一拒绝（阅读/上下文/搜索/问答/MCP segment 路径/MCP item 路径/重提取/vault 读取） | `fixes.test.ts`（伪造票据/A 授权读 B/符号链接逃逸/撤销全入口）+ desktop e2e「渲染层伪造路径导入被拒绝」 | ✅ 自动化已验证 |
-| P1-6 采集闭环不完整 | `onCaptured` 接入（autoAnalyze=true 且域授权有效才排队，60s 防抖 + 任务表去重）；popup 新增「暂停/继续当前对话」（扩展本地拦截 + 服务端 403 双重强制）；`page:<hash>` → `/c/<id>` 身份合并（单一来源、不重复不丢内容）；同轮新指纹旧版转 `is_active_branch=0`；每次追加刷新 imported_at | `localServer.test.ts` 9 项 + 扩展 e2e 暂停场景 | ✅ 自动化已验证 |
-| P1-7 导出不可读 + 恢复风险 | 导出增加 `data/*.json` 8 份人类可读文件（格式版本 + 稳定字段名）；恢复 = 临时目录全量校验（SQLite 头 / integrity / 迁移兼容 / raw_path 严格格式 + 布局一致 + vault 文件存在）→ 备份 rename（失败即中止，不吞异常）→ 原子替换 → 失败回滚；恢复必须持有 previewRestore 签发的一次性 previewToken | `archiveFixes.test.ts` 8 项（凭证伪造/重复、恶意 raw_path、zip slip、未知条目、数据等价、备份失败回滚） | ✅ 自动化已验证 |
-| P1-8 自定义数据目录丢设置 | completeSetup 重构：先在新目录写全部数据（config 含加密 Key + localToken + 建库 + 首个项目）→ 全部成功后才切 bootstrap 指针；失败旧指针不动；API Key 仍走 safeStorage | 见已知限制 11.3（自动化覆盖核心层；完整 e2e 见下） | ✅ 自动化已验证（部分人工见 11.3） |
-| P1-9 日志保留正文 2000 字符 | 白名单式清洗：正文键（text/content/prompt/…/error/file 等 28 个）→ 仅长度+SHA-256 摘要；敏感键（token/apikey/…）同样摘要；Error/cause/message 递归；普通字符串上限 300；debug 级别同样清洗 | security.test.ts（开头/中间/结尾 + 独特短语全断言不存在）+ paths.test.ts | ✅ 自动化已验证 |
-| P1-10 重提先删旧理解 + 分块不限长 | 提取改为「全部模型块成功 → 单短事务原子替换」；任一块失败旧 current 理解不变；Markdown/TXT 按标题/段落拆 segment（>6000 字符段继续安全切分）；单块完整 user 文本 ≤8000（含编号头）；splitTextToFit 保证可重组 | `fixes.test.ts`（首块失败旧理解保留 / 原子替换 + superseded 不丢 / 30000 字符单段多块 / 多标题拆分 / 重组完整性） | ✅ 自动化已验证 |
-| P2-11 材料缺口 | 真实文档语义验收（两份思想文档导入 + 六组问题检索 + 引用）；生成 `ixaeon-export-sample.zip`；12 张真实截图；端口 43120→43191 修正；本文件逐项标注验证方式 | `semanticAcceptance.test.ts` + screenshots.spec.ts + 扩展 e2e 截图 | ✅ 自动化已验证（真实模型问答除外，见 11.4） |
+| --- | --- | --- | --- |
+| R1 恢复凭证实例隔离 | previewToken 从 ArchiveService 实例 Map 移到**进程级注册表**（模块级 `restoreTokenStore`）：previewRestore（实例 A）签发、restoreData（实例 B）核销；一次性 + 10 分钟有效期 + 未预览拒绝规则不变 | review R1（真实 AppRuntime 预览→确认成功）+ archiveFixes「跨实例核销成功/二次使用失败」 | ✅ 自动化已验证 |
+| R2 恢复失败回滚不完整 | restoreData 改为**按步骤精确回滚**（oldDbInBackup / oldVaultInBackup / newDbInstalled / newVaultInstalled 四个状态位）：先移开已安装的新数据，再把旧数据库与旧 vault **一起**还原；回滚失败明确报错并保留备份目录。AppRuntime 失败分支新增 `rebuildRuntimeServices()`：重开数据库 + 重建全部依赖服务 + 重绑 LocalServer（`rebindDeps`）+ 重启任务队列与 HTTP 服务 | review R2a/R2b（注入真实 rename 失败）+ 新增运行时重建由 e2e 链路验证 | ✅ 自动化已验证 |
+| R3 撤销后仍有原文读取/模型发送 | `ItemService.getEvidence()` 对每个来源做 `assertSourceAuthorized`（撤销即整体拒绝）；提取器**每个模型请求前**重新检查授权（撤销后不再发送后续块）+ **提交新理解前**最终检查 | review R3a（撤销后序列化不含原文）/ R3b（4 次调用 → 1 次） | ✅ 自动化已验证 |
+| R4 无效引用清空旧理解 | 引用/摘录校验改为**整次替换的前置条件**：任一无效引用（含虚构摘录）→ 明确抛错、旧理解不变；与「合法分析结果为空」（保持旧理解、0 inserted）区分。extraction.test.ts 旧「跳过后继续替换」断言已按新契约重写 | review R4 + extraction.test.ts「R4 契约」用例 | ✅ 自动化已验证 |
+| R5 引用编号真实但摘录伪造 | 新增 `isExcerptGroundedInSegment`：摘录与片段文本做空白/引号规范化后必须子串匹配，模型自编摘录一律视为无效依据（触发 R4 的整次失败语义）；规则记录在 extractor.ts 注释 | review R5（FABRICATED_NOT_IN_SOURCE 不入库） | ✅ 自动化已验证 |
+| R6 说话人角色丢失 | buildBlocks 组装块时保留片段真实 role（`[S1]（user）`/`（assistant）`），长段展开与重组同样保留，不再硬编码 doc | review R6（模型输入可识别 user/assistant） | ✅ 自动化已验证 |
+| R7 60 秒窗口漏分析 | maybeAutoAnalyze 重写：窗口内新内容标记 pending 并安排**窗口结束后的补分析计时器**（每来源一个、多次变更合并）；补分析前复查采集开关/autoAnalyze/域授权；AppRuntime 入队不再因「已有排队/运行中任务」丢弃需求（提取幂等，最终状态=最新版本） | review R7（fake timers：窗口内新内容最终获得第 2 次分析回调） | ✅ 自动化已验证 |
+| R8 误合并 + 暂停失效 | 合并候选判定 `isMergeCandidate`：a) 双方都有 sessionId 时必须一致；b) 缺 sessionId 时回退**完整包含检查**（临时来源全部片段必须在批次内）——仅首句相同绝不合并。扩展新增采集会话标识 `sessionId`（同标签页同对话跨 URL 转正保持，跨标签页/新对话必不同）。合并前若候选来源被暂停 → **暂停状态随身份转正迁移**并立即 403 | review R8a（两个来源）/ R8b（403 且内容未入库） | ✅ 自动化已验证 |
+| R9 自定义目录勾选框误禁用 | AppState 新增 `envOverride` + `dataDirSource`（主进程按 resolveDataDir 真实解析返回）；Setup.tsx 改用 `state.envOverride`，不再用「目录字符串非空」推断 | review 打包脚本「custom directory checkbox without IXAEON_DATA_DIR override → ok, disabled:false」 | ✅ 自动化已验证 |
 
 ---
 
@@ -29,15 +50,15 @@
 
 ### 实际完成（M0 → M5 全部 + 验收修复）
 
-| 里程碑 | 范围 | 状态 | Commit |
-| --- | --- | --- | --- |
-| M0 | monorepo 骨架（contracts / core / test-fixtures / desktop / mcp / extension）、SQLite migration、日志、错误码、verify 脚本 | ✅ | `2708585` |
-| M1 | 原文仓库（vault + SHA-256）、导入、权限、桌面应用全页面、e2e 冒烟 | ✅ | `c113247` |
-| M2 | ModelProvider、OpenAI Responses 客户端、结构化提取、项目卡、纠正、Inbox、问答 | ✅ | `214a255` |
-| M3 | MCP 闭环（4 工具 + 本地端点 + STDIO 转发 + 配置文档） | ✅ | `5d970ae` |
-| M4 | ChatGPT 网页扩展（增量采集 + 配对 + 流式稳定） | ✅ | `810038d` |
-| M5 | 导出/恢复、安全/性能验证、NSIS 安装包、首版 REVIEW_PACKET | ✅ | `21376ed` |
-| 修复 | 本轮验收问题修复（P1×8 + P2-11），见第 0 节 | ✅ | （本次提交） |
+| 里程碑 | 范围                                                                                                                       | 状态 | Commit       |
+| ------ | -------------------------------------------------------------------------------------------------------------------------- | ---- | ------------ |
+| M0     | monorepo 骨架（contracts / core / test-fixtures / desktop / mcp / extension）、SQLite migration、日志、错误码、verify 脚本 | ✅   | `2708585`    |
+| M1     | 原文仓库（vault + SHA-256）、导入、权限、桌面应用全页面、e2e 冒烟                                                          | ✅   | `c113247`    |
+| M2     | ModelProvider、OpenAI Responses 客户端、结构化提取、项目卡、纠正、Inbox、问答                                              | ✅   | `214a255`    |
+| M3     | MCP 闭环（4 工具 + 本地端点 + STDIO 转发 + 配置文档）                                                                      | ✅   | `5d970ae`    |
+| M4     | ChatGPT 网页扩展（增量采集 + 配对 + 流式稳定）                                                                             | ✅   | `810038d`    |
+| M5     | 导出/恢复、安全/性能验证、NSIS 安装包、首版 REVIEW_PACKET                                                                  | ✅   | `21376ed`    |
+| 修复   | 本轮验收问题修复（P1×8 + P2-11），见第 0 节                                                                                | ✅   | （本次提交） |
 
 ### 明确未完成 / 降级说明（如实）
 
@@ -109,21 +130,29 @@ c113247 M1: 导入与桌面应用（UI 全功能 + e2e 冒烟）
 
 ```
 corepack pnpm verify
-  ✓ lint（ESLint） 通过（1.9s）
-  ✓ format:check（Prettier） 通过（1.4s）
-  ✓ typecheck（tsc --noEmit） 通过（3.2s）
+  ✓ lint（ESLint） 通过
+  ✓ format:check（Prettier） 通过
+  ✓ typecheck（tsc --noEmit） 通过
   ✓ unit（Vitest） 通过 —— 16 passed
-  ✓ integration（Vitest） 通过 —— 97 passed
-      db 6 / import 13 / extraction 9 / mcp 10 / archive 11 / security 8 /
-      performance 4 / fixes 15（新增）/ archiveFixes 8（新增）/
-      semanticAcceptance 4（新增）/ localServer 9（新增）
+  ✓ integration（Vitest） 通过 —— 98 passed
+      db 6 / import 13 / extraction 10 / mcp 10 / archive 11 / security 8 /
+      performance 4 / fixes 15 / archiveFixes 8 / semanticAcceptance 4 /
+      localServer 9
+  ✓ review（二次验收独立业务测试） 通过 —— 11 passed（R1–R9 回归，已纳入 verify）
   ✓ build（desktop / mcp / extension） 通过
 
 corepack pnpm test:e2e
-  desktop e2e：9 passed（Playwright + Electron；含 MCP 真实 STDIO 握手、
-              票据伪造拒绝、MCP 端点真实 prepare_task + record_work_result）
+  desktop e2e：10 passed（Playwright + Electron；含 MCP 真实 STDIO 握手、
+              票据伪造拒绝、MCP 端点真实 prepare_task + record_work_result、
+              9 页面截图采集）
   extension e2e：全部断言通过（真实 Chromium + 真实扩展 + mock chatgpt.com；
-              含暂停/继续当前对话闭环）
+              含暂停/继续当前对话闭环、会话标识提交）
+
+打包产物复核（审核提供的 apps/desktop/test/review/packaged-20260905.mjs）：
+  ✓ R9：无 IXAEON_DATA_DIR 时自定义目录勾选框可用（disabled:false）
+  ✓ 后端自定义目录保存 + 完整进程重启 + 项目保留
+  ✓ 搬迁后的 win-unpacked 产物 + 隔离 APPDATA + 仅 System32 的 PATH：
+    STDIO 握手 + 四工具真实调用 + 写回持久化
 
 corepack pnpm package:windows
   ✓ mcp build → ✓ desktop build → ✓ electron-builder（NSIS）
@@ -211,7 +240,7 @@ corepack pnpm package:windows
 ### 5.6 数据所有权（导出/恢复）
 
 - `archive.test.ts`（11 项）+ `archiveFixes.test.ts`（8 项）：
-  - 导出 ZIP = manifest + readme + **data/*.json 8 份人类可读** + db.sqlite + vault/
+  - 导出 ZIP = manifest + readme + **data/\*.json 8 份人类可读** + db.sqlite + vault/
   - 人类可读 JSON：不依赖 IXAEON 可读，带 formatVersion 与稳定字段名（测试断言
     打开 ZIP 即可解析 projects/sources/segments/items/item-evidence/corrections/
     work-runs/permissions 八份）
@@ -229,30 +258,30 @@ corepack pnpm package:windows
 
 `apps/desktop/release/screenshots/`（全部由 e2e 真实截图）：
 
-| 文件 | 内容 |
-|---|---|
-| 01-setup.png | 首次设置向导（数据目录步骤） |
-| 02-sources.png | 来源页（导入后列表） |
-| 03-source-detail.png | 来源详情（片段阅读器） |
-| 04-search.png | 检索页（命中结果） |
-| 05-projects.png | 项目页 |
-| 06-understanding.png | 理解页 |
-| 07-ask.png | 问答页 |
-| 08-settings.png | 设置页（模型 / 采集开关 / MCP 片段 / 导出恢复） |
-| 09-overview.png | 总览（服务 127.0.0.1:43191） |
-| 10-extension-pair.png | 扩展弹窗（配对输入） |
-| 11-extension-connected.png | 扩展弹窗（已配对 + 状态） |
-| 12-extension-paused.png | 扩展弹窗（当前对话已暂停 + 继续按钮） |
+| 文件                       | 内容                                            |
+| -------------------------- | ----------------------------------------------- |
+| 01-setup.png               | 首次设置向导（数据目录步骤）                    |
+| 02-sources.png             | 来源页（导入后列表）                            |
+| 03-source-detail.png       | 来源详情（片段阅读器）                          |
+| 04-search.png              | 检索页（命中结果）                              |
+| 05-projects.png            | 项目页                                          |
+| 06-understanding.png       | 理解页                                          |
+| 07-ask.png                 | 问答页                                          |
+| 08-settings.png            | 设置页（模型 / 采集开关 / MCP 片段 / 导出恢复） |
+| 09-overview.png            | 总览（服务 127.0.0.1:43191）                    |
+| 10-extension-pair.png      | 扩展弹窗（配对输入）                            |
+| 11-extension-connected.png | 扩展弹窗（已配对 + 状态）                       |
+| 12-extension-paused.png    | 扩展弹窗（当前对话已暂停 + 继续按钮）           |
 
 ---
 
 ## 7. 网络请求目标清单（全部）
 
-| 目标 | 用途 | 何时发生 |
-| --- | --- | --- |
-| `https://api.openai.com/v1/responses` | OpenAI Responses 模型调用 | 仅用户配置 API Key 并触发提取/问答 |
-| `127.0.0.1:43191`（本地回环） | 扩展 ↔ 桌面端、MCP ↔ 桌面端 | 本机进程间 |
-| 无其他目标 | — | 静态扫描测试强制（security.test.ts） |
+| 目标                                  | 用途                        | 何时发生                             |
+| ------------------------------------- | --------------------------- | ------------------------------------ |
+| `https://api.openai.com/v1/responses` | OpenAI Responses 模型调用   | 仅用户配置 API Key 并触发提取/问答   |
+| `127.0.0.1:43191`（本地回环）         | 扩展 ↔ 桌面端、MCP ↔ 桌面端 | 本机进程间                           |
+| 无其他目标                            | —                           | 静态扫描测试强制（security.test.ts） |
 
 - 扩展只访问 chatgpt.com DOM + 127.0.0.1；MCP 只访问 127.0.0.1。
 - 无遥测、无更新检查（publish: null）、无崩溃上报。
@@ -262,19 +291,19 @@ corepack pnpm package:windows
 
 ## 8. 依赖与许可证
 
-| 依赖 | 版本 | 许可证 | 用途 |
-| --- | --- | --- | --- |
-| electron | 44.1.1 | MIT | 桌面壳（兼作 MCP 的 Node 运行时） |
-| react / react-dom | 19.2.x | MIT | 渲染层 |
-| vite / electron-vite / @vitejs/plugin-react | 7 / 5 / 5 | MIT | 构建 |
-| better-sqlite3 | 13.0.3 | MIT | 存储（N-API） |
-| fastify | 5.12.1 | MIT | 本地 HTTP |
-| jszip | 3.10.1 | MIT/Apache-2.0 | 导出/恢复 |
-| zod | 4.5.4 | MIT | 契约校验 |
-| @modelcontextprotocol/sdk | 1.30.0 | MIT | MCP STDIO |
-| playwright / @playwright/test | 1.62.1 | Apache-2.0 | e2e |
-| vitest | 4.1.11 | MIT | 测试 |
-| eslint / prettier / typescript | 见 lockfile | MIT | 工具链 |
+| 依赖                                        | 版本        | 许可证         | 用途                              |
+| ------------------------------------------- | ----------- | -------------- | --------------------------------- |
+| electron                                    | 44.1.1      | MIT            | 桌面壳（兼作 MCP 的 Node 运行时） |
+| react / react-dom                           | 19.2.x      | MIT            | 渲染层                            |
+| vite / electron-vite / @vitejs/plugin-react | 7 / 5 / 5   | MIT            | 构建                              |
+| better-sqlite3                              | 13.0.3      | MIT            | 存储（N-API）                     |
+| fastify                                     | 5.12.1      | MIT            | 本地 HTTP                         |
+| jszip                                       | 3.10.1      | MIT/Apache-2.0 | 导出/恢复                         |
+| zod                                         | 4.5.4       | MIT            | 契约校验                          |
+| @modelcontextprotocol/sdk                   | 1.30.0      | MIT            | MCP STDIO                         |
+| playwright / @playwright/test               | 1.62.1      | Apache-2.0     | e2e                               |
+| vitest                                      | 4.1.11      | MIT            | 测试                              |
+| eslint / prettier / typescript              | 见 lockfile | MIT            | 工具链                            |
 
 （全部宽松许可；无 AGPL/商业组件。）
 
@@ -316,11 +345,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
    拒绝 `--load-extension`；脚本自动选择可用浏览器。
 2. **中文路径 + Chrome 扩展加载**：仓库路径含中文时 Chrome 静默不加载——e2e 自动
    复制到 ASCII 临时目录；用户手动加载建议英文路径。
-3. **自定义数据目录完整重启验证**：核心逻辑（新目录全量写入 → 指针最后切换 →
-   失败保留旧指针）已由单测级验证；「设置向导选自定义目录 → 重启 → 直接进主界面」
-   的完整 e2e 因 e2e 环境用 IXAEON_DATA_DIR 注入（环境变量优先级最高）未覆盖，
-   **标记为尚未自动化验证**（用户可按 Setup 向导自测，预期：完成时提示重启）。
-   数据目录解析优先级（env > bootstrap > 默认）已有代码注释与实现。
+3. **自定义数据目录**：R9 界面禁用缺陷已修复（勾选框由主进程 envOverride 控制，
+   打包产物复核通过）；后端「自定义目录保存 + 完整进程重启 + 项目保留」已由审核
+   打包复核脚本在产物上验证通过。数据目录解析优先级（env > bootstrap > 默认）。
 4. **真实模型语义问答**：自动化语义验收覆盖真实文档的导入、分块、检索、引用与
    「资料不足」路径（semanticAcceptance.test.ts）。带真实 OpenAI 模型对六组问题的
    自然语言回答需用户配置 API Key 后在「问答」页执行（推荐问题清单与判据见
@@ -342,16 +369,17 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`
-  - 大小：122,562,744 字节（≈116.9 MB）
-  - SHA-256：`9569DF834855CCF9D2CD21694D7CBE79BE1609F9345F5371A1E820272071BA04`
-  - 随包携带 `resources/mcp/index.mjs`（已验证存在于 win-unpacked）
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（二轮修复后重建）
+  - 大小：122,566,050 字节（≈116.9 MB）
+  - SHA-256：`4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607`
+  - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
+    STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）
 - 语义验收记录：`apps/desktop/release/semantic-acceptance.json`
 - 截图：`apps/desktop/release/screenshots/`（12 张）
 - 审核材料：本文件
 - 配置文档：`docs/mcp-setup.md`（Codex / Claude Code / Cursor）
-- 开发过程记录：`docs/dev-log-fixes.md`（本轮修复）
+- 开发过程记录：`docs/dev-log-fixes.md`（两轮修复，含二轮 R1–R9）
 
 ---
 

@@ -24,6 +24,14 @@ export const appStateSchema = z.object({
   serverRunning: z.boolean(),
   serverPort: z.number(),
   platform: z.string(),
+  /**
+   * 数据目录是否被环境变量 IXAEON_DATA_DIR 覆盖（修复 R9）：
+   * 由主进程按 resolveDataDir 的实际解析结果返回，渲染层不得用
+   * 「目录字符串非空」推断（正常启动也有非空默认目录）。
+   */
+  envOverride: z.boolean(),
+  /** 数据目录来源（与 envOverride 同源，供设置页展示） */
+  dataDirSource: z.enum(['env', 'bootstrap', 'default']),
 });
 export type AppState = z.infer<typeof appStateSchema>;
 

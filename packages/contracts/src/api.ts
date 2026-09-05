@@ -44,6 +44,13 @@ export const captureBatchSchema = z.object({
     /** chatgpt.com 对话路径，如 /c/<uuid>；幂等键的一部分 */
     externalId: z.string().min(1).max(300),
     title: z.string().max(500),
+    /**
+     * 采集会话标识（修复 R8）：扩展在同一标签页、同一场对话内保持不变
+     * （含临时 page:<hash> → 正式 /c/<id> 的身份转正），跨标签页 / 新对话
+     * 必然不同。服务端以它作为身份合并的可靠绑定依据；缺省时回退到
+     * 完整内容包含检查。
+     */
+    sessionId: z.string().min(8).max(128).optional(),
   }),
   turns: z.array(capturedTurnSchema).min(1).max(500),
   clientTimestamp: isoDateTimeSchema,

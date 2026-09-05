@@ -26,7 +26,9 @@ export function SetupWizard({
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [projectRootTicket, setProjectRootTicket] = useState<string | null>(null);
 
-  const envOverride = state.dataDir.length > 0; // e2e 环境注入数据目录
+  // 修复 R9：主进程明确返回 envOverride（数据目录被环境变量覆盖才禁用自定义目录），
+  // 不能用「目录字符串非空」推断 —— 正常启动也有非空默认目录
+  const envOverride = state.envOverride === true;
 
   const pickDir = async () => {
     try {

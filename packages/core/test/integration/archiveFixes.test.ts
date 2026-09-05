@@ -71,7 +71,7 @@ beforeAll(async () => {
         statement: '归档种子结论',
         rationale: null,
         confidence: 0.9,
-        segment_ref: 'S1',
+        segment_ref: 'S2',
         project_hint: null,
         excerpt: 'ARCHSEEDMARK',
       },
@@ -127,12 +127,12 @@ describe('P1-7 恢复凭证（先预览、再确认）', () => {
     );
   });
 
-  it('重复使用同一 previewToken：第二次失败', async () => {
+  it('R1 契约：凭证进程级有效 —— 跨实例核销成功，第二次使用失败（一次性）', async () => {
     const zipPath = join(dir, 'cred-test.zip');
     await archive.exportData(zipPath);
     const preview = await archive.previewRestore(zipPath);
-    // 第一次（还没关库，closeCurrentDb 是空实现 → 恢复会替换文件）
-    // 这里用独立副本目录做真实替换测试（避免影响后续用例的主库）
+    // 用另一个 ArchiveService 实例核销（修复 R1：previewRestore 与 restoreData
+    // 是不同实例，凭证必须由进程级注册表管理，而不是实例内存 Map）
     const targetDir = mkdtempSync(join(tmpdir(), 'ixaeon-cred-'));
     const targetDbPath = join(targetDir, 'ixaeon.db');
     const targetVault = new Vault(join(targetDir, 'vault'));
@@ -142,7 +142,11 @@ describe('P1-7 恢复凭证（先预览、再确认）', () => {
       vault: targetVault,
       closeCurrentDb: () => {},
     });
-    // 直接内部调用：伪造凭证
+    // 第一次核销：成功（targetDir 收到导出数据）
+    const result = await targetArchive.restoreDataWithToken(preview.previewToken);
+    expect(result.ok).toBe(true);
+    expect(existsSync(targetDbPath)).toBe(true);
+    // 第二次核销同一凭证：一次性使用 → 失败
     await expect(targetArchive.restoreDataWithToken(preview.previewToken)).rejects.toThrowError(
       /恢复凭证无效/,
     );

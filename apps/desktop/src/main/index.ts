@@ -91,6 +91,8 @@ function ipcFallbackState(): void {
       serverRunning: false,
       serverPort: 43191,
       platform: process.platform,
+      envOverride: Boolean(process.env.IXAEON_DATA_DIR),
+      dataDirSource: process.env.IXAEON_DATA_DIR ? 'env' : 'default',
     };
   });
 }

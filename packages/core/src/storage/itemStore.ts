@@ -6,6 +6,7 @@ import {
   type Correction,
   type ItemEvidenceView,
 } from '@ixaeon/contracts';
+import { assertSourceAuthorized } from '../access.js';
 
 /** row → camelCase。 */
 function toItem(row: Record<string, unknown>): Item {
@@ -78,7 +79,11 @@ export class ItemService {
     return toItem(row as Record<string, unknown>);
   }
 
-  /** 依据列表（含片段与来源标题，供界面展开核验）。 */
+  /**
+   * 依据列表（含片段与来源标题，供界面展开核验）。
+   * 修复 R3a：每个返回原文的出口都做授权检查 —— 撤销授权后不返回片段正文
+   * 与引用摘录（整体拒绝，与阅读/搜索/问答/MCP 行为一致）。
+   */
   getEvidence(itemId: string): ItemEvidenceView[] {
     const rows = this.db
       .prepare(
@@ -90,6 +95,14 @@ export class ItemService {
          WHERE e.item_id = ?`,
       )
       .all(itemId) as Record<string, unknown>[];
+    if (rows.length === 0) return [];
+    const viewed = new Set<string>();
+    for (const row of rows) {
+      const sourceId = row['source_id'] as string;
+      if (viewed.has(sourceId)) continue;
+      viewed.add(sourceId);
+      assertSourceAuthorized(this.db, sourceId);
+    }
     return rows.map((row) => ({
       segment_id: row['segment_id'] as string,
       excerpt: row['excerpt'] as string,

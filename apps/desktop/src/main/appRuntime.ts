@@ -48,15 +48,16 @@ import { decryptApiKey, encryptApiKey } from './ipc.js';
  * 应用打开时初始化，退出时全部停止。
  */
 export class AppRuntime {
-  readonly db: CoreDatabase;
-  readonly vault: Vault;
-  readonly permissions: PermissionService;
-  readonly sources: SourceStore;
-  readonly projects: ProjectService;
-  readonly search: SearchService;
-  readonly imports: ImportService;
-  readonly items: ItemService;
-  readonly jobs: JobQueue;
+  // 恢复失败时需要整体重建（重开数据库 + 重建服务），因此不再声明 readonly
+  db: CoreDatabase;
+  vault: Vault;
+  permissions: PermissionService;
+  sources: SourceStore;
+  projects: ProjectService;
+  search: SearchService;
+  imports: ImportService;
+  items: ItemService;
+  jobs: JobQueue;
   readonly logger: Logger;
   readonly localServer: LocalServer;
   private readonly fakeProvider = new FakeProvider('fake-model-v1');
@@ -172,16 +173,13 @@ export class AppRuntime {
   }
 
   /** 自动分析队列（来源去重：任务表中已有同来源 queued/running 提取则跳过）。 */
+  /**
+   * 自动分析入队（修复 R7）：采集回调触达时总是入队。
+   * 排队/运行中的已有任务不能丢掉「再次分析」的需求 —— 提取按当前数据库
+   * 最新内容整体替换旧理解，重复执行安全（幂等），最终状态一定是最新版本。
+   * 频率由 LocalServer 的防抖窗口 + pending 补分析机制控制。
+   */
   private enqueueAutoExtraction(sourceId: string): void {
-    const dup = this.db
-      .prepare(
-        `SELECT 1 AS one FROM jobs
-         WHERE kind = 'extract' AND status IN ('queued', 'running')
-           AND payload_json LIKE ?
-         LIMIT 1`,
-      )
-      .get(`%"sourceId":"${sourceId}"%`) as { one: number } | undefined;
-    if (dup) return;
     const job = this.jobs.enqueue('extract', { sourceId, auto: true });
     recordAudit(this.db, 'capture.auto_extract_job', { jobId: job.id, sourceId });
     this.jobs.kick();
@@ -291,8 +289,9 @@ export class AppRuntime {
 
   /**
    * 恢复（整体替换，原子替换 + 失败回滚）。
-   * 恢复在临时目录完成全部校验后原子替换当前数据；失败时原数据保持可用，
-   * 本地服务保持运行。成功后当前进程运行时失效，要求重启应用。
+   * 恢复在临时目录完成全部校验后原子替换当前数据；失败时按步骤精确回滚
+   * （修复 R2），随后重开数据库、重建全部依赖服务并恢复本地服务与任务队列，
+   * 保证界面与本地接口继续可用。成功后当前进程运行时失效，要求重启应用。
    * 必须携带 previewRestore 签发的一次性凭证（不允许绕过预览）。
    */
   async restoreData(previewToken: string): Promise<{ ok: true; restartRequired: true }> {
@@ -317,14 +316,61 @@ export class AppRuntime {
     try {
       await archive.restoreDataWithToken(previewToken);
     } catch (err) {
-      // 恢复失败：原数据未被破坏（ArchiveService 保证原子性），恢复本地服务可用
-      this.logger.error('数据恢复失败，保持原数据可用', { error: String(err) });
+      // 恢复失败：磁盘数据已由 ArchiveService 回滚到旧状态；
+      // 运行时侧必须重开数据库、重建服务（修复 R2 运行时缺口），再恢复服务
+      this.logger.error('数据恢复失败，正在恢复运行时可用状态', { error: String(err) });
+      try {
+        this.rebuildRuntimeServices();
+      } catch (rebuildErr) {
+        this.logger.error('运行时重建失败（数据文件完好，需重启应用）', {
+          error: String(rebuildErr),
+        });
+        throw err;
+      }
       await this.startServer();
       throw err;
     }
     // 数据已替换：当前进程所有内存态服务均失效，要求重启
     this.logger.info('数据恢复完成，等待应用重启', {});
     return { ok: true, restartRequired: true };
+  }
+
+  /**
+   * 恢复失败后的运行时重建：重开数据库、按新句柄重建全部依赖服务、
+   * 重启任务队列。旧的服务实例持有的已关闭连接全部弃用。
+   */
+  private rebuildRuntimeServices(): void {
+    const dbPath = join(this.dataDir, 'ixaeon.db');
+    const db = openDatabase(dbPath);
+    // 按回滚后的磁盘数据重建（结构化迁移在 openDatabase 后执行）
+    migrate(db);
+    const vault = new Vault(join(this.dataDir, 'vault'));
+    const permissions = new PermissionService(db);
+    const sources = new SourceStore(db);
+    const projects = new ProjectService(db);
+    const search = new SearchService(db);
+    const imports = new ImportService(db, vault, permissions, sources);
+    const items = new ItemService(db);
+    const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
+    this.db = db;
+    this.vault = vault;
+    this.permissions = permissions;
+    this.sources = sources;
+    this.projects = projects;
+    this.search = search;
+    this.imports = imports;
+    this.items = items;
+    this.jobs = jobs;
+    // localServer 持有的是旧 db 引用：用新服务重建其依赖（复用同一实例）
+    this.localServer.rebindDeps({
+      db,
+      permissions,
+      sources,
+      vault,
+    });
+    this.registerJobHandlers();
+    jobs.start();
+    this.logger.info('运行时已重建（恢复失败后）', { dataDir: this.dataDir });
   }
 
   private async startServer(): Promise<void> {
@@ -361,6 +407,8 @@ export class AppRuntime {
   }
 
   get state() {
+    // 修复 R9：envOverride 来自数据目录解析的真实结果，不再由渲染层推断
+    const resolved = resolveDataDir();
     return {
       version: app.getVersion() || '0.1.0',
       dataDir: this.dataDir,
@@ -368,6 +416,8 @@ export class AppRuntime {
       serverRunning: this.fastify !== null,
       serverPort: LOCAL_HTTP_PORT,
       platform: process.platform,
+      envOverride: resolved.envOverride,
+      dataDirSource: resolved.source,
     };
   }
 

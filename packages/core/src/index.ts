@@ -47,6 +47,7 @@ export {
   Extractor,
   extractionOutputSchema,
   splitTextToFit,
+  isExcerptGroundedInSegment,
   MAX_BLOCK_CHARS,
   type ExtractionOutput,
   type ExtractStats,

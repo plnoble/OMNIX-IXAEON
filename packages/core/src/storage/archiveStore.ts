@@ -50,10 +50,26 @@ const TOP_ENTRIES = new Set([
   'data/permissions.json',
 ]);
 
-export class ArchiveService {
-  /** 恢复预览凭证：previewRestore 签发，restoreData 消费（一次性）。 */
-  private previewTokens = new Map<string, { zipPath: string; expiresAt: number }>();
+/**
+ * 恢复凭证注册表（修复 R1）：进程级共享，生命周期与主进程一致。
+ * previewRestore（实例 A）签发、restoreData（实例 B）消费 —— 同一进程内
+ * 任意 ArchiveService 实例都能核销同一张凭证（一次性 + 有效期规则不变）。
+ */
+const RESTORE_TOKEN_TTL_MS = 10 * 60 * 1000;
+const restoreTokenStore = new Map<string, { zipPath: string; expiresAt: number }>();
 
+function issueRestoreToken(zipPath: string): string {
+  // 清理过期凭证后签发（进程级共享，修复 R1 实例隔离问题）
+  const now = Date.now();
+  for (const [t, e] of restoreTokenStore) {
+    if (now > e.expiresAt) restoreTokenStore.delete(t);
+  }
+  const token = randomBytes(24).toString('hex');
+  restoreTokenStore.set(token, { zipPath, expiresAt: now + RESTORE_TOKEN_TTL_MS });
+  return token;
+}
+
+export class ArchiveService {
   constructor(
     private readonly db: CoreDatabase,
     private readonly deps: {
@@ -189,12 +205,8 @@ export class ArchiveService {
         `旧数据将备份为 .bak-<时间戳> 目录。`,
     );
 
-    // 签发一次性恢复凭证（10 分钟有效）
-    const previewToken = randomBytes(24).toString('hex');
-    this.previewTokens.set(previewToken, {
-      zipPath,
-      expiresAt: Date.now() + 10 * 60 * 1000,
-    });
+    // 签发一次性恢复凭证（进程级注册表，10 分钟有效）
+    const previewToken = issueRestoreToken(zipPath);
 
     return {
       manifestVersion: manifest.manifestVersion,
@@ -209,14 +221,14 @@ export class ArchiveService {
 
   /** 消费一次性恢复凭证（伪造/过期/重复使用必须失败）。 */
   consumePreviewToken(token: string): string {
-    const entry = this.previewTokens.get(token);
+    const entry = restoreTokenStore.get(token);
     if (!entry) {
       throw new IxaError(
         ErrorCodes.INVALID_TOKEN,
         '恢复凭证无效：请先执行「预览」确认导出包内容，再恢复',
       );
     }
-    this.previewTokens.delete(token); // 一次性使用
+    restoreTokenStore.delete(token); // 一次性使用
     if (Date.now() > entry.expiresAt) {
       throw new IxaError(ErrorCodes.INVALID_TOKEN, '恢复凭证已过期：请重新预览导出包');
     }
@@ -233,18 +245,18 @@ export class ArchiveService {
    * 恢复（整体原子替换 + 失败回滚）：
    * 1. 临时目录解压 + 全部校验（zip slip / SQLite 完整性 / 迁移兼容 / raw_path 严格格式）
    * 2. 校验通过 → 备份当前数据目录（rename 失败立即中止，不吞异常）
-   * 3. staging → 正式目录原子替换；任一步失败 → 回滚备份，原数据可用
+   * 3. staging → 正式目录替换；任一步失败 → 按每一步实际完成情况精确回滚
+   *    （修复 R2：备份半途失败也还原已移走的旧库；安装半途失败连 vault 一起回滚，
+   *    不留「新数据库＋旧 vault」的混合状态）
    */
   async restoreData(zipPath: string): Promise<{ ok: true; backupDir: string }> {
-    // 0) 清理过期凭证
-    const now = Date.now();
-    for (const [t, e] of this.previewTokens) {
-      if (now > e.expiresAt) this.previewTokens.delete(t);
-    }
-
     const stagingDir = `${this.deps.dataDir}.restore-staging-${Date.now()}`;
     const backupDir = `${this.deps.dataDir}.bak-${Date.now()}`;
-    let moved = false; // 当前数据是否已移入备份（用于回滚）
+    // 每一步的实际完成情况（回滚依据）
+    let oldDbInBackup = false;
+    let oldVaultInBackup = false;
+    let newDbInstalled = false;
+    let newVaultInstalled = false;
     let closed = false;
 
     try {
@@ -365,9 +377,11 @@ export class ArchiveService {
       await mkdir(backupDir, { recursive: true });
       if (existsSync(this.deps.dbPath)) {
         renameSync(this.deps.dbPath, join(backupDir, 'ixaeon.db'));
+        oldDbInBackup = true;
       }
       if (existsSync(vaultRoot)) {
         renameSync(vaultRoot, join(backupDir, 'vault'));
+        oldVaultInBackup = true;
       }
       if (existsSync(logsDir)) {
         try {
@@ -376,16 +390,17 @@ export class ArchiveService {
           // 日志目录非关键：留在原处不影响数据一致性
         }
       }
-      moved = true;
 
-      // 5) staging → 正式目录原子替换（数据库 + vault）
+      // 5) staging → 正式目录替换（数据库 + vault；记录每步完成状态供回滚）
       const newDb = join(stagingDir, 'ixaeon.db');
       const newVault = join(stagingDir, 'vault');
       renameSync(newDb, this.deps.dbPath);
+      newDbInstalled = true;
       if (existsSync(newVault)) {
         const targetVault = join(this.deps.dataDir, 'vault');
         if (existsSync(targetVault)) rmSync(targetVault, { recursive: true, force: true });
         renameSync(newVault, targetVault);
+        newVaultInstalled = true;
       }
 
       // 6) 替换后校验（可打开 + 完整性）
@@ -403,31 +418,49 @@ export class ArchiveService {
       await rm(stagingDir, { recursive: true, force: true });
       return { ok: true, backupDir };
     } catch (err) {
-      // 失败回滚：备份移回原位，保证旧数据可用
+      // 精确回滚（修复 R2）：按每一步实际完成情况还原，保证数据库与 vault 一起回去
+      let rollbackError: Error | null = null;
+      const vaultRoot = join(this.deps.dataDir, 'vault');
+      const logsDir = join(this.deps.dataDir, 'logs');
       try {
-        if (moved) {
-          if (existsSync(join(backupDir, 'ixaeon.db')) && !existsSync(this.deps.dbPath)) {
-            renameSync(join(backupDir, 'ixaeon.db'), this.deps.dbPath);
-          }
-          if (
-            existsSync(join(backupDir, 'vault')) &&
-            !existsSync(join(this.deps.dataDir, 'vault'))
-          ) {
-            renameSync(join(backupDir, 'vault'), join(this.deps.dataDir, 'vault'));
-          }
-          if (existsSync(join(backupDir, 'logs')) && !existsSync(join(this.deps.dataDir, 'logs'))) {
-            renameSync(join(backupDir, 'logs'), join(this.deps.dataDir, 'logs'));
-          }
+        // a) 移开所有已安装的新数据（不完整的新库/新 vault 一律退出正式位置）
+        if (newVaultInstalled) {
+          rmSync(vaultRoot, { recursive: true, force: true });
+        } else if (existsSync(vaultRoot) && oldVaultInBackup) {
+          // vault 安装中途失败留下的部分内容：移到 staging 保留供核查，不混入旧数据
+          const partial = join(stagingDir, 'vault-partial');
+          renameSync(vaultRoot, partial);
+        }
+        if (newDbInstalled && existsSync(this.deps.dbPath)) {
+          rmSync(this.deps.dbPath, { force: true });
+        }
+        // b) 旧数据从备份回到原位（数据库与 vault 都恢复）
+        if (oldVaultInBackup && existsSync(join(backupDir, 'vault'))) {
+          renameSync(join(backupDir, 'vault'), vaultRoot);
+        }
+        if (oldDbInBackup && existsSync(join(backupDir, 'ixaeon.db'))) {
+          renameSync(join(backupDir, 'ixaeon.db'), this.deps.dbPath);
+        }
+        // c) 日志目录跟随还原（尽力而为）
+        if (existsSync(join(backupDir, 'logs')) && !existsSync(logsDir)) {
+          renameSync(join(backupDir, 'logs'), logsDir);
         }
       } catch (rollbackErr) {
-        // 回滚失败是极端情况（磁盘故障）：备份目录仍在，数据未丢失
+        // 回滚失败是极端情况（磁盘故障）：备份目录仍在，数据未丢失，但必须明确报错
+        rollbackError = rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr));
         process.stderr.write(
           `[ixaeon-restore] ${new Date().toISOString()} 恢复回滚异常（备份保留于 ${backupDir}）：${String(rollbackErr)}\n`,
         );
       }
       await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+      if (rollbackError) {
+        throw new IxaError(
+          ErrorCodes.UNKNOWN,
+          `恢复失败且回滚未完成（旧数据完整保留在备份目录 ${backupDir}，需手动恢复）：${String(rollbackError)}`,
+        );
+      }
       if (closed) {
-        // 连接已关闭且数据已回滚：调用方（AppRuntime）负责重启服务
+        // 连接已关闭且数据已回滚：调用方（AppRuntime）负责重开数据库并重启服务
       }
       throw err;
     }
