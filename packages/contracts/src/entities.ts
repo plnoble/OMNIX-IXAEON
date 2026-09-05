@@ -145,6 +145,10 @@ export const itemSchema = z.object({
   needs_review: z.boolean(),
   /** 搁置标记：用户主动稍后处理 */
   shelved_at: isoDateTimeSchema.nullable(),
+  /** M2 确认维度：none=未表态；confirmed=用户确认正确；rejected=用户不采纳 */
+  confirmation: z.enum(['none', 'confirmed', 'rejected']).default('none'),
+  /** 确认/不采纳的落库时间 */
+  confirmation_at: z.string().nullable().default(null),
 });
 export type Item = z.infer<typeof itemSchema>;
 

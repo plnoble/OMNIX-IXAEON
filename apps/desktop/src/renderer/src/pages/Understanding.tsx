@@ -38,7 +38,8 @@ export function UnderstandingPage({ projects }: { projects: Project[] }) {
 
   const reload = useCallback(async () => {
     try {
-      setItems(await api.listItems({ projectId: null, state: 'current', shelved: false }));
+      // M2 冲突真的可见：不只取 current 再筛 —— disputed 一并取回由下方分组展示
+      setItems(await api.listItems({ projectId: null, shelved: false }));
     } catch (err) {
       setError(errMsg(err));
     }
@@ -167,6 +168,16 @@ function ItemRow({
       <header>
         {disputed && <span className="badge badge-paused">冲突</span>}
         {item.origin === 'user' && <span className="badge badge-active">用户确认</span>}
+        {item.confirmation === 'confirmed' && (
+          <span className="badge badge-active" data-testid={`confirmed-${item.id}`}>
+            用户已确认
+          </span>
+        )}
+        {item.confirmation === 'rejected' && (
+          <span className="badge badge-paused" data-testid={`rejected-${item.id}`}>
+            已不采纳
+          </span>
+        )}
         <span className="muted">{ORIGIN_LABELS[item.origin] ?? item.origin}</span>
         {projectName && <span className="muted">· {projectName}</span>}
         <span className="muted">· 把握 {Math.round(item.confidence * 100)}%</span>
@@ -174,6 +185,29 @@ function ItemRow({
       <p className="item-statement">{item.statement}</p>
       {item.rationale && <p className="item-rationale">{item.rationale}</p>}
       <div className="item-actions">
+        {item.origin === 'ai' && item.state === 'current' && item.confirmation === 'none' && (
+          <>
+            <Button
+              onClick={async () => {
+                await api.confirmItem(item.id);
+                window.location.reload();
+              }}
+              testId={`confirm-${item.id}`}
+            >
+              确认正确
+            </Button>
+            <Button
+              kind="ghost"
+              onClick={async () => {
+                await api.rejectItem(item.id);
+                window.location.reload();
+              }}
+              testId={`reject-${item.id}`}
+            >
+              不采纳
+            </Button>
+          </>
+        )}
         <Button kind="ghost" onClick={onToggleEvidence}>
           {expanded ? '收起依据' : '查看依据'}
         </Button>

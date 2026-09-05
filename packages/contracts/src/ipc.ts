@@ -317,6 +317,10 @@ export interface IxaIpcApi {
     correction: Correction;
   }>;
   setItemPendingReview(input: { itemId: string; needsReview: boolean }): Promise<Item>;
+  /** M2：用户确认该 AI 理解正确（不改 origin，清除待讨论） */
+  confirmItem(itemId: string): Promise<Item>;
+  /** M2：用户不采纳该建议（保留可追溯，从当前理解/简报/问答排除） */
+  rejectItem(itemId: string): Promise<Item>;
   shelveItem(input: { itemId: string; shelved: boolean }): Promise<Item>;
   assignItemToProject(input: { itemId: string; projectId: string }): Promise<Item>;
   createManualItem(input: {

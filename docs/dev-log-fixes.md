@@ -181,7 +181,8 @@
 | 安装包（三轮） | 122,568,319 字节，SHA-256 `D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7` |
 | 安装包（四轮） | 122,569,581 字节，SHA-256 `5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7` |
 | 安装包（M0 收尾） | 122,573,413 字节，SHA-256 `616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051` |
-| 安装包（M1.2，最终交付物） | 122,576,020 字节，SHA-256 `220B1D35129E7AC5320D86F09171EC037AC838D06848B5A53B8DA9AA80A158D4` |
+| 安装包（M1.2） | 122,576,020 字节，SHA-256 `220B1D35129E7AC5320D86F09171EC037AC838D06848B5A53B8DA9AA80A158D4` |
+| 安装包（M2，最终交付物） | 122,578,473 字节，SHA-256 `D19271CAFD825BB504BC386C7039371D2EA0823D8EA53D7839938D7F526BAEFE` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -565,3 +566,45 @@ M0 门槛对照：本轮 4 项门槛测试（运行中到达新版本/窗口内�
 
 ## 4. 未完成
 M1 验收的界面级人工确认、M2/M3 批次按计划待续；真人验收 A–D 待用户执行。
+
+---
+
+# M2 实施记录（2026-09-06，确认与改口保护）
+
+按《下一阶段开发计划》M2 实施「重要理解可确认，改口不会被冲掉」。
+
+## 1. 数据模型（迁移 5）
+`items.confirmation（none/confirmed/rejected，CHECK 约束）+ confirmation_at`。
+三维度正交：`origin`（谁提取的）/ `confirmation`（用户是否确认）/ `state`（是否有效）。
+
+## 2. 动作与服务
+- `ItemService.confirm/reject`：superseded 拒绝操作；清待讨论；留时间戳；
+  确认不篡改 origin（AI 条目确认后仍标记 origin=ai + confirmation=confirmed）。
+- IPC `confirmItem/rejectItem` + 审计（item.confirmed/item.rejected）。
+- Inbox：确认正确 / 不采纳 / 暂不处理；Understanding：用户已确认/已不采纳徽章
+  + AI 条目的确认/不采纳按钮。
+
+## 3. 阅读路径排除 rejected
+- prepare_task 简报（新增「用户已确认」后缀标注）；问答上下文
+  （rejected 排除 + confirmed 排序提前）；search_context 条目检索。
+- rejected 条目保留可追溯（不删除、不 superseded），仅退出「当前理解」消费面。
+
+## 4. 人工改口优先（重新提取保护）
+- deleteOldAiItems 仅删 confirmation='none' 的 current AI 条目；
+- 已确认/已不采纳条目保留；新结论与它们高度相似（bigram Jaccard ≥0.6）
+  → 跳过并计 skippedPreserved —— 不复活已否决建议、不重复已确认结论。
+
+## 5. 冲突真的可见
+Understanding 页查询改为不带 state 过滤（current + disputed 一起取回），
+分组展示「存在冲突的结论」卡片——修复「只取 current 再从中筛 disputed」
+导致 disputed 永远不可见的问题。
+
+## 6. 验证（全部实跑）
+- m2-confirmation 5 项纳入 verify；verify 全绿（integration 116）；
+- desktop e2e 10、extension 全断言、serial 串联 PASS；
+- 打包复核 3 项；安装包 122,578,473 字节，SHA-256
+  `D19271CAFD825BB504BC386C7039371D2EA0823D8EA53D7839938D7F526BAEFE`。
+
+## 7. 未完成
+计划 M2 的「六组固定语义资料验收」（AI 提议用户未答应等六类情形的界面+
+MCP 输出端到端验证）与 M3 批次待续；真人验收 A–D 待用户执行。

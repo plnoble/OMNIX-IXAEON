@@ -294,6 +294,16 @@ export function registerIpc(runtime: AppRuntime): void {
     correctItem: async (input) => runtime.items.correct(input),
     setItemPendingReview: async (input) =>
       runtime.items.setPendingReview(input.itemId, input.needsReview),
+    confirmItem: async (itemId) => {
+      const item = runtime.items.confirm(itemId);
+      recordAudit(runtime.db, 'item.confirmed', { itemId, origin: item.origin });
+      return item;
+    },
+    rejectItem: async (itemId) => {
+      const item = runtime.items.reject(itemId);
+      recordAudit(runtime.db, 'item.rejected', { itemId, origin: item.origin });
+      return item;
+    },
     shelveItem: async (input) => runtime.items.shelve(input.itemId, input.shelved),
     assignItemToProject: async (input) =>
       runtime.items.assignToProject(input.itemId, input.projectId),

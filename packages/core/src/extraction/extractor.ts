@@ -37,6 +37,8 @@ export type ExtractionOutput = z.infer<typeof extractionOutputSchema>;
 export interface ExtractStats {
   inserted: number;
   skippedBadRef: number;
+  /** 与用户已确认/已不采纳结论相似而跳过的新条目数（M2 改口优先） */
+  skippedPreserved: number;
   disputed: number;
   needsReview: number;
 }
@@ -106,14 +108,35 @@ export class Extractor {
     if (segments.length === 0) {
       // 没有片段：视为成功空提取（保留旧行为），但清空旧理解需谨慎——
       // 无片段说明数据异常，保守起见不删除旧理解，直接返回
-      return { inserted: 0, skippedBadRef: 0, disputed: 0, needsReview: 0 };
+      return { inserted: 0, skippedBadRef: 0, skippedPreserved: 0, disputed: 0, needsReview: 0 };
     }
 
     // 默认只用当前活动分支提取理解；原文完整保留（计划 4.4）
     const active = segments.filter((s) => s.is_active_branch !== 0);
     const pool = active.length > 0 ? active : segments;
 
-    const stats: ExtractStats = { inserted: 0, skippedBadRef: 0, disputed: 0, needsReview: 0 };
+    // M2 人工改口优先：用户已确认/已不采纳的 AI 条目在重新提取时保留，
+    // 新提取结果若与它们高度相似则跳过（不复活已否决建议、不重复已确认结论）
+    const preserved = this.db
+      .prepare(
+        `SELECT statement FROM items
+         WHERE extracted_from_source_id = ? AND origin = 'ai' AND state = 'current'
+           AND confirmation IN ('confirmed', 'rejected')`,
+      )
+      .all(sourceId) as Array<{ statement: string }>;
+    const preservedSets = preserved.map((p) => bigrams(p.statement));
+    const isPreservedDuplicate = (statement: string): boolean => {
+      const set = bigrams(statement);
+      return preservedSets.some((p) => p.size > 0 && jaccard(p, set) >= 0.6);
+    };
+
+    const stats: ExtractStats = {
+      inserted: 0,
+      skippedBadRef: 0,
+      skippedPreserved: 0,
+      disputed: 0,
+      needsReview: 0,
+    };
     const collected: Array<{
       row: z.infer<typeof extractionOutputSchema>['items'][number];
       segmentId: string;
@@ -142,6 +165,11 @@ export class Extractor {
         const segText = textById.get(segmentId) ?? '';
         if (!isExcerptGroundedInSegment(item.excerpt, segText)) {
           stats.skippedBadRef++;
+          continue;
+        }
+        if (isPreservedDuplicate(item.statement)) {
+          // 与用户已确认/已不采纳的结论高度相似 → 不插入（M2 改口优先）
+          stats.skippedPreserved++;
           continue;
         }
         collected.push({ row: item, segmentId });
@@ -181,7 +209,8 @@ export class Extractor {
     );
     const deleteOld = this.db.prepare(
       `DELETE FROM items
-       WHERE extracted_from_source_id = ? AND origin = 'ai' AND state = 'current'`,
+       WHERE extracted_from_source_id = ? AND origin = 'ai' AND state = 'current'
+         AND confirmation = 'none'`,
     );
 
     this.db.transaction(() => {

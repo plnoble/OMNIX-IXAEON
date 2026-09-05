@@ -5,8 +5,8 @@
 > `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）、
 > `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）、
 > `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4），并实施
-> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 稳定性收尾 + M1.1 归属继承 + M1.2 真实状态**。
-> 更新时间：2026-09-05（M1.2 完成）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1（归属/状态）+ M2（确认/改口保护）**。
+> 更新时间：2026-09-06（M2 完成）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -116,6 +116,19 @@
 | 「收到资料」与「模型理解完成」不共用标记 | content_revision 与 analyzed_revision 分别记录；analyzed_at 独立于 imported_at | m1-status | ✅ 自动化已验证 |
 | 状态刷新不靠切页、不调模型 | Sources 页 5 秒低频轮询（页面可见时才刷新，静默更新不闪烁） | desktop e2e 保持通过 | ✅ 自动化已验证 |
 | 分析失败可重试 | 失败行内「重试」按钮调用已有 reextractSource（手动任务，不受自动开关约束） | UI + round4 U7 语义 | ✅ 自动化已验证 |
+
+---
+
+## 0.10 M2 重要理解可确认，改口不会被冲掉（对《下一阶段开发计划》M2）
+
+| 计划要求 | 实现 | 测试 | 状态 |
+| --- | --- | --- | --- |
+| 三维度分离：谁提取的 / 用户是否确认 / 目前是否有效 | 迁移 5 新增 `items.confirmation（none/confirmed/rejected）+ confirmation_at`，与 `origin`（谁提取）、`state`（是否有效）正交；确认不把 AI 条目篡改为「用户写的」 | m2-confirmation「确认」 | ✅ 自动化已验证 |
+| 确认/不采纳动作 | `ItemService.confirm/reject`（superseded 条目拒绝操作；清待讨论；留时间戳）+ IPC 审计（item.confirmed / item.rejected）+ Inbox「确认正确/不采纳/暂不处理」+ Understanding 徽章与动作按钮 | m2-confirmation | ✅ 自动化已验证 |
+| 「不采纳」≠「确认正确」 | rejected 条目保留可追溯（state=current），但从 prepare_task 简报、问答上下文、search_context 条目检索中排除 | m2-confirmation「简报排除」 | ✅ 自动化已验证 |
+| 人工改口优先 | 重新提取时：已确认/已不采纳条目不删除（deleteOldAiItems 加 confirmation='none' 条件）；新结论与它们高度相似（Jaccard bigram ≥0.6）→ 跳过并计 `skippedPreserved` —— 不复活已否决建议、不重复已确认结论 | m2-confirmation「重新提取不冲掉改口」 | ✅ 自动化已验证 |
+| 冲突真的可见 | Understanding 页查询不再只取 current 再筛 disputed —— disputed 与 current 一起取回并分组展示（「存在冲突的结论」卡片） | UI 查询路径 + m2-confirmation | ✅ 自动化已验证 |
+| 审批负担控制 | 普通有依据 AI 理解自动产生并明确标记（origin=ai）；未归属/冲突仍进待讨论（needs_review）；用户确认/不采纳后退出待讨论 | m1-binding + m2-confirmation | ✅ 自动化已验证 |
 
 ---
 
@@ -450,9 +463,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M1.2 完成后重建）
-  - 大小：122,576,020 字节（≈116.9 MB）
-  - SHA-256：`220B1D35129E7AC5320D86F09171EC037AC838D06848B5A53B8DA9AA80A158D4`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M2 完成后重建）
+  - 大小：122,578,473 字节（≈116.9 MB）
+  - SHA-256：`D19271CAFD825BB504BC386C7039371D2EA0823D8EA53D7839938D7F526BAEFE`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

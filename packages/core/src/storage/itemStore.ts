@@ -28,6 +28,8 @@ function toItem(row: Record<string, unknown>): Item {
     model_name: (row['model_name'] as string | null) ?? null,
     needs_review: (row['needs_review'] as number) === 1,
     shelved_at: (row['shelved_at'] as string | null) ?? null,
+    confirmation: (row['confirmation'] as Item['confirmation']) ?? 'none',
+    confirmation_at: (row['confirmation_at'] as string | null) ?? null,
   };
 }
 
@@ -218,6 +220,42 @@ export class ItemService {
       oldItem: this.get(row['old_item_id'] as string),
       newItem: this.get(row['new_item_id'] as string),
     }));
+  }
+
+  /**
+   * M2 确认：用户确认该 AI 理解正确（不改变 origin —— 不篡改为「用户写的」）。
+   * 同时清除待讨论标记。
+   */
+  confirm(itemId: string): Item {
+    const item = this.get(itemId);
+    if (item.state === 'superseded') {
+      throw new IxaError(ErrorCodes.CONFLICT, '该条目已被替代，不能确认');
+    }
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        "UPDATE items SET confirmation = 'confirmed', confirmation_at = ?, needs_review = 0, updated_at = ? WHERE id = ?",
+      )
+      .run(now, now, itemId);
+    return this.get(itemId);
+  }
+
+  /**
+   * M2 不采纳：用户明确不采纳该建议 —— 不是「确认正确」，条目保留可追溯，
+   * 但从简报/问答/检索的当前理解中排除。
+   */
+  reject(itemId: string): Item {
+    const item = this.get(itemId);
+    if (item.state === 'superseded') {
+      throw new IxaError(ErrorCodes.CONFLICT, '该条目已被替代，无需不采纳');
+    }
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        "UPDATE items SET confirmation = 'rejected', confirmation_at = ?, needs_review = 0, updated_at = ? WHERE id = ?",
+      )
+      .run(now, now, itemId);
+    return this.get(itemId);
   }
 
   setPendingReview(itemId: string, needsReview: boolean): Item {

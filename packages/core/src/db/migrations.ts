@@ -203,6 +203,17 @@ ALTER TABLE items ADD COLUMN suggested_project_id TEXT REFERENCES projects(id);
 ALTER TABLE sources ADD COLUMN analyzed_at TEXT;
 `,
   },
+  {
+    id: 5,
+    name: 'item-confirmation',
+    sql: `
+-- M2：确认维度（与「谁提取的 origin」「是否有效 state」正交）。
+-- none=未表态；confirmed=用户确认正确；rejected=用户不采纳（不是确认正确）。
+ALTER TABLE items ADD COLUMN confirmation TEXT NOT NULL DEFAULT 'none'
+  CHECK (confirmation IN ('none', 'confirmed', 'rejected'));
+ALTER TABLE items ADD COLUMN confirmation_at TEXT;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

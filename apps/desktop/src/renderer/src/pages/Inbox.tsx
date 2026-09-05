@@ -51,6 +51,29 @@ export function InboxPage({ projects }: { projects: Project[] }) {
                   </span>
                 </div>
                 <div className="project-actions">
+                  {item.confirmation === 'none' && (
+                    <>
+                      <Button
+                        onClick={async () => {
+                          await api.confirmItem(item.id);
+                          await reload();
+                        }}
+                        testId={`inbox-confirm-${item.id}`}
+                      >
+                        确认正确
+                      </Button>
+                      <Button
+                        kind="ghost"
+                        onClick={async () => {
+                          await api.rejectItem(item.id);
+                          await reload();
+                        }}
+                        testId={`inbox-reject-${item.id}`}
+                      >
+                        不采纳
+                      </Button>
+                    </>
+                  )}
                   <select
                     value=""
                     onChange={(e) => e.target.value && void assign(item.id, e.target.value)}
@@ -70,7 +93,7 @@ export function InboxPage({ projects }: { projects: Project[] }) {
                       await reload();
                     }}
                   >
-                    忽略
+                    暂不处理
                   </Button>
                 </div>
               </li>

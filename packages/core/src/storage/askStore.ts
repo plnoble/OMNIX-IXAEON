@@ -61,8 +61,11 @@ export class AskService {
                 i.extracted_from_source_id
          FROM items i
          WHERE i.state IN ('current', 'disputed') AND i.shelved_at IS NULL
+           AND i.confirmation != 'rejected'
            ${projectId !== null ? 'AND i.project_id = ?' : ''}
-         ORDER BY CASE WHEN i.origin = 'user' THEN 0 ELSE 1 END, i.updated_at DESC
+         ORDER BY CASE WHEN i.origin = 'user' THEN 0
+                       WHEN i.confirmation = 'confirmed' THEN 1
+                       ELSE 2 END, i.updated_at DESC
          LIMIT 60`,
       )
       .all(...(projectId !== null ? [projectId] : [])) as Array<{

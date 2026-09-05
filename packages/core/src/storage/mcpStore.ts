@@ -49,9 +49,10 @@ export class McpService {
 
     const items = this.db
       .prepare(
-        `SELECT id, type, statement, rationale, state, origin, needs_review, updated_at
+        `SELECT id, type, statement, rationale, state, origin, needs_review, updated_at, confirmation
          FROM items
          WHERE project_id = ? AND shelved_at IS NULL AND state != 'superseded'
+           AND confirmation != 'rejected'
          ORDER BY CASE type
            WHEN 'project_summary' THEN 0
            WHEN 'decision' THEN 1
@@ -70,6 +71,7 @@ export class McpService {
       origin: string;
       needs_review: number;
       updated_at: string;
+      confirmation: string | null;
     }>;
 
     const workRuns = this.db
@@ -101,7 +103,13 @@ export class McpService {
         state: item.state as BriefingEntry['state'],
       };
       const suffix =
-        item.state === 'disputed' ? '（存在冲突）' : item.origin === 'user' ? '（用户确认）' : '';
+        item.state === 'disputed'
+          ? '（存在冲突）'
+          : item.origin === 'user'
+            ? '（用户确认）'
+            : item.confirmation === 'confirmed'
+              ? '（用户已确认）'
+              : '';
       entry.text = item.statement + suffix;
       switch (item.type) {
         case 'project_summary':
