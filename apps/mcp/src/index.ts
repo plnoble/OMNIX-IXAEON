@@ -119,6 +119,12 @@ const getSourceExcerptShape = {
 };
 
 const recordWorkResultShape = {
+  client_ref: z
+    .string()
+    .min(8)
+    .max(200)
+    .optional()
+    .describe('可选幂等键：网络重试用相同值重试不会产生重复工作记录；同键不同内容会被拒绝'),
   project_ref: z.string().min(1).max(500).describe('项目名称、ID 或根路径'),
   agent_name: z.string().min(1).max(200).describe('执行者名称（如 codex）'),
   task: z.string().min(1).max(4000).describe('本次任务描述'),

@@ -5,8 +5,8 @@
 > `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）、
 > `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）、
 > `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4），并实施
-> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1（归属/状态）+ M2（确认/改口保护）**。
-> 更新时间：2026-09-06（M2 完成）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1 + M2 + M3（编码 AI 闭环）全部批次**。
+> 更新时间：2026-09-06（M3 完成，M1–M3 开发批次收口）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -129,6 +129,19 @@
 | 人工改口优先 | 重新提取时：已确认/已不采纳条目不删除（deleteOldAiItems 加 confirmation='none' 条件）；新结论与它们高度相似（Jaccard bigram ≥0.6）→ 跳过并计 `skippedPreserved` —— 不复活已否决建议、不重复已确认结论 | m2-confirmation「重新提取不冲掉改口」 | ✅ 自动化已验证 |
 | 冲突真的可见 | Understanding 页查询不再只取 current 再筛 disputed —— disputed 与 current 一起取回并分组展示（「存在冲突的结论」卡片） | UI 查询路径 + m2-confirmation | ✅ 自动化已验证 |
 | 审批负担控制 | 普通有依据 AI 理解自动产生并明确标记（origin=ai）；未归属/冲突仍进待讨论（needs_review）；用户确认/不采纳后退出待讨论 | m1-binding + m2-confirmation | ✅ 自动化已验证 |
+
+---
+
+## 0.11 M3 编码 AI 的开工与收工闭环（对《下一阶段开发计划》M3）
+
+| 计划要求 | 实现 | 测试 | 状态 |
+| --- | --- | --- | --- |
+| 简报区分 AI 提取 / 用户确认·纠正 / 编码 agent 自报 | BriefingEntry 新增 `origin（ai/user/work_result）`：条目带真实 origin，recent_work 固定 work_result；MCP 初始化说明新增第 7 条规则（agent 自报 ≠ 用户验收） | m3-loop「简报区分来源」 | ✅ 自动化已验证 |
+| 标明覆盖到哪个内容/分析版本；新内容未分析时简报明确「可能落后」 | prepareTask 输出新增 `coverage { maxContentRevision, maxAnalyzedRevision, hasUnanalyzedContent }`；hasUnanalyzedContent 时 staleness_notice 追加明确提示 | m3-loop「覆盖版本」×2 | ✅ 自动化已验证 |
+| 回写幂等：相同请求重试不产生重复 work_run；同键不同内容报冲突；旧客户端兼容 | 迁移 6 `work_runs.client_ref`（部分唯一索引）；`record_work_result` 可选 `client_ref`：相同键同内容 → 返回 `deduplicated: true` 且不重复入库；同键不同内容 → CONFLICT 明确报错；不传时维持原行为 | m3-loop「幂等」×3 | ✅ 自动化已验证 |
+| 旧四工具旧输入仍有效；新增字段有契约测试 | 旧输入全部通过（mcp.test 10 项 + 四轮独立回归 31 项保持）；新字段 schema 于 contracts（client_ref/deduplicated/coverage/origin） | 契约 + 回归 | ✅ 自动化已验证 |
+| 独立 MCP 客户端进程走完闭环（不预塞背景） | 安装版 MCP 复核脚本（packaged-20260905.mjs 第 3 项）：独立进程 STDIO 握手 + 四工具真实调用 + 写回持久化，在新产物上通过 | 打包复核 | ✅ 自动化已验证（FakeProvider 语义层面） |
+| 真实编码 AI 客户端验证 | 需用户可用客户端与授权（计划 M3 验收第 2 项）；未执行，如实标注 | — | ⏳ 未验证（见第 11 节） |
 
 ---
 
@@ -463,9 +476,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M2 完成后重建）
-  - 大小：122,578,473 字节（≈116.9 MB）
-  - SHA-256：`D19271CAFD825BB504BC386C7039371D2EA0823D8EA53D7839938D7F526BAEFE`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M3 完成后重建）
+  - 大小：122,580,929 字节（≈116.9 MB）
+  - SHA-256：`899B937C623C001D8F1F888E6FD60BB8D9A0BD1C87C1CBCDCC1C549625E8AFFC`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

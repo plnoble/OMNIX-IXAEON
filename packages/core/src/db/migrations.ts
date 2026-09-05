@@ -214,6 +214,16 @@ ALTER TABLE items ADD COLUMN confirmation TEXT NOT NULL DEFAULT 'none'
 ALTER TABLE items ADD COLUMN confirmation_at TEXT;
 `,
   },
+  {
+    id: 6,
+    name: 'work-run-client-ref',
+    sql: `
+-- M3：回写幂等键（客户端提交 ID）。复用 id 主键存 client_ref（沿用
+-- work_run_id 返回语义），旧客户端不传时仍为 UUID。唯一约束防重复入库。
+ALTER TABLE work_runs ADD COLUMN client_ref TEXT;
+CREATE UNIQUE INDEX idx_work_runs_client_ref ON work_runs(client_ref) WHERE client_ref IS NOT NULL;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

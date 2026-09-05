@@ -182,7 +182,8 @@
 | 安装包（四轮） | 122,569,581 字节，SHA-256 `5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7` |
 | 安装包（M0 收尾） | 122,573,413 字节，SHA-256 `616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051` |
 | 安装包（M1.2） | 122,576,020 字节，SHA-256 `220B1D35129E7AC5320D86F09171EC037AC838D06848B5A53B8DA9AA80A158D4` |
-| 安装包（M2，最终交付物） | 122,578,473 字节，SHA-256 `D19271CAFD825BB504BC386C7039371D2EA0823D8EA53D7839938D7F526BAEFE` |
+| 安装包（M2） | 122,578,473 字节，SHA-256 `D19271CAFD825BB504BC386C7039371D2EA0823D8EA53D7839938D7F526BAEFE` |
+| 安装包（M3，最终交付物） | 122,580,929 字节，SHA-256 `899B937C623C001D8F1F888E6FD60BB8D9A0BD1C87C1CBCDCC1C549625E8AFFC` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -608,3 +609,34 @@ Understanding 页查询改为不带 state 过滤（current + disputed 一起取�
 ## 7. 未完成
 计划 M2 的「六组固定语义资料验收」（AI 提议用户未答应等六类情形的界面+
 MCP 输出端到端验证）与 M3 批次待续；真人验收 A–D 待用户执行。
+
+---
+
+# M3 实施记录（2026-09-06，编码 AI 的开工与收工闭环）
+
+## 1. 开工背景（prepare_task）
+- `BriefingEntry.origin`：ai / user / work_result —— 简报每条结论标注来源；
+  recent_work 固定 work_result；confirmed 条目文本带「（用户已确认）」。
+- `PrepareTaskOutput.coverage`：`maxContentRevision / maxAnalyzedRevision /
+  hasUnanalyzedContent`（按来源版本三元组聚合）；落后时 staleness_notice
+  明确「有新内容尚未分析，本简报可能落后于最新对话」——不伪装最新。
+- MCP 初始化说明新增 3 条规则（7 origin 含义 / 8 coverage 复核 / 9 未运行
+  测试如实写、agent 自报不等于用户验收）。
+
+## 2. 收工回写（record_work_result 幂等）
+- 迁移 6：`work_runs.client_ref`（部分唯一索引，NULL 不受限）。
+- 可选 `client_ref`：相同键相同内容重试 → 返回已有 work_run_id +
+  `deduplicated: true`，不重复入库；相同键不同内容 → CONFLICT 明确报错；
+  旧客户端不传 → 原行为（UUID）完全兼容。
+- MCP 工具入参暴露 client_ref（重试场景说明写入工具描述）。
+
+## 3. 验证（全部实跑）
+- m3-loop 6 项纳入 verify（来源区分/覆盖×2/幂等×3）；
+- verify 全绿（integration 126）；desktop e2e 10、extension 全断言、
+  serial 串联 PASS；打包复核 3 项（含独立进程四工具真实调用与写回持久化）；
+- 安装包 122,580,929 字节，SHA-256 `899B937C623C001D8F1F888E6FD60BB8D9A0BD1C87C1CBCDCC1C549625E8AFFC`。
+
+## 4. 未完成（如实）
+- 计划 M3 验收第 2 项「真实编码 AI 客户端完成一项授权小任务并回写」需用户
+  可用客户端与授权，未执行；M2 六组语义资料验收同前记录。
+- 发版门槛四项（真实网页/真实模型/安装器/短期日用观察）待用户执行。

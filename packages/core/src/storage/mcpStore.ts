@@ -101,6 +101,11 @@ export class McpService {
         ref: item.id,
         text: item.statement,
         state: item.state as BriefingEntry['state'],
+        // M3 来源标注：ai / user（确认或纠正）/ work_result（agent 自报）
+        origin:
+          item.origin === 'user' || item.origin === 'ai' || item.origin === 'work_result'
+            ? item.origin
+            : null,
       };
       const suffix =
         item.state === 'disputed'
@@ -149,6 +154,7 @@ export class McpService {
       ref: w.id,
       text: `[${w.outcome}] ${w.task} — ${w.summary.slice(0, 200)}（${w.agent_name}）`,
       state: null,
+      origin: 'work_result' as const,
     }));
 
     // 字符预算裁剪（优先级：purpose > decisions > open_loops > rejected > risks > status > work）。
@@ -199,6 +205,16 @@ export class McpService {
       truncated,
     });
 
+    // M3 覆盖版本：简报依据截至哪个内容/分析版本；有未分析内容时明确「可能落后」
+    const coverageRows = this.db
+      .prepare(
+        `SELECT MAX(content_revision) AS mc, MAX(analyzed_revision) AS ma FROM sources WHERE project_id = ?`,
+      )
+      .all(project.id) as Array<{ mc: number | null; ma: number | null }>;
+    const maxContentRevision = coverageRows[0]?.mc ?? 0;
+    const maxAnalyzedRevision = coverageRows[0]?.ma ?? 0;
+    const hasUnanalyzedContent = maxContentRevision > maxAnalyzedRevision;
+
     return {
       project_id: project.id,
       project_name: project.name,
@@ -219,7 +235,11 @@ export class McpService {
         `最新记忆更新：${latestTime?.slice(0, 19).replace('T', ' ') ?? '无'}。` +
         `此后用户可能已有新决定；执行前如有疑问请用 search_context 复核或直接询问用户。` +
         (truncated ? `（简报达到 ${budget} 字符预算被截断，可用 search_context 补充检索）` : '') +
+        (hasUnanalyzedContent
+          ? `注意：该项目有新内容尚未分析（内容版本 ${maxContentRevision} > 已分析版本 ${maxAnalyzedRevision}），本简报可能落后于最新对话。`
+          : '') +
         `（原始简报 ${totalBefore} 字符）`,
+      coverage: { maxContentRevision, maxAnalyzedRevision, hasUnanalyzedContent },
     };
   }
 
@@ -425,16 +445,55 @@ export class McpService {
    */
   recordWorkResult(input: RecordWorkResultInput): RecordWorkResultOutput {
     const project = this.resolveProject(input.project_ref);
-    const id = crypto.randomUUID();
     const now = new Date().toISOString();
+
+    // M3 幂等：相同 client_ref 重试返回已有记录，不重复入库；同键不同内容报冲突
+    if (input.client_ref) {
+      const existing = this.db
+        .prepare(
+          `SELECT id, agent_name, task, outcome, summary, changes_json, tests_json, open_loops_json
+           FROM work_runs WHERE id = ? OR client_ref = ? LIMIT 1`,
+        )
+        .get(input.client_ref, input.client_ref) as
+        | {
+            id: string;
+            agent_name: string;
+            task: string;
+            outcome: string;
+            summary: string;
+            changes_json: string;
+            tests_json: string;
+            open_loops_json: string;
+          }
+        | undefined;
+      if (existing) {
+        const same =
+          existing.agent_name === input.agent_name &&
+          existing.task === input.task &&
+          existing.outcome === input.outcome &&
+          existing.summary === input.summary &&
+          existing.changes_json === JSON.stringify(input.changes) &&
+          existing.tests_json === JSON.stringify(input.tests) &&
+          existing.open_loops_json === JSON.stringify(input.open_loops);
+        if (!same) {
+          throw new IxaError(
+            ErrorCodes.CONFLICT,
+            `client_ref 已被使用且内容不同（已有 work_run ${existing.id}）；如需提交新结果请更换 client_ref`,
+          );
+        }
+        return { work_run_id: existing.id, deduplicated: true, open_loop_candidates: [] };
+      }
+    }
+
+    const id = input.client_ref ?? crypto.randomUUID();
 
     const candidates: Array<{ item_id: string; statement: string; ref: string }> = [];
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
           `INSERT INTO work_runs (id, project_id, agent_name, task, outcome, summary,
-             changes_json, tests_json, open_loops_json, commit_ref, finished_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             changes_json, tests_json, open_loops_json, commit_ref, finished_at, client_ref)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -448,6 +507,7 @@ export class McpService {
           JSON.stringify(input.open_loops),
           input.commit_ref ?? null,
           now,
+          input.client_ref ?? null,
         );
       // open_loop 候选：work_result 来源 + 待讨论（不自动升级为用户决定）
       for (const loop of input.open_loops) {
@@ -471,6 +531,6 @@ export class McpService {
       openLoops: input.open_loops.length,
     });
 
-    return { work_run_id: id, open_loop_candidates: candidates };
+    return { work_run_id: id, deduplicated: false, open_loop_candidates: candidates };
   }
 }
