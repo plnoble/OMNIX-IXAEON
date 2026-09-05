@@ -57,6 +57,13 @@ export const sourceSchema = z.object({
   /** 来源关联的项目（导入时用户选择；可为空，由提取阶段归属） */
   project_id: uuidSchema.nullable(),
   metadata_json: z.string(),
+  /**
+   * 内容版本（修复 v0.1.1 M0.2）：可用内容版本。新增/编辑/分支切换等影响
+   * 理解的变化递增；完全重复提交不递增。迁移的旧来源为 1。
+   */
+  content_revision: z.number().int().nonnegative().optional(),
+  /** 已成功生成理解的版本（提取失败/取消/引用不合法不得推进） */
+  analyzed_revision: z.number().int().nonnegative().optional(),
 });
 export type Source = z.infer<typeof sourceSchema>;
 
@@ -210,6 +217,8 @@ export const jobSchema = z.object({
   retry_count: z.number().int().nonnegative(),
   created_at: isoDateTimeSchema,
   updated_at: isoDateTimeSchema,
+  /** 退避重试的最早执行时间（ISO；NULL 表示立即可执行） */
+  not_before: z.string().nullable().optional(),
 });
 export type Job = z.infer<typeof jobSchema>;
 

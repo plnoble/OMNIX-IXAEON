@@ -169,6 +169,26 @@ CREATE TRIGGER segments_fts_au AFTER UPDATE OF text ON segments BEGIN
 END;
 `,
   },
+  {
+    id: 2,
+    name: 'source-revisions-and-job-scheduling',
+    sql: `
+ALTER TABLE sources ADD COLUMN content_revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sources ADD COLUMN analyzed_revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN not_before TEXT;
+CREATE INDEX idx_jobs_due ON jobs(status, not_before);
+
+CREATE TABLE session_aliases (
+  external_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- 迁移旧行为：既有来源视为「内容版本 1、已按旧规则分析过」（避免升级后
+-- 为全部历史来源批量触发补分析）；此后新增/追加内容正常递增 content_revision。
+UPDATE sources SET content_revision = 1, analyzed_revision = 1;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

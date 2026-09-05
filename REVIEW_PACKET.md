@@ -3,9 +3,10 @@
 > 按 `IXAEON_v0.1_开发计划.md` 第 12 章要求交付，并逐项回应
 > `IXAEON_v0.1_验收问题与修复任务.md`（验收基线）、
 > `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）、
-> `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）与
-> `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4）。
-> 更新时间：2026-09-05（四轮修复后，v0.1.1 稳定性收口）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）、
+> `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4），并实施
+> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 稳定性收尾**。
+> 更新时间：2026-09-05（M0 收尾完成）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -83,6 +84,26 @@
 | F2 多草稿共用一个分析计时器 | 防抖/待分析/计时器全部改按 **sourceId**（稳定来源身份）而非临时网页地址；同来源多次更新仍合并，不同来源互不覆盖 | round4 U4（三个草稿全部获得补分析回调） | ✅ 自动化已验证 |
 | F3 恢复拒绝后待分析工作消失 | `stopBackgroundTasks` 从凭证校验之前移入 `closeCurrentDb` 回调 —— 只有校验全部通过、即将替换磁盘时才停止后台任务；早期失败完整保留原运行时与待分析状态 | round4 U5（无效凭证拒绝后第二次分析仍发生）+ round3 T6/T7/T7b（恢复/凭证语义保持） | ✅ 自动化已验证 |
 | F4 关闭自动分析后排队任务仍调模型 | 任务执行前复查（auto 任务：autoAnalyze、capture.enabled、来源授权、所属会话暂停；手动任务只查授权）；每个模型块前与结果提交前通过 `shouldContinue` 再复查；取消以 `cancelled` 状态落库（新增 IXA0023 JOB_CANCELLED，可见、可重试），不伪装成功 | round4 U6（关闭开关后 0 次模型调用）/ U7 对照（开启时正常执行成功） | ✅ 自动化已验证 |
+
+---
+
+## 0.8 M0 稳定性收尾（对《下一阶段开发计划》M0.1/M0.2）
+
+按 [docs/identity-lifecycle.md](docs/identity-lifecycle.md) 的设计实施：
+持久化版本三元组 + 暂时性失败退避重试 + 别名入库 + 启动扫描找回欠分析工作。
+
+| 计划条目 | 实现 | 测试 | 状态 |
+| --- | --- | --- | --- |
+| M0.2 版本三元组 | 迁移 2 新增 `sources.content_revision / analyzed_revision`（导入=1、追加影响理解的内容递增、完全重复不递增；analyzed 只前进不回退，迁移旧行回填 1/1）；任务以「开始执行时版本」为目标，完成后守卫推进（`advanceAnalyzedRevision`），滞后自动补队 | m0-core「contentRevision 语义」+ m0-gates 门槛 1 | ✅ 自动化已验证 |
+| M0.2 第 1 条 合并/去重 | 自动入队去重（同来源 queued/running 唯一，排除当前任务）；完成时版本滞后 → 补队一次 | m0-gates 门槛 1（运行中到达新版本 → 追平） | ✅ 自动化已验证 |
+| M0.2 第 2/3 条 持久化待分析 + 崩溃恢复 | 「欠分析」= content > analyzed 持久化于 sources 表；启动时 `sweepPendingAnalysis()` 找回（网页来源受开关/授权/暂停复查，其他来源沿用导入管线语义） | m0-gates 门槛 2（窗口内退出重启 → 重启后追平） | ✅ 自动化已验证 |
+| M0.2 第 4 条 执行时复查 | F4 已实现（U6/U7）；本轮接入取消信号 `shouldContinue` 于每块与提交前 | m0-gates 门槛 3（取消后不发新块、不提交、旧理解不变） | ✅ 自动化已验证 |
+| M0.2 第 5 条 自动/手动分离 | F4 已实现（auto 标记 + autoGuardSatisfied；手动不受自动开关约束） | round4 U6/U7 | ✅ 自动化已验证 |
+| M0.2 第 6 条 版本一致 | 目标版本在任务开始时锁定；analyzed 只前进（`WHERE analyzed_revision < target`），旧任务不能覆盖新结果 | m0-core「analyzed 只前进」 | ✅ 自动化已验证 |
+| M0.2 第 7 条 有限重试 | JobQueue 对暂时性失败（MODEL_CALL_FAILED / SERVER_UNAVAILABLE / retriable ModelError）自动重试，默认 3 次、退避 5s/30s/120s（经 `jobs.not_before` 持久调度）；认证/预算/权限/校验/取消不重试；重试计数与错误入库可见 | m0-core 重试 2 项 | ✅ 自动化已验证 |
+| M0.2 第 8 条 退出等待 | `stop()` 停止接收 → 等待在途任务结束（`jobs.idle()`）→ 关库；恢复失败不丢待处理（F3/U5 保持） | m0-gates 门槛 4 + round3 T6/T7/T8/T9 保持 | ✅ 自动化已验证 |
+| M0.1 迁移 | 迁移 2 在旧库（仅迁移 1 + 数据）上验证：列补齐、行完整、回填策略明确（旧行标记 1/1，不批量触发补分析；需重分析可手动） | m0-core「旧库升级」 | ✅ 自动化已验证 |
+| 附加修复 | sessionAliases 迁入 SQLite `session_aliases` 表（上限 500 裁剪）——修复每批采集重写整份 config.json 且别名无限增长的问题；恢复对话/重新开启开关后自动补齐欠分析（`onConversationResumed` / `sweepPendingAnalysis`） | round3 T1–T4 全部保持 | ✅ 自动化已验证 |
 
 ---
 
@@ -181,6 +202,7 @@ corepack pnpm verify
   ✓ review（二次验收独立业务测试） 通过 —— 11 passed（R1–R9 回归，已纳入 verify）
   ✓ review-round3（三次验收相邻场景） 通过 —— 13 passed（N1–N6 回归，已纳入 verify）
   ✓ review-round4（四次验收连续性） 通过 —— 7 passed（F1–F4 回归，已纳入 verify）
+  ✓ integration 追加 M0 收尾回归 —— m0-core 4 项（迁移/版本/重试）+ m0-gates 4 项（M0 门槛）
   ✓ build（desktop / mcp / extension） 通过
 
 corepack pnpm test:e2e
@@ -416,9 +438,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（四轮修复后重建）
-  - 大小：122,569,581 字节（≈116.9 MB）
-  - SHA-256：`5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M0 收尾后重建）
+  - 大小：122,573,413 字节（≈116.9 MB）
+  - SHA-256：`616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

@@ -27,8 +27,8 @@ export const appConfigSchema = z.object({
      * 该会话的全部有效别名。
      */
     pausedSessions: z.array(z.string().min(1)).default([]),
-    /** externalId → sessionId 别名表（采集时记录，用于暂停/恢复解析同一会话） */
-    sessionAliases: z.record(z.string().min(1), z.string().min(1)).default({}),
+    // externalId → sessionId 别名表已迁入 SQLite session_aliases 表（M0 收尾：
+    // 别名随采集无限增长，不再写入 config.json）
   }),
   extension: z.object({
     /** 配对成功后发放给扩展的访问令牌 */
@@ -55,7 +55,6 @@ export function defaultAppConfig(): AppConfig {
       autoAnalyze: false,
       pausedConversations: [],
       pausedSessions: [],
-      sessionAliases: {},
     },
     extension: { token: null, pairedAt: null },
     localToken: null,

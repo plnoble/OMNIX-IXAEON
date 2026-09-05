@@ -148,6 +148,20 @@ export class AppRuntime {
       onCaptured: (sourceId: string): void => {
         runtimeRef.current?.enqueueAutoExtraction(sourceId);
       },
+      // 对话恢复回调（修复 M0.2：恢复允许后处理最新版本）：
+      // 该会话来源中「欠分析」的补一次自动提取（受开关/暂停/授权复查约束）
+      onConversationResumed: (externalIds: string[]): void => {
+        const rt = runtimeRef.current;
+        if (!rt) return;
+        for (const ext of externalIds) {
+          const row = rt.db
+            .prepare(
+              "SELECT id FROM sources WHERE provider = 'chatgpt_web' AND external_id = ? AND content_revision > analyzed_revision",
+            )
+            .get(ext) as { id: string } | undefined;
+          if (row) rt.enqueueAutoExtraction(row.id);
+        }
+      },
     });
 
     const runtime = new AppRuntime({
@@ -169,21 +183,77 @@ export class AppRuntime {
     runtimeRef.current = runtime;
     runtime.registerJobHandlers();
     jobs.start();
+    // 修复 M0.2 第 3 条：崩溃/退出重启后找出未完成的分析工作（持久化版本差）
+    runtime.sweepPendingAnalysis();
     await runtime.startServer();
     return runtime;
   }
 
   /** 自动分析队列（来源去重：任务表中已有同来源 queued/running 提取则跳过）。 */
   /**
-   * 自动分析入队（修复 R7）：采集回调触达时总是入队。
-   * 排队/运行中的已有任务不能丢掉「再次分析」的需求 —— 提取按当前数据库
-   * 最新内容整体替换旧理解，重复执行安全（幂等），最终状态一定是最新版本。
-   * 频率由 LocalServer 的防抖窗口 + pending 补分析机制控制。
+   * 自动分析入队（修复 R7/M0.2 第 1 条）：同一来源最多一个 queued/running
+   * 的自动提取 —— 已排队的任务执行时读取最新内容版本，天然合并窗口内的
+   * 多次更新；任务执行期间的新内容由完成后的滞后检查补队（不丢工作）。
    */
-  private enqueueAutoExtraction(sourceId: string): void {
-    const job = this.jobs.enqueue('extract', { sourceId, auto: true });
-    recordAudit(this.db, 'capture.auto_extract_job', { jobId: job.id, sourceId });
+  private enqueueAutoExtraction(sourceId: string, excludeJobId?: string): void {
+    // excludeJobId：完成路径的滞后补队 —— 当前任务尚为 running，需排除自身，
+    // 否则滞后检查会被自己的运行状态挡住（丢失补分析，修复门槛 1）
+    if (this.hasActiveExtractJob(sourceId, excludeJobId)) return;
+    this.enqueueExtract(sourceId, true);
+  }
+
+  private hasActiveExtractJob(sourceId: string, excludeJobId?: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 AS one FROM jobs
+         WHERE kind = 'extract' AND status IN ('queued', 'running')
+           AND payload_json LIKE ? AND id != ?
+         LIMIT 1`,
+      )
+      .get(`%"sourceId":"${sourceId}"%`, excludeJobId ?? '') as { one: number } | undefined;
+    return row !== undefined;
+  }
+
+  private enqueueExtract(sourceId: string, auto: boolean): void {
+    const job = this.jobs.enqueue('extract', auto ? { sourceId, auto: true } : { sourceId });
+    recordAudit(this.db, 'extract.enqueued', { jobId: job.id, sourceId, auto });
     this.jobs.kick();
+  }
+
+  /**
+   * 扫描「欠分析」的来源并补队（修复 M0.2 第 2/3 条：待分析状态持久化，
+   * 崩溃重启后能找出未完成工作；不再依赖内存计时器）。
+   * - 网页来源（chatgpt_web）：遵守采集开关、自动分析开关、域授权与暂停；
+   * - 其他来源（导入等）：沿用导入管线的重试语义（非自动任务）。
+   * - 已有 queued/running 提取任务的来源跳过（合并）；数量上限防风暴。
+   */
+  sweepPendingAnalysis(limit = 50): number {
+    const rows = this.db
+      .prepare(
+        `SELECT s.id, s.provider FROM sources s
+         WHERE s.content_revision > s.analyzed_revision
+         ORDER BY s.imported_at DESC LIMIT ?`,
+      )
+      .all(limit) as Array<{ id: string; provider: string }>;
+    let enqueued = 0;
+    const cfg = this.getConfig();
+    for (const row of rows) {
+      if (this.hasActiveExtractJob(row.id)) continue;
+      if (row.provider === 'chatgpt_web') {
+        if (!cfg.capture.enabled || !cfg.capture.autoAnalyze) continue;
+        if (!this.permissions.activePermissionForDomain('chatgpt.com')) continue;
+        if (this.isSourceConversationPaused(row.id)) continue;
+        this.enqueueExtract(row.id, true);
+      } else {
+        this.enqueueExtract(row.id, false);
+      }
+      enqueued += 1;
+    }
+    if (enqueued > 0) {
+      this.jobs.kick();
+      recordAudit(this.db, 'analysis.sweep', { enqueued });
+    }
+    return enqueued;
   }
 
   /**
@@ -207,9 +277,11 @@ export class AppRuntime {
     })();
     const sessionId = typeof meta.sessionId === 'string' ? meta.sessionId : null;
     if (sessionId !== null && capture.pausedSessions.includes(sessionId)) return true;
-    const aliased = capture.sessionAliases[source.external_id];
-    if (aliased !== undefined && capture.pausedSessions.includes(aliased)) return true;
-    if (sessionId !== null && capture.pausedSessions.includes(sessionId)) return true;
+    // 别名解析（M0 收尾：session_aliases 已迁入 SQLite）
+    const aliased = this.db
+      .prepare('SELECT session_id AS s FROM session_aliases WHERE external_id = ?')
+      .get(source.external_id) as { s: string } | undefined;
+    if (aliased && capture.pausedSessions.includes(aliased.s)) return true;
     return false;
   }
 
@@ -253,13 +325,27 @@ export class AppRuntime {
         );
       }
       const extractor = new Extractor(this.db, provider);
+      // 修复 M0.2 第 6 条：任务以「开始执行时的内容版本」为目标版本 ——
+      // 执行期间的新内容不会混入本次结果，由完成后的滞后检查补分析。
+      const targetRevision = this.sources.getRevisions(payload.sourceId).content;
       const stats = await extractor.extractSource(payload.sourceId, {
         // 修复 F4 要求 3：多块提取间与提交前复查（取消后不发新块、不提交结果）
         shouldContinue: autoGuardSatisfied,
       });
+      // 修复 M0.2：成功后推进「已分析版本」（只前进不回退）；若执行期间
+      // 又有新内容（content > analyzed）→ 合并为一次补分析，不丢工作。
+      this.sources.advanceAnalyzedRevision(payload.sourceId, targetRevision);
+      const revisions = this.sources.getRevisions(payload.sourceId);
+      if (revisions.content > revisions.analyzed) {
+        this.enqueueAutoExtraction(payload.sourceId, job.id);
+        this.jobs.kick();
+      }
       recordAudit(this.db, 'extract.completed', {
         sourceId: payload.sourceId,
         auto: isAuto,
+        targetRevision,
+        contentRevision: revisions.content,
+        analyzedRevision: revisions.analyzed,
         inserted: stats.inserted,
         skippedBadRef: stats.skippedBadRef,
         disputed: stats.disputed,
@@ -493,7 +579,9 @@ export class AppRuntime {
   async stop(): Promise<void> {
     // 修复 N3：应用退出时清理本地服务的后台补分析计时器，无残留回调
     this.localServer?.stopBackgroundTasks();
+    // 修复 M0.2 第 8 条：退出前取消并**等待**在途写入任务结束，再关库
     this.jobs.stop();
+    await this.jobs.idle();
     await this.stopServer();
     this.db.close();
     this.logger.info('运行时已停止');

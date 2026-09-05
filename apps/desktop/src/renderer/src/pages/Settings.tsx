@@ -176,6 +176,10 @@ export function SettingsPage() {
             ? `扩展已配对。最近同步：${view.config.extensionLastSyncAt?.slice(0, 19).replace('T', ' ') ?? '无'}`
             : '扩展未配对。安装浏览器扩展后，在弹窗中输入配对码。'}
         </p>
+        <p className="note">
+          边界说明：已经发出的模型请求无法撤回；关闭开关或暂停对话只阻止后续调用。
+          暂停的对话会保留「待分析」状态，恢复后处理最新内容。
+        </p>
         <div className="field-row">
           <label className="check">
             <input

@@ -62,6 +62,8 @@ interface LocalServerDeps {
   updateConfig: (mutate: (config: AppConfig) => AppConfig) => void;
   /** 采集成功回调（sourceId + 该批 accepted 数；autoAnalyze=true 时由 AppRuntime 排队提取） */
   onCaptured?: (sourceId: string, acceptedCount: number) => void;
+  /** 对话恢复回调（该会话的全部 externalId 别名；用于恢复后补一次最新版本分析） */
+  onConversationResumed?: (externalIds: string[]) => void;
 }
 
 export class LocalServer {
@@ -155,10 +157,47 @@ export class LocalServer {
     const capture = this.deps.getConfig().capture;
     if (capture.pausedConversations.includes(externalId)) return true;
     if (sessionId !== null && capture.pausedSessions.includes(sessionId)) return true;
-    // 该 externalId 的会话曾被暂停（经别名解析）
-    const aliased = capture.sessionAliases[externalId];
-    if (aliased !== undefined && capture.pausedSessions.includes(aliased)) return true;
+    // 该 externalId 的会话曾被暂停（经别名解析，修复 N1）
+    const aliased = this.lookupSessionAlias(externalId);
+    if (aliased !== null && capture.pausedSessions.includes(aliased)) return true;
     return false;
+  }
+
+  /**
+   * externalId → sessionId 别名（M0 收尾：迁入 SQLite —— 别名随采集无限增长，
+   * 不再写入 config.json；每批采集避免整份配置文件重写）。上限 500 条，
+   * 超出按创建时间裁剪最旧的。
+   */
+  private lookupSessionAlias(externalId: string): string | null {
+    const row = this.deps.db
+      .prepare('SELECT session_id FROM session_aliases WHERE external_id = ?')
+      .get(externalId) as { session_id: string } | undefined;
+    return row?.session_id ?? null;
+  }
+
+  private recordSessionAlias(externalId: string, sessionId: string): void {
+    const now = new Date().toISOString();
+    this.deps.db
+      .prepare(
+        `INSERT INTO session_aliases (external_id, session_id, created_at) VALUES (?, ?, ?)
+         ON CONFLICT(external_id) DO UPDATE SET session_id = excluded.session_id`,
+      )
+      .run(externalId, sessionId, now);
+    this.deps.db
+      .prepare(
+        `DELETE FROM session_aliases WHERE external_id NOT IN (
+           SELECT external_id FROM session_aliases ORDER BY created_at DESC LIMIT 500
+         )`,
+      )
+      .run();
+  }
+
+  /** 同一会话的全部有效 externalId 别名（恢复时清除暂停用）。 */
+  private externalIdsOfSession(sessionId: string): string[] {
+    const rows = this.deps.db
+      .prepare('SELECT external_id FROM session_aliases WHERE session_id = ?')
+      .all(sessionId) as Array<{ external_id: string }>;
+    return rows.map((r) => r.external_id);
   }
 
   /**
@@ -172,48 +211,47 @@ export class LocalServer {
     sessionId: string | null,
     paused: boolean,
   ): void {
+    const session = sessionId ?? this.lookupSessionAlias(externalId);
     this.deps.updateConfig((c) => {
       const pc = new Set(c.capture.pausedConversations);
       const ps = new Set(c.capture.pausedSessions);
-      const aliases = { ...c.capture.sessionAliases };
-      const session = sessionId ?? aliases[externalId] ?? null;
       if (paused) {
         pc.add(externalId);
         if (session !== null) ps.add(session);
-        if (session !== null && !aliases[externalId]) aliases[externalId] = session;
       } else {
         pc.delete(externalId);
         if (session !== null) {
           ps.delete(session);
-          // 清除同一会话的全部有效别名暂停（临时 ID + 已知正式 ID）
-          for (const [ext, sess] of Object.entries(aliases)) {
-            if (sess === session) pc.delete(ext);
+          // 清除同一会话的全部有效别名暂停（临时 ID + 已知正式 ID，修复 N2）
+          for (const ext of this.externalIdsOfSession(session)) {
+            pc.delete(ext);
           }
         }
       }
       return {
         ...c,
-        capture: {
-          ...c.capture,
-          pausedConversations: [...pc],
-          pausedSessions: [...ps],
-          sessionAliases: aliases,
-        },
+        capture: { ...c.capture, pausedConversations: [...pc], pausedSessions: [...ps] },
       };
     });
-    if (paused) this.cancelPendingAnalysisFor(externalId, sessionId);
+    if (paused) {
+      this.cancelPendingAnalysisFor(externalId, session);
+    } else if (session !== null) {
+      // M0.2：恢复后处理最新版本 —— 该会话来源中「欠分析」的补一次
+      this.deps.onConversationResumed?.(this.externalIdsOfSession(session));
+    }
   }
 
   /** 取消一个对话（及其会话别名）的待补分析计时器（修复 N3）。 */
   private cancelPendingAnalysisFor(externalId: string, sessionId: string | null): void {
-    const aliases = this.deps.getConfig().capture.sessionAliases;
-    const session = sessionId ?? aliases[externalId] ?? null;
+    const session = sessionId ?? this.lookupSessionAlias(externalId);
+    const sessionExternalIds =
+      session !== null ? new Set(this.externalIdsOfSession(session)) : null;
     for (const [key, entry] of [...this.trailingTimers.entries()]) {
-      const keySession = aliases[entry.externalId] ?? entry.sessionId;
+      const keySession = entry.sessionId ?? this.lookupSessionAlias(entry.externalId);
       if (
         entry.externalId === externalId ||
         key === externalId ||
-        (session !== null && keySession === session)
+        (session !== null && (keySession === session || (sessionExternalIds?.has(key) ?? false)))
       ) {
         clearTimeout(entry.timer);
         this.trailingTimers.delete(key);
@@ -460,19 +498,11 @@ export class LocalServer {
           }
           const batch = parsed.data;
           // 记录 externalId → sessionId 别名（修复 N1/N2：在任何拒绝路径之前记录，
-          // 用户恢复正式对话时才能解析到同一会话并清除其全部有效别名）
+          // 用户恢复正式对话时才能解析到同一会话并清除其全部有效别名）。
+          // M0 收尾：写入 SQLite 而非 config.json —— 别名随采集无限增长，
+          // 每批采集重写整份配置文件不可接受。
           if (batch.conversation.sessionId) {
-            const sid = batch.conversation.sessionId;
-            this.deps.updateConfig((cf) => ({
-              ...cf,
-              capture: {
-                ...cf.capture,
-                sessionAliases: {
-                  ...cf.capture.sessionAliases,
-                  [batch.conversation.externalId]: sid,
-                },
-              },
-            }));
+            this.recordSessionAlias(batch.conversation.externalId, batch.conversation.sessionId);
           }
           // 当前对话暂停：服务端强制拒绝（扩展端也有本地开关，双保险）。
           // 暂停检查同时覆盖 externalId 与稳定会话标识（修复 N1）。
@@ -598,13 +628,10 @@ export class LocalServer {
                   session !== null
                     ? [...new Set([...cf.capture.pausedSessions, session])]
                     : cf.capture.pausedSessions,
-                sessionAliases: {
-                  ...cf.capture.sessionAliases,
-                  [externalId]: session ?? externalId,
-                },
               },
             };
           });
+          if (batchSession) this.recordSessionAlias(externalId, batchSession);
           recordAudit(db, 'capture.merge_identity_paused', {
             fromExternalIdHash: hashLabel(t.external_id),
             toExternalIdHash: hashLabel(externalId),
@@ -627,8 +654,8 @@ export class LocalServer {
         const mergeResult = db.transaction(() => {
           db.prepare(
             `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
-              captured_at, imported_at, permission_id, project_id, metadata_json)
-             VALUES (?, 'conversation', 'chatgpt_web', ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+              captured_at, imported_at, permission_id, project_id, metadata_json, content_revision)
+             VALUES (?, 'conversation', 'chatgpt_web', ?, ?, ?, ?, ?, ?, ?, NULL, ?, 1)`,
           ).run(
             formalId,
             externalId,
@@ -710,8 +737,8 @@ export class LocalServer {
     const createResult = db.transaction(() => {
       db.prepare(
         `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
-          captured_at, imported_at, permission_id, project_id, metadata_json)
-         VALUES (?, 'conversation', 'chatgpt_web', ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+          captured_at, imported_at, permission_id, project_id, metadata_json, content_revision)
+         VALUES (?, 'conversation', 'chatgpt_web', ?, ?, ?, ?, ?, ?, ?, NULL, ?, 1)`,
       ).run(
         sourceId,
         externalId,

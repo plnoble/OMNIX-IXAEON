@@ -179,7 +179,8 @@
 | 安装包（一轮） | 122,562,511 字节，SHA-256 `CE4631447B7165BB203D2D6035E703B9F6471AC12244A917C5EF81371616C039` |
 | 安装包（二轮） | 122,566,050 字节，SHA-256 `4D9184DA61A62A1FA66524D9BC3173B2431A0160A50C45A41DDD9297D0845607` |
 | 安装包（三轮） | 122,568,319 字节，SHA-256 `D9F8530A45A4F0EA73B3D38456B22A93822C0055B1A9BAC67D5CD88C412D91F7` |
-| 安装包（四轮，最终交付物） | 122,569,581 字节，SHA-256 `5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7` |
+| 安装包（四轮） | 122,569,581 字节，SHA-256 `5913D7F372078D8FFB46E5334CF2DFF3EBDDD114843294E371EA0492778933A7` |
+| 安装包（M0 收尾，最终交付物） | 122,573,413 字节，SHA-256 `616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -471,3 +472,64 @@ N3–N5 语义保持（T6/T7/T7b/T8/T9 仍绿）。
    （contentRevision/analyzedRevision/targetRevision）未实现 —— 当前
    「待分析」状态仍部分依赖内存计时器（已在 docs/identity-lifecycle.md
    第 4 节列为演进项）；崩溃重启后的待分析恢复属该项范围。
+
+---
+
+# M0 稳定性收尾记录（2026-09-05，实施《下一阶段开发计划》M0）
+
+按 [docs/identity-lifecycle.md](docs/identity-lifecycle.md) 的设计，实施持久化版本
+三元组与任务生命周期收尾，关闭「待分析状态依赖内存计时器」的可靠性缺口。
+
+## 1. 版本三元组（迁移 2）
+
+迁移 2（`source-revisions-and-job-scheduling`）：
+- `sources.content_revision` / `sources.analyzed_revision`：可用内容版本与已分析
+  版本。语义：导入=1；追加影响理解的内容（新片段/编辑/分支切换）递增；完全
+  重复提交不递增；提取失败/取消/引用不合法不得推进 analyzed。
+- 旧行回填 1/1：历史来源标记为已按旧规则分析，避免升级后批量触发补分析
+  （需重分析可手动）。迁移在旧库副本（仅迁移 1 + 数据）上验证。
+- `jobs.not_before`：退避重试的持久调度列；`session_aliases` 表：externalId →
+  sessionId 别名（从 config.json 迁出，上限 500 条裁剪）。
+
+## 2. 分析任务生命周期
+
+- **入队合并**：同来源 queued/running 唯一（排除当前任务），窗口内多次更新合并。
+- **目标版本锁定**：任务开始时取 content_revision 为目标；执行期间新内容不影响
+  本次结果；完成后 `advanceAnalyzedRevision` 守卫推进（WHERE analyzed < target，
+  旧任务不能覆盖新结果）；content > analyzed → 补队一次（排除自身）。
+- **启动扫描**：`sweepPendingAnalysis()` 在启动/开关重开/对话恢复时找回欠分析
+  来源（网页来源复查开关/授权/暂停；导入来源沿用导入管线语义；上限 50）。
+- **执行时复查**：自动任务执行前复查 autoAnalyze/采集开关/授权/暂停（F4）；
+  每块与提交前经 `shouldContinue` 复查；取消以 cancelled 落库（IXA0023）。
+- **有限退避重试**：暂时性失败（MODEL_CALL_FAILED/SERVER_UNAVAILABLE/retriable
+  ModelError）自动重试 3 次（not_before 持久调度，5s/30s/120s）；认证/预算/权限/
+  校验/取消不重试。
+
+## 3. 退出等待
+
+`stop()`：停止接收 → `jobs.idle()` 等待在途任务结束 → 关库。消除关库瞬间
+在途提取写库的竞态。
+
+## 4. 每采集写 config.json 问题
+
+sessionAliases 迁入 SQLite 后，采集路由不再每批重写整份配置文件；
+pausedConversations/pausedSessions 仍留在 config（用户操作才变更，量小）。
+
+## 5. 验证结果（全部实跑）
+
+| 命令 | 结果 |
+| --- | --- |
+| `corepack pnpm verify` | 全绿：unit 16 / integration **110**（含 m0-core 4 + m0-gates 4）/ review 11 / round3 13 / round4 7 / build |
+| `corepack pnpm test:e2e` | desktop 10 + extension 全断言 + serial 串联 PASS |
+| `node apps/desktop/test/review/packaged-20260905.mjs` | 3 项检查全部通过（M0 收尾后新产物） |
+| `corepack pnpm package:windows` | 成功；安装包 122,573,413 字节，SHA-256 `616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051` |
+
+M0 门槛对照：本轮 4 项门槛测试（运行中到达新版本/窗口内退出重启/取消后模型
+返回/恢复失败保留待处理）全部通过；U1–U7 与前两轮 24 项独立回归全部保持。
+
+## 6. 未完成事项（如实）
+
+1. 真实 OpenAI 模型六组语义问答（需用户 API Key）。
+2. 当前真实 chatgpt.com 页面人工验收。
+3. NSIS 安装、卸载和全新 Windows 用户全流程。
+4. v0.2 M1–M3（归属继承/状态展示/确认动作/编码闭环）按计划待 M0 通过审核后分批实施。

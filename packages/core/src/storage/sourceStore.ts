@@ -36,8 +36,8 @@ export class SourceStore {
     const sourceId = randomUUID();
     const insertSource = this.db.prepare(
       `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
-        captured_at, imported_at, permission_id, project_id, metadata_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        captured_at, imported_at, permission_id, project_id, metadata_json, content_revision)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     );
     const insertSegment = this.db.prepare(
       `INSERT INTO segments (id, source_id, sequence, role, external_node_id, external_parent_id,
@@ -268,6 +268,11 @@ export class SourceStore {
     const touchImported = this.db.prepare(
       'UPDATE sources SET imported_at = ?, captured_at = ? WHERE id = ?',
     );
+    // 修复 v0.1.1 M0.2：可用内容版本 —— 影响理解的新增/编辑/分支切换递增；
+    // 完全重复提交不递增（「已收到」与「已分析」在此分离，供持久化待分析状态）
+    const bumpRevision = this.db.prepare(
+      'UPDATE sources SET content_revision = content_revision + 1 WHERE id = ?',
+    );
     let accepted = 0;
     let deduplicated = 0;
     const now = new Date().toISOString();
@@ -305,9 +310,34 @@ export class SourceStore {
       if (accepted > 0 || deduplicated > 0) {
         touchImported.run(now, now, sourceId);
       }
+      if (accepted > 0) {
+        bumpRevision.run(sourceId);
+      }
     });
     tx();
     return { accepted, deduplicated };
+  }
+
+  /**
+   * 推进「已分析版本」（修复 v0.1.1 M0.2）：只允许前进，不允许较旧任务
+   * 覆盖较新结果。返回推进后的 analyzed_revision。
+   */
+  advanceAnalyzedRevision(sourceId: string, targetRevision: number): number {
+    this.db
+      .prepare('UPDATE sources SET analyzed_revision = ? WHERE id = ? AND analyzed_revision < ?')
+      .run(targetRevision, sourceId, targetRevision);
+    const row = this.db
+      .prepare('SELECT analyzed_revision AS a FROM sources WHERE id = ?')
+      .get(sourceId) as { a: number } | undefined;
+    return row?.a ?? 0;
+  }
+
+  /** 来源的当前内容版本与已分析版本。 */
+  getRevisions(sourceId: string): { content: number; analyzed: number } {
+    const row = this.db
+      .prepare('SELECT content_revision AS c, analyzed_revision AS a FROM sources WHERE id = ?')
+      .get(sourceId) as { c: number; a: number } | undefined;
+    return { content: row?.c ?? 0, analyzed: row?.a ?? 0 };
   }
 
   /**
@@ -389,6 +419,12 @@ export class SourceStore {
       }
       deleteFrom.run(fromSourceId);
       deleteSource.run(fromSourceId);
+      // 合并改变了正式来源的可用内容 → 递增内容版本（待分析状态持久化）
+      if (moved > 0) {
+        this.db
+          .prepare('UPDATE sources SET content_revision = content_revision + 1 WHERE id = ?')
+          .run(intoSourceId);
+      }
     });
     tx();
     return { moved, deduplicated };

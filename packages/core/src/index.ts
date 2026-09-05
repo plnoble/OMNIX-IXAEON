@@ -1,4 +1,5 @@
 // IXAEON core — 导入、存储、提取、检索、纠正、简报逻辑
+export { ErrorCodes, IxaError, toApiError } from '@ixaeon/contracts';
 export { openDatabase, type CoreDatabase } from './db/database.js';
 export { migrate, currentMigrationVersion, MIGRATIONS } from './db/migrations.js';
 export { Vault, sha256 } from './vault.js';

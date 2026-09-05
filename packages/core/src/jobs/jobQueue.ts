@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { CoreDatabase } from '../db/database.js';
 import type { Job } from '@ixaeon/contracts';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
+import { ModelError } from '../extraction/model/provider.js';
 import type { Logger } from '../logging/logger.js';
 
 export type JobHandler = (
@@ -24,11 +25,17 @@ export class JobQueue {
   private running = false;
   private currentAbort: AbortController | null = null;
   private currentJobId: string | null = null;
+  private currentSettled: Promise<void> = Promise.resolve();
+  private settleCurrentRun: (() => void) | null = null;
   private readonly logger: Pick<Logger, 'warn' | 'info'>;
+  /** 暂时性失败的自动重试上限与退避间隔（毫秒；测试可覆盖） */
+  private readonly maxAutoRetries: number;
+  private readonly retryBackoffMs: number[];
 
   constructor(
     private readonly db: CoreDatabase,
     logger?: Pick<Logger, 'warn' | 'info'>,
+    opts?: { maxAutoRetries?: number; retryBackoffMs?: number[] },
   ) {
     this.logger = logger ?? {
       warn: (msg: string, fields?: Record<string, unknown>) =>
@@ -36,6 +43,8 @@ export class JobQueue {
       info: (msg: string, fields?: Record<string, unknown>) =>
         console.log(JSON.stringify({ level: 'info', message: msg, ...fields })),
     };
+    this.maxAutoRetries = opts?.maxAutoRetries ?? 3;
+    this.retryBackoffMs = opts?.retryBackoffMs ?? [5_000, 30_000, 120_000];
   }
 
   register(kind: string, handler: JobHandler): void {
@@ -89,9 +98,12 @@ export class JobQueue {
     if (this.running) return;
     this.running = true;
     try {
+      const nowIso = new Date().toISOString();
       const job = this.db
-        .prepare("SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1")
-        .get() as Job | undefined;
+        .prepare(
+          "SELECT * FROM jobs WHERE status = 'queued' AND (not_before IS NULL OR not_before <= ?) ORDER BY created_at LIMIT 1",
+        )
+        .get(nowIso) as Job | undefined;
       if (!job) return;
       // 原子抢占：queued → running
       const claimed = this.db
@@ -110,6 +122,11 @@ export class JobQueue {
       this.currentJobId = job.id;
       const abort = new AbortController();
       this.currentAbort = abort;
+      let settleRun: () => void = () => {};
+      this.currentSettled = new Promise<void>((resolve) => {
+        settleRun = resolve;
+      });
+      this.settleCurrentRun = settleRun;
       const ctx: JobContext = {
         reportProgress: (p: number) => {
           this.db
@@ -130,20 +147,47 @@ export class JobQueue {
         // 处理器抛出带 jobCancelled 标记的错误时，任务以 cancelled 落库（可重试）。
         const cancelled = (err as { jobCancelled?: boolean }).jobCancelled === true;
         const message = err instanceof Error ? err.message : String(err);
-        this.logger.warn('任务结束', {
-          jobId: job.id,
-          kind: job.kind,
-          status: cancelled ? 'cancelled' : 'failed',
-          error: message,
-        });
-        this.finishJob(job.id, cancelled ? 'cancelled' : 'failed', message);
+        // 修复 v0.1.1 M0.2 第 7 条：仅暂时性失败有限重试（默认 3 次退避）；
+        // 认证失败、预算限制、权限拒绝、校验失败、取消不循环重试。
+        if (!cancelled && isTransientJobError(err) && job.retry_count < this.maxAutoRetries) {
+          const backoff =
+            this.retryBackoffMs[Math.min(job.retry_count, this.retryBackoffMs.length - 1)] ?? 5_000;
+          const notBefore = new Date(Date.now() + backoff).toISOString();
+          this.db
+            .prepare(
+              "UPDATE jobs SET status = 'queued', error = ?, retry_count = retry_count + 1, not_before = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(message, notBefore, new Date().toISOString(), job.id);
+          this.logger.warn('任务暂时性失败，已安排退避重试', {
+            jobId: job.id,
+            kind: job.kind,
+            attempt: job.retry_count + 1,
+            notBefore,
+            error: message,
+          });
+        } else {
+          this.logger.warn('任务结束', {
+            jobId: job.id,
+            kind: job.kind,
+            status: cancelled ? 'cancelled' : 'failed',
+            error: message,
+          });
+          this.finishJob(job.id, cancelled ? 'cancelled' : 'failed', message);
+        }
       } finally {
         this.currentAbort = null;
         this.currentJobId = null;
+        this.settleCurrentRun?.();
+        this.settleCurrentRun = null;
       }
     } finally {
       this.running = false;
     }
+  }
+
+  /** 等待当前正在执行的任务结束（无在途任务时立即返回）。 */
+  async idle(): Promise<void> {
+    await this.currentSettled;
   }
 
   private finishJob(id: string, status: Job['status'], error: string | null): void {
@@ -172,7 +216,7 @@ export class JobQueue {
     }
     this.db
       .prepare(
-        "UPDATE jobs SET status = 'queued', error = NULL, progress = 0, retry_count = ?, updated_at = ? WHERE id = ?",
+        "UPDATE jobs SET status = 'queued', error = NULL, progress = 0, retry_count = ?, not_before = NULL, updated_at = ? WHERE id = ?",
       )
       .run(job.retry_count + 1, new Date().toISOString(), id);
     this.kick();
@@ -190,4 +234,13 @@ export class JobQueue {
     }
     return this.get(id) as Job;
   }
+}
+
+/** 暂时性失败分类：模型调用失败 / 服务暂不可用 / 可重试的 ModelError。 */
+function isTransientJobError(err: unknown): boolean {
+  if (err instanceof ModelError) return err.retriable;
+  if (err instanceof IxaError) {
+    return err.code === ErrorCodes.MODEL_CALL_FAILED || err.code === ErrorCodes.SERVER_UNAVAILABLE;
+  }
+  return false;
 }

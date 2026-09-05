@@ -333,6 +333,8 @@ export function registerIpc(runtime: AppRuntime): void {
         ...c,
         capture: { ...c.capture, enabled },
       }));
+      // 修复 M0.2：重新允许采集后，处理「欠分析」的最新版本（持久化版本差）
+      if (enabled) runtime.sweepPendingAnalysis();
       return { ok: true as const };
     },
     setAutoAnalyze: async (enabled) => {
@@ -340,6 +342,8 @@ export function registerIpc(runtime: AppRuntime): void {
         ...c,
         capture: { ...c.capture, autoAnalyze: enabled },
       }));
+      // 修复 M0.2：重新开启自动分析后，补齐窗口期间积累的待分析内容
+      if (enabled) runtime.sweepPendingAnalysis();
       return { ok: true as const };
     },
     generatePairingCode: async () => runtime.localServer.generatePairingCode(),
