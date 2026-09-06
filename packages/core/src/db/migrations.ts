@@ -224,6 +224,37 @@ ALTER TABLE work_runs ADD COLUMN client_ref TEXT;
 CREATE UNIQUE INDEX idx_work_runs_client_ref ON work_runs(client_ref) WHERE client_ref IS NOT NULL;
 `,
   },
+  {
+    id: 7,
+    name: 'fix-fabricated-analyzed-backfill',
+    sql: `
+-- 修复 G3c：迁移 2 曾把全部旧来源统一写成 content_revision=1, analyzed_revision=1
+-- ——从未分析过的来源被伪造为已分析。本迁移按「成功证据」修正：
+-- 无 items 且无 succeeded extract 任务的来源，analyzed_revision 回退为 0（待分析）。
+-- 是否真的自动补分析由启动扫描受用户开关/权限/暂停/重试预算控制，
+-- 迁移本身绝不调用模型。
+UPDATE sources SET analyzed_revision = 0, analyzed_at = NULL
+WHERE analyzed_revision >= content_revision
+  AND NOT EXISTS (
+    SELECT 1 FROM items i WHERE i.extracted_from_source_id = sources.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM jobs j
+    WHERE j.kind = 'extract'
+      AND j.status = 'succeeded'
+      AND j.payload_json LIKE '%"' || sources.id || '"%'
+  );
+`,
+  },
+  {
+    id: 8,
+    name: 'item-manual-project-flag',
+    sql: `
+-- 修复 G5/V08：单独人工归属标记。assignToProject / correct 等人工操作置 1；
+-- 来源级批量重绑不搬动这些条目（单独归属优先于来源绑定）。
+ALTER TABLE items ADD COLUMN manual_project INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

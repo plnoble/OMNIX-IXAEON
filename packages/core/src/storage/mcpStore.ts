@@ -107,6 +107,12 @@ export class McpService {
             ? item.origin
             : null,
       };
+      const isImportantType =
+        item.type === 'decision' ||
+        item.type === 'rejected_option' ||
+        item.type === 'project_summary';
+      const pendingConfirm =
+        item.origin === 'ai' && item.confirmation !== 'confirmed' && isImportantType;
       const suffix =
         item.state === 'disputed'
           ? '（存在冲突）'
@@ -114,7 +120,9 @@ export class McpService {
             ? '（用户确认）'
             : item.confirmation === 'confirmed'
               ? '（用户已确认）'
-              : '';
+              : pendingConfirm
+                ? '（待用户确认）'
+                : '';
       entry.text = item.statement + suffix;
       switch (item.type) {
         case 'project_summary':
@@ -124,6 +132,8 @@ export class McpService {
         case 'decision':
           entry.kind = 'decision';
           decisions.push(entry);
+          // G6：未确认的重要决定同时进入风险组 —— 编码 AI 必须能看到待确认状态
+          if (pendingConfirm) risks.push(entry);
           break;
         case 'rejected_option':
           entry.kind = 'rejected_option';
@@ -157,8 +167,11 @@ export class McpService {
       origin: 'work_result' as const,
     }));
 
-    // 字符预算裁剪（优先级：purpose > decisions > open_loops > rejected > risks > status > work）。
-    // 预算按序列化后 JSON 字符量核算，任何输出不得超过调用者声明的 max_chars。
+    // 字符预算裁剪（G8）：预算按**完整序列化输出**核算 —— 包括任务、项目字段、
+    // coverage、时间、状态提示与 JSON 容器，而不只是条目数组。
+    // 策略：先按条目预算粗裁，再对完整输出做校验；仍超限时按优先级
+    // （work > status > rejected > open_loops > decisions 附加项 > risks 附加项）
+    // 逐条移除并复核，最多迭代到清空；待确认/过期/权限提示不被优先裁掉。
     const budget = input.max_chars;
     const groups: BriefingEntry[][] = [
       purpose,
@@ -169,14 +182,41 @@ export class McpService {
       status,
       recentWork,
     ];
-    let used = 0;
     const totalBefore = JSON.stringify(groups.flat()).length;
     let truncated = false;
+
+    const buildOutput = () => ({
+      project_id: project.id,
+      project_name: project.name,
+      task: input.task,
+      purpose: [...purpose],
+      status: [...status],
+      decisions: [...decisions],
+      rejected_options: [...rejectedOptions],
+      open_loops: [...openLoops],
+      risks: [...risks],
+      recent_work: [...recentWork],
+      generated_at: new Date().toISOString(),
+      char_budget: budget,
+      chars_used: 0,
+      truncated,
+      staleness_notice: '',
+      coverage: { maxContentRevision: 0, maxAnalyzedRevision: 0, hasUnanalyzedContent: false },
+    });
+
+    // 元数据开销（任务/项目/时间/coverage 等固定字段）
+    const metadataOverhead = (() => {
+      const probe = buildOutput();
+      return JSON.stringify(probe).length;
+    })();
+    const entryBudget = Math.max(budget - metadataOverhead, 200);
+
+    let used = 0;
     for (const group of groups) {
       const kept: BriefingEntry[] = [];
       for (const entry of group) {
         const cost = JSON.stringify(entry).length;
-        if (used + cost > budget) {
+        if (used + cost > entryBudget) {
           truncated = true;
           continue;
         }
@@ -185,6 +225,35 @@ export class McpService {
       }
       group.length = 0;
       group.push(...kept);
+    }
+
+    // G8 复核：完整序列化（含元数据）仍超预算 → 从低优先组尾部逐条移除再复核
+    const fullSerialized = (): number => {
+      const probe = buildOutput();
+      // 用接近真实的提示文本估算（实际 notice 在返回时拼接）
+      return JSON.stringify(probe).length + 120;
+    };
+    for (let guard = 0; guard < 500 && fullSerialized() > budget; guard++) {
+      // 依次从 recentWork → status → rejectedOptions → openLoops → decisions(尾部) 裁
+      const victim =
+        recentWork.length > 0
+          ? recentWork
+          : status.length > 0
+            ? status
+            : rejectedOptions.length > 0
+              ? rejectedOptions
+              : openLoops.length > 0
+                ? openLoops
+                : decisions.length > 1
+                  ? decisions
+                  : risks.length > 1
+                    ? risks
+                    : purpose.length > 1
+                      ? purpose
+                      : null;
+      if (!victim) break;
+      victim.pop();
+      truncated = true;
     }
 
     const latest = this.db
@@ -205,15 +274,25 @@ export class McpService {
       truncated,
     });
 
-    // M3 覆盖版本：简报依据截至哪个内容/分析版本；有未分析内容时明确「可能落后」
+    // M3/G3b 覆盖版本：按「每个来源」检查版本差再聚合 —— 分别取所有来源的
+    // MAX 再比较会把「A 已分析、B 未分析」误判为已追平。
     const coverageRows = this.db
       .prepare(
-        `SELECT MAX(content_revision) AS mc, MAX(analyzed_revision) AS ma FROM sources WHERE project_id = ?`,
+        `SELECT MAX(content_revision) AS mc,
+                SUM(CASE WHEN content_revision > analyzed_revision THEN 1 ELSE 0 END) AS pending
+         FROM sources WHERE project_id = ?`,
       )
-      .all(project.id) as Array<{ mc: number | null; ma: number | null }>;
+      .all(project.id) as Array<{ mc: number | null; pending: number | null }>;
     const maxContentRevision = coverageRows[0]?.mc ?? 0;
-    const maxAnalyzedRevision = coverageRows[0]?.ma ?? 0;
-    const hasUnanalyzedContent = maxContentRevision > maxAnalyzedRevision;
+    const pendingCount = coverageRows[0]?.pending ?? 0;
+    const hasUnanalyzedContent = pendingCount > 0;
+    const analyzedRow = this.db
+      .prepare(
+        `SELECT MAX(analyzed_revision) AS ma FROM sources
+         WHERE project_id = ? AND content_revision <= analyzed_revision`,
+      )
+      .get(project.id) as { ma: number | null };
+    const maxAnalyzedRevision = analyzedRow.ma ?? 0;
 
     return {
       project_id: project.id,
@@ -236,10 +315,14 @@ export class McpService {
         `此后用户可能已有新决定；执行前如有疑问请用 search_context 复核或直接询问用户。` +
         (truncated ? `（简报达到 ${budget} 字符预算被截断，可用 search_context 补充检索）` : '') +
         (hasUnanalyzedContent
-          ? `注意：该项目有新内容尚未分析（内容版本 ${maxContentRevision} > 已分析版本 ${maxAnalyzedRevision}），本简报可能落后于最新对话。`
+          ? `注意：该项目有 ${pendingCount} 个来源的新内容尚未分析（最高内容版本 ${maxContentRevision}），本简报可能落后于最新对话。`
           : '') +
         `（原始简报 ${totalBefore} 字符）`,
-      coverage: { maxContentRevision, maxAnalyzedRevision, hasUnanalyzedContent },
+      coverage: {
+        maxContentRevision,
+        maxAnalyzedRevision,
+        hasUnanalyzedContent,
+      },
     };
   }
 
@@ -447,16 +530,20 @@ export class McpService {
     const project = this.resolveProject(input.project_ref);
     const now = new Date().toISOString();
 
-    // M3 幂等：相同 client_ref 重试返回已有记录，不重复入库；同键不同内容报冲突
+    // M3/G7 幂等：client_ref 与内部记录 ID 分开保存（V13：内部引用长度契约不因
+    // 长 client_ref 破坏）。幂等键全局唯一；比较含解析后的项目 ID 与全部
+    // 有意义字段（V11：跨项目冒充成功重试 → 冲突；V12：commit_ref 差异 → 冲突）。
     if (input.client_ref) {
       const existing = this.db
         .prepare(
-          `SELECT id, agent_name, task, outcome, summary, changes_json, tests_json, open_loops_json
-           FROM work_runs WHERE id = ? OR client_ref = ? LIMIT 1`,
+          `SELECT id, project_id, agent_name, task, outcome, summary,
+                  changes_json, tests_json, open_loops_json, commit_ref
+           FROM work_runs WHERE client_ref = ? LIMIT 1`,
         )
-        .get(input.client_ref, input.client_ref) as
+        .get(input.client_ref) as
         | {
             id: string;
+            project_id: string;
             agent_name: string;
             task: string;
             outcome: string;
@@ -464,28 +551,31 @@ export class McpService {
             changes_json: string;
             tests_json: string;
             open_loops_json: string;
+            commit_ref: string | null;
           }
         | undefined;
       if (existing) {
         const same =
+          existing.project_id === project.id &&
           existing.agent_name === input.agent_name &&
           existing.task === input.task &&
           existing.outcome === input.outcome &&
           existing.summary === input.summary &&
+          (existing.commit_ref ?? undefined) === input.commit_ref &&
           existing.changes_json === JSON.stringify(input.changes) &&
           existing.tests_json === JSON.stringify(input.tests) &&
           existing.open_loops_json === JSON.stringify(input.open_loops);
         if (!same) {
           throw new IxaError(
             ErrorCodes.CONFLICT,
-            `client_ref 已被使用且内容不同（已有 work_run ${existing.id}）；如需提交新结果请更换 client_ref`,
+            `client_ref 已被使用且内容不同（已有 work_run ${existing.id}，项目 ${existing.project_id === project.id ? '相同' : '不同'}）；如需提交新结果请更换 client_ref`,
           );
         }
         return { work_run_id: existing.id, deduplicated: true, open_loop_candidates: [] };
       }
     }
 
-    const id = input.client_ref ?? crypto.randomUUID();
+    const id = crypto.randomUUID();
 
     const candidates: Array<{ item_id: string; statement: string; ref: string }> = [];
     const tx = this.db.transaction(() => {

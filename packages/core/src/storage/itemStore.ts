@@ -30,6 +30,7 @@ function toItem(row: Record<string, unknown>): Item {
     shelved_at: (row['shelved_at'] as string | null) ?? null,
     confirmation: (row['confirmation'] as Item['confirmation']) ?? 'none',
     confirmation_at: (row['confirmation_at'] as string | null) ?? null,
+    manual_project: (row['manual_project'] as number) === 1,
   };
 }
 
@@ -275,8 +276,11 @@ export class ItemService {
   assignToProject(itemId: string, projectId: string): Item {
     const proj = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (!proj) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在: ${projectId}`);
+    // G5：人工单独归属 —— 标记后来源级批量重绑不再搬动该条目
     this.db
-      .prepare('UPDATE items SET project_id = ?, needs_review = 0, updated_at = ? WHERE id = ?')
+      .prepare(
+        'UPDATE items SET project_id = ?, needs_review = 0, manual_project = 1, updated_at = ? WHERE id = ?',
+      )
       .run(projectId, new Date().toISOString(), itemId);
     return this.get(itemId);
   }

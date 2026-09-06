@@ -85,7 +85,9 @@ describe('迁移 2：版本三元组与调度列', () => {
       )
       .get('src-old') as { c: number; a: number; title: string };
     expect(row.c).toBe(1);
-    expect(row.a).toBe(1); // 旧行按迁移策略标记为已分析，不批量触发补分析
+    // G3c（迁移 7）：该旧来源从未分析过（无 items、无 succeeded 任务）——
+    // 迁移 2 的统一回填被修正为待分析 0；是否补分析由启动扫描按开关控制
+    expect(row.a).toBe(0);
     expect(row.title).toBe('旧来源');
     // 新列可用
     upgraded.prepare('SELECT not_before FROM jobs LIMIT 1').all();

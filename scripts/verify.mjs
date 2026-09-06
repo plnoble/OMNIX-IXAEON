@@ -100,6 +100,15 @@ results.push(
   ]),
 );
 
+results.push(
+  run('review-v02（v0.2 验收 15 项，修复 G1-G8 回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.v02-review.config.ts',
+  ]),
+);
+
 process.stdout.write(`\n\u001b[32m全部通过（IXAEON v0.1 验证完成）\u001b[0m\n`);
 for (const r of results) {
   process.stdout.write(`  ✓ ${r.label} — ${r.seconds}s\n`);

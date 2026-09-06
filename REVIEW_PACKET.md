@@ -5,8 +5,9 @@
 > `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）、
 > `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）、
 > `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4），并实施
-> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1 + M2 + M3（编码 AI 闭环）全部批次**。
-> 更新时间：2026-09-06（M3 完成，M1–M3 开发批次收口）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1 + M2 + M3 全部批次**，并逐项回应
+> `IXAEON_v0.2_验收报告_2026-09-06.md`（G1–G8）。
+> 更新时间：2026-09-06（G1–G8 修复完成）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -145,6 +146,28 @@
 
 ---
 
+## 0.12 v0.2 验收修复（对 `IXAEON_v0.2_验收报告_2026-09-06.md` G1–G8 逐项）
+
+15 项针对性检查（`apps/desktop/test/review/v02-acceptance-20260906.test.ts`）修复前
+14 项失败（V15 正向对照通过），修复后 **15/15 通过**，已纳入 `pnpm verify`。
+按报告要求更新了 4 处旧断言（迁移回填/重要决定待确认/相似结论处理/归属断言）——
+均为新契约的如实适配，未削弱业务要求。
+
+| 问题 | 修复 | 测试 | 状态 |
+| --- | --- | --- | --- |
+| G1 任务标取消结果仍写入 | 真实取消信号（ctx.signal）与自动开关/暂停检查**组合**注入提取器（手动任务同样受约束）；提交后若已中止 → 抛 JOB_CANCELLED，不推进 analyzed、不入库 | V01 | ✅ |
+| G2 崩溃遗留 running 任务永久阻塞 | sweepPendingAnalysis 启动阶段将无执行者的 running 任务转 queued（保留重试预算，记审计）；恢复受开关/权限/暂停复查 | V02 | ✅ |
+| G3a 切回旧分支不更新版本 | 旧指纹重新激活 = 「当前有效内容变化」（非无变化重复）→ 递增 content_revision 进待分析 | V03 | ✅ |
+| G3b coverage 跨来源误判追平 | 按「每个来源」检查版本差再聚合（SUM pending>0）；staleness_notice 指明落后来源数 | V04 | ✅ |
+| G3c 迁移伪造已分析 | 迁移 7：无 items 且无 succeeded 任务的来源 analyzed 回退 0（按成功证据判定）；迁移不调用模型，补分析由启动扫描按开关控制 | V05 | ✅ |
+| G4 纠正失效/反向意见被丢 | 保护集扩展：superseded（被纠正前驱）+ confirmed/rejected + origin=user 全链；**字符相似只作候选信号**——完全相同才跳过，相似但不相同 → 入库并 needs_review（可见冲突，不替用户选边） | V06/V07 | ✅ |
+| G5 单独归属被搬/在途写旧项目 | 迁移 8 `items.manual_project`：人工 assignToProject 置 1，来源级批量重绑不搬；提取器提交前重验来源归属，以提交时点归属入库 | V08/V09 | ✅ |
+| G6 重要决定绕过待确认 | decision/rejected_option/project_summary 且未确认 → needs_review=1（与项目归属正交）；简报该类条目标「（待用户确认）」并同步进 risks 组 | V10 | ✅ |
+| G7 幂等丢项目/提交差异、破坏引用契约 | client_ref 与内部 ID 分开保存（work_run_id 恒为 UUID，长度契约不破坏）；比较含解析后项目 ID + commit_ref + 全字段——跨项目/不同 commit → CONFLICT | V11/V12/V13 | ✅ |
+| G8 简报完整输出超预算 | 预算按**完整序列化输出**核算（含任务/项目/coverage/时间/提示/JSON 容器）：条目粗裁 → 完整复核 → 仍超限按优先级（work→status→rejected→loops→decisions）逐条移除再复核；待确认/过期提示不优先裁 | V14 | ✅ |
+
+---
+
 ## 1. 完成范围
 
 ### 实际完成（M0 → M5 全部 + 验收修复）
@@ -240,6 +263,7 @@ corepack pnpm verify
   ✓ review（二次验收独立业务测试） 通过 —— 11 passed（R1–R9 回归，已纳入 verify）
   ✓ review-round3（三次验收相邻场景） 通过 —— 13 passed（N1–N6 回归，已纳入 verify）
   ✓ review-round4（四次验收连续性） 通过 —— 7 passed（F1–F4 回归，已纳入 verify）
+  ✓ review-v02（v0.2 验收） 通过 —— 15 passed（G1–G8 回归，已纳入 verify）
   ✓ integration 追加 M0 收尾回归 —— m0-core 4 项（迁移/版本/重试）+ m0-gates 4 项（M0 门槛）
   ✓ build（desktop / mcp / extension） 通过
 
@@ -476,9 +500,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M3 完成后重建）
-  - 大小：122,580,929 字节（≈116.9 MB）
-  - SHA-256：`899B937C623C001D8F1F888E6FD60BB8D9A0BD1C87C1CBCDCC1C549625E8AFFC`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（G1–G8 修复后重建）
+  - 大小：122,586,726 字节（≈116.9 MB）
+  - SHA-256：`3896CBA8D3B97FABFC0A932B94C0A05B056E8AF58E4AD7932682C0DB390A5C9F`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

@@ -181,7 +181,9 @@ describe('M2 提取（FakeProvider）', () => {
 
     const projItems = items.list({ projectId: project.id });
     expect(projItems.some((i) => i.statement === '会议决定下周发布')).toBe(true);
-    expect(projItems.every((i) => !i.needs_review)).toBe(true);
+    // G6：project_summary/decision 属重要决定类 → 待用户确认（needs_review=1）；
+    // 项目归属与确认状态是两个维度
+    expect(projItems.every((i) => i.needs_review)).toBe(true);
   });
 
   it('重新提取：旧 AI 结论被清理，纠正过的历史保留', async () => {

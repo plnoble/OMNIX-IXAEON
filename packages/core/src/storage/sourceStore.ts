@@ -312,6 +312,8 @@ export class SourceStore {
     );
     let accepted = 0;
     let deduplicated = 0;
+    // 修复 G3a：旧指纹重新激活 = 当前有效内容变化（分支切换/编辑回退）
+    let branchSwitched = false;
     const now = new Date().toISOString();
     const tx = this.db.transaction(() => {
       let next = maxSeq + 1;
@@ -327,10 +329,13 @@ export class SourceStore {
             deduplicated += 1;
             continue;
           }
-          // 该指纹曾作为旧版本存在、当前被替代：同一内容再次成为当前版本 → 重新激活
+          // 该指纹曾作为旧版本存在、当前被替代：同一内容再次成为当前版本 → 重新激活。
+          // 修复 G3a：这是「切换了当前有效内容」（回答被编辑回旧版本/分支切换），
+          // 不是无变化的重复提交 —— 必须递增内容版本并进入待分析流程。
           reactivateStmt.run(sourceId, node, hash);
           deactivateSiblings.run(sourceId, node, hash);
           deduplicated += 1;
+          branchSwitched = true;
           continue;
         }
         // 新指纹：同顺序的旧版本保留但转为非活动分支（回答被编辑/重新生成）
@@ -344,10 +349,10 @@ export class SourceStore {
         updateTitle.run(opts.title.trim(), sourceId);
       }
       // 每次成功追加都刷新「最近同步」（修复 P1-6.6：不再停留在首次采集时间）
-      if (accepted > 0 || deduplicated > 0) {
+      if (accepted > 0 || deduplicated > 0 || branchSwitched) {
         touchImported.run(now, now, sourceId);
       }
-      if (accepted > 0) {
+      if (accepted > 0 || branchSwitched) {
         bumpRevision.run(sourceId);
       }
     });
@@ -400,11 +405,17 @@ export class SourceStore {
     let movedItems = 0;
     const tx = this.db.transaction(() => {
       this.db.prepare('UPDATE sources SET project_id = ? WHERE id = ?').run(projectId, sourceId);
+      // 修复 G5/V08：批量重绑只移动「自动继承归属」的 AI 条目 ——
+      // 用户单独归属过的条目（manual_project=1 标记）与 origin=user 的人工
+      // 条目不被搬走；单独归属优先于来源级绑定。
       const r = this.db
         .prepare(
           `UPDATE items SET project_id = ?,
              needs_review = CASE WHEN ? IS NULL THEN 1 ELSE 0 END
-           WHERE extracted_from_source_id = ? AND origin = 'ai' AND state != 'superseded'`,
+           WHERE extracted_from_source_id = ?
+             AND origin = 'ai'
+             AND state != 'superseded'
+             AND manual_project = 0`,
         )
         .run(projectId, projectId, sourceId);
       movedItems = r.changes;

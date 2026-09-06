@@ -115,20 +115,33 @@ export class Extractor {
     const active = segments.filter((s) => s.is_active_branch !== 0);
     const pool = active.length > 0 ? active : segments;
 
-    // M2 人工改口优先：用户已确认/已不采纳的 AI 条目在重新提取时保留，
-    // 新提取结果若与它们高度相似则跳过（不复活已否决建议、不重复已确认结论）
-    const preserved = this.db
+    // M2/G4 人工改口优先：保护「用户已确认 / 已不采纳 / 用户纠正后」的全部条目 ——
+    // 纠正链沿 corrections 双向追溯（旧条目 superseded 仍在链上），
+    // 保护 origin=user 的纠正结果与其前驱，不只保护确认按钮产生的字段。
+    const protectedStatements = this.db
       .prepare(
-        `SELECT statement FROM items
-         WHERE extracted_from_source_id = ? AND origin = 'ai' AND state = 'current'
-           AND confirmation IN ('confirmed', 'rejected')`,
+        `SELECT DISTINCT statement FROM items
+         WHERE extracted_from_source_id = ? AND (
+           -- 被纠正的旧结论（superseded）：其内容已被用户改口替代，重新提取
+           -- 出相同内容时不得作为无警告的 current 决定复活（G4/V06）
+           state = 'superseded'
+           -- 用户已确认 / 已不采纳的 AI 结论
+           OR (origin = 'ai' AND state = 'current' AND confirmation IN ('confirmed', 'rejected'))
+           -- 用户纠正产生的新结论（origin=user）
+           OR (origin = 'user' AND state IN ('current', 'disputed'))
+         )`,
       )
       .all(sourceId) as Array<{ statement: string }>;
-    const preservedSets = preserved.map((p) => bigrams(p.statement));
-    const isPreservedDuplicate = (statement: string): boolean => {
+    const protectedSets = protectedStatements.map((p) => bigrams(p.statement));
+    // G4：字符相似度只能作为「候选关联」信号，不能证明语义相同 ——
+    // 只差一个「不」的相反意见也高度相似。高度相似的新结论不直接丢弃，
+    // 而是标记 needs_review 进入待讨论，与人工决定形成可见冲突由用户裁决。
+    const similarProtected = (statement: string): boolean => {
       const set = bigrams(statement);
-      return preservedSets.some((p) => p.size > 0 && jaccard(p, set) >= 0.6);
+      return protectedSets.some((p) => p.size > 0 && jaccard(p, set) >= 0.6);
     };
+    const exactProtected = (statement: string): boolean =>
+      protectedStatements.some((p) => p.statement === statement);
 
     const stats: ExtractStats = {
       inserted: 0,
@@ -140,6 +153,7 @@ export class Extractor {
     const collected: Array<{
       row: z.infer<typeof extractionOutputSchema>['items'][number];
       segmentId: string;
+      conflictsWithProtected: boolean;
     }> = [];
     const textById = new Map(pool.map((s) => [s.id, s.text]));
 
@@ -167,12 +181,15 @@ export class Extractor {
           stats.skippedBadRef++;
           continue;
         }
-        if (isPreservedDuplicate(item.statement)) {
-          // 与用户已确认/已不采纳的结论高度相似 → 不插入（M2 改口优先）
+        if (exactProtected(item.statement)) {
+          // 与人工决定逐字相同 → 不复活/不重复（G4：完全相同才跳过）
           stats.skippedPreserved++;
           continue;
         }
-        collected.push({ row: item, segmentId });
+        // 高度相似但不完全相同：可能是有真实依据的相反意见（V07）——
+        // 保留入库但标记待讨论，与人工决定形成可见冲突，不替用户选边。
+        const conflictsWithProtected = similarProtected(item.statement);
+        collected.push({ row: item, segmentId, conflictsWithProtected });
       }
     }
 
@@ -194,6 +211,12 @@ export class Extractor {
     assertSourceAuthorized(this.db, sourceId);
     // 修复 F4 要求 3：结果提交前复查取消条件（开关/暂停在提取期间变化则放弃提交）
     ensureContinuing();
+    // 修复 G5/V09：提交前重验来源归属 —— 以当前归属提交，不写回旧项目
+    const projectIdAtCommit = (
+      this.db.prepare('SELECT project_id AS p FROM sources WHERE id = ?').get(sourceId) as {
+        p: string | null;
+      }
+    )?.p;
 
     // 2) 单个短事务：删除旧 current AI 条目 + 写入新结论 + 冲突标记（原子替换）
     const now = new Date().toISOString();
@@ -215,12 +238,11 @@ export class Extractor {
 
     this.db.transaction(() => {
       deleteOld.run(sourceId);
-      for (const { row, segmentId } of collected) {
+      for (const { row, segmentId, conflictsWithProtected } of collected) {
         const itemId = crypto.randomUUID();
-        // 项目归属（M1.1）：只有来源被用户/导入明确绑定项目时才直接归属；
-        // 模型的 project_hint 猜测只是建议 —— 条目进入待讨论并记录建议项目，
-        // 不悄悄加入某个项目的正式背景。
-        const projectId = source.project_id;
+        // 项目归属（M1.1 + G5/V09）：以提交时点的来源归属为准 ——
+        // 提取开始后用户改绑项目时不得把新理解写回旧项目。
+        const projectId = projectIdAtCommit;
         let needsReview = 0;
         let suggestedProjectId: string | null = null;
         if (!projectId && row.project_hint) {
@@ -230,6 +252,17 @@ export class Extractor {
           if (m) suggestedProjectId = m.id;
         }
         if (!projectId) needsReview = 1; // 待讨论（计划 5.1.8）
+        // G4：与人工决定相似的新结论 → 待讨论（可见冲突，不替用户选边）
+        if (conflictsWithProtected) needsReview = 1;
+        // G6：重要决定类（decision/rejected_option/project_summary）未经用户确认
+        // → 进入待讨论；「属于哪个项目」与「是否需要确认」是两个维度
+        if (
+          row.type === 'decision' ||
+          row.type === 'rejected_option' ||
+          row.type === 'project_summary'
+        ) {
+          needsReview = 1;
+        }
         insertItem.run(
           itemId,
           projectId,

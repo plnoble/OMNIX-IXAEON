@@ -95,7 +95,8 @@ describe('M1.1 一次归属，后续继承', () => {
       .all(s.id) as Array<{ project_id: string | null; needs_review: number }>;
     expect(items.length).toBe(1);
     expect(items[0]!.project_id).toBe(projectA.id); // 继承绑定项目
-    expect(items[0]!.needs_review).toBe(0); // 已归属 → 不进待讨论
+    // G6：decision 属重要决定类 → 即使已归属项目也进待讨论（待用户确认）
+    expect(items[0]!.needs_review).toBe(1);
   });
 
   it('project_hint 只是建议：待讨论 + 记录建议项目，不悄悄归属', async () => {

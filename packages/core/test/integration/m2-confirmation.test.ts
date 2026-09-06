@@ -160,17 +160,21 @@ describe('M2 确认维度', () => {
       ],
     });
     const stats = await new Extractor(db, fake2).extractSource(sourceId);
-    expect(stats.skippedPreserved).toBe(1); // 相似新结论被跳过
+    // G4/V07：高度相似的新结论不再被丢弃，而是作为可见冲突入库待讨论
+    expect(stats.skippedPreserved).toBe(0);
+    expect(stats.inserted).toBe(1);
+    expect(stats.needsReview).toBe(1); // 与人工决定冲突 → 待讨论
     const after = db
       .prepare('SELECT confirmation FROM items WHERE id = ?')
       .get(item.id) as { confirmation: string };
     expect(after.confirmation).toBe('rejected'); // 人工改口未被冲掉
-    const count = (
-      db
-        .prepare('SELECT COUNT(*) n FROM items WHERE extracted_from_source_id = ?')
-        .get(sourceId) as { n: number }
-    ).n;
-    expect(count).toBe(1); // 没有插入第二条
+    const conflictItems = db
+      .prepare(
+        "SELECT needs_review FROM items WHERE extracted_from_source_id = ? AND confirmation = 'none'",
+      )
+      .all(sourceId) as Array<{ needs_review: number }>;
+    expect(conflictItems.length).toBe(1); // 冲突条目存在且待讨论
+    expect(conflictItems[0]!.needs_review).toBe(1);
   });
 
   it('冲突真的可见：listItems 不带 state 过滤时 disputed 与 current 都返回', () => {

@@ -228,6 +228,21 @@ export class AppRuntime {
    * - 已有 queued/running 提取任务的来源跳过（合并）；数量上限防风暴。
    */
   sweepPendingAnalysis(limit = 50): number {
+    // 修复 G2：单实例运行时 —— 启动时数据库中遗留的 running 任务没有执行者
+    //（上一运行代次崩溃/退出），转为 queued 重新排队（重试预算保留），
+    // 不能永久阻塞该来源的分析，也不能当作成功。
+    const orphaned = this.db
+      .prepare("SELECT id FROM jobs WHERE status = 'running'")
+      .all() as Array<{ id: string }>;
+    for (const job of orphaned) {
+      this.db
+        .prepare(
+          "UPDATE jobs SET status = 'queued', error = '上一运行代次中断的任务已恢复排队', updated_at = ? WHERE id = ? AND status = 'running'",
+        )
+        .run(new Date().toISOString(), job.id);
+      recordAudit(this.db, 'job.orphan_requeued', { jobId: job.id });
+    }
+
     const rows = this.db
       .prepare(
         `SELECT s.id, s.provider FROM sources s
@@ -288,7 +303,7 @@ export class AppRuntime {
   private registerJobHandlers(): void {
     // 提取任务（M2）：结构化提取 → items + item_evidence。
     // 模型未配置时任务失败并给出明确原因（配置后可重试）。
-    this.jobs.register('extract', async (job) => {
+    this.jobs.register('extract', async (job, ctx) => {
       const payload = JSON.parse(job.payload_json) as {
         sourceId: string;
         /** 自动分析任务标记：执行时复查开关/暂停；手动任务不查自动分析开关 */
@@ -328,10 +343,21 @@ export class AppRuntime {
       // 修复 M0.2 第 6 条：任务以「开始执行时的内容版本」为目标版本 ——
       // 执行期间的新内容不会混入本次结果，由完成后的滞后检查补分析。
       const targetRevision = this.sources.getRevisions(payload.sourceId).content;
+      // 修复 G1：把队列的真实取消信号（ctx.signal）与自动任务的开关/暂停检查
+      // 组合 —— 手动与自动任务都受取消约束；取消发生在模型等待期间时，
+      // 已发出的网络请求无法收回，但不再发送后续块、不提交结果、不推进版本。
       const stats = await extractor.extractSource(payload.sourceId, {
-        // 修复 F4 要求 3：多块提取间与提交前复查（取消后不发新块、不提交结果）
-        shouldContinue: autoGuardSatisfied,
+        shouldContinue: () => !ctx.signal.aborted && autoGuardSatisfied(),
       });
+      if (ctx.signal.aborted) {
+        // 提交后队列会按 abort 落 cancelled；此处不再推进 analyzed 版本
+        const cancelledErr = new IxaError(
+          ErrorCodes.JOB_CANCELLED,
+          '提取已取消（任务在执行期间被用户取消）',
+        ) as IxaError & { jobCancelled: boolean };
+        cancelledErr.jobCancelled = true;
+        throw cancelledErr;
+      }
       // 修复 M0.2：成功后推进「已分析版本」（只前进不回退）；若执行期间
       // 又有新内容（content > analyzed）→ 合并为一次补分析，不丢工作。
       this.sources.advanceAnalyzedRevision(payload.sourceId, targetRevision);

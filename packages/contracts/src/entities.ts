@@ -149,6 +149,8 @@ export const itemSchema = z.object({
   confirmation: z.enum(['none', 'confirmed', 'rejected']).default('none'),
   /** 确认/不采纳的落库时间 */
   confirmation_at: z.string().nullable().default(null),
+  /** G5：人工单独归属标记（来源级批量重绑不搬动） */
+  manual_project: z.boolean().default(false),
 });
 export type Item = z.infer<typeof itemSchema>;
 

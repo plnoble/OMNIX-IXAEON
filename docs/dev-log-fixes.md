@@ -183,7 +183,8 @@
 | 安装包（M0 收尾） | 122,573,413 字节，SHA-256 `616CEE4B3BAC5D0C5DBD03F204761C512025EA9AEF33C49C0C76745E40409051` |
 | 安装包（M1.2） | 122,576,020 字节，SHA-256 `220B1D35129E7AC5320D86F09171EC037AC838D06848B5A53B8DA9AA80A158D4` |
 | 安装包（M2） | 122,578,473 字节，SHA-256 `D19271CAFD825BB504BC386C7039371D2EA0823D8EA53D7839938D7F526BAEFE` |
-| 安装包（M3，最终交付物） | 122,580,929 字节，SHA-256 `899B937C623C001D8F1F888E6FD60BB8D9A0BD1C87C1CBCDCC1C549625E8AFFC` |
+| 安装包（M3） | 122,580,929 字节，SHA-256 `899B937C623C001D8F1F888E6FD60BB8D9A0BD1C87C1CBCDCC1C549625E8AFFC` |
+| 安装包（G1–G8 修复，最终交付物） | 122,586,726 字节，SHA-256 `3896CBA8D3B97FABFC0A932B94C0A05B056E8AF58E4AD7932682C0DB390A5C9F` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -640,3 +641,64 @@ MCP 输出端到端验证）与 M3 批次待续；真人验收 A–D 待用户�
 - 计划 M3 验收第 2 项「真实编码 AI 客户端完成一项授权小任务并回写」需用户
   可用客户端与授权，未执行；M2 六组语义资料验收同前记录。
 - 发版门槛四项（真实网页/真实模型/安装器/短期日用观察）待用户执行。
+
+---
+
+# v0.2 验收修复记录（2026-09-06，回应 G1–G8）
+
+15 项独立检查修复前 14 失败，修复后 **15/15 通过**并纳入 verify
+（verify 新增 review-v02 步骤）。按报告建议顺序实施：
+
+## G1 取消信号（V01）
+真实队列取消信号（ctx.signal）与自动开关/暂停检查组合注入提取器 shouldContinue
+——手动任务同样受取消约束；提交后已中止 → 抛 JOB_CANCELLED（不推进 analyzed、
+不入库）。已发出的网络请求无法收回，但不发后续块、不提交被取消结果。
+
+## G2 崩溃恢复（V02）
+sweepPendingAnalysis 启动阶段：数据库中无执行者的 running 任务（上一运行代次
+崩溃遗留）转 queued 重新排队（重试预算保留、审计记录），恢复受开关/权限/暂停复查。
+
+## G3 版本事实（V03/V04/V05）
+- 切回旧分支（旧指纹重新激活）= 当前有效内容变化 → 递增 content_revision；
+- coverage 按每个来源检查版本差再聚合（不比较各来源各自的 MAX）；
+- 迁移 7 修正迁移 2 的伪造回填：无 items 且无 succeeded 任务的来源
+  analyzed_revision 回退 0；迁移绝不调用模型，补分析由启动扫描按开关控制。
+
+## G4 人工改口保护（V06/V07）
+保护集 = superseded（被纠正前驱）+ confirmed/rejected + origin=user 全链。
+字符相似度只作候选信号：**完全相同才跳过**；相似但不相同（含只差一个
+「不」的相反意见）→ 入库并 needs_review=1，与人工决定形成可见冲突由用户裁决。
+
+## G5 归属保护（V08/V09）
+迁移 8 `items.manual_project`：人工 assignToProject 置 1；来源级批量重绑
+（bindProject）只搬 manual_project=0 的自动继承条目。提取器提交前重验来源
+归属——以提交时点归属入库，不把新理解写回旧项目。
+
+## G6 重要决定待确认（V10）
+decision/rejected_option/project_summary 且未确认 → needs_review=1（与
+项目归属正交）；简报该类条目标「（待用户确认）」并同步进 risks 组——
+编码 AI 必须能看到待确认状态，不混成用户已拍板。
+
+## G7 回写幂等（V11/V12/V13）
+client_ref 与内部 ID 分开保存（work_run_id 恒 UUID，引用长度契约不破坏）；
+幂等比较含解析后项目 ID + commit_ref + 全部有意义字段——跨项目或不同
+commit 的同键提交 → CONFLICT；完全相同 → deduplicated:true。
+
+## G8 完整输出预算（V14）
+预算按完整序列化输出核算（含任务/项目/coverage/时间/提示/JSON 容器）：
+条目粗裁 → 完整复核 → 仍超限按优先级（work→status→rejected→loops→decisions）
+逐条移除再复核；待确认/过期提示不被优先裁掉。
+
+## 旧断言更新（按报告「可修改测试适配，不能弱化要求」）
+- m0-core 迁移回填：1/1 → 1/0（G3c 新契约）
+- m1-binding / extraction 归属断言：decision 已归属也 needs_review（G6 新契约）
+- m2-confirmation 相似结论：跳过 → 入库待讨论（G4 新契约）
+
+## 验证（全部实跑）
+- review-v02 15/15；verify 全绿（unit 16 / integration 126 / review 11+13+7+**15** / build）
+- desktop e2e 10、extension 全断言、serial 串联 PASS；打包复核 3 项
+- 安装包 122,586,726 字节，SHA-256 `3896CBA8D3B97FABFC0A932B94C0A05B056E8AF58E4AD7932682C0DB390A5C9F`
+
+## 仍未验证（如实）
+M2 六类语义资料界面+MCP 串联验收（可先合成资料自动化，未交付）；真实网页/
+真实模型/真实编码 AI 客户端/安装器/短期日用观察——需用户参与，见 REVIEW_PACKET 第 11 节。
