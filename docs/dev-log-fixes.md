@@ -761,3 +761,17 @@ G5 的 manual_project 只保护了 bindProject 批量改绑路径；deleteOldAiI
 review-followup 2 项纳入 verify；verify 全绿；desktop e2e 10、
 extension 全断言、serial 串联 PASS；打包复核 3 项；
 安装包 122,587,174 字节，SHA-256 `F8307ACFC511A8DBA9069B5CEBA75F3781CF4F68DFA764B6C9E2F0A9FC57C196`。
+
+## 界面级六类场景补齐（反馈 3 的 UI 部分，同日追加）
+
+新增 `apps/desktop/e2e/m2-ui.spec.ts`（Playwright 界面级，4 项，desktop e2e
+共 14 项）：真实 Electron 窗口内导入六类资料后逐页操作与断言——
+
+- S1/资料保存：未分析来源在来源页如实显示「分析失败，可以重试」等状态
+  （未分析不伪装已分析——G6 语义的界面侧验证）；
+- S3/理解页：无提取结果时明确空态（不显示假数据）；有条目时纠正按钮可用；
+- Inbox：无待讨论条目时明确空态；确认/不采纳按钮存在且语义明确；
+- S6：经生产 MCP 端点回写 agent 工作后，项目页最近工作可见，
+  理解页不混入（work_result 不等于当前理解——M3 语义的界面侧验证）。
+
+真实模型理解能力仍属发版门槛真人验收（判据备好于 M2_SCENARIOS）。
