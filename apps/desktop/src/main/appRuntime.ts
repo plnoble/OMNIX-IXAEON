@@ -183,7 +183,9 @@ export class AppRuntime {
     runtimeRef.current = runtime;
     runtime.registerJobHandlers();
     jobs.start();
-    // 修复 M0.2 第 3 条：崩溃/退出重启后找出未完成的分析工作（持久化版本差）
+    // C02：启动阶段先恢复上一运行代次真正遗留的 running 任务
+    //（此时队列必空闲，running 记录没有执行者），再扫描欠分析来源
+    runtime.recoverOrphanedJobs();
     runtime.sweepPendingAnalysis();
     await runtime.startServer();
     return runtime;
@@ -221,28 +223,41 @@ export class AppRuntime {
   }
 
   /**
-   * 扫描「欠分析」的来源并补队（修复 M0.2 第 2/3 条：待分析状态持久化，
-   * 崩溃重启后能找出未完成工作；不再依赖内存计时器）。
-   * - 网页来源（chatgpt_web）：遵守采集开关、自动分析开关、域授权与暂停；
-   * - 其他来源（导入等）：沿用导入管线的重试语义（非自动任务）。
-   * - 已有 queued/running 提取任务的来源跳过（合并）；数量上限防风暴。
+   * 恢复上一运行代次真正遗留的任务（C02：只在启动时执行一次）。
+   * 「遗留」判定：本队列实例**空闲**（无任何在途执行）时，数据库中的
+   * running 记录必然没有执行者（上一进程崩溃/退出遗留）——转为 queued
+   * 重排队（保留重试预算）。若本队列正在执行任务，绝不触碰 running 记录
+   *（那是在途任务，不是遗留）。
    */
-  sweepPendingAnalysis(limit = 50): number {
-    // 修复 G2：单实例运行时 —— 启动时数据库中遗留的 running 任务没有执行者
-    //（上一运行代次崩溃/退出），转为 queued 重新排队（重试预算保留），
-    // 不能永久阻塞该来源的分析，也不能当作成功。
+  recoverOrphanedJobs(): number {
+    if (!this.jobs.idleExecution) return 0; // 有在途执行：无「遗留」可言
     const orphaned = this.db
       .prepare("SELECT id FROM jobs WHERE status = 'running'")
       .all() as Array<{ id: string }>;
+    let recovered = 0;
     for (const job of orphaned) {
+      if (this.jobs.isExecuting(job.id)) continue; // 双保险：内存事实优先
       this.db
         .prepare(
           "UPDATE jobs SET status = 'queued', error = '上一运行代次中断的任务已恢复排队', updated_at = ? WHERE id = ? AND status = 'running'",
         )
         .run(new Date().toISOString(), job.id);
       recordAudit(this.db, 'job.orphan_requeued', { jobId: job.id });
+      recovered += 1;
     }
+    return recovered;
+  }
 
+  /**
+   * 扫描「欠分析」的来源并补队（修复 M0.2 第 2/3 条：待分析状态持久化，
+   * 崩溃重启后能找出未完成工作；不再依赖内存计时器）。
+   * - 网页来源（chatgpt_web）：遵守采集开关、自动分析开关、域授权与暂停；
+   * - 其他来源（导入等）：沿用导入管线的重试语义（非自动任务）。
+   * - 已有 queued/running 提取任务的来源跳过（合并）；数量上限防风暴。
+   * - C02：日常扫描不碰 running 任务 —— 遗留恢复仅由启动阶段的
+   *   recoverOrphanedJobs 负责（且要求队列空闲）。
+   */
+  sweepPendingAnalysis(limit = 50): number {
     const rows = this.db
       .prepare(
         `SELECT s.id, s.provider FROM sources s

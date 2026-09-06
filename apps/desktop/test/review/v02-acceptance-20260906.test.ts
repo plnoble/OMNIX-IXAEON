@@ -179,6 +179,9 @@ it('V02: an orphan running job left by a crash must not permanently block pendin
   const runtime = runtimeFor(f); // fresh queue: there is no in-memory owner of the running job
   const provider = new FakeProvider().enqueueStructured(output('RECOVERED_RESULT'));
   vi.spyOn(runtime, 'getProvider').mockReturnValue(provider);
+  // C02 新契约：遗留任务恢复由启动阶段的 recoverOrphanedJobs 负责
+  //（队列空闲时 running 记录没有执行者 → 转 queued），日常 sweep 不碰 running
+  runtime.recoverOrphanedJobs();
   runtime.sweepPendingAnalysis();
   await runtime.jobs.idle();
   await tick(runtime.jobs);

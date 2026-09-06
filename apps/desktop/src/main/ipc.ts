@@ -418,8 +418,13 @@ export function encryptApiKey(plain: string): string {
   if (safeStorage.isEncryptionAvailable()) {
     return safeStorage.encryptString(plain).toString('base64');
   }
-  // 退路：标记为未加密存储（设置页明示）。仅在系统级加密不可用时出现。
-  return `plain:${Buffer.from(plain, 'utf8').toString('base64')}`;
+  // C11：系统加密不可用时拒绝持久化——Base64 是可逆编码不是加密，
+  // 静默降级违反「API Key 永不明文落盘」契约。调用方应提示用户，
+  // 可改用仅本次会话（内存）方式，不写入配置文件。
+  throw new IxaError(
+    ErrorCodes.VALIDATION_FAILED,
+    '系统加密存储不可用：API Key 不会保存到磁盘。可继续使用仅本次会话的密钥（重启后需重新输入），或稍后在系统加密可用时再保存。',
+  );
 }
 
 export function decryptApiKey(encrypted: string): string | null {

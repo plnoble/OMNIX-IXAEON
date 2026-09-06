@@ -137,11 +137,20 @@ export class JobQueue {
       };
       try {
         await handler(job, ctx);
-        if (abort.signal.aborted) {
+        // C02：执行期间任务状态可能被外部改写（如取消把 running 改成 cancelled）。
+        // 任务终态以**数据库当前状态**为准：只有仍是 running 时本执行才有权落终态；
+        // 已被改为 cancelled 的不得回写成 succeeded。
+        const currentStatus = (
+          this.db.prepare('SELECT status FROM jobs WHERE id = ?').get(job.id) as {
+            status: string;
+          }
+        )?.status;
+        if (abort.signal.aborted && currentStatus !== 'cancelled') {
           this.finishJob(job.id, 'cancelled', null);
-        } else {
+        } else if (currentStatus === 'running') {
           this.finishJob(job.id, 'succeeded', null);
         }
+        // currentStatus 已是 cancelled 等：外部已落终态，本执行不改写
       } catch (err) {
         // 修复 F4 要求 5：取消/暂停类中止必须有可见状态，不得伪装成成功或普通失败。
         // 处理器抛出带 jobCancelled 标记的错误时，任务以 cancelled 落库（可重试）。
@@ -230,9 +239,27 @@ export class JobQueue {
     if (job.status === 'queued') {
       this.finishJob(id, 'cancelled', null);
     } else if (job.status === 'running') {
-      if (this.currentJobId === id) this.currentAbort?.abort();
+      // C02：数据库状态可能被外部改写（如误判为遗留任务时 running→queued）。
+      // 取消必须依据**本队列内存中的真实执行任务 ID**发出中止信号：
+      // - 仍在本队列执行 → abort 在途执行（即使数据库状态已被改回 queued）；
+      // - 不在本队列执行 → 该记录只是被改写的状态，恢复其真实语义为取消。
+      if (this.currentJobId === id) {
+        this.currentAbort?.abort();
+      } else {
+        this.finishJob(id, 'cancelled', null);
+      }
     }
     return this.get(id) as Job;
+  }
+
+  /** C02：该队列实例当前是否正在执行此任务（内存事实，不受数据库状态改写影响）。 */
+  isExecuting(id: string): boolean {
+    return this.running && this.currentJobId === id;
+  }
+
+  /** C02：该队列实例当前是否完全空闲（无任何在途执行）。 */
+  get idleExecution(): boolean {
+    return !this.running;
   }
 }
 

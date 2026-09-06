@@ -82,18 +82,14 @@ test.describe('M2 六类语义场景界面级验收', () => {
   test.beforeAll(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'ixaeon-m2-ui-'));
     // 写入五类场景文档（S6 由 record_work_result 生成，见最后一个用例）
-    for (const doc of SCENARIO_DOCS) {
-      // 通过测试对话框 stub 逐个导入：每次重启设置环境变量不可行，
-      // 改为直接在页面 evaluate 里走文件导入（stub 返回全部文件）
-    }
-    process.env.IXAEON_TEST_DIALOG_RESPONSES = `documents|${SCENARIO_DOCS.map(
-      (d) => join(dataDir, `${d.id}.md`),
-    ).join(',')}`;
-    // 先写文件
     const { writeFileSync } = await import('node:fs');
     for (const doc of SCENARIO_DOCS) {
       writeFileSync(join(dataDir, `${doc.id}.md`), `# 场景${doc.id}\n\n${doc.body}\n`, 'utf8');
     }
+    // 测试对话框 stub：documents 选择返回全部场景文件
+    process.env.IXAEON_TEST_DIALOG_RESPONSES = `documents|${SCENARIO_DOCS.map((d) =>
+      join(dataDir, `${d.id}.md`),
+    ).join(',')}`;
 
     app = await launchApp(dataDir);
     page = await app.firstWindow();
@@ -159,10 +155,12 @@ test.describe('M2 六类语义场景界面级验收', () => {
   test('S6：agent 回写后最近工作在项目页可见（work_result 标注）', async () => {
     // 通过 MCP 端点回写（生产链路），然后界面验证
     const localToken = await page.evaluate(async () => {
+      if (!window.ixaeon) throw new Error('preload API 未就绪');
       const s = await window.ixaeon.getSettings();
       return s.mcp.localToken;
     });
     const project = await page.evaluate(async () => {
+      if (!window.ixaeon) throw new Error('preload API 未就绪');
       const ps = await window.ixaeon.listProjects();
       return ps[0]?.id ?? '';
     });
