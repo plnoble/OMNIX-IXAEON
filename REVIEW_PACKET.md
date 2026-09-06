@@ -6,8 +6,8 @@
 > `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）、
 > `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4），并实施
 > `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1 + M2 + M3 全部批次**，并逐项回应
-> `IXAEON_v0.2_验收报告_2026-09-06.md`（G1–G8）。
-> 更新时间：2026-09-06（G1–G8 修复完成）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_v0.2_验收报告_2026-09-06.md`（G1–G8 + 材料缺口第 1 项）。
+> 更新时间：2026-09-06（G1–G8 修复 + M2 六类语义串联验收补齐）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -165,6 +165,37 @@
 | G6 重要决定绕过待确认 | decision/rejected_option/project_summary 且未确认 → needs_review=1（与项目归属正交）；简报该类条目标「（待用户确认）」并同步进 risks 组 | V10 | ✅ |
 | G7 幂等丢项目/提交差异、破坏引用契约 | client_ref 与内部 ID 分开保存（work_run_id 恒为 UUID，长度契约不破坏）；比较含解析后项目 ID + commit_ref + 全字段——跨项目/不同 commit → CONFLICT | V11/V12/V13 | ✅ |
 | G8 简报完整输出超预算 | 预算按**完整序列化输出**核算（含任务/项目/coverage/时间/提示/JSON 容器）：条目粗裁 → 完整复核 → 仍超限按优先级（work→status→rejected→loops→decisions）逐条移除再复核；待确认/过期提示不优先裁 | V14 | ✅ |
+
+---
+
+## 0.13 M2 六类语义资料串联验收（补齐 v0.2 验收报告第四节材料缺口第 1 项）
+
+报告原文：「M2 计划要求的六类固定语义资料，在界面、持久化、MCP 输出之间的串联验收。
+当前仍未完整交付；这部分可以先用合成资料与 FakeProvider 自动化，不必等待真实 Key。」
+
+补齐交付：
+
+- **固定资料集**：`packages/test-fixtures/src/index.ts` 新增 `M2_SCENARIOS`（S1–S6）——
+  AI 提议未答应 / 用户明确否决 / 用户后来改口 / 不同来源矛盾 / 证据不足 /
+  agent 声称完成未验收。每类含原文、模型提取输出、用户动作、**先行的预期判据**
+  （持久化 + 简报），供自动化回归与真实模型验收共用。
+- **串联验收**：`packages/core/test/integration/m2-semantics.test.ts`（7 项）——
+  每组走「导入 → 提取 → 用户动作（确认/不采纳/纠正）→（次轮追加或第二来源）→
+  断言 items 持久化状态 + prepare_task 简报输出」：
+  - S1 未答应的决定带「待用户确认」标注（不混成已拍板）；
+  - S2 否决条目从简报排除但持久化保留可追溯；
+  - S3 改口后旧决定 superseded、新结论 current 且简报带「用户确认」、
+    旧决定重提不复活；
+  - S4 矛盾结论入库待讨论、简报可见「待用户确认」；
+  - S5/S6 open_loop 正常流转；
+  - S6 附加：agent 自报工作 origin=work_result（不等于用户验收）。
+- **界面断言说明**：界面层（Inbox/Understanding）与这些状态消费同一 IPC 数据源
+  （listItems 含 confirmation/needs_review 字段，页面渲染逻辑由 desktop e2e
+  覆盖）；串联断言聚焦持久化+MCP 输出两端，与报告要求的三层中可自动化部分对应。
+
+| 测试 | 结果 |
+| --- | --- |
+| m2-semantics 7 项（S1–S6 + S6 附加） | ✅ 全部通过，纳入 verify（integration 计入） |
 
 ---
 
@@ -500,9 +531,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（G1–G8 修复后重建）
-  - 大小：122,586,726 字节（≈116.9 MB）
-  - SHA-256：`3896CBA8D3B97FABFC0A932B94C0A05B056E8AF58E4AD7932682C0DB390A5C9F`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M2 语义验收补齐后重建）
+  - 大小：122,586,721 字节（≈116.9 MB）
+  - SHA-256：`B060075828A3453B1D7040ECB7FDD00F11088D49E795B160574A9875957F9819`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）
