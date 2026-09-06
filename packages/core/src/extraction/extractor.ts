@@ -233,7 +233,10 @@ export class Extractor {
     const deleteOld = this.db.prepare(
       `DELETE FROM items
        WHERE extracted_from_source_id = ? AND origin = 'ai' AND state = 'current'
-         AND confirmation = 'none'`,
+         AND confirmation = 'none'
+         -- G5 后续：人工单独分配过项目的条目（manual_project=1）不被重提删除
+         -- —— 用户对它做过归属决定，等价于人工操作，保护语义与确认/不采纳一致
+         AND manual_project = 0`,
     );
 
     this.db.transaction(() => {

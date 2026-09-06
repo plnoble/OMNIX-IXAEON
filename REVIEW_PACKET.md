@@ -6,8 +6,8 @@
 > `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）、
 > `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4），并实施
 > `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1 + M2 + M3 全部批次**，并逐项回应
-> `IXAEON_v0.2_验收报告_2026-09-06.md`（G1–G8 + 材料缺口第 1 项）。
-> 更新时间：2026-09-06（G1–G8 修复 + M2 六类语义串联验收补齐）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_v0.2_验收报告_2026-09-06.md`（G1–G8 + 材料缺口第 1 项 + 用户复核反馈）。
+> 更新时间：2026-09-06（G1–G8 + M2 语义串联 + 复核反馈两处修复）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -196,6 +196,20 @@
 | 测试 | 结果 |
 | --- | --- |
 | m2-semantics 7 项（S1–S6 + S6 附加） | ✅ 全部通过，纳入 verify（integration 计入） |
+
+---
+
+## 0.14 用户复核反馈修复（2026-09-06 复核两处缺口）
+
+| 反馈 | 修复 | 回归测试 | 状态 |
+| --- | --- | --- | --- |
+| 切回旧回答不会自动重新分析（版本号更新但 accepted=0 被跳过——知道内容变了却未必开始处理） | `appendCapturedTurns` 返回值增加 `branchSwitched`；采集路径以「内容是否变化」（新增片段 **或** 分支切换）判断是否排队分析，不再只看 accepted 数 | review-followup「分支切换后分析必然触发」（fake timers：切换后推进防抖窗口 → onCaptured 被调用、content_revision 递增） | ✅ 自动化已验证 |
+| 重新提取仍会删除人工分配过项目的条目（G5 只保护了来源级改绑路径） | `deleteOldAiItems` 增加 `manual_project = 0` 条件——人工单独分配过项目的 AI 条目与确认/不采纳同属人工决定保护，重提不删除 | review-followup「manual_project=1 的条目重提后保留」 | ✅ 自动化已验证 |
+
+对第三点反馈的如实回应：六类场景测试验证的是「数据持久化 + MCP 简报」两端
+（界面消费同一 IPC 数据源，页面渲染由 desktop e2e 覆盖）；**逐类实际操作界面**
+与**真实模型理解能力**确实未验证——前者可后续以 Playwright 界面级场景补充，
+后者属于发版门槛的真实模型验收（判据已备好于 M2_SCENARIOS），均如实列入未验证项。
 
 ---
 
@@ -531,9 +545,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 ## 12. 交付物清单
 
 - 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（M2 语义验收补齐后重建）
-  - 大小：122,586,721 字节（≈116.9 MB）
-  - SHA-256：`B060075828A3453B1D7040ECB7FDD00F11088D49E795B160574A9875957F9819`
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（复核反馈修复后重建）
+  - 大小：122,587,174 字节（≈116.9 MB）
+  - SHA-256：`F8307ACFC511A8DBA9069B5CEBA75F3781CF4F68DFA764B6C9E2F0A9FC57C196`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

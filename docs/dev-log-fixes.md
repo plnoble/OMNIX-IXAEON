@@ -185,7 +185,8 @@
 | 安装包（M2） | 122,578,473 字节，SHA-256 `D19271CAFD825BB504BC386C7039371D2EA0823D8EA53D7839938D7F526BAEFE` |
 | 安装包（M3） | 122,580,929 字节，SHA-256 `899B937C623C001D8F1F888E6FD60BB8D9A0BD1C87C1CBCDCC1C549625E8AFFC` |
 | 安装包（G1–G8 修复） | 122,586,726 字节，SHA-256 `3896CBA8D3B97FABFC0A932B94C0A05B056E8AF58E4AD7932682C0DB390A5C9F` |
-| 安装包（M2 语义验收补齐，最终交付物） | 122,586,721 字节，SHA-256 `B060075828A3453B1D7040ECB7FDD00F11088D49E795B160574A9875957F9819` |
+| 安装包（M2 语义验收补齐） | 122,586,721 字节，SHA-256 `B060075828A3453B1D7040ECB7FDD00F11088D49E795B160574A9875957F9819` |
+| 安装包（复核反馈修复，最终交付物） | 122,587,174 字节，SHA-256 `F8307ACFC511A8DBA9069B5CEBA75F3781CF4F68DFA764B6C9E2F0A9FC57C196` |
 
 新增/修改测试合计：单元 16（日志断言升级）、集成 97（新增 36 项回归）、
 desktop e2e 9（新增 3 项）、扩展 e2e（新增暂停闭环 8 断言）。
@@ -732,3 +733,31 @@ M2 六类语义资料界面+MCP 串联验收（可先合成资料自动化，未
 m2-semantics 7/7 纳入 verify；verify 全绿（integration 133）；desktop e2e 10、
 extension 全断言、serial 串联 PASS；打包复核 3 项；安装包 122,586,721 字节，
 SHA-256 `B060075828A3453B1D7040ECB7FDD00F11088D49E795B160574A9875957F9819`。
+
+---
+
+# 用户复核反馈修复（2026-09-06）
+
+用户对 G1–G8 修复与 M2 语义验收的复核指出三处，前两处为代码缺陷已修复：
+
+## 1. 切回旧回答不会自动重新分析
+G3a 修复让分支切换递增了 content_revision，但 maybeAutoAnalyze 仍以
+`acceptedCount === 0` 直接 return——「知道内容变了，却未必开始处理」属实。
+修复：appendCapturedTurns 返回 branchSwitched；采集路径改判「内容是否变化」
+（新增片段或分支切换），分支切换在防抖窗口内同样安排 trailing 补分析。
+
+## 2. 人工分配项目的条目被重提删除
+G5 的 manual_project 只保护了 bindProject 批量改绑路径；deleteOldAiItems
+未排除 manual_project=1。修复：删除条件加 `AND manual_project = 0`——
+人工单独分配与确认/不采纳同属人工决定保护。
+
+## 3. 六类场景测试的边界（如实回应，未修复为自动化）
+测试验证「数据持久化 + MCP 简报」两端；界面消费同一 IPC 数据源，
+页面渲染由 desktop e2e 覆盖。**逐类实际操作界面**未做（可后续 Playwright
+界面级场景补充）；**真实模型理解能力**未验证（属发版门槛真人验收，
+判据已备好）。两项均如实列入未验证项。
+
+## 验证
+review-followup 2 项纳入 verify；verify 全绿；desktop e2e 10、
+extension 全断言、serial 串联 PASS；打包复核 3 项；
+安装包 122,587,174 字节，SHA-256 `F8307ACFC511A8DBA9069B5CEBA75F3781CF4F68DFA764B6C9E2F0A9FC57C196`。

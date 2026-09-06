@@ -269,7 +269,7 @@ export class SourceStore {
       clientHash?: string;
     }>,
     opts?: { title?: string },
-  ): { accepted: number; deduplicated: number } {
+  ): { accepted: number; deduplicated: number; branchSwitched: boolean } {
     const source = this.get(sourceId);
     if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${sourceId}`);
     const existing = this.db
@@ -357,7 +357,7 @@ export class SourceStore {
       }
     });
     tx();
-    return { accepted, deduplicated };
+    return { accepted, deduplicated, branchSwitched };
   }
 
   /**

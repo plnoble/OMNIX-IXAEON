@@ -714,7 +714,9 @@ export class LocalServer {
         sourceId,
         externalId,
         batchSession,
-        appendResult.accepted,
+        // 分支切换（accepted=0 但旧指纹重新激活）也是内容变化 ——
+        // content_revision 已递增，必须触发分析（修复：知道变了就要开始处理）
+        appendResult.accepted > 0 || appendResult.branchSwitched,
         permissionId,
       );
       return { accepted: appendResult.accepted, deduplicated: appendResult.deduplicated, sourceId };
@@ -767,7 +769,7 @@ export class LocalServer {
       sourceId,
       externalId,
       batchSession,
-      createResult.accepted,
+      createResult.accepted > 0 || createResult.branchSwitched,
       domainPermission.id,
     );
     return { accepted: createResult.accepted, deduplicated: createResult.deduplicated, sourceId };
@@ -777,18 +779,20 @@ export class LocalServer {
    * 自动分析排队（修复 P1-6 + R7）：
    * - 窗口外新内容：立即排队提取；
    * - 窗口内（60 秒防抖）又到新内容：标记 pending，窗口结束后补一次最新版本分析；
-   * - 重复内容（accepted=0）：不触发，也不清除 pending —— 保证窗口内到达的
-   *   新内容最终都会进入最新一次分析；
+   * - 完全重复提交（无新片段且无分支切换）：不触发，也不清除 pending；
+   *   分支切换虽 accepted=0，但 content_revision 已递增 → 触发（修复：
+   *   「知道内容变了却未必开始处理」的缺口）；
    * - 补分析前复查：采集开关、自动分析开关、域授权。
    */
   private maybeAutoAnalyze(
     sourceId: string,
     externalId: string,
     sessionId: string | null,
-    acceptedCount: number,
+    /** 内容是否发生变化：新增片段 或 分支切换（旧指纹重新激活） */
+    contentChanged: boolean,
     permissionId: string,
   ): void {
-    if (acceptedCount === 0) return;
+    if (!contentChanged) return;
     const config = this.deps.getConfig();
     if (!config.capture.enabled || !config.capture.autoAnalyze) return;
     // 域授权仍有效（持续采集下的自动分析必须可追溯授权）
@@ -808,7 +812,7 @@ export class LocalServer {
     this.lastAutoEnqueue.set(sourceId, now);
     this.pendingAnalysis.set(sourceId, false);
     recordAudit(this.deps.db, 'capture.auto_analyze_enqueued', { sourceId, permissionId });
-    this.deps.onCaptured?.(sourceId, acceptedCount);
+    this.deps.onCaptured?.(sourceId, 0);
   }
 
   /**
