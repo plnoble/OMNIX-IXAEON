@@ -118,7 +118,7 @@ results.push(
   ]),
 );
 
-process.stdout.write(`\n\u001b[32m全部通过（IXAEON v0.1 验证完成）\u001b[0m\n`);
+process.stdout.write(`\n\u001b[32m全部通过（IXAEON v0.2 验证完成）\u001b[0m\n`);
 for (const r of results) {
   process.stdout.write(`  ✓ ${r.label} — ${r.seconds}s\n`);
 }

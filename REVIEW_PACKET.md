@@ -1,13 +1,14 @@
-# IXAEON v0.1 审核材料（REVIEW_PACKET）
+# IXAEON v0.2 审核材料（REVIEW_PACKET）
 
-> 按 `IXAEON_v0.1_开发计划.md` 第 12 章要求交付，并逐项回应
-> `IXAEON_v0.1_验收问题与修复任务.md`（验收基线）、
+> 按 `IXAEON_v0.1_开发计划.md` 第 12 章要求交付，逐项回应历次验收报告：
+> `IXAEON_v0.1_验收问题与修复任务.md`（P1/P2 基线）、
 > `IXAEON_v0.1_二次验收报告_2026-09-05.md`（R1–R9）、
 > `IXAEON_v0.1_三次验收报告_2026-09-05.md`（N1–N6）、
-> `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4），并实施
-> `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1 + M2 + M3 全部批次**，并逐项回应
-> `IXAEON_v0.2_验收报告_2026-09-06.md`（G1–G8 + 材料缺口第 1 项 + 用户复核反馈）。
-> 更新时间：2026-09-06（G1–G8 + M2 语义串联 + 复核反馈两处修复）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
+> `IXAEON_v0.1_四次验收报告_2026-09-05.md`（F1–F4）；
+> 实施 `IXAEON_下一阶段开发计划_v0.1.1到v0.2.md` 的 **M0 + M1 + M2 + M3 全部批次**，
+> 回应 `IXAEON_v0.2_验收报告_2026-09-06.md`（G1–G8 + 材料缺口）与用户复核反馈；
+> 完成 `IXAEON_全项目审核与v0.3准入条件_2026-09-06.md`（C01–C13 全部批次 R0–R3）。
+> 更新时间：2026-09-06（全项目审核修复完成，交付版本 0.2.0）。仓库：`D:\Agent\Project\OMNIX-IXAEON析衍`（分支 `main`）
 >
 > **声明**：本文件严格区分「自动化已验证 / 人工已验证 / 尚未验证 / 已知限制」。
 > 每项声明附可复现命令或测试名。真实模型问答与真实 chatgpt.com 验收仍未执行（见第 11 节）。
@@ -212,6 +213,32 @@
 空态与失败态如实展示（未分析不伪装已分析）、agent 回写后最近工作在项目页
 可见且不混入当前理解。**真实模型理解能力**仍属发版门槛的真人验收（判据
 已备好于 M2_SCENARIOS），如实列入未验证项。
+
+---
+
+## 0.16 全项目审核修复（对《全项目审核与v0.3准入条件_2026-09-06》C01–C13，R0–R3 全部批次）
+
+独立审核 15 项（project-audit-20260906.test.ts）+ 真实界面检查 1 项（UI01）
+全部修复并通过，已纳入 `pnpm verify`（review-project-audit 步骤）。
+
+| 问题 | 修复 | 证据 | 状态 |
+| --- | --- | --- | --- |
+| C01 verify 失败 | m2-ui 空循环 + window.ixaeon 判空；完整 verify 从当前 HEAD 实跑通过 | verify 全绿 | ✅ |
+| C02 取消绕过 | 取消依据队列内存执行事实（currentJobId）而非数据库状态；遗留任务恢复独立为 recoverOrphanedJobs（仅启动+队列空闲时）；tick 落终态前复查数据库当前状态（已被取消的不回写成功） | A06 | ✅ |
+| C03 重复副本 | 提交事务内过滤与 manual_project=1 逐字相同的新候选——人工搬走的结论不在原项目复制 | A01 | ✅ |
+| C04 归属≠确认 | bindProject 不清 needs_review（仅解绑重置）；assignToProject 不清 needs_review——选项目不是确认 | A02/A03 | ✅ |
+| C05 纠正链+并发 | 保护集沿 corrections 双向追溯（含 origin=user 结果与前驱）；提交前用最新人工状态重新协调候选（模型等待期间的改口生效） | A04/A05 | ✅ |
+| C06 确认语义统一 | 桌面与 MCP 条目搜索默认排除 rejected；问答上下文带「待用户确认/用户已确认」标注 | A10/A11 | ✅ |
+| C07 问答去重分层 | 条目身份（item.id）与依据身份（segmentId）分开；一段原文多条结论全部保留 | A12 | ✅ |
+| C08 简报预算真实 | 按最终 JSON.stringify(完整返回值) 核算；条目按序装回不二次扣元数据；chars_used 按最终序列化迭代收敛；任务超限截断 task 并标记 | A07/A08/A09 | ✅ |
+| C09 工作引用可展开 | getSourceExcerpt 新增 work_run 分支——recent_work 引用展开为 agent 自报摘要（标注用户尚未验收） | A13 | ✅ |
+| C10 工作记录入项目页 | Projects 页新增最近工作列表（任务/执行者/时间/结果/摘要），标注 agent 自报 ≠ 用户验收 | UI01 | ✅ |
+| C11 密钥拒绝降级 | safeStorage 不可用时 encryptApiKey 抛明确错误（提示会话内方案），不再静默 Base64 | A15 | ✅ |
+| C12 六类界面场景重写 | 新增测试模型入口 IXAEON_FAKE_MODEL_SCRIPT（仅环境变量存在时读取预置响应）；m2-ui 6 项重写为「非空数据 + 真实界面操作（确认/不采纳/纠正点击）+ 持久化/简报/引用展开跨层断言」——含等待任务完成的轮询与失败如实暴露 | m2-ui 6/6 | ✅ |
+| C13 版本对齐 | 全部 package/manifest/健康接口/MCP serverInfo 统一 0.2.0；产物改名 IXAEON-Setup-0.2.0.exe；REVIEW_PACKET 更正超出证据的表述 | 版本清单 | ✅ |
+
+隐私说明更新（C13.4）：除直接模型 API 调用外，MCP 返回的数据也可能由外部
+编码客户端发送给其云模型——本地服务不等于资料永不离机。
 
 ---
 
@@ -546,10 +573,10 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 ## 12. 交付物清单
 
-- 源码：本仓库（M0–M5 + 验收修复）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.1.0.exe`（复核反馈修复后重建）
-  - 大小：122,587,174 字节（≈116.9 MB）
-  - SHA-256：`F8307ACFC511A8DBA9069B5CEBA75F3781CF4F68DFA764B6C9E2F0A9FC57C196`
+- 源码：本仓库（v0.1 M0–M5 + 历次验收修复 + v0.1.1–v0.2 全批次 + 全项目审核 C01–C13）
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.2.0.exe`（全项目审核修复后，版本 0.2.0）
+  - 大小：122,591,348 字节（≈116.9 MB）
+  - SHA-256：`AE692588CF0AD666DAB47D66FBF1BB95D7FF73D4795CC79B11B34E35BE03BBF2`
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）

@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   ArchiveService,
@@ -62,6 +62,8 @@ export class AppRuntime {
   readonly logger: Logger;
   readonly localServer: LocalServer;
   private readonly fakeProvider = new FakeProvider('fake-model-v1');
+  /** 测试模型响应脚本是否已加载（IXAEON_FAKE_MODEL_SCRIPT，仅一次） */
+  private fakeScriptLoaded = false;
   private fastify: ReturnType<typeof Fastify> | null = null;
   private config: AppConfig;
   private readonly configFile: string;
@@ -397,10 +399,27 @@ export class AppRuntime {
 
   /**
    * 当前可用的模型提供者。API Key 解密失败或未配置时返回 null。
-   * 测试可用 IXAEON_FAKE_MODEL=1 注入 FakeProvider（绝不连接网络）。
+   * 测试可用 IXAEON_FAKE_MODEL=1 注入 FakeProvider（绝不连接网络）；
+   * 配合 IXAEON_FAKE_MODEL_SCRIPT 指向的 JSON 脚本文件可预置结构化响应
+   * （仅该环境变量存在时读取；正常用户运行不受影响，不构成任意写库入口）。
    */
   getProvider(): ModelProvider | null {
     if (process.env.IXAEON_FAKE_MODEL === '1') {
+      const scriptPath = process.env.IXAEON_FAKE_MODEL_SCRIPT;
+      if (scriptPath && !this.fakeScriptLoaded) {
+        this.fakeScriptLoaded = true;
+        try {
+          const script = JSON.parse(readFileSync(scriptPath, 'utf8')) as {
+            structured?: unknown[];
+            text?: string[];
+          };
+          for (const item of script.structured ?? []) this.fakeProvider.enqueueStructured(item);
+          for (const item of script.text ?? []) this.fakeProvider.enqueueText(item);
+          this.logger.info('已加载测试模型响应脚本（IXAEON_FAKE_MODEL_SCRIPT）', {});
+        } catch (err) {
+          this.logger.warn('测试模型响应脚本加载失败', { error: String(err) });
+        }
+      }
       return this.fakeProvider;
     }
     const config = this.config;
