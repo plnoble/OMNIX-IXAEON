@@ -115,24 +115,49 @@ export class Extractor {
     const active = segments.filter((s) => s.is_active_branch !== 0);
     const pool = active.length > 0 ? active : segments;
 
-    // M2/G4 人工改口优先：保护「用户已确认 / 已不采纳 / 用户纠正后」的全部条目 ——
-    // 纠正链沿 corrections 双向追溯（旧条目 superseded 仍在链上），
-    // 保护 origin=user 的纠正结果与其前驱，不只保护确认按钮产生的字段。
+    // M2/G4 人工改口优先：保护「用户已确认 / 已不采纳 / 用户纠正后」的全部条目。
+    // C05：沿 corrections 链追溯 —— 用户纠正产生的新条目（origin=user）没有
+    // extracted_from_source_id，因此先找到当前来源条目参与过的纠正链，把链上
+    // 的前驱（superseded）与用户结果全部纳入保护；不能只按来源字段过滤。
     const protectedStatements = this.db
       .prepare(
         `SELECT DISTINCT statement FROM items
-         WHERE extracted_from_source_id = ? AND (
-           -- 被纠正的旧结论（superseded）：其内容已被用户改口替代，重新提取
-           -- 出相同内容时不得作为无警告的 current 决定复活（G4/V06）
-           state = 'superseded'
-           -- 用户已确认 / 已不采纳的 AI 结论
-           OR (origin = 'ai' AND state = 'current' AND confirmation IN ('confirmed', 'rejected'))
-           -- 用户纠正产生的新结论（origin=user）
-           OR (origin = 'user' AND state IN ('current', 'disputed'))
+         WHERE id IN (
+           -- 当前来源的 AI 条目（含 superseded 前驱）
+           SELECT id FROM items WHERE extracted_from_source_id = ?
+         ) OR id IN (
+           -- 纠正链：当前来源条目作为旧项或新项参与的全部 corrections 对端
+           SELECT c.new_item_id FROM corrections c
+           WHERE c.old_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
+           UNION
+           SELECT c.old_item_id FROM corrections c
+           WHERE c.new_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
          )`,
       )
-      .all(sourceId) as Array<{ statement: string }>;
-    const protectedSets = protectedStatements.map((p) => bigrams(p.statement));
+      .all(sourceId, sourceId, sourceId) as Array<{ statement: string }>;
+    // 只保护「人工参与过」的语句：superseded（被纠正前驱）、confirmed/rejected、
+    // origin=user 的纠正结果；普通 AI current 条目不在保护集
+    const manualStatements = this.db
+      .prepare(
+        `SELECT DISTINCT it.statement FROM items it
+         WHERE it.id IN (
+           SELECT id FROM items WHERE extracted_from_source_id = ?
+         ) OR it.id IN (
+           SELECT c.new_item_id FROM corrections c
+           WHERE c.old_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
+           UNION
+           SELECT c.old_item_id FROM corrections c
+           WHERE c.new_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
+         )
+         AND (
+           it.state = 'superseded'
+           OR (it.origin = 'ai' AND it.state = 'current' AND it.confirmation IN ('confirmed', 'rejected'))
+           OR (it.origin = 'user' AND it.state IN ('current', 'disputed'))
+         )`,
+      )
+      .all(sourceId, sourceId, sourceId) as Array<{ statement: string }>;
+    void protectedStatements;
+    const protectedSets = manualStatements.map((p) => bigrams(p.statement));
     // G4：字符相似度只能作为「候选关联」信号，不能证明语义相同 ——
     // 只差一个「不」的相反意见也高度相似。高度相似的新结论不直接丢弃，
     // 而是标记 needs_review 进入待讨论，与人工决定形成可见冲突由用户裁决。
@@ -141,7 +166,7 @@ export class Extractor {
       return protectedSets.some((p) => p.size > 0 && jaccard(p, set) >= 0.6);
     };
     const exactProtected = (statement: string): boolean =>
-      protectedStatements.some((p) => p.statement === statement);
+      manualStatements.some((p) => p.statement === statement);
 
     const stats: ExtractStats = {
       inserted: 0,
@@ -218,6 +243,48 @@ export class Extractor {
       }
     )?.p;
 
+    // C05/A05：保护集合在模型请求前读取 —— 请求等待期间用户完成纠正时，
+    // 模型返回后仍按旧集合写入，旧决定会再次作为 current 出现。
+    // 提交前用最新人工状态重新协调：重读保护集并重新过滤候选。
+    const recheckManual = this.db
+      .prepare(
+        `SELECT DISTINCT it.statement FROM items it
+         WHERE it.id IN (
+           SELECT id FROM items WHERE extracted_from_source_id = ?
+         ) OR it.id IN (
+           SELECT c.new_item_id FROM corrections c
+           WHERE c.old_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
+           UNION
+           SELECT c.old_item_id FROM corrections c
+           WHERE c.new_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
+         )
+         AND (
+           it.state = 'superseded'
+           OR (it.origin = 'ai' AND it.state = 'current' AND it.confirmation IN ('confirmed', 'rejected'))
+           OR (it.origin = 'user' AND it.state IN ('current', 'disputed'))
+         )`,
+      )
+      .all(sourceId, sourceId, sourceId) as Array<{ statement: string }>;
+    const recheckSets = recheckManual.map((p) => bigrams(p.statement));
+    const stillSafe = collected.filter(({ row }) => {
+      if (recheckManual.some((p) => p.statement === row.statement)) {
+        // 提交前与最新人工决定逐字相同 → 不复活（A05）
+        stats.skippedPreserved++;
+        return false;
+      }
+      return true;
+    });
+    // 与最新人工保护相似 → 全部标记待讨论（提交时点判定）
+    for (const c of stillSafe) {
+      const set = bigrams(c.row.statement);
+      c.conflictsWithProtected =
+        c.conflictsWithProtected || recheckSets.some((p) => p.size > 0 && jaccard(p, set) >= 0.6);
+    }
+    if (stillSafe.length === 0) {
+      // 提交前全部被最新人工操作覆盖 → 本次不写入（旧理解即用户决定）
+      return stats;
+    }
+
     // 2) 单个短事务：删除旧 current AI 条目 + 写入新结论 + 冲突标记（原子替换）
     const now = new Date().toISOString();
     const insertItem = this.db.prepare(
@@ -241,7 +308,28 @@ export class Extractor {
 
     this.db.transaction(() => {
       deleteOld.run(sourceId);
-      for (const { row, segmentId, conflictsWithProtected } of collected) {
+      // C03/A01：人工单独归属过项目（manual_project=1）的条目被 deleteOld 排除而
+      // 保留；新候选若与这些「已搬走的结论」逐字相同，不得在来源项目里再建一份
+      // 副本 —— 用户已把它移走，重提不能把内容重新混入原项目背景。
+      const movedStatements = new Set(
+        (
+          this.db
+            .prepare(
+              `SELECT statement FROM items
+               WHERE extracted_from_source_id = ? AND manual_project = 1
+                 AND state != 'superseded'`,
+            )
+            .all(sourceId) as Array<{ statement: string }>
+        ).map((r) => r.statement),
+      );
+      const effective = stillSafe.filter(({ row }) => {
+        if (movedStatements.has(row.statement)) {
+          stats.skippedPreserved++;
+          return false;
+        }
+        return true;
+      });
+      for (const { row, segmentId, conflictsWithProtected } of effective) {
         const itemId = crypto.randomUUID();
         // 项目归属（M1.1 + G5/V09）：以提交时点的来源归属为准 ——
         // 提取开始后用户改绑项目时不得把新理解写回旧项目。

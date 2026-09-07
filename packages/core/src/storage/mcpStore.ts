@@ -167,11 +167,12 @@ export class McpService {
       origin: 'work_result' as const,
     }));
 
-    // 字符预算裁剪（G8）：预算按**完整序列化输出**核算 —— 包括任务、项目字段、
-    // coverage、时间、状态提示与 JSON 容器，而不只是条目数组。
-    // 策略：先按条目预算粗裁，再对完整输出做校验；仍超限时按优先级
-    // （work > status > rejected > open_loops > decisions 附加项 > risks 附加项）
-    // 逐条移除并复核，最多迭代到清空；待确认/过期/权限提示不被优先裁掉。
+    // 字符预算（C08/A07-A09 重写）：预算 = **最终 JSON.stringify(完整返回值)** 长度。
+    // 实现策略：
+    // 1. 构造最终输出（含真实 notice/coverage/chars_used 占位）
+    // 2. 条目按序装入直到完整序列化超预算（不再单独扣「元数据开销」两次）
+    // 3. chars_used 按最终序列化结果统计（含统计字段自身位数，A09）
+    // 4. 任务本身使输出超限 → 条目全裁后仍超 → 截断 task 字段并标记（不返回超限成功）
     const budget = input.max_chars;
     const groups: BriefingEntry[][] = [
       purpose,
@@ -185,77 +186,6 @@ export class McpService {
     const totalBefore = JSON.stringify(groups.flat()).length;
     let truncated = false;
 
-    const buildOutput = () => ({
-      project_id: project.id,
-      project_name: project.name,
-      task: input.task,
-      purpose: [...purpose],
-      status: [...status],
-      decisions: [...decisions],
-      rejected_options: [...rejectedOptions],
-      open_loops: [...openLoops],
-      risks: [...risks],
-      recent_work: [...recentWork],
-      generated_at: new Date().toISOString(),
-      char_budget: budget,
-      chars_used: 0,
-      truncated,
-      staleness_notice: '',
-      coverage: { maxContentRevision: 0, maxAnalyzedRevision: 0, hasUnanalyzedContent: false },
-    });
-
-    // 元数据开销（任务/项目/时间/coverage 等固定字段）
-    const metadataOverhead = (() => {
-      const probe = buildOutput();
-      return JSON.stringify(probe).length;
-    })();
-    const entryBudget = Math.max(budget - metadataOverhead, 200);
-
-    let used = 0;
-    for (const group of groups) {
-      const kept: BriefingEntry[] = [];
-      for (const entry of group) {
-        const cost = JSON.stringify(entry).length;
-        if (used + cost > entryBudget) {
-          truncated = true;
-          continue;
-        }
-        used += cost;
-        kept.push(entry);
-      }
-      group.length = 0;
-      group.push(...kept);
-    }
-
-    // G8 复核：完整序列化（含元数据）仍超预算 → 从低优先组尾部逐条移除再复核
-    const fullSerialized = (): number => {
-      const probe = buildOutput();
-      // 用接近真实的提示文本估算（实际 notice 在返回时拼接）
-      return JSON.stringify(probe).length + 120;
-    };
-    for (let guard = 0; guard < 500 && fullSerialized() > budget; guard++) {
-      // 依次从 recentWork → status → rejectedOptions → openLoops → decisions(尾部) 裁
-      const victim =
-        recentWork.length > 0
-          ? recentWork
-          : status.length > 0
-            ? status
-            : rejectedOptions.length > 0
-              ? rejectedOptions
-              : openLoops.length > 0
-                ? openLoops
-                : decisions.length > 1
-                  ? decisions
-                  : risks.length > 1
-                    ? risks
-                    : purpose.length > 1
-                      ? purpose
-                      : null;
-      if (!victim) break;
-      victim.pop();
-      truncated = true;
-    }
-
     const latest = this.db
       .prepare(
         `SELECT MAX(updated_at) AS t FROM items WHERE project_id = ?
@@ -268,14 +198,7 @@ export class McpService {
       .sort()
       .pop();
 
-    recordAudit(this.db, 'mcp.prepare_task', {
-      projectId: project.id,
-      charsUsed: used,
-      truncated,
-    });
-
-    // M3/G3b 覆盖版本：按「每个来源」检查版本差再聚合 —— 分别取所有来源的
-    // MAX 再比较会把「A 已分析、B 未分析」误判为已追平。
+    // M3/G3b 覆盖版本：按「每个来源」检查版本差再聚合
     const coverageRows = this.db
       .prepare(
         `SELECT MAX(content_revision) AS mc,
@@ -294,10 +217,100 @@ export class McpService {
       .get(project.id) as { ma: number | null };
     const maxAnalyzedRevision = analyzedRow.ma ?? 0;
 
+    const buildStalenessNotice = (isTruncated: boolean): string =>
+      `本简报生成于 ${new Date().toISOString().slice(0, 19).replace('T', ' ')}。` +
+      `最新记忆更新：${latestTime?.slice(0, 19).replace('T', ' ') ?? '无'}。` +
+      `此后用户可能已有新决定；执行前如有疑问请用 search_context 复核或直接询问用户。` +
+      (isTruncated ? `（简报达到 ${budget} 字符预算被截断，可用 search_context 补充检索）` : '') +
+      (hasUnanalyzedContent
+        ? `注意：该项目有 ${pendingCount} 个来源的新内容尚未分析（最高内容版本 ${maxContentRevision}），本简报可能落后于最新对话。`
+        : '') +
+      `（原始简报 ${totalBefore} 字符）`;
+
+    // 完整序列化长度（把 chars_used/truncated 按真实值代入，A09）
+    const serializedLength = (usedValue: number, isTruncated: boolean, taskText: string): number =>
+      JSON.stringify({
+        project_id: project.id,
+        project_name: project.name,
+        task: taskText,
+        purpose: [...purpose],
+        status: [...status],
+        decisions: [...decisions],
+        rejected_options: [...rejectedOptions],
+        open_loops: [...openLoops],
+        risks: [...risks],
+        recent_work: [...recentWork],
+        generated_at: new Date().toISOString(),
+        char_budget: budget,
+        chars_used: usedValue,
+        truncated: isTruncated,
+        staleness_notice: buildStalenessNotice(isTruncated),
+        coverage: { maxContentRevision, maxAnalyzedRevision, hasUnanalyzedContent },
+      }).length;
+
+    // 先清空全部组，再按优先序逐条装回，直到完整序列化达预算（A08：不丢可放下的内容）
+    const allEntries: Array<{ group: BriefingEntry[]; entry: BriefingEntry }> = [];
+    for (const g of [purpose, decisions, openLoops, rejectedOptions, risks, status, recentWork]) {
+      for (const e of [...g]) allEntries.push({ group: g, entry: e });
+      g.length = 0;
+    }
+    // 依序装回：任一条目装入后完整序列化超预算 → 跳过并标记截断
+    const used = 0;
+    let keptCount = 0;
+    for (const { group, entry } of allEntries) {
+      group.push(entry);
+      const probeLen = serializedLength(0, false, input.task);
+      if (probeLen > budget) {
+        group.pop();
+        truncated = true;
+        continue;
+      }
+      keptCount += 1;
+    }
+    void used;
+    void keptCount;
+
+    // 任务本身使空简报超限 → 截断 task（明确标记），不返回超限成功结果（A07）
+    let taskText = input.task;
+    let taskTruncated = false;
+    for (
+      let guard = 0;
+      guard < 4000 && serializedLength(0, truncated, taskText) > budget;
+      guard++
+    ) {
+      // 逐步缩短 task；仍不够则标记截断（保留前缀 + 截断说明）
+      if (taskText.length > 64) {
+        taskText = taskText.slice(0, Math.floor(taskText.length * 0.9));
+        taskTruncated = true;
+      } else if (taskText.length > 8) {
+        taskText = taskText.slice(0, taskText.length - 8);
+        taskTruncated = true;
+      } else {
+        taskText = '';
+        taskTruncated = true;
+        break;
+      }
+    }
+    if (taskTruncated) truncated = true;
+
+    // chars_used：按最终序列化结果统计（A09）；迭代收敛统计字段自身位数变化
+    let charsUsed = serializedLength(0, truncated, taskText);
+    for (let guard = 0; guard < 8; guard++) {
+      const next = serializedLength(charsUsed, truncated, taskText);
+      if (next === charsUsed) break;
+      charsUsed = next;
+    }
+
+    recordAudit(this.db, 'mcp.prepare_task', {
+      projectId: project.id,
+      charsUsed,
+      truncated,
+    });
+
     return {
       project_id: project.id,
       project_name: project.name,
-      task: input.task,
+      task: taskText,
       purpose,
       status,
       decisions,
@@ -307,17 +320,9 @@ export class McpService {
       recent_work: recentWork,
       generated_at: new Date().toISOString(),
       char_budget: budget,
-      chars_used: used,
+      chars_used: charsUsed,
       truncated,
-      staleness_notice:
-        `本简报生成于 ${new Date().toISOString().slice(0, 19).replace('T', ' ')}。` +
-        `最新记忆更新：${latestTime?.slice(0, 19).replace('T', ' ') ?? '无'}。` +
-        `此后用户可能已有新决定；执行前如有疑问请用 search_context 复核或直接询问用户。` +
-        (truncated ? `（简报达到 ${budget} 字符预算被截断，可用 search_context 补充检索）` : '') +
-        (hasUnanalyzedContent
-          ? `注意：该项目有 ${pendingCount} 个来源的新内容尚未分析（最高内容版本 ${maxContentRevision}），本简报可能落后于最新对话。`
-          : '') +
-        `（原始简报 ${totalBefore} 字符）`,
+      staleness_notice: buildStalenessNotice(truncated),
       coverage: {
         maxContentRevision,
         maxAnalyzedRevision,
@@ -346,6 +351,9 @@ export class McpService {
          LEFT JOIN sources s ON s.id = seg.source_id
          LEFT JOIN projects p ON p.id = i.project_id
          WHERE i.statement LIKE ? AND i.shelved_at IS NULL
+           -- C06/A10：已拒绝建议不作为当前结论返回（历史原文仍可经
+           -- get_source_excerpt 按 segment/item 引用展开，不删除历史）
+           AND (i.confirmation IS NULL OR i.confirmation != 'rejected')
            ${projectId !== null ? 'AND i.project_id = ?' : ''}
            ${input.type ? 'AND i.type = ?' : ''}
          ORDER BY i.updated_at DESC LIMIT ?`,
@@ -513,6 +521,72 @@ export class McpService {
         role: itemEvidence.role,
         time: itemEvidence.occurred_at,
         is_active_branch: itemEvidence.is_active_branch === 1,
+      };
+    }
+
+    // C09/A13：工作记录引用（recent_work 的 ref = work_run ID）——
+    // 展开为 agent 自报工作摘要（明确标注「用户尚未验收」，不是用户决定）
+    const workRun = this.db
+      .prepare(
+        `SELECT agent_name, task, outcome, summary, changes_json, tests_json,
+                open_loops_json, commit_ref, finished_at
+         FROM work_runs WHERE id = ?`,
+      )
+      .get(ref) as
+      | {
+          agent_name: string;
+          task: string;
+          outcome: string;
+          summary: string;
+          changes_json: string;
+          tests_json: string;
+          open_loops_json: string;
+          commit_ref: string | null;
+          finished_at: string;
+        }
+      | undefined;
+    if (workRun) {
+      const tests = (() => {
+        try {
+          return JSON.parse(workRun.tests_json) as Array<{
+            name: string;
+            result: string;
+          }>;
+        } catch {
+          return [];
+        }
+      })();
+      const loops = (() => {
+        try {
+          return JSON.parse(workRun.open_loops_json) as string[];
+        } catch {
+          return [];
+        }
+      })();
+      const excerpt = [
+        `【编码 agent 自报工作（用户尚未验收，不是用户决定）】`,
+        `执行者：${workRun.agent_name}`,
+        `任务：${workRun.task}`,
+        `结果：${workRun.outcome}`,
+        `摘要：${workRun.summary}`,
+        tests.length > 0
+          ? `测试：${tests.map((t) => `${t.name}=${t.result}`).join('、')}`
+          : '测试：未记录',
+        loops.length > 0 ? `未完成事项：${loops.join('；')}` : null,
+        workRun.commit_ref ? `提交：${workRun.commit_ref}` : null,
+        `完成时间：${workRun.finished_at}`,
+      ]
+        .filter((line): line is string => line !== null)
+        .join('\n');
+      return {
+        ref,
+        excerpt: excerpt.slice(0, maxChars),
+        before_context: '',
+        after_context: '',
+        source_title: `工作记录（${workRun.agent_name} 自报）`,
+        role: 'work_result',
+        time: workRun.finished_at,
+        is_active_branch: true,
       };
     }
 

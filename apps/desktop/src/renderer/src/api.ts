@@ -17,6 +17,7 @@ import type {
   SettingsView,
   Source,
   SourceListItem,
+  WorkRun,
 } from '@ixaeon/contracts';
 
 /** window.ixaeon 的类型安全访问（preload 保证存在；测试环境可能缺省）。 */
@@ -47,4 +48,5 @@ export type {
   SettingsView,
   Source,
   SourceListItem,
+  WorkRun,
 };

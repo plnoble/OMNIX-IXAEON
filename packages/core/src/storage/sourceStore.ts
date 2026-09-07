@@ -408,10 +408,13 @@ export class SourceStore {
       // 修复 G5/V08：批量重绑只移动「自动继承归属」的 AI 条目 ——
       // 用户单独归属过的条目（manual_project=1 标记）与 origin=user 的人工
       // 条目不被搬走；单独归属优先于来源级绑定。
+      // C04/A02：归属与确认是两个维度 —— 绑定项目不再把 needs_review 清 0；
+      // 只有解绑（回未分配）时按「无归属」重置待讨论，确认状态仍由
+      // confirm/reject 单独管理。
       const r = this.db
         .prepare(
           `UPDATE items SET project_id = ?,
-             needs_review = CASE WHEN ? IS NULL THEN 1 ELSE 0 END
+             needs_review = CASE WHEN ? IS NULL THEN 1 ELSE needs_review END
            WHERE extracted_from_source_id = ?
              AND origin = 'ai'
              AND state != 'superseded'

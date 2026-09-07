@@ -138,6 +138,8 @@ export class SearchService {
       type?: string | null;
       states?: Array<'current' | 'disputed' | 'superseded'>;
       limit?: number;
+      /** C06/A10：默认排除已拒绝建议（不作为当前结论返回）；显式开启可查历史 */
+      includeRejected?: boolean;
     } = {},
   ): SearchResult[] {
     const limit = Math.min(opts.limit ?? 8, 20);
@@ -152,6 +154,7 @@ export class SearchService {
       FROM items i
       LEFT JOIN projects p ON p.id = i.project_id
       WHERE i.state IN (${placeholders})
+        ${opts.includeRejected === true ? '' : "AND (i.confirmation IS NULL OR i.confirmation != 'rejected')"}
         ${opts.projectId ? 'AND i.project_id = ?' : ''}
         ${opts.type ? 'AND i.type = ?' : ''}
         AND (i.statement LIKE ? OR i.rationale LIKE ?)

@@ -7,6 +7,8 @@ import { assertSourceAuthorized } from '../access.js';
 /** 问答用的检索片段（引用编号 + 内容）。 */
 interface CitedSegment {
   ref: string;
+  /** C07：条目身份（去重键）；原文片段检索条目为 null */
+  itemId: string | null;
   segmentId: string;
   sourceTitle: string;
   role: string;
@@ -58,7 +60,7 @@ export class AskService {
     const items = this.db
       .prepare(
         `SELECT i.id, i.type, i.statement, i.state, i.origin, i.updated_at,
-                i.extracted_from_source_id
+                i.extracted_from_source_id, i.confirmation
          FROM items i
          WHERE i.state IN ('current', 'disputed') AND i.shelved_at IS NULL
            AND i.confirmation != 'rejected'
@@ -76,11 +78,20 @@ export class AskService {
       origin: string;
       updated_at: string;
       extracted_from_source_id: string | null;
+      confirmation: string;
     }>;
 
     const cited: CitedSegment[] = [];
+    // C07/A12：去重键分两层 —— 「条目身份」（item.id）与「原文依据身份」
+    // （segmentId）。一段原文支持多条不同结论时全部保留（各自有独立陈述）；
+    // 仅当同一条目重复出现时才跳过。摘录级重复由条目各自的 text 承载，不再
+    // 因为共享 segment 就丢掉后面的结论。
+    const seenItemIds = new Set<string>();
     const pushCited = (c: CitedSegment) => {
-      if (cited.find((x) => x.segmentId === c.segmentId)) return;
+      if (c.itemId !== null) {
+        if (seenItemIds.has(c.itemId)) return;
+        seenItemIds.add(c.itemId);
+      }
       cited.push(c);
     };
 
@@ -113,6 +124,7 @@ export class AskService {
         this.evidenceInProject(ev.source_id, projectId);
       pushCited({
         ref,
+        itemId: item.id,
         segmentId: evAllowed && ev ? ev.segment_id : `item:${item.id}`,
         sourceTitle: item.origin === 'user' ? '用户纠正' : evAllowed && ev ? ev.title : '条目',
         role: item.origin === 'user' ? 'user' : evAllowed && ev ? ev.role : 'item',
@@ -120,7 +132,7 @@ export class AskService {
         text:
           item.origin === 'user'
             ? `[用户纠正 · ${item.type}] ${item.statement}`
-            : `[${item.type}${item.state === 'disputed' ? ' · 存在冲突' : ''}] ${item.statement}${evAllowed && ev ? `\n依据摘录：${ev.excerpt}` : ''}`,
+            : `[${item.type}${item.state === 'disputed' ? ' · 存在冲突' : ''}${confirmationLabel(item.confirmation)}] ${item.statement}${evAllowed && ev ? `\n依据摘录：${ev.excerpt}` : ''}`,
         isUserCorrection: item.origin === 'user',
       });
       if (usedChars(cited) > MAX_CONTEXT_CHARS) break;
@@ -156,6 +168,7 @@ export class AskService {
         const ref = `R${refCounter}`;
         pushCited({
           ref,
+          itemId: null, // 原文片段检索：非条目，不作条目去重
           segmentId: seg.id,
           sourceTitle: seg.title,
           role: seg.role,
@@ -238,6 +251,13 @@ export class AskService {
 
 function usedChars(cited: CitedSegment[]): number {
   return cited.reduce((n, c) => n + c.text.length + 60, 0);
+}
+
+/** C06/A11：把确认状态告诉模型 —— 待确认与已确认的语境必须可区分。 */
+function confirmationLabel(confirmation: string): string {
+  if (confirmation === 'confirmed') return ' · 用户已确认';
+  if (confirmation === 'rejected') return ' · 用户已拒绝';
+  return ' · 待用户确认';
 }
 
 /** 简单分词：中文按 2 字滑窗，ASCII 按词。FTS trigram 需要 ≥2 字。 */

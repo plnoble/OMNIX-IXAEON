@@ -1,6 +1,58 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, errMsg, type Project } from '../api.js';
+import { api, errMsg, type Project, type WorkRun } from '../api.js';
 import { Button, Card, Empty, ErrorBanner, Field, projectStatusLabel, Spinner } from '../ui.js';
+
+/** 单个项目的最近工作记录（C10：agent 回写接入用户界面）。 */
+function ProjectWorkRuns({ projectId }: { projectId: string }) {
+  const [runs, setRuns] = useState<WorkRun[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void api
+      .listWorkRuns({ projectId, limit: 5 })
+      .then((r) => {
+        if (alive) setRuns(r);
+      })
+      .catch(() => {
+        if (alive) setRuns([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  if (runs === null) return null;
+  if (runs.length === 0) {
+    return (
+      <p className="muted" style={{ fontSize: 12 }}>
+        最近工作：暂无编码 agent 回写记录。
+      </p>
+    );
+  }
+  return (
+    <div className="project-work" data-testid={`project-work-${projectId}`}>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
+        最近工作（agent 自报，用户尚未验收 ≠ 用户决定）：
+      </p>
+      <ul className="work-run-list">
+        {runs.map((w) => (
+          <li key={w.id} className="work-run" data-testid={`work-run-${w.id}`}>
+            <span
+              className={`badge badge-${w.outcome === 'success' ? 'active' : w.outcome === 'failed' ? 'paused' : 'muted'}`}
+            >
+              {w.outcome === 'success' ? '成功' : w.outcome === 'failed' ? '失败' : '部分完成'}
+            </span>
+            <strong>{w.task}</strong>
+            <span className="muted">{w.agent_name}</span>
+            <span className="muted">{w.finished_at.slice(0, 19).replace('T', ' ')}</span>
+            <p className="muted" style={{ fontSize: 12, margin: '2px 0 0' }}>
+              {w.summary.slice(0, 200)}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /** 项目页：列表 + 新建 + 目录登记 + 状态切换。 */
 export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: string) => void }) {
@@ -105,6 +157,7 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
                   <span className={`badge badge-${p.status}`}>{projectStatusLabel(p.status)}</span>
                   <span className="muted">{p.root_path ?? '未绑定目录'}</span>
                 </div>
+                <ProjectWorkRuns projectId={p.id} />
                 <div className="project-actions">
                   <Button
                     onClick={() => onOpenSources(p.id)}

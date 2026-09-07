@@ -315,10 +315,11 @@ describe('M2 纠正事务（计划 4.7 / 5.5）', () => {
     const inboxAfter = items.list({ projectId: null, needsReview: true });
     expect(inboxAfter.some((i) => i.id === a.id)).toBe(true);
 
-    // 归属项目后退出收件箱
+    // 归属项目后：project_id 更新，但选项目不是确认（C04/A03 契约）
+    // —— needs_review 保持，待确认仍留在收件箱，确认/不采纳单独管理
     items.assignToProject(a.id, project.id);
     expect(items.get(a.id).project_id).toBe(project.id);
-    expect(items.get(a.id).needs_review).toBe(false);
+    expect(items.get(a.id).needs_review).toBe(true);
 
     // 搁置
     items.shelve(a.id, true);

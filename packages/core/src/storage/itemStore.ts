@@ -276,11 +276,11 @@ export class ItemService {
   assignToProject(itemId: string, projectId: string): Item {
     const proj = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (!proj) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在: ${projectId}`);
-    // G5：人工单独归属 —— 标记后来源级批量重绑不再搬动该条目
+    // G5：人工单独归属 —— 标记后来源级批量重绑不再搬动该条目。
+    // C04/A03：选项目不是确认结论 —— needs_review 保持不变（待确认条目
+    // 仍留在 Inbox），确认/不采纳只由 confirm/reject 管理。
     this.db
-      .prepare(
-        'UPDATE items SET project_id = ?, needs_review = 0, manual_project = 1, updated_at = ? WHERE id = ?',
-      )
+      .prepare('UPDATE items SET project_id = ?, manual_project = 1, updated_at = ? WHERE id = ?')
       .run(projectId, new Date().toISOString(), itemId);
     return this.get(itemId);
   }
