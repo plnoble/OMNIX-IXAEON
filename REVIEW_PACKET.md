@@ -207,19 +207,23 @@
 | 切回旧回答不会自动重新分析（版本号更新但 accepted=0 被跳过——知道内容变了却未必开始处理） | `appendCapturedTurns` 返回值增加 `branchSwitched`；采集路径以「内容是否变化」（新增片段 **或** 分支切换）判断是否排队分析，不再只看 accepted 数 | review-followup「分支切换后分析必然触发」（fake timers：切换后推进防抖窗口 → onCaptured 被调用、content_revision 递增） | ✅ 自动化已验证 |
 | 重新提取仍会删除人工分配过项目的条目（G5 只保护了来源级改绑路径） | `deleteOldAiItems` 增加 `manual_project = 0` 条件——人工单独分配过项目的 AI 条目与确认/不采纳同属人工决定保护，重提不删除 | review-followup「manual_project=1 的条目重提后保留」 | ✅ 自动化已验证 |
 
-对第三点反馈的回应：六类场景原有测试验证「数据持久化 + MCP 简报」两端；
-**逐类实际操作界面**已补 Playwright 界面级场景（`apps/desktop/e2e/m2-ui.spec.ts`，
-4 项）：真实 Electron 窗口内导入六类资料、操作来源/理解/待讨论页面、验证
-空态与失败态如实展示（未分析不伪装已分析）、agent 回写后最近工作在项目页
-可见且不混入当前理解。**真实模型理解能力**仍属发版门槛的真人验收（判据
-已备好于 M2_SCENARIOS），如实列入未验证项。
+对第三点反馈的回应（历史记录，当时状态）：六类场景原有测试验证「数据持久化 +
+MCP 简报」两端；当轮补的 Playwright 界面级场景（`apps/desktop/e2e/m2-ui.spec.ts`，
+4 项）覆盖来源/理解/待讨论页面操作与空态如实展示。**该 4 项版本后被 0.16/C12
+重写为 6 项（非空数据 + 真实操作），再经 0.17/RF07 修正名实对应——当前状态以
+0.17 节为准，本段仅作历史保留。**「真实模型理解能力」始终属发版门槛的真人
+验收（判据已备好于 M2_SCENARIOS），如实列入未验证项。
 
 ---
 
 ## 0.16 全项目审核修复（对《全项目审核与v0.3准入条件_2026-09-06》C01–C13，R0–R3 全部批次）
 
-独立审核 15 项（project-audit-20260906.test.ts）+ 真实界面检查 1 项（UI01）
-全部修复并通过，已纳入 `pnpm verify`（review-project-audit 步骤）。
+独立审核 15 项（project-audit-20260906.test.ts）全部修复并通过，已纳入
+`pnpm verify`（review-project-audit 步骤）。
+
+> 更正（2026-09-07，RF09）：本节初版称「15 项 + UI01 已纳入 verify」——当时
+> verify 只含 15 项核心检查，UI01 未进入默认验证入口（复审报告 RF09 指出）。
+> 现已把 UI01 与 BUI01/BUI02 一并纳入 verify（review-recheck-ui 步骤）。
 
 | 问题 | 修复 | 证据 | 状态 |
 | --- | --- | --- | --- |
@@ -233,12 +237,37 @@
 | C08 简报预算真实 | 按最终 JSON.stringify(完整返回值) 核算；条目按序装回不二次扣元数据；chars_used 按最终序列化迭代收敛；任务超限截断 task 并标记 | A07/A08/A09 | ✅ |
 | C09 工作引用可展开 | getSourceExcerpt 新增 work_run 分支——recent_work 引用展开为 agent 自报摘要（标注用户尚未验收） | A13 | ✅ |
 | C10 工作记录入项目页 | Projects 页新增最近工作列表（任务/执行者/时间/结果/摘要），标注 agent 自报 ≠ 用户验收 | UI01 | ✅ |
-| C11 密钥拒绝降级 | safeStorage 不可用时 encryptApiKey 抛明确错误（提示会话内方案），不再静默 Base64 | A15 | ✅ |
+| C11 密钥拒绝降级 | safeStorage 不可用时 encryptApiKey 抛明确错误，不再静默 Base64（提示文案后在 RF08 修正：不再承诺会话密钥方案） | A15 | ✅ |
 | C12 六类界面场景重写 | 新增测试模型入口 IXAEON_FAKE_MODEL_SCRIPT（仅环境变量存在时读取预置响应）；m2-ui 6 项重写为「非空数据 + 真实界面操作（确认/不采纳/纠正点击）+ 持久化/简报/引用展开跨层断言」——含等待任务完成的轮询与失败如实暴露 | m2-ui 6/6 | ✅ |
 | C13 版本对齐 | 全部 package/manifest/健康接口/MCP serverInfo 统一 0.2.0；产物改名 IXAEON-Setup-0.2.0.exe；REVIEW_PACKET 更正超出证据的表述 | 版本清单 | ✅ |
 
 隐私说明更新（C13.4）：除直接模型 API 调用外，MCP 返回的数据也可能由外部
 编码客户端发送给其云模型——本地服务不等于资料永不离机。
+
+---
+
+## 0.17 v0.2 复审修复（对《v0.2 复审报告 2026-09-07》RF01–RF09）
+
+复审新增核心检查 8 项中 7 项失败、界面 BUI01 失败（原始失败证据保留于
+`apps/desktop/test/review/results-recheck-20260907.json`）。本轮修复后
+`recheck-20260907.test.ts` 11 项（B01–B10，B03 含两入口）+ 界面
+UI01/BUI01/BUI02 全部通过，并已纳入 `pnpm verify`
+（review-recheck + review-recheck-ui 两个步骤）。
+
+| 问题 | 修复 | 证据 | 状态 |
+| --- | --- | --- | --- |
+| RF01 保护集括号错误（普通未确认 AI 结论被当成人工保护，重提后丢失） | 保护集 SQL 改为「（当前来源 ∪ 纠正链可达）AND 人工条件」——superseded 前驱、已确认/不采纳、origin=user 才受保护 | B01 | ✅ |
+| RF02 纠正链追溯不全（两次连续纠正后最新人工约束不在保护集） | 递归 CTE 沿 corrections 双向扩展（old→new 与 new→old，UNION 去重防循环），初次读取与提交前重查共用同一查询 | B02 | ✅ |
+| RF03 待处理标记两入口规则不一致 | recomputeNeedsReview 集中实现（无归属 OR 重要 AI 决定未确认 OR 冲突）；assignToProject 与 bindProject 都按同一事实重算 | B03-item / B03-source | ✅ |
+| RF04 简报预算边缘超限 2–32 字符 | 条目试放探针按最坏情形（truncated=true + 99999 位数）核算；返回前对真实完整序列化作最终校验，超限时按装填逆序（recentWork→status→risks→rejected→open_loops→decisions→purpose）收缩；极端小预算抛 BUDGET_EXCEEDED 契约错误 | B04 | ✅ |
+| RF05 人工创建/纠正条目引用不可展开 | getSourceExcerpt 新增 origin=user 分支：纠正条目返回「用户纠正记录」（附纠正前旧结论，旧结论带依据时校验来源授权），手工条目返回「用户手工记录」——明确标注非对话原文摘录，不伪造原文 | B05 / B06 | ✅ |
+| RF06 项目页看不到失败测试与未完成事项 | 工作记录摘要行直接点名失败测试与未完成事项；新增可展开详情（变更/测试全量/未完成事项，标注待用户确认）；加载失败如实报错不伪装「暂无记录」；BUI01 附加重进页面、详情展开、项目隔离检查，BUI02 验证重启后仍可见 | UI01 + BUI01 + BUI02 | ✅ |
+| RF07 六类界面测试名实不符 | S1 改为真实「不采纳」流程（验证用户否决 AI 建议 + 动作前后简报变化）；S2 改为真实「确认」流程（AI 已记录否决、用户确认这条理解，简报标签从「待用户确认」变「用户已确认」）；S4 构造两个真实来源的相反结论（方案甲 vs 方案乙），验证双方同时保留、均 disputed、均待处理、简报均标「存在冲突」、不自动选边 | m2-ui 6/6 | ✅ |
+| RF08 旧 plain: 密钥无迁移、错误提示承诺不存在的会话密钥 | 启动时 migrateLegacyPlainApiKey：safeStorage 可用→原地升级为系统加密（审计记录不含密钥内容）；不可用→清除旧值并把 apiKeyPresent 置 false，设置页提示重新输入（apiKeyNeedsReentry）；decryptApiKey 运行期不再解码 plain:（迁移专用入口独立）；保存失败文案不再承诺「仅本次会话的密钥」 | B08 / B09 / B10 | ✅ |
+| RF09 交付声明与实际状态不同步 | verify 纳入 review-recheck（11 项）与 review-recheck-ui（UI01/BUI01/BUI02）；0.16 节更正 UI01 声明；privacy-model.md 补 MCP 外部客户端边界与扩展 tabs 权限用途；dev-log-fixes.md 补本轮记录；未完成项（非空旧库升级、安装流程、真人验证）如实保留 | verify 全绿 + 本节 | ✅ |
+
+已知剩余（如实，未验证）：非空旧库的真实升级路径、安装器真实安装流程、
+真人真实环境验证仍未执行——与 0.16 节前的未完成清单一致，本轮未改变。
 
 ---
 
@@ -573,12 +602,16 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 ## 12. 交付物清单
 
-- 源码：本仓库（v0.1 M0–M5 + 历次验收修复 + v0.1.1–v0.2 全批次 + 全项目审核 C01–C13）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.2.0.exe`（全项目审核修复后，版本 0.2.0）
-  - 大小：122,591,348 字节（≈116.9 MB）
-  - SHA-256：`AE692588CF0AD666DAB47D66FBF1BB95D7FF73D4795CC79B11B34E35BE03BBF2`
+- 源码：本仓库（v0.1 M0–M5 + 历次验收修复 + v0.1.1–v0.2 全批次 + 全项目审核 C01–C13 + 复审 RF01–RF09）
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.2.0.exe`（**v0.2 复审 RF01–RF09 修复后重新打包**，版本 0.2.0）
+  - 大小：122,595,082 字节（≈116.9 MB）
+  - SHA-256：`3169B563A5F8CF2C61823B40A23563E443A9F6AF29643F7820EBCEB434A96E97`
+  - 旧包哈希（复审前，已被替换，供对照）：`AE692588CF0AD666DAB47D66FBF1BB95D7FF73D4795CC79B11B34E35BE03BBF2`
+  - 重打包后 win-unpacked 产物复核 3 项通过（自定义目录、重启保留、搬迁后
+    无全局 Node 的 MCP 握手与四工具调用 + 持久化回写）
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
     STDIO 握手与四工具真实调用，见打包产物复核）
+  - 如实说明：未执行安装器真实安装流程（与历轮一致，属未验证项）
 - 导出样例：`apps/desktop/release/ixaeon-export-sample.zip`（含两份思想文档真实数据）
 - 语义验收记录：`apps/desktop/release/semantic-acceptance.json`
 - 截图：`apps/desktop/release/screenshots/`（12 张）

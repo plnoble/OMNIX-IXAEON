@@ -118,6 +118,26 @@ results.push(
   ]),
 );
 
+results.push(
+  run('review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.recheck-20260907.config.ts',
+  ]),
+);
+
+// RF09：UI01 / BUI01 / BUI02 真实 Electron 界面检查纳入默认验证入口。
+// 依赖 build 产物 out/main/index.js（上面 build 步骤已生成）。
+results.push(
+  run('review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron）', [
+    resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
+    'test',
+    '-c',
+    'apps/desktop/test/review/playwright.recheck-20260907.config.ts',
+  ]),
+);
+
 process.stdout.write(`\n\u001b[32m全部通过（IXAEON v0.2 验证完成）\u001b[0m\n`);
 for (const r of results) {
   process.stdout.write(`  ✓ ${r.label} — ${r.seconds}s\n`);

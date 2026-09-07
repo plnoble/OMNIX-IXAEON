@@ -147,6 +147,13 @@ export function SettingsPage() {
       {notice && <div className="ok-banner">{notice}</div>}
 
       <Card title="模型接入" testId="settings-model">
+        {/* RF08：旧明文密钥被清除时明确提示重新输入（可理解、可恢复，不静默） */}
+        {view.apiKeyNeedsReentry && !view.config.apiKeyPresent && (
+          <p className="warn" data-testid="settings-apikey-reentry">
+            检测到旧版本以可解码格式保存的 API Key：为满足「永不明文落盘」，它已被从磁盘清除。
+            请重新输入 API Key；重新输入将在系统加密可用时以加密形式保存。
+          </p>
+        )}
         <Field label="模型名称">
           <input
             value={form.modelName}

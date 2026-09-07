@@ -33,14 +33,22 @@
 - **当前对话暂停**（`capture.pausedConversations`）：扩展端本地拦截 + 桌面端服务
   403 双重强制；全局暂停（`capture.enabled=false`）停止一切采集提交。
 
-## 数据离开电脑的唯一渠道
+## 数据离开电脑的渠道（如实，不止一条）
 
-用户配置的 OpenAI 模型 API（提取 / 问答 / 自动分析，若开启）。发送内容：
+1. **用户配置的 OpenAI 模型 API**（提取 / 问答 / 自动分析，若开启）。发送内容：
+   - 提取：当前授权来源的必要片段（按对话轮次/文档标题切块）。
+   - 问答：检索到的有限片段（默认 ≤12,000 字符）+ 项目当前结论。
+2. **MCP 外部编码客户端**（v0.2 起）：`prepare_task` / `search_context` /
+   `get_source_excerpt` 返回的项目简报、条目与原文摘录会交给调用方——通常
+   是本机的编码 Agent（如 Claude Code / Codex CLI）。**这些客户端可能把接收
+   到的内容再发送给它们自己的云模型**。本地服务只绑定 `127.0.0.1:43191` 且
+   要求 Bearer 令牌（localToken），但令牌持有者拿到内容之后的流向不受 IXAEON
+   控制。用户应只把 localToken 配置给信任的编码客户端。
 
-- 提取：当前授权来源的必要片段（按对话轮次/文档标题切块）。
-- 问答：检索到的有限片段（默认 ≤12,000 字符）+ 项目当前结论。
-
-调用前界面展示所用来源范围。API Key 使用 Electron `safeStorage` 加密保存，不进入日志、数据库明文、错误报告或 Git。
+两种渠道调用前界面均展示所用来源范围；撤销来源授权后简报/摘录/检索立即
+停止暴露该来源原文。API Key 使用 Electron `safeStorage` 加密保存（旧版本
+曾以可解码格式落盘的密钥在启动时自动迁移或清除，见 0.17/RF08），不进入
+日志、数据库明文、错误报告或 Git。
 
 ## 未实现事项（如实声明）
 
@@ -49,7 +57,10 @@
 
 ## 扩展权限声明
 
-- 仅申请 `storage`、`https://chatgpt.com/*`、`http://127.0.0.1/*`。
+- 申请 `storage`、`tabs` 两个权限，host 限 `https://chatgpt.com/*` 与 `http://127.0.0.1/*`。
+- **`tabs` 的用途**：Service Worker 在休眠唤醒后需要用 `tabs.query` /
+  `tabs.sendMessage` 重新找到 chatgpt.com 标签页以恢复采集与暂停状态同步；
+  不读取标签页标题、URL 历史或任何非 chatgpt.com 页面内容。
 - 不申请 `<all_urls>`、Cookie、history、webRequest；不模拟登录、不调用 ChatGPT 私有接口。
 - 只采集当前打开对话中可见的用户消息与 AI 回答；可全局暂停或暂停当前对话。
 

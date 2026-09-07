@@ -2,9 +2,88 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, errMsg, type Project, type WorkRun } from '../api.js';
 import { Button, Card, Empty, ErrorBanner, Field, projectStatusLabel, Spinner } from '../ui.js';
 
+type WorkTest = { name: string; result: 'passed' | 'failed' | 'not_run' };
+
+function parseWorkJson<T>(json: string | null | undefined, fallback: T): T {
+  try {
+    return JSON.parse(json ?? '') as T;
+  } catch {
+    return fallback;
+  }
+}
+
+const testResultLabel: Record<WorkTest['result'], string> = {
+  passed: '通过',
+  failed: '失败',
+  not_run: '未运行',
+};
+
+/** 单条工作记录：摘要行 + 可展开详情（RF06：失败测试/未完成事项必须在界面可见）。 */
+function WorkRunRow({ run }: { run: WorkRun }) {
+  const [open, setOpen] = useState(false);
+  const tests = parseWorkJson<WorkTest[]>(run.tests_json, []);
+  const loops = parseWorkJson<string[]>(run.open_loops_json, []);
+  const changes = parseWorkJson<string[]>(run.changes_json, []);
+  const failedTests = tests.filter((t) => t.result === 'failed');
+
+  return (
+    <li className="work-run" data-testid={`work-run-${run.id}`}>
+      <span
+        className={`badge badge-${run.outcome === 'success' ? 'active' : run.outcome === 'failed' ? 'paused' : 'muted'}`}
+      >
+        {run.outcome === 'success' ? '成功' : run.outcome === 'failed' ? '失败' : '部分完成'}
+      </span>
+      <strong>{run.task}</strong>
+      <span className="muted">{run.agent_name}</span>
+      <span className="muted">{run.finished_at.slice(0, 19).replace('T', ' ')}</span>
+      <p className="muted" style={{ fontSize: 12, margin: '2px 0 0' }}>
+        {run.summary.slice(0, 200)}
+      </p>
+      {/* RF06：失败测试与未完成事项不再只藏在数据库里 —— 摘要行直接点名，展开看全量 */}
+      {(failedTests.length > 0 || loops.length > 0) && (
+        <p style={{ fontSize: 12, margin: '4px 0 0' }}>
+          {failedTests.length > 0 && (
+            <span className="badge badge-paused">
+              失败测试 {failedTests.length}：{failedTests.map((t) => t.name).join('、')}
+            </span>
+          )}{' '}
+          {loops.length > 0 && (
+            <span className="badge badge-muted">
+              未完成事项 {loops.length}：{loops.join('、')}
+            </span>
+          )}
+        </p>
+      )}
+      <Button kind="ghost" onClick={() => setOpen(!open)} testId={`work-run-toggle-${run.id}`}>
+        {open ? '收起详情' : '展开详情'}
+      </Button>
+      {open && (
+        <div className="work-run-detail" data-testid={`work-run-detail-${run.id}`}>
+          {changes.length > 0 && (
+            <p className="muted" style={{ fontSize: 12 }}>
+              变更摘要：{changes.join('；')}
+            </p>
+          )}
+          <p className="muted" style={{ fontSize: 12 }}>
+            测试（{tests.length} 项）：
+            {tests.length === 0
+              ? '未记录'
+              : tests.map((t) => `${t.name}=${testResultLabel[t.result]}`).join('、')}
+          </p>
+          <p className="muted" style={{ fontSize: 12 }}>
+            未完成事项：
+            {loops.length === 0 ? '无' : loops.map((l) => `${l}（待用户确认）`).join('；')}
+          </p>
+        </div>
+      )}
+    </li>
+  );
+}
+
 /** 单个项目的最近工作记录（C10：agent 回写接入用户界面）。 */
 function ProjectWorkRuns({ projectId }: { projectId: string }) {
   const [runs, setRuns] = useState<WorkRun[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     void api
@@ -12,16 +91,28 @@ function ProjectWorkRuns({ projectId }: { projectId: string }) {
       .then((r) => {
         if (alive) setRuns(r);
       })
-      .catch(() => {
-        if (alive) setRuns([]);
+      .catch((err) => {
+        // RF06：加载失败如实显示，不悄悄伪装成「暂无记录」
+        if (alive) setError(errMsg(err));
       });
     return () => {
       alive = false;
     };
   }, [projectId]);
 
-  if (runs === null) return null;
-  if (runs.length === 0) {
+  if (runs === null && !error) return null;
+  if (error) {
+    return (
+      <p
+        className="error-text"
+        style={{ fontSize: 12 }}
+        data-testid={`project-work-error-${projectId}`}
+      >
+        最近工作加载失败：{error}
+      </p>
+    );
+  }
+  if (runs!.length === 0) {
     return (
       <p className="muted" style={{ fontSize: 12 }}>
         最近工作：暂无编码 agent 回写记录。
@@ -34,20 +125,8 @@ function ProjectWorkRuns({ projectId }: { projectId: string }) {
         最近工作（agent 自报，用户尚未验收 ≠ 用户决定）：
       </p>
       <ul className="work-run-list">
-        {runs.map((w) => (
-          <li key={w.id} className="work-run" data-testid={`work-run-${w.id}`}>
-            <span
-              className={`badge badge-${w.outcome === 'success' ? 'active' : w.outcome === 'failed' ? 'paused' : 'muted'}`}
-            >
-              {w.outcome === 'success' ? '成功' : w.outcome === 'failed' ? '失败' : '部分完成'}
-            </span>
-            <strong>{w.task}</strong>
-            <span className="muted">{w.agent_name}</span>
-            <span className="muted">{w.finished_at.slice(0, 19).replace('T', ' ')}</span>
-            <p className="muted" style={{ fontSize: 12, margin: '2px 0 0' }}>
-              {w.summary.slice(0, 200)}
-            </p>
-          </li>
+        {runs!.map((w) => (
+          <WorkRunRow key={w.id} run={w} />
         ))}
       </ul>
     </div>

@@ -242,6 +242,8 @@ export const settingsViewSchema = z.object({
     localToken: z.string().nullable(),
   }),
   encryptionNotice: z.string(),
+  /** RF08：旧明文密钥因系统加密不可用被清除，需要用户重新输入 */
+  apiKeyNeedsReentry: z.boolean().default(false),
 });
 export type SettingsView = z.infer<typeof settingsViewSchema>;
 

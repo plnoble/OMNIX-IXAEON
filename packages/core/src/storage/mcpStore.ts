@@ -259,7 +259,9 @@ export class McpService {
     let keptCount = 0;
     for (const { group, entry } of allEntries) {
       group.push(entry);
-      const probeLen = serializedLength(0, false, input.task);
+      // RF04：试放按最坏情形核算 —— truncated=true（截断提示更长）与
+      // 99999 位数上限的 chars_used，为最终截断说明与统计数字留足空间。
+      const probeLen = serializedLength(99999, true, input.task);
       if (probeLen > budget) {
         group.pop();
         truncated = true;
@@ -275,7 +277,7 @@ export class McpService {
     let taskTruncated = false;
     for (
       let guard = 0;
-      guard < 4000 && serializedLength(0, truncated, taskText) > budget;
+      guard < 4000 && serializedLength(99999, truncated, taskText) > budget;
       guard++
     ) {
       // 逐步缩短 task；仍不够则标记截断（保留前缀 + 截断说明）
@@ -294,11 +296,54 @@ export class McpService {
     if (taskTruncated) truncated = true;
 
     // chars_used：按最终序列化结果统计（A09）；迭代收敛统计字段自身位数变化
-    let charsUsed = serializedLength(0, truncated, taskText);
+    let charsUsed = serializedLength(99999, truncated, taskText);
     for (let guard = 0; guard < 8; guard++) {
       const next = serializedLength(charsUsed, truncated, taskText);
       if (next === charsUsed) break;
       charsUsed = next;
+    }
+
+    // RF04 最终防线：任何情形下真实完整返回值不得超过预算。超限时按
+    // 装填优先级的逆序（recentWork → status → risks → rejected →
+    // open_loops → decisions → purpose）逐条移除并复核；全部移除后仍
+    // 超限（极端小预算）则按契约明确拒绝，不返回超限的"成功"结果。
+    for (let guard = 0; guard < 500; guard++) {
+      const finalLen = serializedLength(charsUsed, truncated, taskText);
+      if (finalLen <= budget) break;
+      const victim =
+        recentWork.length > 0
+          ? recentWork
+          : status.length > 0
+            ? status
+            : risks.length > 0
+              ? risks
+              : rejectedOptions.length > 0
+                ? rejectedOptions
+                : openLoops.length > 0
+                  ? openLoops
+                  : decisions.length > 0
+                    ? decisions
+                    : purpose.length > 0
+                      ? purpose
+                      : null;
+      if (!victim) break;
+      victim.pop();
+      truncated = true;
+      // 重算统计（移除条目后长度变化）
+      charsUsed = serializedLength(99999, truncated, taskText);
+      for (let g2 = 0; g2 < 8; g2++) {
+        const next = serializedLength(charsUsed, truncated, taskText);
+        if (next === charsUsed) break;
+        charsUsed = next;
+      }
+    }
+    const finalCheck = serializedLength(charsUsed, truncated, taskText);
+    if (finalCheck > budget) {
+      throw new IxaError(
+        ErrorCodes.BUDGET_EXCEEDED,
+        `max_chars=${budget} 过小：无法容纳最小简报（当前最小 ${finalCheck} 字符）。` +
+          `请使用 ≥2000 的预算（契约最小值）。`,
+      );
     }
 
     recordAudit(this.db, 'mcp.prepare_task', {
@@ -521,6 +566,84 @@ export class McpService {
         role: itemEvidence.role,
         time: itemEvidence.occurred_at,
         is_active_branch: itemEvidence.is_active_branch === 1,
+      };
+    }
+
+    // RF05：人工条目（origin='user' 且无依据片段）——手工创建的结论与用户
+    // 纠正后的结论没有"对话原文"可摘录，不能伪造原文：返回人工记录本身，
+    // 并明确标注身份（手工记录 / 用户纠正），纠正场景附纠正前的旧结论。
+    const manualItem = this.db
+      .prepare(
+        `SELECT type, statement, rationale, origin, supersedes_item_id, created_at
+         FROM items WHERE id = ?`,
+      )
+      .get(ref) as
+      | {
+          type: string;
+          statement: string;
+          rationale: string | null;
+          origin: string;
+          supersedes_item_id: string | null;
+          created_at: string;
+        }
+      | undefined;
+    if (manualItem && manualItem.origin === 'user') {
+      const lines: Array<string | null> = [];
+      let role: string;
+      let title: string;
+      if (manualItem.supersedes_item_id) {
+        role = 'user_correction';
+        title = '用户纠正记录（人工输入，非对话原文摘录）';
+        const correction = this.db
+          .prepare(`SELECT user_text, created_at FROM corrections WHERE new_item_id = ?`)
+          .get(ref) as { user_text: string; created_at: string } | undefined;
+        const oldItem = this.db
+          .prepare(`SELECT statement, origin FROM items WHERE id = ?`)
+          .get(manualItem.supersedes_item_id) as { statement: string; origin: string } | undefined;
+        // 旧结论来自某个来源时，暴露它须该来源读取授权仍有效
+        // （与上面 item 依据片段路径的权限检查一致）
+        if (oldItem) {
+          const oldEvidence = this.db
+            .prepare(
+              `SELECT src.id AS source_id
+               FROM item_evidence e
+               JOIN segments s ON s.id = e.segment_id
+               JOIN sources src ON src.id = s.source_id
+               WHERE e.item_id = ? LIMIT 1`,
+            )
+            .get(manualItem.supersedes_item_id) as { source_id: string } | undefined;
+          if (oldEvidence) assertSourceAuthorized(this.db, oldEvidence.source_id);
+        }
+        lines.push(
+          '【用户纠正结论（人工输入，非对话原文摘录）】',
+          `纠正后结论：${manualItem.statement}`,
+          oldItem
+            ? `纠正前${oldItem.origin === 'user' ? '人工' : 'AI 提取'}结论：${oldItem.statement}`
+            : null,
+          correction ? `纠正时间：${correction.created_at}` : null,
+        );
+      } else {
+        role = 'user_manual';
+        title = '用户手工记录（人工创建，非对话原文摘录）';
+        lines.push(
+          '【用户手工记录（人工创建，非对话原文摘录）】',
+          `结论：${manualItem.statement}`,
+          manualItem.rationale ? `理由：${manualItem.rationale}` : null,
+          `创建时间：${manualItem.created_at}`,
+        );
+      }
+      return {
+        ref,
+        excerpt: lines
+          .filter((l): l is string => l !== null)
+          .join('\n')
+          .slice(0, maxChars),
+        before_context: '',
+        after_context: '',
+        source_title: title,
+        role,
+        time: manualItem.created_at,
+        is_active_branch: true,
       };
     }
 

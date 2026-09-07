@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -42,7 +42,7 @@ import {
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
-import { decryptApiKey, encryptApiKey } from './ipc.js';
+import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
 
 /**
  * 桌面应用主运行时：集中持有数据库、服务与本地 HTTP 服务。
@@ -184,6 +184,11 @@ export class AppRuntime {
     });
     runtimeRef.current = runtime;
     runtime.registerJobHandlers();
+    // RF08：旧版落盘的 plain:（Base64 可逆编码）密钥迁移 ——
+    // 系统加密可用 → 原地升级为 safeStorage 密文；不可用 → 清除旧值
+    //（保持可理解可恢复：用户在设置页重新输入），两种路径都不把
+    // 可解码原文继续留在磁盘上。
+    runtime.migrateLegacyPlainApiKey();
     jobs.start();
     // C02：启动阶段先恢复上一运行代次真正遗留的 running 任务
     //（此时队列必空闲，running 记录没有执行者），再扫描欠分析来源
@@ -395,6 +400,60 @@ export class AppRuntime {
         needsReview: stats.needsReview,
       });
     });
+  }
+
+  /**
+   * RF08：旧版落盘的 plain:（Base64 可逆编码，非加密）API Key 迁移。
+   * - safeStorage 可用：解码后立即用系统加密重存，旧值被覆盖，
+   *   可解码原文不再留在磁盘（迁移本身记审计，不记录密钥内容）。
+   * - safeStorage 不可用：清除旧值并把 apiKeyPresent 置 false ——
+   *   保持可理解、可恢复的状态（设置页可见「需要重新输入」），
+   *   绝不让明文可逆密钥继续静默落盘。
+   * 返回值：'migrated' | 'cleared' | null（无旧格式密钥）。
+   */
+  migrateLegacyPlainApiKey(): 'migrated' | 'cleared' | null {
+    const encrypted = this.config.model.apiKeyEncrypted;
+    if (!encrypted || !encrypted.startsWith('plain:')) return null;
+    const plain = decodeLegacyPlainApiKey(encrypted);
+    if (safeStorage.isEncryptionAvailable() && plain) {
+      const reencrypted = safeStorage.encryptString(plain).toString('base64');
+      this.config = {
+        ...this.config,
+        model: { ...this.config.model, apiKeyEncrypted: reencrypted, apiKeyPresent: true },
+      };
+      saveConfig(this.configFile, this.config);
+      recordAudit(this.db, 'settings.api_key_migrated', { from: 'plain', to: 'safeStorage' });
+      this.logger.info('旧 plain: API Key 已迁移为系统加密存储（RF08）', {});
+      return 'migrated';
+    }
+    this.config = {
+      ...this.config,
+      model: { ...this.config.model, apiKeyEncrypted: null, apiKeyPresent: false },
+    };
+    saveConfig(this.configFile, this.config);
+    recordAudit(this.db, 'settings.api_key_cleared', {
+      from: 'plain',
+      reason: 'encryption_unavailable',
+    });
+    this.logger.warn(
+      '系统加密不可用：旧 plain: API Key 已从磁盘清除，需要用户在设置页重新输入（RF08）',
+      {},
+    );
+    return 'cleared';
+  }
+
+  /**
+   * RF08：设置页提示 —— 旧明文密钥被清除后需要重新输入（从审计事件推导，
+   * 不在 config.json 里新增持久状态）。
+   */
+  apiKeyNeedsReentry(): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 AS one FROM audit_events
+         WHERE kind = 'settings.api_key_cleared' LIMIT 1`,
+      )
+      .get() as { one: number } | undefined;
+    return row !== undefined && !this.config.model.apiKeyPresent;
   }
 
   /**

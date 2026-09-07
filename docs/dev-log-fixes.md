@@ -775,3 +775,76 @@ extension 全断言、serial 串联 PASS；打包复核 3 项；
   理解页不混入（work_result 不等于当前理解——M3 语义的界面侧验证）。
 
 真实模型理解能力仍属发版门槛真人验收（判据备好于 M2_SCENARIOS）。
+
+# v0.2 复审修复（2026-09-07，对复审报告 RF01–RF09）
+
+复审报告新增核心检查 B01–B07（8 项，7 失败）与界面 BUI01（失败）。
+原始失败证据保留：`apps/desktop/test/review/results-recheck-20260907.json`、
+`apps/desktop/test/review/.recheck-ui-20260907/…/error-context.md`。
+本轮全部修复并另存新结果；未删除任何旧断言，未写死答案。
+
+## 修复内容
+
+1. **RF01 保护集括号**（extractor.ts loadManualProtectionScope）：原 SQL
+   相当于「属于来源 OR（纠正关系 AND 人工条件）」，普通未确认 AI 条目被
+   误当保护集，重提后旧结论被删除。改为「（属于来源 ∪ 递归纠正链）AND
+   人工条件」（B01）。
+2. **RF02 纠正链递归**：保护范围沿 corrections 双向递归扩展（CTE UNION
+   去重防循环），两次连续纠正后最新人工约束进入保护集（B02）。
+3. **RF03 集中重算 needs_review**：新增 ItemService.recomputeNeedsReview
+   （待处理 = 无归属 OR 重要 AI 决定未确认 OR 冲突），assignToProject 与
+   bindProject 两入口共用同一事实规则（B03 两入口）。
+4. **RF04 简报预算最终防线**（mcpStore.ts）：条目试放探针改按最坏情形
+   （truncated=true + chars_used 99999 位数）核算；返回前对真实完整序列化
+   复核，超限按装填逆序收缩（recentWork→status→risks→rejected→open_loops
+   →decisions→purpose）；极端小预算抛 IXA0020 BUDGET_EXCEEDED 契约错误
+   （B04，1300–1510 字符循环不再超限）。
+5. **RF05 人工/纠正条目引用展开**（mcpStore.ts getSourceExcerpt）：新增
+   origin=user 分支——纠正条目返回「用户纠正记录（附纠正前结论）」、手工
+   条目返回「用户手工记录」，明确标注非对话原文摘录；旧结论带依据时校验
+   来源授权（B05/B06）。
+6. **RF06 项目页工作详情**（Projects.tsx）：摘要行直接点名失败测试与
+   未完成事项；可展开详情（变更/测试全量/未完成事项，标注待用户确认）；
+   加载失败如实报错（不再吞成「暂无记录」）。BUI01 附加重进页面、详情
+   展开收起、项目隔离检查；新增 BUI02 验证重启后仍可见（持久化非内存态）。
+7. **RF07 六类界面名实对齐**（m2-ui.spec.ts 重写场景框架）：S1 改真实
+   「不采纳」流程（动作前后简报变化）；S2 改真实「确认」流程（AI 记录
+   否决 + 用户确认该理解，标签「待用户确认」→「用户已确认」）；S4 构造
+   两个真实来源的相反结论（方案甲/乙），断言双方保留、disputed、待处理、
+   简报「存在冲突」标注、不自动选边；全部场景增加 dbExpect 持久化断言。
+8. **RF08 旧 plain: 密钥迁移**（appRuntime/ipc/contracts/Settings）：
+   启动时 migrateLegacyPlainApiKey——safeStorage 可用→原地升级系统加密；
+   不可用→清除旧值 + apiKeyPresent=false + 设置页提示重新输入
+   （settingsView 新增 apiKeyNeedsReentry）。decryptApiKey 运行期不再解码
+   plain:（迁移专用入口 decodeLegacyPlainApiKey 独立导出）；保存失败文案
+   不再承诺「仅本次会话的密钥」（B08/B09/B10，密钥均为合成字符串）。
+9. **RF09 交付同步**：verify.mjs 新增 review-recheck（11 项）与
+   review-recheck-ui（UI01/BUI01/BUI02，真实 Electron）两个步骤；
+   REVIEW_PACKET 0.16 更正「UI01 已纳入 verify」的不实表述并新增 0.17 节；
+   privacy-model.md 改「数据离开电脑的渠道」为如实两条（模型 API + MCP
+   外部客户端可能转发给其云模型）、补扩展 tabs 权限用途（唤醒后定位
+   chatgpt.com 标签页，不读其他页面）；本日志即本轮记录。
+
+## 验证
+
+- recheck-20260907：11/11（B01–B10，B03 两入口）通过；新结果另存
+  `results-recheck-20260907-fixed.json`（原始失败 JSON 保留未动）。
+- recheck UI：UI01 + BUI01 + BUI02 3/3 通过（真实 Electron，含重进页面、
+  详情展开、项目隔离、重启持久化）。
+- m2-ui：6/6 通过（S1–S5 场景 + S6，RF07 重写后名实对应）。
+- 完整 verify 13 步全绿（lint / format / typecheck / unit / integration /
+  build + 六轮 review 含本轮 review-recheck 与 review-recheck-ui）。
+- desktop e2e 16/16、extension e2e 全断言、serial 串联（真扩展→真实服务→
+  真实数据库）PASS。
+- 打包：IXAEON-Setup-0.2.0.exe 重新生成（RF 修复进入产物），
+  122,595,082 字节，SHA-256
+  `3169B563A5F8CF2C61823B40A23563E443A9F6AF29643F7820EBCEB434A96E97`；
+  重打包后 win-unpacked 复核 3 项通过（自定义目录 / 重启保留 / 搬迁后
+  无全局 Node 的 MCP 握手 + 四工具 + 持久化回写）。未执行安装器真实
+  安装流程（如实，属未验证项）。
+
+## 已知剩余（如实）
+
+非空旧库的真实升级路径、安装器真实安装流程、真人真实环境验证仍未执行
+（与此前未完成清单一致）。会话级密钥方案明确不实现（RF08 决定：改文案
+而非承诺未实现功能）。

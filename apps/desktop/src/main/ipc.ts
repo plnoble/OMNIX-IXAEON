@@ -332,6 +332,8 @@ export function registerIpc(runtime: AppRuntime): void {
         mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
         encryptionNotice:
           '应用未实现全库加密：数据库与原文保存在本地文件中，建议开启 Windows BitLocker。',
+        // RF08：旧明文密钥因系统加密不可用被清除 → 提示重新输入
+        apiKeyNeedsReentry: runtime.apiKeyNeedsReentry(),
       };
     },
     saveModelSettings: async (input) => {
@@ -418,18 +420,32 @@ export function encryptApiKey(plain: string): string {
   if (safeStorage.isEncryptionAvailable()) {
     return safeStorage.encryptString(plain).toString('base64');
   }
-  // C11：系统加密不可用时拒绝持久化——Base64 是可逆编码不是加密，
-  // 静默降级违反「API Key 永不明文落盘」契约。调用方应提示用户，
-  // 可改用仅本次会话（内存）方式，不写入配置文件。
+  // C11/RF08：系统加密不可用时拒绝持久化——Base64 是可逆编码不是加密，
+  // 静默降级违反「API Key 永不明文落盘」契约。当前没有仅本次会话的
+  // 密钥方案（不承诺不存在的功能）：保存失败即未保存；已配置的密钥不受影响。
   throw new IxaError(
     ErrorCodes.VALIDATION_FAILED,
-    '系统加密存储不可用：API Key 不会保存到磁盘。可继续使用仅本次会话的密钥（重启后需重新输入），或稍后在系统加密可用时再保存。',
+    '系统加密存储不可用：API Key 未能保存（本应用不提供明文落盘）。请稍后在系统加密可用时重新保存。',
   );
 }
 
+/** RF08：解码旧版 plain:（Base64 可逆编码）密钥 —— 仅供启动迁移使用。 */
+export function decodeLegacyPlainApiKey(encrypted: string): string | null {
+  if (!encrypted.startsWith('plain:')) return null;
+  try {
+    const decoded = Buffer.from(encrypted.slice('plain:'.length), 'base64').toString('utf8');
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
 export function decryptApiKey(encrypted: string): string | null {
+  // RF08：旧 plain: 格式已由启动迁移处理（可用时升级为系统加密，不可用
+  // 时清除）。运行期读取路径不再直接解码明文 —— 迁移被跳过（如迁移写
+  // 盘失败）时按「密钥不可用」处理，用户在设置页重新输入。
   if (encrypted.startsWith('plain:')) {
-    return Buffer.from(encrypted.slice('plain:'.length), 'base64').toString('utf8');
+    return null;
   }
   if (safeStorage.isEncryptionAvailable()) {
     try {

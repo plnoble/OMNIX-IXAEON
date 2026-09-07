@@ -115,48 +115,14 @@ export class Extractor {
     const active = segments.filter((s) => s.is_active_branch !== 0);
     const pool = active.length > 0 ? active : segments;
 
-    // M2/G4 人工改口优先：保护「用户已确认 / 已不采纳 / 用户纠正后」的全部条目。
-    // C05：沿 corrections 链追溯 —— 用户纠正产生的新条目（origin=user）没有
-    // extracted_from_source_id，因此先找到当前来源条目参与过的纠正链，把链上
-    // 的前驱（superseded）与用户结果全部纳入保护；不能只按来源字段过滤。
-    const protectedStatements = this.db
-      .prepare(
-        `SELECT DISTINCT statement FROM items
-         WHERE id IN (
-           -- 当前来源的 AI 条目（含 superseded 前驱）
-           SELECT id FROM items WHERE extracted_from_source_id = ?
-         ) OR id IN (
-           -- 纠正链：当前来源条目作为旧项或新项参与的全部 corrections 对端
-           SELECT c.new_item_id FROM corrections c
-           WHERE c.old_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
-           UNION
-           SELECT c.old_item_id FROM corrections c
-           WHERE c.new_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
-         )`,
-      )
-      .all(sourceId, sourceId, sourceId) as Array<{ statement: string }>;
-    // 只保护「人工参与过」的语句：superseded（被纠正前驱）、confirmed/rejected、
-    // origin=user 的纠正结果；普通 AI current 条目不在保护集
-    const manualStatements = this.db
-      .prepare(
-        `SELECT DISTINCT it.statement FROM items it
-         WHERE it.id IN (
-           SELECT id FROM items WHERE extracted_from_source_id = ?
-         ) OR it.id IN (
-           SELECT c.new_item_id FROM corrections c
-           WHERE c.old_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
-           UNION
-           SELECT c.old_item_id FROM corrections c
-           WHERE c.new_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
-         )
-         AND (
-           it.state = 'superseded'
-           OR (it.origin = 'ai' AND it.state = 'current' AND it.confirmation IN ('confirmed', 'rejected'))
-           OR (it.origin = 'user' AND it.state IN ('current', 'disputed'))
-         )`,
-      )
-      .all(sourceId, sourceId, sourceId) as Array<{ statement: string }>;
-    void protectedStatements;
+    // M2/G4/RF01/RF02 人工改口保护集：
+    // 1) RF02 —— 从当前来源相关条目出发，沿 corrections 递归遍历整条纠正链
+    //    （第一次纠正的用户结果没有 extracted_from_source_id，再次纠正后
+    //    超出一层查询范围；用递归 CTE + 去重防循环覆盖任意深度）；
+    // 2) RF01 —— 括号语义修正：范围条件（来源或纠正链）与人工条件分别加括号。
+    //    旧写法 `来源 OR (链 AND 人工)` 把普通 AI 条目也纳入保护集，
+    //    导致重提时旧结论被跳过重建、旧行又被删除 → 有效结论丢失。
+    const manualStatements = this.loadManualProtectionScope(sourceId);
     const protectedSets = manualStatements.map((p) => bigrams(p.statement));
     // G4：字符相似度只能作为「候选关联」信号，不能证明语义相同 ——
     // 只差一个「不」的相反意见也高度相似。高度相似的新结论不直接丢弃，
@@ -243,28 +209,10 @@ export class Extractor {
       }
     )?.p;
 
-    // C05/A05：保护集合在模型请求前读取 —— 请求等待期间用户完成纠正时，
-    // 模型返回后仍按旧集合写入，旧决定会再次作为 current 出现。
-    // 提交前用最新人工状态重新协调：重读保护集并重新过滤候选。
-    const recheckManual = this.db
-      .prepare(
-        `SELECT DISTINCT it.statement FROM items it
-         WHERE it.id IN (
-           SELECT id FROM items WHERE extracted_from_source_id = ?
-         ) OR it.id IN (
-           SELECT c.new_item_id FROM corrections c
-           WHERE c.old_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
-           UNION
-           SELECT c.old_item_id FROM corrections c
-           WHERE c.new_item_id IN (SELECT id FROM items WHERE extracted_from_source_id = ?)
-         )
-         AND (
-           it.state = 'superseded'
-           OR (it.origin = 'ai' AND it.state = 'current' AND it.confirmation IN ('confirmed', 'rejected'))
-           OR (it.origin = 'user' AND it.state IN ('current', 'disputed'))
-         )`,
-      )
-      .all(sourceId, sourceId, sourceId) as Array<{ statement: string }>;
+    // C05/A05/RF02：提交前用最新人工状态重新协调候选 —— 复用同一保护查询
+    // （loadManualProtectionScope，含递归纠正链），覆盖模型等待期间的
+    // 多次纠正、确认和不采纳。
+    const recheckManual = this.loadManualProtectionScope(sourceId);
     const recheckSets = recheckManual.map((p) => bigrams(p.statement));
     const stillSafe = collected.filter(({ row }) => {
       if (recheckManual.some((p) => p.statement === row.statement)) {
@@ -379,6 +327,39 @@ export class Extractor {
     })();
 
     return stats;
+  }
+
+  /**
+   * RF01/RF02：人工保护集 —— 单一查询供初次读取与提交前重查共用。
+   * 范围 =（当前来源的条目 ∪ 沿 corrections 递归可达的整条纠正链对端），
+   * 且必须满足人工条件（superseded 前驱 / 已确认或已不采纳 / origin=user）。
+   * 递归 CTE 从来源条目双向扩展（old→new 与 new→old），UNION 去重防循环；
+   * 只在当前数据库连接内解析，不混入其他来源或项目的用户条目。
+   */
+  private loadManualProtectionScope(sourceId: string): Array<{ statement: string }> {
+    return this.db
+      .prepare(
+        `WITH RECURSIVE chain(id) AS (
+           -- 起点：当前来源的条目
+           SELECT id FROM items WHERE extracted_from_source_id = ?
+           UNION
+           -- 沿纠正链向后：old → new（纠正产生的新条目）
+           SELECT c.new_item_id FROM corrections c JOIN chain ON chain.id = c.old_item_id
+           UNION
+           -- 沿纠正链向前：new → old（追溯前驱）
+           SELECT c.old_item_id FROM corrections c JOIN chain ON chain.id = c.new_item_id
+         )
+         SELECT DISTINCT it.statement
+         FROM items it
+         WHERE it.id IN (SELECT id FROM chain)
+           AND (
+             it.state = 'superseded'
+             OR (it.origin = 'ai' AND it.state = 'current'
+                 AND it.confirmation IN ('confirmed', 'rejected'))
+             OR (it.origin = 'user' AND it.state IN ('current', 'disputed'))
+           )`,
+      )
+      .all(sourceId) as Array<{ statement: string }>;
   }
 
   /**
