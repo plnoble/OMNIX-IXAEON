@@ -145,6 +145,15 @@ results.push(
   ]),
 );
 
+results.push(
+  run('review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.closure-b8f216b-20260908.config.ts',
+  ]),
+);
+
 // N02 界面验收（LUI01-LUI03：搁置/恢复/纠正退出待处理），依赖 build 产物
 results.push(
   run('review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron）', [
