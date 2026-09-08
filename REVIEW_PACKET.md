@@ -673,6 +673,21 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 ---
 
+## 11.5 v0.2.1 发布记录（2026-09-08，GitHub 发版与自动更新）
+
+- 用户需求：正式更新经 GitHub 发版（plnoble/OMNIX-IXAEON）+ 软件自动检测。
+- 实现：electron-updater（仅生产构建；启动 5s 静默检查 + 设置页手动检查；
+  自动下载、用户点击安装、不自动重启）；electron-builder publish → GitHub。
+- 验证：完整 verify 17 步全绿；win-unpacked 0.2.1 真实 Electron 手动检查
+  → 真实 GitHub Releases → 正确「已是最新」；latest.yml/安装包 curl 可下载。
+- 发布：GitHub Release v0.2.1（IXAEON-Setup-0.2.1.exe 122,833,959 字节，
+  SHA-256 89E0F27DB6BBE93B0FBEBC4AD6290909683661247CD78A1151151EAD942473F3）。
+- 边界（如实）：已安装的 0.2.0 无更新代码，首次需手动装 0.2.1；真实
+  「下载→安装」升级路径待 0.2.2 发版时真机验证；仓库为 PUBLIC，安装包
+  公开可下载。
+
+---
+
 ## 12. 交付物清单
 
 - 源码：本仓库（v0.1 M0–M5 + 历次验收修复 + v0.1.1–v0.2 全批次 + 全项目审核 C01–C13 + 复审 RF01–RF09 + 二次复审 F01–F03 + 三次复审 N01–N02）

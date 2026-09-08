@@ -987,3 +987,40 @@ win-unpacked 复核 3/3、打包文件与重建产物逐字节一致（app.asar 
 三组都需用户确认测试环境、资料范围与费用后执行；在此之前不宣称
 「v0.2 已完成全部实际验收」。v0.3 Door 方案可先整理，正式实施在
 真实验收之后。
+
+# v0.2.1 发布：GitHub 发版与自动更新（2026-09-08，用户需求第 1 项）
+
+用户要求：正式软件更新通过 GitHub 发版（github.com/plnoble/OMNIX-IXAEON）
+之后由软件自动检测更新。
+
+## 实现
+
+- electron-updater 接入（apps/desktop/src/main/updater.ts）：仅生产构建
+  （app.isPackaged）启用；启动 5s 静默检查 + 设置页手动检查；自动下载、
+  用户点击「重启并安装」（不自动重启——用户始终有控制权）；失败不阻塞
+  使用。开发运行（非打包）不检查。
+- electron-builder publish 指向 GitHub（plnoble/OMNIX-IXAEON）；产物含
+  latest.yml（版本/SHA512/大小元数据，electron-updater 契约）。
+- preload 暴露 window.ixaeonUpdates（check/install/onStatus 推送）；
+  contracts 新增 UpdateStatusView。
+- 设置页新增「应用更新」卡片（检查按钮/下载中/可安装/已是最新/失败原因）。
+- 版本统一 0.2.1（全部 package/manifest/APP_VERSION/MCP serverInfo）。
+
+## 验证（真实网络）
+
+- 完整 verify 17 步全绿（0.2.1 版本下复跑）；desktop e2e 16/16、
+  wizard 2/2。
+- 打包 IXAEON-Setup-0.2.1.exe（122,833,959 字节，
+  SHA-256 89E0F27DB6BBE93B0FBEBC4AD6290909683661247CD78A1151151EAD942473F3）。
+- GitHub Release v0.2.1 已发布（含 exe + latest.yml + blockmap）；
+  curl 实测 latest.yml 与安装包均可下载（HTTP 206）。
+- win-unpacked 0.2.1 真实 Electron 启动 → 设置页更新卡片 → 手动检查 →
+  真实访问 GitHub Releases → 正确返回「已是最新版本」（同版本无更新）。
+  整条更新检查链路（网络/解析/版本比较/UI）真实验证。
+
+## 已知边界（如实）
+
+- 用户当前安装的 0.2.0 没有更新代码——首次升级到 0.2.1 需手动安装一次
+  （Setup-0.2.1.exe）；此后（0.2.1+）的更新为自动检测。
+- 自动更新只对生产构建生效；verify/e2e 环境无法覆盖真实下载安装路径
+  （无更高版本可测），该路径待 0.2.2 发版时真机验证。
