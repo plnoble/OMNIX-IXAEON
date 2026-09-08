@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { registerIpc } from './ipc.js';
+import { startAutoUpdater } from './updater.js';
 import type { AppState } from '@ixaeon/contracts';
 
 let mainWindow: BrowserWindow | null = null;
@@ -60,6 +61,8 @@ if (!gotSingleInstanceLock) {
       ipcFallbackState();
     }
     await createWindow();
+    // GitHub 发版自动更新：仅生产构建启用（开发运行无更新元数据）
+    startAutoUpdater();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) void createWindow();
     });

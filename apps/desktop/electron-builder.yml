@@ -30,4 +30,9 @@ nsis:
   artifactName: IXAEON-Setup-${version}.${ext}
   shortcutName: IXAEON 析衍
   uninstallDisplayName: IXAEON（析衍）
-publish: null
+# GitHub 发版：electron-updater 从该仓库 Releases 检查更新
+#（latest.yml + 安装包）；package:windows 只打包，发布用 gh release 上传。
+publish:
+  provider: github
+  owner: plnoble
+  repo: OMNIX-IXAEON

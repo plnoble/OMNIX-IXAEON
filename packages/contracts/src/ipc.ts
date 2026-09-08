@@ -379,8 +379,23 @@ export interface IxaIpcApi {
   listAuditEvents(limit: number): Promise<AuditEvent[]>;
 }
 
+/** 更新状态（electron-updater 推送与手动查询共用形状）。 */
+export interface UpdateStatusView {
+  available: boolean;
+  version: string | null;
+  state: 'none' | 'downloading' | 'ready' | 'error';
+  error: string | null;
+  releaseNotes: string | null;
+}
+
 declare global {
   interface Window {
     ixaeon?: IxaIpcApi;
+    /** 更新能力（生产构建存在；开发运行 preload 未加载时 undefined） */
+    ixaeonUpdates?: {
+      check: () => Promise<UpdateStatusView>;
+      install: () => Promise<{ ok: boolean; reason?: string }>;
+      onStatus: (listener: (status: UpdateStatusView) => void) => () => void;
+    };
   }
 }

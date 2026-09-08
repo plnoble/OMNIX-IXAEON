@@ -6,6 +6,16 @@ import type { IxaIpcApi } from '@ixaeon/contracts';
  * contextIsolation 开启，渲染进程只能通过这里的受控方法访问主进程能力。
  * 文件选择一律经主进程原生对话框（返回一次性票据，渲染层不接触授权决策）。
  */
+
+/** 更新状态（electron-updater 推送 + 手动查询共用形状）。 */
+export interface UpdateStatusView {
+  available: boolean;
+  version: string | null;
+  state: 'none' | 'downloading' | 'ready' | 'error';
+  error: string | null;
+  releaseNotes: string | null;
+}
+
 const api: IxaIpcApi = {
   getState: () => ipcRenderer.invoke('ixaeon:getState'),
   completeSetup: (input) => ipcRenderer.invoke('ixaeon:completeSetup', input),
@@ -56,4 +66,17 @@ const api: IxaIpcApi = {
   listAuditEvents: (limit) => ipcRenderer.invoke('ixaeon:listAuditEvents', limit),
 };
 
+/** 更新能力（独立于 IxaIpcApi：仅生产构建存在，开发运行为 no-op）。 */
+const updates = {
+  check: (): Promise<UpdateStatusView> => ipcRenderer.invoke('ixaeon:check-update'),
+  install: (): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke('ixaeon:install-update'),
+  onStatus: (listener: (status: UpdateStatusView) => void): (() => void) => {
+    const handler = (_e: unknown, status: UpdateStatusView) => listener(status);
+    ipcRenderer.on('ixaeon:update-status', handler);
+    return () => ipcRenderer.removeListener('ixaeon:update-status', handler);
+  },
+};
+
 contextBridge.exposeInMainWorld('ixaeon', api);
+contextBridge.exposeInMainWorld('ixaeonUpdates', updates);

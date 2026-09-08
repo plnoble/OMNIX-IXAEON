@@ -1,7 +1,7 @@
 {
   "name": "@ixaeon/mcp",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "IXAEON STDIO MCP 服务，调用本机 IXAEON 接口",
   "type": "module",
   "scripts": {

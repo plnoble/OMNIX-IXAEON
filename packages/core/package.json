@@ -1,7 +1,7 @@
 {
   "name": "@ixaeon/core",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "IXAEON 核心：导入、存储、提取、检索、纠正、简报逻辑",
   "type": "module",
   "exports": {

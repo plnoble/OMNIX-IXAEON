@@ -1,7 +1,7 @@
 {
   "name": "@ixaeon/desktop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "IXAEON（析衍）Windows 桌面应用：Electron 主进程、React 界面、本地 HTTP 接口",
   "main": "out/main/index.js",
   "scripts": {
@@ -16,6 +16,7 @@
     "@ixaeon/contracts": "workspace:*",
     "@ixaeon/core": "workspace:*",
     "better-sqlite3": "^13.0.3",
+    "electron-updater": "^6.8.9",
     "fastify": "^5.12.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

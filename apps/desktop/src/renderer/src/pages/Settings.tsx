@@ -6,11 +6,95 @@ import {
   type ExportResult,
   type RestorePreview,
   type SettingsView,
+  type UpdateStatusView,
 } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 
 /** 恢复预览状态（含所选 ZIP 路径）。 */
 type RestorePreviewState = RestorePreview & { zipPath: string };
+
+/**
+ * 应用更新卡片（GitHub 发版）：检查新版本、显示下载状态、
+ * 下载完成后由用户点击安装（不自动重启）。开发运行时能力不存在 → 不显示。
+ */
+function UpdateCard() {
+  const [status, setStatus] = useState<UpdateStatusView | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const updates = window.ixaeonUpdates;
+    if (!updates) return; // 开发运行（preload 未暴露更新能力）
+    const off = updates.onStatus((s) => setStatus(s));
+    return () => {
+      off();
+    };
+  }, []);
+
+  const check = async () => {
+    const updates = window.ixaeonUpdates;
+    if (!updates) return;
+    setChecking(true);
+    setUpdateError(null);
+    try {
+      setStatus(await updates.check());
+    } catch (err) {
+      setUpdateError(errMsg(err));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const install = async () => {
+    const updates = window.ixaeonUpdates;
+    if (!updates) return;
+    try {
+      const result = await updates.install();
+      if (!result.ok) setUpdateError('更新尚未下载完成，请稍后再试');
+    } catch (err) {
+      setUpdateError(errMsg(err));
+    }
+  };
+
+  // 生产构建但能力缺失（异常情形）或用户明确无需更新提示时不渲染主体
+  return (
+    <Card title="应用更新" testId="settings-update">
+      <p className="note">
+        通过 GitHub Releases 检查与下载更新（plnoble/OMNIX-IXAEON）。
+        下载完成后需你点击安装；不会自动重启应用。
+      </p>
+      {updateError && <p className="warn">{updateError}</p>}
+      {status?.state === 'ready' && status.version && (
+        <p className="ok-banner" data-testid="update-ready">
+          新版本 {status.version} 已下载完成。
+          <Button kind="primary" onClick={install} testId="update-install">
+            重启并安装
+          </Button>
+        </p>
+      )}
+      {status?.state === 'downloading' && status.version && (
+        <p className="note" data-testid="update-downloading">
+          正在下载新版本 {status.version}…（可在下方继续使用，下载完成后再安装）
+        </p>
+      )}
+      {status?.state === 'error' && (
+        <p className="warn" data-testid="update-error">
+          更新检查失败：{status.error ?? '未知错误'}（不影响当前使用，可稍后重试）
+        </p>
+      )}
+      {status?.state === 'none' && (
+        <p className="note" data-testid="update-none">
+          当前已是最新版本。
+        </p>
+      )}
+      <div className="wizard-nav">
+        <Button disabled={checking} onClick={check} testId="update-check">
+          {checking ? '检查中…' : '检查更新'}
+        </Button>
+      </div>
+    </Card>
+  );
+}
 
 /** 设置页：模型接入、采集开关、扩展配对、MCP 接入片段、导出恢复、最近操作。 */
 export function SettingsPage() {
@@ -176,6 +260,8 @@ export function SettingsPage() {
     <div data-testid="page-settings">
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       {notice && <div className="ok-banner">{notice}</div>}
+
+      <UpdateCard />
 
       <Card title="模型接入" testId="settings-model">
         {/* RF08：旧明文密钥被清除时明确提示重新输入（可理解、可恢复，不静默） */}

@@ -17,6 +17,7 @@ import type {
   SettingsView,
   Source,
   SourceListItem,
+  UpdateStatusView,
   WorkRun,
 } from '@ixaeon/contracts';
 
@@ -48,5 +49,6 @@ export type {
   SettingsView,
   Source,
   SourceListItem,
+  UpdateStatusView,
   WorkRun,
 };
