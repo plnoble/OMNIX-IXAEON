@@ -255,6 +255,31 @@ WHERE analyzed_revision >= content_revision
 ALTER TABLE items ADD COLUMN manual_project INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    id: 9,
+    name: 'item-needs-review-reasons',
+    sql: `
+-- 修复 F01/RF03：待处理原因集合。needs_review 只读自 needs_reasons
+--（非空 = 待处理），每个归属/确认/解除操作只增删自己负责的原因，
+-- 不再整体覆写 —— 「选项目」只解决 no_project，不顺便抹掉
+-- manual（用户显式要求）、conflict（人工约束冲突）、unconfirmed。
+-- 原因代码：no_project / unconfirmed / conflict / manual。
+ALTER TABLE items ADD COLUMN needs_reasons TEXT NOT NULL DEFAULT '';
+-- 旧数据迁移规则（非空旧库）：needs_review=1 的行无法追溯真实原因
+-- —— 保守回填全部当前成立的派生原因 + manual（宁可多留在待讨论，
+-- 不静默清掉历史待处理状态）；needs_review=0 的行原因留空（保持原状）。
+UPDATE items SET needs_reasons = (
+  (CASE WHEN project_id IS NULL THEN 'no_project,' ELSE '' END)
+  || (CASE WHEN origin = 'ai' AND state = 'current'
+            AND confirmation = 'none'
+            AND type IN ('decision','rejected_option','project_summary')
+           THEN 'unconfirmed,' ELSE '' END)
+  || (CASE WHEN state = 'disputed' THEN 'conflict,' ELSE '' END)
+  || 'manual'
+)
+WHERE needs_review = 1;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

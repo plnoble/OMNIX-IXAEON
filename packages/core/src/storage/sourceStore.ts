@@ -4,6 +4,7 @@ import type { Permission, Project, Segment, Source } from '@ixaeon/contracts';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { sha256 } from '../vault.js';
 import { assertSourceAuthorized } from '../access.js';
+import { syncDerivedNeedsReasons } from './needsReview.js';
 import type { ParsedSource } from '../import/parsers.js';
 
 export interface SourceAnalysisStatus {
@@ -408,51 +409,25 @@ export class SourceStore {
       // 修复 G5/V08：批量重绑只移动「自动继承归属」的 AI 条目 ——
       // 用户单独归属过的条目（manual_project=1 标记）与 origin=user 的人工
       // 条目不被搬走；单独归属优先于来源级绑定。
-      const r = this.db
+      const moved = this.db
         .prepare(
-          `UPDATE items SET project_id = ?
+          `SELECT id FROM items
            WHERE extracted_from_source_id = ?
              AND origin = 'ai'
              AND state != 'superseded'
              AND manual_project = 0`,
         )
-        .run(projectId, sourceId);
-      movedItems = r.changes;
-      // C04/A02/RF03：归属与确认是两个维度 —— 待处理原因按当前事实重算
-      // （与 ItemService.recomputeNeedsReview 同一规则集中实现）：
-      // - 绑定项目 → 「缺项目」解除（普通条目退出 Inbox）；
-      // - 重要 AI 决定未确认 / 冲突 → 保留待讨论；
-      // - 解绑 → 「缺项目」重新成立。
-      const affected = this.db
-        .prepare(
-          `SELECT id, project_id, type, origin, state, confirmation FROM items
-           WHERE extracted_from_source_id = ? AND state != 'superseded'`,
-        )
-        .all(sourceId) as Array<{
-        id: string;
-        project_id: string | null;
-        type: string;
-        origin: string;
-        state: string;
-        confirmation: string;
-      }>;
-      const update = this.db.prepare(
-        'UPDATE items SET needs_review = ?, updated_at = ? WHERE id = ?',
-      );
-      const now = new Date().toISOString();
-      for (const row of affected) {
-        const missingProject = row.project_id === null;
-        const unconfirmedImportant =
-          row.origin === 'ai' &&
-          row.state === 'current' &&
-          row.confirmation === 'none' &&
-          (row.type === 'decision' ||
-            row.type === 'rejected_option' ||
-            row.type === 'project_summary');
-        const disputed = row.state === 'disputed';
-        const needsReview = missingProject || unconfirmedImportant || disputed;
-        update.run(needsReview ? 1 : 0, now, row.id);
-      }
+        .all(sourceId) as Array<{ id: string }>;
+      const setProject = this.db.prepare('UPDATE items SET project_id = ? WHERE id = ?');
+      for (const row of moved) setProject.run(projectId, row.id);
+      movedItems = moved.length;
+      // C04/A02/F01：归属与确认是两个维度 —— 待处理原因按集中规则重算
+      //（needsReview.ts syncDerivedNeedsReasons，与条目归属入口同一函数）：
+      // 绑定 → 只解除「缺项目」（普通条目退出 Inbox）；
+      // 解绑 → 「缺项目」重新成立；未确认 / 冲突 / 用户显式要求一律保留。
+      // F01：只处理本次真正移动的条目 —— manual_project=1（用户单独归属）
+      // 的条目不在移动集内，其待处理状态不被来源级操作顺带改写。
+      for (const row of moved) syncDerivedNeedsReasons(this.db, row.id);
     });
     tx();
     return { movedItems };

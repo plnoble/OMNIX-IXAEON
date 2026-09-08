@@ -4,6 +4,7 @@ import type { ModelProvider } from './model/provider.js';
 import { EXTRACT_PROMPT_VERSION, EXTRACT_SYSTEM_PROMPT } from './prompts.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { assertSourceAuthorized } from '../access.js';
+import { addNeedsReason } from '../storage/needsReview.js';
 
 /** 单次提取的输出 schema（计划 5.3.4：候选项目、决定、否决、待办、目标、约束）。 */
 export const extractionOutputSchema = z.object({
@@ -319,6 +320,17 @@ export class Extractor {
           suggestedProjectId,
         );
         insertEvidence.run(itemId, segmentId, row.excerpt, row.confidence);
+        // F01：待处理状态按原因落库 —— 缺项目/人工约束冲突是持久原因，
+        // 归属操作只解除「缺项目」，冲突必须留给用户处理。
+        if (!projectId) addNeedsReason(this.db, itemId, 'no_project');
+        if (conflictsWithProtected) addNeedsReason(this.db, itemId, 'conflict');
+        if (
+          row.type === 'decision' ||
+          row.type === 'rejected_option' ||
+          row.type === 'project_summary'
+        ) {
+          addNeedsReason(this.db, itemId, 'unconfirmed');
+        }
         stats.inserted++;
         if (needsReview) stats.needsReview++;
       }
@@ -450,6 +462,10 @@ export class Extractor {
       if (clash) {
         mark.run(row.id);
         mark.run(clash.id);
+        // F01：disputed 是持久的冲突原因 —— 归属操作不能解除，
+        // 只能由用户（确认/不采纳/纠正/明确解除）处理。
+        addNeedsReason(this.db, row.id, 'conflict');
+        addNeedsReason(this.db, clash.id, 'conflict');
         disputed += 2;
       } else {
         seen.push({ id: row.id, project_id: row.project_id, type: row.type, set });

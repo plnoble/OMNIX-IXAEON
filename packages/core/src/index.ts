@@ -54,6 +54,7 @@ export {
   type ExtractStats,
 } from './extraction/extractor.js';
 export { ItemService } from './storage/itemStore.js';
+export { syncDerivedNeedsReasons, type NeedsReason } from './storage/needsReview.js';
 export { AskService, type AskResult } from './storage/askStore.js';
 export { McpService } from './storage/mcpStore.js';
 export { ArchiveService } from './storage/archiveStore.js';

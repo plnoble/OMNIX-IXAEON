@@ -802,8 +802,8 @@ export class McpService {
         this.db
           .prepare(
             `INSERT INTO items (id, project_id, type, statement, state, confidence,
-               origin, created_at, updated_at, needs_review)
-             VALUES (?, ?, 'open_loop', ?, 'current', 0.5, 'work_result', ?, ?, 1)`,
+               origin, created_at, updated_at, needs_review, needs_reasons)
+             VALUES (?, ?, 'open_loop', ?, 'current', 0.5, 'work_result', ?, ?, 1, 'unconfirmed')`,
           )
           .run(itemId, project.id, loop, now, now);
         candidates.push({ item_id: itemId, statement: loop, ref: itemId });

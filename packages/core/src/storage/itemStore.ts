@@ -7,6 +7,13 @@ import {
   type ItemEvidenceView,
 } from '@ixaeon/contracts';
 import { assertSourceAuthorized } from '../access.js';
+import {
+  addNeedsReason,
+  clearNeedsReasons,
+  syncDerivedNeedsReasons,
+  setNeedsReasons,
+  getNeedsReasons,
+} from './needsReview.js';
 
 /** row → camelCase。 */
 function toItem(row: Record<string, unknown>): Item {
@@ -233,11 +240,16 @@ export class ItemService {
       throw new IxaError(ErrorCodes.CONFLICT, '该条目已被替代，不能确认');
     }
     const now = new Date().toISOString();
-    this.db
-      .prepare(
-        "UPDATE items SET confirmation = 'confirmed', confirmation_at = ?, needs_review = 0, updated_at = ? WHERE id = ?",
-      )
-      .run(now, now, itemId);
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          "UPDATE items SET confirmation = 'confirmed', confirmation_at = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(now, now, itemId);
+      // F01：确认是用户动作 → 清空全部待处理原因（含冲突/显式要求）
+      clearNeedsReasons(this.db, itemId);
+    });
+    tx();
     return this.get(itemId);
   }
 
@@ -251,18 +263,33 @@ export class ItemService {
       throw new IxaError(ErrorCodes.CONFLICT, '该条目已被替代，无需不采纳');
     }
     const now = new Date().toISOString();
-    this.db
-      .prepare(
-        "UPDATE items SET confirmation = 'rejected', confirmation_at = ?, needs_review = 0, updated_at = ? WHERE id = ?",
-      )
-      .run(now, now, itemId);
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          "UPDATE items SET confirmation = 'rejected', confirmation_at = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(now, now, itemId);
+      // F01：不采纳是用户动作 → 清空全部待处理原因
+      clearNeedsReasons(this.db, itemId);
+    });
+    tx();
     return this.get(itemId);
   }
 
+  /**
+   * F01：显式置位/解除待处理。true → 加 manual 原因（用户显式要求，
+   * 只有再次显式解除或确认/不采纳能清掉）；false → 明确解除 —— 清掉
+   * manual 原因，再按当前事实重算派生原因（缺项目/未确认等仍在则保留）。
+   */
   setPendingReview(itemId: string, needsReview: boolean): Item {
-    this.db
-      .prepare('UPDATE items SET needs_review = ?, updated_at = ? WHERE id = ?')
-      .run(needsReview ? 1 : 0, new Date().toISOString(), itemId);
+    if (needsReview) {
+      addNeedsReason(this.db, itemId, 'manual');
+    } else {
+      const current = getNeedsReasons(this.db, itemId);
+      current.delete('manual');
+      setNeedsReasons(this.db, itemId, current);
+      syncDerivedNeedsReasons(this.db, itemId);
+    }
     return this.get(itemId);
   }
 
@@ -277,56 +304,24 @@ export class ItemService {
     const proj = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (!proj) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在: ${projectId}`);
     // G5：人工单独归属 —— 标记后来源级批量重绑不再搬动该条目。
-    // C04/A03/RF03：选项目不是确认结论 —— 待处理原因按当前事实重算：
-    // 「缺项目」已解决则解除；重要 AI 决定未确认、冲突等原因保留。
-    this.db
-      .prepare('UPDATE items SET project_id = ?, manual_project = 1, updated_at = ? WHERE id = ?')
-      .run(projectId, new Date().toISOString(), itemId);
-    this.recomputeNeedsReview(itemId);
+    // C04/A03/F01：选项目不是确认结论 —— 只解决「缺项目」这一个待处理原因；
+    // 未确认 / 冲突 / 用户显式要求等原因原样保留（集中规则见 needsReview.ts）。
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare('UPDATE items SET project_id = ?, manual_project = 1, updated_at = ? WHERE id = ?')
+        .run(projectId, new Date().toISOString(), itemId);
+      syncDerivedNeedsReasons(this.db, itemId);
+    });
+    tx();
     return this.get(itemId);
   }
 
   /**
-   * RF03：按当前事实重算单条 needs_review —— 集中实现，两个入口共用。
-   * 待处理原因（满足任一即 true）：
-   * - 项目缺失（无法进入任何项目背景，等待归属）；
-   * - 重要 AI 决定类（decision/rejected_option/project_summary）尚未确认
-   *   （confirmation='none' 且 origin='ai' 且 state='current'）；
-   * - 存在冲突（state='disputed'）。
-   * 已确认 / 已不采纳 / superseded / 普通条目（open_loop 等）且已有项目 → false。
-   * 用户手工置位（setPendingReview）优先于重算：重算只会「按事实点亮」，
-   * 不覆盖用户显式设的 true（origin=user 的手工条目默认 false，任何 true
-   * 都来自用户显式操作，保留）。
+   * F01：按当前事实重算派生原因并保留持久原因 —— 与来源绑定入口
+   * （SourceStore.bindProject）真正共用同一函数，不再是两套规则。
    */
   recomputeNeedsReview(itemId: string): void {
-    const row = this.db
-      .prepare(
-        `SELECT project_id, type, origin, state, confirmation, needs_review FROM items WHERE id = ?`,
-      )
-      .get(itemId) as
-      | {
-          project_id: string | null;
-          type: string;
-          origin: string;
-          state: string;
-          confirmation: string;
-          needs_review: number;
-        }
-      | undefined;
-    if (!row) return;
-    const missingProject = row.project_id === null;
-    const unconfirmedImportant =
-      row.origin === 'ai' &&
-      row.state === 'current' &&
-      row.confirmation === 'none' &&
-      (row.type === 'decision' || row.type === 'rejected_option' || row.type === 'project_summary');
-    const disputed = row.state === 'disputed';
-    const derived = missingProject || unconfirmedImportant || disputed;
-    // 用户置位（手工条目）不被重算清除；AI 条目按事实重算
-    const needsReview = row.origin === 'user' ? derived || row.needs_review === 1 : derived;
-    this.db
-      .prepare('UPDATE items SET needs_review = ?, updated_at = ? WHERE id = ?')
-      .run(needsReview ? 1 : 0, new Date().toISOString(), itemId);
+    syncDerivedNeedsReasons(this.db, itemId);
   }
 
   /** 手工条目（origin=user，无依据）。 */

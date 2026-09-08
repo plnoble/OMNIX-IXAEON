@@ -127,6 +127,15 @@ results.push(
   ]),
 );
 
+results.push(
+  run('review-recheck-round2（二次复审 10 项，修复 F01-F03 回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.recheck-round2-20260907.config.ts',
+  ]),
+);
+
 // RF09：UI01 / BUI01 / BUI02 真实 Electron 界面检查纳入默认验证入口。
 // 依赖 build 产物 out/main/index.js（上面 build 步骤已生成）。
 results.push(

@@ -248,11 +248,16 @@ MCP 简报」两端；当轮补的 Playwright 界面级场景（`apps/desktop/e2
 
 ## 0.17 v0.2 复审修复（对《v0.2 复审报告 2026-09-07》RF01–RF09）
 
-复审新增核心检查 8 项中 7 项失败、界面 BUI01 失败（原始失败证据保留于
-`apps/desktop/test/review/results-recheck-20260907.json`）。本轮修复后
+复审新增核心检查 8 项中 7 项失败、界面 BUI01 失败（核心失败证据保留于
+`apps/desktop/test/review/results-recheck-20260907.json`；界面失败上下文
+已缺失，见 0.18/F03 更正）。本轮修复后
 `recheck-20260907.test.ts` 11 项（B01–B10，B03 含两入口）+ 界面
 UI01/BUI01/BUI02 全部通过，并已纳入 `pnpm verify`
 （review-recheck + review-recheck-ui 两个步骤）。
+
+> 状态更新（0.18/F01）：RF03 的修复在二次复审中被判定不完整——归属操作
+> 仍会清除用户显式置位与人工约束冲突的待处理状态。最终修复见 0.18 节，
+> 本行以 0.18 为准。
 
 | 问题 | 修复 | 证据 | 状态 |
 | --- | --- | --- | --- |
@@ -268,6 +273,26 @@ UI01/BUI01/BUI02 全部通过，并已纳入 `pnpm verify`
 
 已知剩余（如实，未验证）：非空旧库的真实升级路径、安装器真实安装流程、
 真人真实环境验证仍未执行——与 0.16 节前的未完成清单一致，本轮未改变。
+
+---
+
+## 0.18 二次复审修复（对《v0.2 二次复审报告 2026-09-07》F01–F03，提交 65927c6）
+
+二次复审新增 8 项独立检查（4 过 4 败，原始结果
+`results-recheck-round2-20260907.json` 与复跑 `-repeat.json` 均保留）。本轮
+修复后同一文件 10 项（原 8 项 + F01 附验 2 项）全部通过。
+
+| 问题 | 修复 | 证据 | 状态 |
+| --- | --- | --- | --- |
+| F01 归属操作清除非归属原因的待处理状态（用户显式置位的 AI 条目、与人工约束冲突的候选，选项目/绑来源后待处理被擦掉；且两入口实际是两套规则） | **needs_review 改为原因集合管理**：migration 9 新增 `needs_reasons` 列（no_project / unconfirmed / conflict / manual），needs_review 成为它的物化视图；每个操作只增删自己负责的原因——归属（assignToProject / bindProject 经 `syncDerivedNeedsReasons` 同一函数）只解除 no_project，conflict（提取器人工约束冲突 + markDisputed）与 manual（setPendingReview 置位）只有用户动作能清；确认/不采纳清空全部原因；来源绑定只处理本次真正移动的条目（manual_project=1 不再被顺带改写）。旧库迁移：needs_review=1 回填全部当前派生原因 + manual（保守，不静默清历史状态）；needs_review=0 保持空 | R2-01-item/source、R2-02-item/source 转绿；F01-a（明确解除只清 manual）、F01-b（人工搬走后来源重绑不动其待处理）新增通过 | ✅ |
+| F02 隐私文档承诺不存在的「每次 MCP 调用前界面展示范围」 | 文案更正：MCP 调用由已配置客户端发起，受本地令牌/来源授权/工具参数约束，IXAEON 不会逐次弹确认或展示范围；模型 API 调用前的来源范围展示保留（那一条真实存在） | privacy-model.md 第 48 行区块 | ✅ |
+| F03 历史界面失败上下文未完整保留（Playwright 复跑通过时清理了 outputDir，error-context.md 丢失） | 如实更正：核心失败 JSON 完整保留，界面 BUI01 错误上下文缺失（不重造记录，以旧报告与核心 JSON 为准）；本轮起各轮使用独立输出目录、失败证据先归档再复跑 | dev-log-fixes.md 复审节更正 + 本节 | ✅ |
+
+F01 附带回归（全部通过）：recheck 11 项、project-audit 15 项、核心集成
+135 项（含原有 B02/B03、A02/A03、确认/不采纳、连续纠正、Inbox 契约）；
+旧库升级回填（迁移 8 → 9）独立测试 F01-c 通过。完整 verify 14 步全绿
+（含本轮新增 review-recheck-round2 步骤），desktop e2e 16/16、扩展 e2e、
+serial 串联 PASS；重新打包并复核（哈希见第 12 节）。
 
 ---
 
@@ -602,11 +627,13 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 ## 12. 交付物清单
 
-- 源码：本仓库（v0.1 M0–M5 + 历次验收修复 + v0.1.1–v0.2 全批次 + 全项目审核 C01–C13 + 复审 RF01–RF09）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.2.0.exe`（**v0.2 复审 RF01–RF09 修复后重新打包**，版本 0.2.0）
-  - 大小：122,595,082 字节（≈116.9 MB）
-  - SHA-256：`3169B563A5F8CF2C61823B40A23563E443A9F6AF29643F7820EBCEB434A96E97`
-  - 旧包哈希（复审前，已被替换，供对照）：`AE692588CF0AD666DAB47D66FBF1BB95D7FF73D4795CC79B11B34E35BE03BBF2`
+- 源码：本仓库（v0.1 M0–M5 + 历次验收修复 + v0.1.1–v0.2 全批次 + 全项目审核 C01–C13 + 复审 RF01–RF09 + 二次复审 F01–F03）
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.2.0.exe`（**二次复审 F01–F03 修复后重新打包**，版本 0.2.0）
+  - 大小：122,597,406 字节（≈116.9 MB）
+  - SHA-256：`43BFE97C0DDCCC8D3EBA866D455779AD3E8FED5C96FCA3F23C0784902EA97F28`
+  - 历史包哈希（均已被替换，供对照）：
+    - 二次复审前（RF01–RF09 修复版）：`3169B563A5F8CF2C61823B40A23563E443A9F6AF29643F7820EBCEB434A96E97`
+    - 全项目审核版：`AE692588CF0AD666DAB47D66FBF1BB95D7FF73D4795CC79B11B34E35BE03BBF2`
   - 重打包后 win-unpacked 产物复核 3 项通过（自定义目录、重启保留、搬迁后
     无全局 Node 的 MCP 握手与四工具调用 + 持久化回写）
   - 随包携带 `resources/mcp/index.mjs`（搬迁副本 + 仅 System32 PATH 下完成
@@ -617,7 +644,7 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 - 截图：`apps/desktop/release/screenshots/`（12 张）
 - 审核材料：本文件
 - 配置文档：`docs/mcp-setup.md`（Codex / Claude Code / Cursor）
-- 开发过程记录：`docs/dev-log-fixes.md`（两轮修复，含二轮 R1–R9）
+- 开发过程记录：`docs/dev-log-fixes.md`（多轮修复，含复审 RF01–RF09 与二次复审 F01–F03）
 
 ---
 

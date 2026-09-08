@@ -779,9 +779,15 @@ extension 全断言、serial 串联 PASS；打包复核 3 项；
 # v0.2 复审修复（2026-09-07，对复审报告 RF01–RF09）
 
 复审报告新增核心检查 B01–B07（8 项，7 失败）与界面 BUI01（失败）。
-原始失败证据保留：`apps/desktop/test/review/results-recheck-20260907.json`、
-`apps/desktop/test/review/.recheck-ui-20260907/…/error-context.md`。
-本轮全部修复并另存新结果；未删除任何旧断言，未写死答案。
+失败证据存档（二次复审 F03 更正）：核心失败 JSON
+`apps/desktop/test/review/results-recheck-20260907.json` 保留完整；**界面
+BUI01 的 error-context.md 已丢失** —— Playwright 在后续复跑通过时清理了
+outputDir，上一轮把它当作了永久档案，实际不是。原始界面失败细节以
+复审报告（IXAEON_v0.2_复审报告_2026-09-07.md 第 5 节引用的路径）与核心
+失败 JSON 为准，此处如实记录缺失，不重造记录。本轮起各轮使用独立输出
+目录，失败证据先归档再复跑。
+本轮全部修复并另存新结果（results-recheck-20260907-fixed.json）；未删除
+任何旧断言，未写死答案。
 
 ## 修复内容
 
@@ -848,3 +854,58 @@ extension 全断言、serial 串联 PASS；打包复核 3 项；
 非空旧库的真实升级路径、安装器真实安装流程、真人真实环境验证仍未执行
 （与此前未完成清单一致）。会话级密钥方案明确不实现（RF08 决定：改文案
 而非承诺未实现功能）。
+
+# 二次复审修复（2026-09-08，对二次复审报告 F01–F03，提交 65927c6）
+
+二次复审新增 8 项独立检查：4 过 4 败（R2-01/R2-02 各两入口）。
+原始失败证据保留：`results-recheck-round2-20260907.json`（首次）与
+`-repeat.json`（复跑）；新结果另存 `-fixed.json`（10/10，含 F01 附验 2 项）。
+
+## F01（P1）：待处理原因集合化 —— 归属操作只解决「缺项目」
+
+上轮 RF03 的「按事实重算」仍是整体覆写：用户显式置位（setPendingReview）
+与人工约束冲突（conflictsWithProtected 编码为 needs_review=1 而非 disputed）
+都会被选项目/绑来源清掉；且 bindProject 内是另一套复制规则，affected 查询
+还波及 manual_project=1 条目。
+
+修复（packages/core/src/storage/needsReview.ts 新模块 + migration 9）：
+
+1. items 新增 `needs_reasons`（逗号分隔原因：no_project / unconfirmed /
+   conflict / manual），needs_review 是它的物化视图（非空=1）。任何入口
+   不再直接写 needs_review。
+2. 每个操作只动自己负责的原因：归属（assignToProject 与 bindProject 经
+   同一 `syncDerivedNeedsReasons`）只解除/重建 no_project；conflict（提取
+   器人工约束冲突 + markDisputed 双方）与 manual 只有用户动作（确认/
+   不采纳/纠正/明确解除）能清；确认/不采纳清空全部原因。
+3. bindProject 只对本次真正移动的条目重算（manual_project=1 不被顺带
+   改写）；来源解绑时 no_project 对被移动条目重新成立。
+4. 旧库迁移：needs_review=1 → 回填当前成立的派生原因 + manual（保守，
+   宁多留不静默清）；needs_review=0 → 原因留空。非空旧库升级路径仍是
+   未验证项，迁移规则本身有回归覆盖。
+5. recordWorkResult 的 open_loop 候选带 unconfirmed 原因（agent 自报
+   永远待用户确认）。
+
+## F02：privacy-model.md 文案更正
+
+删除「两种渠道调用前界面均展示所用来源范围」中关于 MCP 的不实部分：
+MCP 调用由已配置客户端发起，受本地令牌/来源授权/工具参数约束，IXAEON
+不会逐次弹确认或展示范围。模型 API 的调用前范围展示保留（真实存在）。
+
+## F03：证据记录更正
+
+上轮声称「原始失败错误上下文保留未动」不准确：Playwright 复跑通过时
+清理了 outputDir，BUI01 的 error-context.md 已丢失。核心失败 JSON 完整。
+已如实在 dev-log 复审节与 REVIEW_PACKET 0.17/0.18 更正；本轮起各轮使用
+独立输出目录、失败证据先归档再复跑。
+
+## 验证
+
+- recheck-round2：11/11（原 8 项 + F01-a 明确解除只清 manual + F01-b
+  人工搬走后来源重绑不动其待处理 + F01-c 旧库迁移 8→9 保守回填）。
+- 回归：recheck-20260907 11/11、project-audit 15/15、核心集成 135/135
+  （含 B02/B03、A02/A03、确认/不采纳、连续纠正、Inbox 契约）。
+- recheck-round2 已纳入 verify（review-recheck-round2 步骤）。
+- 完整 verify 14 步全绿；desktop e2e 16/16、扩展 e2e、serial 串联 PASS。
+- 重新打包：122,597,406 字节，SHA-256
+  `43BFE97C0DDCCC8D3EBA866D455779AD3E8FED5C96FCA3F23C0784902EA97F28`；
+  win-unpacked 复核 3 项通过。未执行安装器真实安装流程（未验证项）。
