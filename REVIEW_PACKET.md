@@ -296,6 +296,27 @@ serial 串联 PASS；重新打包并复核（哈希见第 12 节）。
 
 ---
 
+## 0.19 三次复审修复（对《v0.2 三次复审报告 2026-09-08》N01–N02，提交 1dad8d4）
+
+三次复审关闭了 F01–F03（两个归属入口共用集中规则、迁移执行器实测通过），
+新增核心 5 项（3 过 2 败）与界面 2 项（均败）。原始失败证据保留：
+`results-needs-lifecycle-20260908-checked.json`、
+`.needs-lifecycle-ui-20260908-checked/…/error-context.md`；修复后另存
+`results-needs-lifecycle-20260908-fixed.json` 与独立 UI 输出目录。
+
+| 问题 | 修复 | 证据 | 状态 |
+| --- | --- | --- | --- |
+| N01 纠正后旧条目不退出待处理（superseded 旧项仍带 unconfirmed/conflict/manual 原因，继续占据 Inbox 且不能再正常确认/不采纳） | `correct()` 事务内对**被替代旧条目**清空全部待处理原因（旧内容、纠正链、依据与历史全部保留，仅退出操作队列）；Inbox 可处理范围排除 superseded（`listItems` 新增 `excludeSuperseded`，历史查询不受影响）；migration 10 定向清理本版本已产生的历史残留（只清 `state='superseded' AND needs_review=1` 的行，不触碰 current/disputed，不删数据） | L01 / L02 / LUI02 转绿；LUI02 附验重归属后旧条目不复活；L04 迁移执行器（升到最新且幂等，v8 三行合成数据语义保留）通过 | ✅ |
+| N02 「暂不处理」按钮无实际效果（旧入口 setPendingReview(false) 在原因集合模型下不再能表达暂缓） | 按钮改用已有搁置能力 `shelveItem(true)`——暂缓有实际可见效果：条目移入 Inbox 下方「已搁置（暂不处理）」区，显示搁置时间并提供「恢复待讨论」入口；待处理原因与 `confirmation=none` 原样保留（未用确认/不采纳/删除冒充）；恢复后回到待讨论；操作失败有错误反馈；重进页面与重启后状态可理解可恢复 | LUI01 转绿；新增 LUI03（暂缓→重进→重启→恢复，原因与确认状态未被篡改）通过 | ✅ |
+
+N01/N02 附带回归（全部通过）：三次复审控制组 L03（确认/不采纳后重绑不
+复活）、二次复审 round2 11 项（含 F01-a 显式解除语义未被破坏——搁置与
+解除是不同动作）、一次复审 recheck 11 项、project-audit 15 项、历史
+review 全部、核心集成 135 项；desktop e2e 16/16。完整 verify 16 步全绿
+（新增 review-needs-lifecycle 与 review-needs-lifecycle-ui 两步）。
+
+---
+
 ## 1. 完成范围
 
 ### 实际完成（M0 → M5 全部 + 验收修复）
@@ -627,11 +648,12 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 ## 12. 交付物清单
 
-- 源码：本仓库（v0.1 M0–M5 + 历次验收修复 + v0.1.1–v0.2 全批次 + 全项目审核 C01–C13 + 复审 RF01–RF09 + 二次复审 F01–F03）
-- 安装包：`apps/desktop/release/IXAEON-Setup-0.2.0.exe`（**二次复审 F01–F03 修复后重新打包**，版本 0.2.0）
-  - 大小：122,597,406 字节（≈116.9 MB）
-  - SHA-256：`43BFE97C0DDCCC8D3EBA866D455779AD3E8FED5C96FCA3F23C0784902EA97F28`
+- 源码：本仓库（v0.1 M0–M5 + 历次验收修复 + v0.1.1–v0.2 全批次 + 全项目审核 C01–C13 + 复审 RF01–RF09 + 二次复审 F01–F03 + 三次复审 N01–N02）
+- 安装包：`apps/desktop/release/IXAEON-Setup-0.2.0.exe`（**三次复审 N01–N02 修复后重新打包**，版本 0.2.0）
+  - 大小：122,598,699 字节（≈116.9 MB）
+  - SHA-256：`1DC8A631A7BCAD4D0FFC592E65C1F95A2F8C477277CFA3E2505742CF98B230F6`
   - 历史包哈希（均已被替换，供对照）：
+    - 三次复审前（F01–F03 修复版）：`43BFE97C0DDCCC8D3EBA866D455779AD3E8FED5C96FCA3F23C0784902EA97F28`
     - 二次复审前（RF01–RF09 修复版）：`3169B563A5F8CF2C61823B40A23563E443A9F6AF29643F7820EBCEB434A96E97`
     - 全项目审核版：`AE692588CF0AD666DAB47D66FBF1BB95D7FF73D4795CC79B11B34E35BE03BBF2`
   - 重打包后 win-unpacked 产物复核 3 项通过（自定义目录、重启保留、搬迁后

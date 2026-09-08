@@ -55,6 +55,8 @@ export class ItemService {
     shelved?: boolean;
     type?: string;
     limit?: number;
+    /** N01：排除已被替代的历史条目（Inbox 可处理范围） */
+    excludeSuperseded?: boolean;
   }): Item[] {
     const where: string[] = [];
     const args: unknown[] = [];
@@ -65,6 +67,9 @@ export class ItemService {
     if (filter.state) {
       where.push('state = ?');
       args.push(filter.state);
+    }
+    if (filter.excludeSuperseded) {
+      where.push("state != 'superseded'");
     }
     if (filter.needsReview !== undefined) {
       where.push('needs_review = ?');
@@ -154,6 +159,10 @@ export class ItemService {
       this.db
         .prepare(`UPDATE items SET state = 'superseded', updated_at = ? WHERE id = ?`)
         .run(now, input.itemId);
+      // N01：被替代的旧条目退出待处理 —— 纠正是用户动作，旧内容已由新结论
+      // 替代，全部待处理原因（unconfirmed/conflict/manual/no_project）一并
+      // 清空。旧条目、纠正链与依据保留，仅退出操作队列。
+      clearNeedsReasons(this.db, input.itemId);
 
       this.db
         .prepare(

@@ -909,3 +909,50 @@ MCP 调用由已配置客户端发起，受本地令牌/来源授权/工具参�
 - 重新打包：122,597,406 字节，SHA-256
   `43BFE97C0DDCCC8D3EBA866D455779AD3E8FED5C96FCA3F23C0784902EA97F28`；
   win-unpacked 复核 3 项通过。未执行安装器真实安装流程（未验证项）。
+
+# 三次复审修复（2026-09-08，对三次复审报告 N01–N02，提交 1dad8d4）
+
+三次复审关闭 F01–F03；新增核心 5 项（3 过 2 败）+ 界面 2 项（均败）。
+原始失败证据保留（results-needs-lifecycle-20260908-checked.json 与
+.needs-lifecycle-ui-20260908-checked/ 输出目录）；修复后另存 -fixed。
+
+## N01：纠正后旧条目退出待处理
+
+三层修复：
+
+1. `correct()` 事务内对被替代旧条目 `clearNeedsReasons` —— 纠正是用户
+   动作，旧内容已由新结论替代，unconfirmed/conflict/manual/no_project
+   全部清空。旧条目、纠正链、依据与历史保留，仅退出操作队列（L01/L02）。
+2. Inbox 可处理范围排除 superseded：listItems 契约新增可选
+   `excludeSuperseded`，Inbox 主查询启用；历史查询（理解页、改口历史）
+   不受影响（LUI02）。
+3. migration 10 定向清理本版本已产生的历史残留：只清
+   `state='superseded' AND needs_review=1` 的行的原因集与标记，不触碰
+   current/disputed 条目，不删除任何数据。L04 验证真实迁移执行器从 v8
+   升到最新且幂等（断言改为「升到迁移账本最新版本」，不再固定数字）。
+
+## N02：「暂不处理」改为真实搁置
+
+按钮从 setPendingReview(false)（在原因集合模型下只剩「解除 manual 原因」
+语义，无法表达暂缓）改为复用已有 shelveItem 能力：
+
+- 暂缓有实际可见效果：条目移入 Inbox 下方「已搁置（暂不处理）」区，
+  显示搁置时间，提供「恢复待讨论」按钮；
+- 待处理原因与 confirmation=none 原样保留——不用确认/不采纳/删除冒充
+  （LUI01 断言 confirmation 仍为 none）；
+- 恢复后回到待讨论；重进页面与重启后搁置状态可理解、可恢复（LUI03：
+  暂缓→重进→重启→恢复全程，原因与确认状态未被篡改）；
+- 确认/不采纳/搁置/恢复操作失败均有错误反馈（ErrorBanner）。
+- F01-a 语义未被破坏：setPendingReview(false)（明确解除）保持只清
+  manual 原因，与搁置是两个不同动作。
+
+## 验证
+
+- needs-lifecycle 核心 5/5（L01/L02/L03-confirm/L03-reject/L04）。
+- needs-lifecycle UI 3/3（LUI01/LUI02/LUI03，真实 Electron）。
+- 回归：二次复审 round2 11/11、一次复审 recheck 11/11、project-audit
+  15/15、历史 review 全部、核心集成 135/135；desktop e2e 16/16。
+- verify 16 步全绿（新增 review-needs-lifecycle 与 -ui 两步）。
+- 重新打包：122,598,699 字节，SHA-256
+  `1DC8A631A7BCAD4D0FFC592E65C1F95A2F8C477277CFA3E2505742CF98B230F6`；
+  win-unpacked 复核 3 项通过。未执行安装器真实安装流程（未验证项）。

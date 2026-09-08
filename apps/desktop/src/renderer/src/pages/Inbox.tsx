@@ -5,11 +5,24 @@ import { Button, Card, Empty, ErrorBanner, Spinner } from '../ui.js';
 /** Inbox（待讨论）：无法归属项目或需要人工确认的条目。 */
 export function InboxPage({ projects }: { projects: Project[] }) {
   const [items, setItems] = useState<Item[] | null>(null);
+  const [shelvedItems, setShelvedItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      setItems(await api.listItems({ projectId: null, needsReview: true, shelved: false }));
+      // N01：可处理范围排除已被替代的历史条目（纠正后旧条目不再占据列表）
+      // N02：搁置的条目移入下方「已搁置」区，可随时恢复
+      const [pending, shelved] = await Promise.all([
+        api.listItems({
+          projectId: null,
+          needsReview: true,
+          shelved: false,
+          excludeSuperseded: true,
+        }),
+        api.listItems({ projectId: null, needsReview: true, shelved: true }),
+      ]);
+      setItems(pending);
+      setShelvedItems(shelved);
     } catch (err) {
       setError(errMsg(err));
     }
@@ -22,6 +35,26 @@ export function InboxPage({ projects }: { projects: Project[] }) {
   const assign = async (itemId: string, projectId: string) => {
     try {
       await api.assignItemToProject({ itemId, projectId });
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+
+  // N02：暂不处理 = 搁置（可恢复），不是确认/不采纳/删除；
+  // 待处理原因与确认状态原样保留，恢复后回到待讨论。
+  const defer = async (itemId: string) => {
+    try {
+      await api.shelveItem({ itemId, shelved: true });
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+
+  const resume = async (itemId: string) => {
+    try {
+      await api.shelveItem({ itemId, shelved: false });
       await reload();
     } catch (err) {
       setError(errMsg(err));
@@ -55,8 +88,12 @@ export function InboxPage({ projects }: { projects: Project[] }) {
                     <>
                       <Button
                         onClick={async () => {
-                          await api.confirmItem(item.id);
-                          await reload();
+                          try {
+                            await api.confirmItem(item.id);
+                            await reload();
+                          } catch (err) {
+                            setError(errMsg(err));
+                          }
                         }}
                         testId={`inbox-confirm-${item.id}`}
                       >
@@ -65,8 +102,12 @@ export function InboxPage({ projects }: { projects: Project[] }) {
                       <Button
                         kind="ghost"
                         onClick={async () => {
-                          await api.rejectItem(item.id);
-                          await reload();
+                          try {
+                            await api.rejectItem(item.id);
+                            await reload();
+                          } catch (err) {
+                            setError(errMsg(err));
+                          }
                         }}
                         testId={`inbox-reject-${item.id}`}
                       >
@@ -88,12 +129,48 @@ export function InboxPage({ projects }: { projects: Project[] }) {
                   </select>
                   <Button
                     kind="ghost"
-                    onClick={async () => {
-                      await api.setItemPendingReview({ itemId: item.id, needsReview: false });
-                      await reload();
-                    }}
+                    onClick={() => void defer(item.id)}
+                    testId={`inbox-defer-${item.id}`}
                   >
                     暂不处理
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {/* N02：已搁置区 —— 暂不处理的条目在这里可找回、可恢复；原因与确认状态未被篡改 */}
+      <Card title="已搁置（暂不处理）" testId="inbox-shelved-card">
+        <p className="note">
+          点过「暂不处理」的条目。搁置不是解决：原因与确认状态原样保留，恢复后回到待讨论。
+        </p>
+        {shelvedItems === null ? (
+          <Spinner />
+        ) : shelvedItems.length === 0 ? (
+          <Empty testId="inbox-shelved-empty">没有已搁置的条目。</Empty>
+        ) : (
+          <ul className="project-list">
+            {shelvedItems.map((item) => (
+              <li key={item.id} className="project-row" data-testid={`inbox-shelved-${item.id}`}>
+                <div className="project-main">
+                  <span>{item.statement}</span>
+                  {item.state === 'disputed' && <span className="badge badge-paused">冲突</span>}
+                  <span className="muted">
+                    {item.origin === 'ai'
+                      ? `AI（把握 ${Math.round(item.confidence * 100)}%）`
+                      : item.origin}
+                  </span>
+                  {item.shelved_at && (
+                    <span className="muted">
+                      搁置于 {item.shelved_at.slice(0, 19).replace('T', ' ')}
+                    </span>
+                  )}
+                </div>
+                <div className="project-actions">
+                  <Button onClick={() => void resume(item.id)} testId={`inbox-resume-${item.id}`}>
+                    恢复待讨论
                   </Button>
                 </div>
               </li>

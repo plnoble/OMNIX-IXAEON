@@ -136,6 +136,26 @@ results.push(
   ]),
 );
 
+results.push(
+  run('review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.needs-lifecycle-20260908.config.ts',
+  ]),
+);
+
+// N02 界面验收（LUI01-LUI03：搁置/恢复/纠正退出待处理），依赖 build 产物
+results.push(
+  run('review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron）', [
+    resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
+    'test',
+    '-c',
+    'apps/desktop/test/review/playwright.needs-lifecycle-20260908.config.ts',
+    '--output=apps/desktop/test/review/.needs-lifecycle-ui-verify',
+  ]),
+);
+
 // RF09：UI01 / BUI01 / BUI02 真实 Electron 界面检查纳入默认验证入口。
 // 依赖 build 产物 out/main/index.js（上面 build 步骤已生成）。
 results.push(

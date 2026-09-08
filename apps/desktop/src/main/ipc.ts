@@ -279,6 +279,9 @@ export function registerIpc(runtime: AppRuntime): void {
         ...(input.needsReview !== undefined ? { needsReview: input.needsReview } : {}),
         ...(input.shelved !== undefined ? { shelved: input.shelved } : {}),
         ...(input.type !== undefined ? { type: input.type } : {}),
+        ...(input.excludeSuperseded !== undefined
+          ? { excludeSuperseded: input.excludeSuperseded }
+          : {}),
       }),
     getItemEvidence: async (itemId) => runtime.items.getEvidence(itemId),
     previewCorrection: async (input) => {

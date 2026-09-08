@@ -280,6 +280,20 @@ UPDATE items SET needs_reasons = (
 WHERE needs_review = 1;
 `,
   },
+  {
+    id: 10,
+    name: 'retire-superseded-pending-reasons',
+    sql: `
+-- 修复 N01（历史残留）：纠正发生后旧条目应为 superseded 并退出待处理，
+-- 但 F01 之前的 correct() 没有清理其 needs_reasons / needs_review ——
+-- 已被替代的旧条目继续占据待讨论列表且不能再正常确认/不采纳。
+-- 本迁移只清「state='superseded' 且仍待处理」的行（原因集与标记），
+-- 不触碰任何 current/disputed 条目，也不删除任何数据（旧条目、纠正链、
+-- 依据与历史全部保留）。
+UPDATE items SET needs_reasons = '', needs_review = 0
+WHERE state = 'superseded' AND needs_review = 1;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

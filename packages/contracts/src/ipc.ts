@@ -310,6 +310,8 @@ export interface IxaIpcApi {
     needsReview?: boolean;
     shelved?: boolean;
     type?: string;
+    /** N01：Inbox 可处理范围排除已被替代的历史条目（默认 false 不排除） */
+    excludeSuperseded?: boolean;
   }): Promise<Item[]>;
   getItemEvidence(itemId: string): Promise<ItemEvidenceView[]>;
   previewCorrection(input: { itemId: string; userText: string }): Promise<CorrectionPreview>;
