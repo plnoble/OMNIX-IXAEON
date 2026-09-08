@@ -9,6 +9,11 @@ export const appConfigSchema = z.object({
     provider: z.literal('openai'),
     /** 用户在设置中填写的模型名，代码中不写死 */
     modelName: z.string(),
+    /**
+     * OpenAI 兼容 API 地址（如 https://api.deepseek.com/v1）。
+     * 空串表示官方默认 https://api.openai.com/v1。
+     */
+    apiBaseUrl: z.string().default(''),
     /** Electron safeStorage 加密后的 API Key（base64）。永不明文落盘。 */
     apiKeyEncrypted: z.string().nullable(),
     /** 是否已经配置过 Key（用于 UI 状态展示） */
@@ -47,6 +52,7 @@ export function defaultAppConfig(): AppConfig {
     model: {
       provider: 'openai',
       modelName: '',
+      apiBaseUrl: '',
       apiKeyEncrypted: null,
       apiKeyPresent: false,
     },

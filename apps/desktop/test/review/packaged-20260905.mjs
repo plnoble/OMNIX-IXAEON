@@ -96,19 +96,22 @@ async function call(name, args) {
 try {
   let page = await launch();
   await page.getByTestId('setup-wizard').waitFor();
-  const disabled = await page.getByTestId('setup-custom-dir-check').isDisabled();
+  // 2026-09-08 重构：自定义目录改为原生「选择目录」按钮（不再有勾选框）。
+  // 按钮存在且未禁用 = 未被 IXAEON_DATA_DIR 覆盖时可选自定义目录。
+  const disabled = await page.getByTestId('setup-pick-dir').isDisabled();
   checks.push({
-    check: 'custom directory checkbox without IXAEON_DATA_DIR override',
+    check: 'custom directory picker button without IXAEON_DATA_DIR override',
     ok: !disabled,
     disabled,
   });
 
-  // The checkbox may be broken. Independently test backend save + genuine process restart via public IPC.
+  // The picker may be broken. Independently test backend save + genuine process restart via public IPC.
   const setup = await page.evaluate(
     async (dataDir) =>
       window.ixaeon.completeSetup({
         dataDir,
         modelName: 'review-no-network',
+        apiBaseUrl: '',
         apiKey: '',
         projectName: 'PackagedReview',
         projectRootPath: null,

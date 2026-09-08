@@ -39,9 +39,12 @@ export const setupInputSchema = z.object({
   /** null 表示接受默认数据目录 */
   dataDir: z.string().nullable(),
   modelName: z.string().min(1),
+  /** OpenAI 兼容 API 地址；空串表示官方默认 */
+  apiBaseUrl: z.string().default(''),
   /** 空字符串表示暂不配置（可稍后在设置中填写） */
   apiKey: z.string(),
-  projectName: z.string().min(1),
+  /** 空字符串表示跳过建项目（进入主界面后在项目页创建） */
+  projectName: z.string(),
   projectRootPath: z.string().nullable(),
 });
 export type SetupInput = z.infer<typeof setupInputSchema>;
@@ -50,6 +53,8 @@ export const setupResultSchema = z.object({
   ok: z.literal(true),
   /** true 表示数据目录已切换，本进程运行时已失效，需要重启应用 */
   restartRequired: z.boolean(),
+  /** API Key 保存失败原因（设置完成但 Key 未保存；null=无警告） */
+  apiKeyWarning: z.string().nullable().default(null),
 });
 export type SetupResult = z.infer<typeof setupResultSchema>;
 
@@ -226,6 +231,7 @@ export type RestoreDataInput = z.infer<typeof restoreDataInputSchema>;
 export const settingsViewSchema = z.object({
   config: z.object({
     modelName: z.string(),
+    apiBaseUrl: z.string().default(''),
     apiKeyPresent: z.boolean(),
     captureEnabled: z.boolean(),
     autoAnalyze: z.boolean(),
@@ -342,7 +348,20 @@ export interface IxaIpcApi {
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置
   getSettings(): Promise<SettingsView>;
-  saveModelSettings(input: { modelName: string; apiKey?: string }): Promise<{ ok: true }>;
+  saveModelSettings(input: {
+    modelName: string;
+    /** OpenAI 兼容 API 地址；空串表示官方默认 */
+    apiBaseUrl?: string;
+    apiKey?: string;
+  }): Promise<{ ok: true }>;
+  /**
+   * 从上游拉取可用模型列表（GET {apiBaseUrl}/models，Bearer 鉴权）。
+   * 地址为空时用官方默认。失败抛 IXA0011（含上游错误信息）。
+   */
+  listAvailableModels(input: {
+    apiBaseUrl: string;
+    apiKey: string;
+  }): Promise<{ models: Array<{ id: string }> }>;
   setCaptureEnabled(enabled: boolean): Promise<{ ok: true }>;
   setAutoAnalyze(enabled: boolean): Promise<{ ok: true }>;
   generatePairingCode(): Promise<{ code: string; expiresAt: string }>;

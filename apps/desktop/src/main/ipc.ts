@@ -325,6 +325,7 @@ export function registerIpc(runtime: AppRuntime): void {
       return {
         config: {
           modelName: config.model.modelName,
+          apiBaseUrl: config.model.apiBaseUrl,
           apiKeyPresent: config.model.apiKeyPresent,
           captureEnabled: config.capture.enabled,
           autoAnalyze: config.capture.autoAnalyze,
@@ -345,6 +346,7 @@ export function registerIpc(runtime: AppRuntime): void {
         model: {
           ...c.model,
           modelName: input.modelName,
+          ...(input.apiBaseUrl !== undefined ? { apiBaseUrl: input.apiBaseUrl.trim() } : {}),
           ...(input.apiKey !== undefined && input.apiKey.length > 0
             ? { apiKeyEncrypted: encryptApiKey(input.apiKey), apiKeyPresent: true }
             : {}),
@@ -352,6 +354,8 @@ export function registerIpc(runtime: AppRuntime): void {
       }));
       return { ok: true as const };
     },
+    // 设置向导/设置页「获取可用模型」：上游拉取，Key 仅本次请求内存使用
+    listAvailableModels: async (input) => runtime.listAvailableModels(input),
     setCaptureEnabled: async (enabled) => {
       runtime.updateConfig((c) => ({
         ...c,

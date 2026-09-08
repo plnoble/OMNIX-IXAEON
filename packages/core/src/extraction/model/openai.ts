@@ -13,6 +13,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
+  /** 端点能力探测缓存：null=未探测；true=仅 /chat/completions */
+  private useChatCompletions: boolean | null = null;
 
   constructor(opts: {
     apiKey: string;
@@ -65,6 +67,54 @@ export class OpenAIResponsesProvider implements ModelProvider {
     jsonSchema: { name: string; schema: Record<string, unknown> } | null,
     retry = true,
   ): Promise<string> {
+    // DeepSeek 等 OpenAI 兼容服务只有 /chat/completions（无 /responses 端点）。
+    // 探测结果按进程缓存：404/501 或明确「不支持」的 400 → 切换并记住。
+    if (this.useChatCompletions === null) {
+      this.useChatCompletions = await this.probeChatCompletions();
+    }
+    return this.useChatCompletions
+      ? this.requestViaChatCompletions(system, user, jsonSchema, retry)
+      : this.requestViaResponses(system, user, jsonSchema, retry);
+  }
+
+  /**
+   * 探测上游是否只支持 /chat/completions：
+   * 先发一个最小 /responses 请求 —— 404/501，或 OpenAI 兼容网关常见的
+   * 「unknown url / not found」类 400 → 判定为 chat-completions-only。
+   * 网络错误按官方端点处理（保持既有重试语义）。
+   */
+  private async probeChatCompletions(): Promise<boolean> {
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.baseUrl}/responses`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({ model: this.modelName, input: [], store: false }),
+      });
+    } catch {
+      return false; // 网络错误：按 /responses 路径走（其重试/报错语义不变）
+    }
+    if (res.status === 404 || res.status === 501) return true;
+    if (res.status === 400) {
+      const text = await res.text().catch(() => '');
+      const t = text.toLowerCase();
+      if (t.includes('not found') || t.includes('unknown url') || t.includes('invalid url')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** OpenAI Responses API 路径（官方与兼容实现）。 */
+  private async requestViaResponses(
+    system: string,
+    user: string,
+    jsonSchema: { name: string; schema: Record<string, unknown> } | null,
+    retry: boolean,
+  ): Promise<string> {
     const body: Record<string, unknown> = {
       model: this.modelName,
       input: [
@@ -114,6 +164,86 @@ export class OpenAIResponsesProvider implements ModelProvider {
     if (texts.length === 0) throw new ModelError('API 返回空文本', true);
     return texts.join('\n');
   }
+
+  /** /chat/completions 路径（DeepSeek 等 OpenAI 兼容服务）。 */
+  private async requestViaChatCompletions(
+    system: string,
+    user: string,
+    jsonSchema: { name: string; schema: Record<string, unknown> } | null,
+    retry: boolean,
+  ): Promise<string> {
+    const body: Record<string, unknown> = {
+      model: this.modelName,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      stream: false,
+    };
+    if (jsonSchema) {
+      // DeepSeek 的 json_object 模式：提示词内嵌 schema 说明，输出要求 JSON
+      body['response_format'] = { type: 'json_object' };
+    }
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      if (retry) return this.request(system, user, jsonSchema, false);
+      throw new ModelError(`网络错误: ${String(err)}`, true);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      if (retry && (res.status === 429 || res.status >= 500)) {
+        return this.request(system, user, jsonSchema, false);
+      }
+      throw new ModelError(`API 错误 ${res.status}: ${text.slice(0, 200)}`, res.status >= 500);
+    }
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const text = json.choices?.[0]?.message?.content;
+    if (!text) throw new ModelError('API 返回空文本', true);
+    return text;
+  }
+}
+
+/**
+ * 拉取上游可用模型列表（OpenAI 兼容 GET /models）。
+ * 供设置向导「获取可用模型」使用；不落盘、不缓存 Key。
+ */
+export async function listUpstreamModels(opts: {
+  apiBaseUrl: string;
+  apiKey: string;
+  fetchImpl?: typeof fetch;
+}): Promise<Array<{ id: string }>> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = (opts.apiBaseUrl.trim() || 'https://api.openai.com/v1').replace(/\/$/, '');
+  let res: Response;
+  try {
+    res = await fetchImpl(`${base}/models`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${opts.apiKey}` },
+    });
+  } catch (err) {
+    throw new ModelError(`网络错误: ${String(err)}`, true);
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new ModelError(`API 错误 ${res.status}: ${text.slice(0, 200)}`, res.status >= 500);
+  }
+  const json = (await res.json()) as { data?: Array<{ id?: string }> };
+  const models = (json.data ?? [])
+    .map((m) => ({ id: String(m.id ?? '') }))
+    .filter((m) => m.id.length > 0)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return models;
 }
 
 /** zod 4 → JSON Schema（strict json_schema 要求 additionalProperties: false）。 */

@@ -9,6 +9,7 @@ import {
   FakeProvider,
   ItemService,
   OpenAIResponsesProvider,
+  listUpstreamModels,
   ImportService,
   JobQueue,
   Logger,
@@ -493,8 +494,34 @@ export class AppRuntime {
     return new OpenAIResponsesProvider({
       apiKey,
       modelName: config.model.modelName,
-      baseUrl: process.env.IXAEON_OPENAI_BASE_URL,
+      // 配置的 API 地址优先（用户在向导/设置填写）；环境变量仅测试用
+      baseUrl: config.model.apiBaseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
     });
+  }
+
+  /**
+   * 拉取上游可用模型列表（设置向导/设置页「获取可用模型」）。
+   * Key 只在本次请求内存中使用，不落盘。
+   */
+  async listAvailableModels(input: {
+    apiBaseUrl: string;
+    apiKey: string;
+  }): Promise<{ models: Array<{ id: string }> }> {
+    if (input.apiKey.trim().length === 0) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请先填写 API Key 再获取模型列表');
+    }
+    try {
+      const models = await listUpstreamModels({
+        apiBaseUrl: input.apiBaseUrl,
+        apiKey: input.apiKey,
+      });
+      return { models };
+    } catch (err) {
+      throw new IxaError(
+        ErrorCodes.MODEL_CALL_FAILED,
+        `获取模型列表失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /** 问答（Ask 页）。模型未配置时明确报错。 */
@@ -748,26 +775,45 @@ export class AppRuntime {
    * - 成功后本进程运行时仍指向旧目录：返回 restartRequired=true，
    *   UI 提示重启；绝不在两个目录各留半套数据。
    */
-  completeSetup(input: SetupInput): { ok: true; restartRequired: boolean } {
+  completeSetup(input: SetupInput): {
+    ok: true;
+    restartRequired: boolean;
+    /** Key 保存失败原因（设置已完成，但 Key 未保存成功，需提示用户） */
+    apiKeyWarning: string | null;
+  } {
     const customDir = input.dataDir?.trim() ?? '';
-    const apiKeyEncrypted =
-      input.apiKey.length > 0 ? encryptApiKey(input.apiKey) : this.config.model.apiKeyEncrypted;
+    // Key 保存失败不静默：完成设置可以继续，但必须把失败原因带回给界面
+    let apiKeyEncrypted = this.config.model.apiKeyEncrypted;
+    let apiKeyWarning: string | null = null;
+    if (input.apiKey.length > 0) {
+      try {
+        apiKeyEncrypted = encryptApiKey(input.apiKey);
+      } catch (err) {
+        apiKeyWarning = `API Key 未能保存：${err instanceof Error ? err.message : String(err)}`;
+        this.logger.warn('首次设置：API Key 保存失败', { error: String(err) });
+      }
+    }
+    const projectName = input.projectName.trim();
+    const modelPatch = {
+      modelName: input.modelName,
+      apiBaseUrl: input.apiBaseUrl.trim(),
+      apiKeyEncrypted,
+      apiKeyPresent: apiKeyEncrypted !== null,
+    };
 
     if (customDir.length === 0) {
       // 默认目录：当前进程就地完成（无需重启）
       this.updateConfig((c) => ({
         ...c,
         setupComplete: true,
-        model: {
-          ...c.model,
-          modelName: input.modelName,
-          apiKeyEncrypted,
-          apiKeyPresent: apiKeyEncrypted !== null,
-        },
+        model: { ...c.model, ...modelPatch },
       }));
-      this.ensureFirstProject(input);
-      recordAudit(this.db, 'setup.completed', { hasApiKey: input.apiKey.length > 0 });
-      return { ok: true, restartRequired: false };
+      if (projectName.length > 0) this.ensureFirstProject(projectName, input.projectRootPath);
+      recordAudit(this.db, 'setup.completed', {
+        hasApiKey: apiKeyEncrypted !== null,
+        apiKeySaved: input.apiKey.length > 0 && apiKeyWarning === null,
+      });
+      return { ok: true, restartRequired: false, apiKeyWarning };
     }
 
     // 自定义目录：全部数据写入新目录，成功后才切换指针
@@ -776,12 +822,7 @@ export class AppRuntime {
     const newConfig: AppConfig = {
       ...this.config,
       setupComplete: true,
-      model: {
-        ...this.config.model,
-        modelName: input.modelName,
-        apiKeyEncrypted,
-        apiKeyPresent: apiKeyEncrypted !== null,
-      },
+      model: { ...this.config.model, ...modelPatch },
     };
     if (!newConfig.localToken) {
       newConfig.localToken = randomBytes(32).toString('hex');
@@ -791,19 +832,22 @@ export class AppRuntime {
     const newDb = openDatabase(layout.dbFile);
     try {
       migrate(newDb);
-      const newProjects = new ProjectService(newDb);
-      const exists = newProjects
-        .list()
-        .find((p: Project) => p.name.toLowerCase() === input.projectName.toLowerCase());
-      if (!exists) {
-        newProjects.create({
-          name: input.projectName,
-          rootPath: input.projectRootPath,
-          description: null,
-        });
+      if (projectName.length > 0) {
+        const newProjects = new ProjectService(newDb);
+        const exists = newProjects
+          .list()
+          .find((p: Project) => p.name.toLowerCase() === projectName.toLowerCase());
+        if (!exists) {
+          newProjects.create({
+            name: projectName,
+            rootPath: input.projectRootPath,
+            description: null,
+          });
+        }
       }
       recordAudit(newDb, 'setup.completed', {
-        hasApiKey: input.apiKey.length > 0,
+        hasApiKey: apiKeyEncrypted !== null,
+        apiKeySaved: input.apiKey.length > 0 && apiKeyWarning === null,
         dataDir: targetDir,
       });
     } finally {
@@ -811,18 +855,18 @@ export class AppRuntime {
     }
     // 全部成功 → 最后切换指针（失败时上面已抛错，指针未改）
     setDataDirChoice(targetDir);
-    return { ok: true, restartRequired: true };
+    return { ok: true, restartRequired: true, apiKeyWarning };
   }
 
-  /** 在当前库中确保第一个项目存在（默认目录路径用）。 */
-  private ensureFirstProject(input: SetupInput): void {
+  /** 在当前库中确保第一个项目存在（默认目录路径用；项目名空则跳过）。 */
+  private ensureFirstProject(projectName: string, projectRootPath: string | null): void {
     const existing = this.projects
       .list()
-      .find((p: Project) => p.name.toLowerCase() === input.projectName.toLowerCase());
+      .find((p: Project) => p.name.toLowerCase() === projectName.toLowerCase());
     if (!existing) {
       this.projects.create({
-        name: input.projectName,
-        rootPath: input.projectRootPath,
+        name: projectName,
+        rootPath: projectRootPath,
         description: null,
       });
     }

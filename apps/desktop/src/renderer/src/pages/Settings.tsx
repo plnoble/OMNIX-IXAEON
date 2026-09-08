@@ -19,7 +19,9 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ modelName: '', apiKey: '' });
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [form, setForm] = useState({ modelName: '', apiBaseUrl: '', apiKey: '' });
+  const [models, setModels] = useState<Array<{ id: string }> | null>(null);
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
 
   const reload = useCallback(async () => {
@@ -27,7 +29,11 @@ export function SettingsPage() {
       const [v, e] = await Promise.all([api.getSettings(), api.listAuditEvents(20)]);
       setView(v);
       setEvents(e);
-      setForm({ modelName: v.config.modelName, apiKey: '' });
+      setForm({
+        modelName: v.config.modelName,
+        apiBaseUrl: v.config.apiBaseUrl,
+        apiKey: '',
+      });
     } catch (err) {
       setError(errMsg(err));
     }
@@ -37,6 +43,30 @@ export function SettingsPage() {
     void reload();
   }, [reload]);
 
+  const fetchModels = async () => {
+    // Key 优先用输入框的（明文，仅本次请求）；已保存则可留空用已保存的？
+    // —— 已保存的 Key 不回显也不可读，因此拉列表要求输入框里有 Key。
+    if (form.apiKey.trim().length === 0) {
+      setError('请先在下方输入 API Key，再获取可用模型（已保存的 Key 不可回读）');
+      return;
+    }
+    setFetchingModels(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.listAvailableModels({
+        apiBaseUrl: form.apiBaseUrl.trim(),
+        apiKey: form.apiKey.trim(),
+      });
+      setModels(result.models);
+      setNotice(`获取到 ${result.models.length} 个可用模型，请在下拉框中选择`);
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
   const saveModel = async () => {
     setBusy(true);
     setError(null);
@@ -44,6 +74,7 @@ export function SettingsPage() {
     try {
       await api.saveModelSettings({
         modelName: form.modelName.trim() || 'gpt-5.2',
+        apiBaseUrl: form.apiBaseUrl,
         apiKey: form.apiKey.trim() || undefined,
       });
       setNotice('模型设置已保存');
@@ -154,11 +185,15 @@ export function SettingsPage() {
             请重新输入 API Key；重新输入将在系统加密可用时以加密形式保存。
           </p>
         )}
-        <Field label="模型名称">
+        <Field label="API 地址" hint="OpenAI 兼容端点；留空表示官方默认">
           <input
-            value={form.modelName}
-            onChange={(e) => setForm({ ...form, modelName: e.target.value })}
-            data-testid="settings-model-name"
+            value={form.apiBaseUrl}
+            onChange={(e) => {
+              setForm({ ...form, apiBaseUrl: e.target.value });
+              setModels(null);
+            }}
+            placeholder="https://api.deepseek.com/v1"
+            data-testid="settings-api-base"
           />
         </Field>
         <Field label="API Key" hint={view.config.apiKeyPresent ? '已保存（不回显）' : '未配置'}>
@@ -170,7 +205,32 @@ export function SettingsPage() {
             data-testid="settings-api-key"
           />
         </Field>
+        <Field label="模型名称">
+          {models ? (
+            <select
+              value={form.modelName}
+              onChange={(e) => setForm({ ...form, modelName: e.target.value })}
+              data-testid="settings-model-select"
+            >
+              <option value="">（选择模型）</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={form.modelName}
+              onChange={(e) => setForm({ ...form, modelName: e.target.value })}
+              data-testid="settings-model-name"
+            />
+          )}
+        </Field>
         <div className="wizard-nav">
+          <Button disabled={fetchingModels} onClick={fetchModels} testId="settings-fetch-models">
+            {fetchingModels ? '获取中…' : '获取可用模型'}
+          </Button>
           <Button kind="primary" disabled={busy} onClick={saveModel} testId="settings-model-save">
             保存
           </Button>
