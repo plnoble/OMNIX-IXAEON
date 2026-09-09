@@ -12,7 +12,7 @@
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| 历史导出 conversations.json（官方 Settings→Export） | ✅ | 512MB 上限；一次导出多对话；官方导出含对话/分支结构。S2 起标识含账户命名空间，缺 conversation_id 不凭标题合并。回归：`import.test.ts` + `s2-import.test.ts` |
+| 历史导出 conversations.json（官方 Settings→Export） | ✅ | 512MB 上限；一次导出多对话。2026-09 官方包 mapping 常无 `children`（仅 parent）；解析器从 parent 反推树。`thoughts`/`reasoning_recap` 不当正文。附件只记元数据。回归：`import.test.ts` + `s2-import.test.ts`。用户提供的未脱敏包仅做内存结构计数（34 对话 / 866 可见段），正文未入库、未进仓库 |
 | 网页当前可见对话增量采集（扩展） | ✅ | 流式完成、编辑、分支、刷新去重、暂停/继续；站点范围仅 chatgpt.com。界面已写明不是后台读整个账号。扩展 e2e + serial 串联 |
 | 真实 chatgpt.com 人工验收 | 📋 | T02：用户登录态下新增/编辑/重生成/暂停实测（未做） |
 

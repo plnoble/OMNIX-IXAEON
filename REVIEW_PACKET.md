@@ -784,6 +784,18 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 | 用户是否接受 | 未演示 | — |
 | 未完成 | 真机演示与四平台样本 | 见 `docs/v03-acceptance-map.md` |
 
+## 19. ChatGPT 官方导出结构适配（2026-09-09）
+
+提交边界：解析器兼容无 `children` 的官方 mapping、跳过 thoughts/reasoning_recap、合成测试与文档。用户未脱敏导出**未入库、未提交**。
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| 实现完成度 | ChatGPT 导出可解析 2026-09 官方包结构 | `parsers.ts` |
+| 自动化 | `s2-import.test.ts` 缺 children / thoughts 用例通过 | vitest 2026-09-09 |
+| 真实结果 | 内存计数 34 对话 / 866 可见段 / 7 未解析附件；正文未导入应用数据目录 | 用户桌面导出路径（未复制） |
+| 用户是否接受 | 未在应用内导入 | — |
+| 未完成 | Gemini/Grok/Claude；T01 真人理解；T02 网页采集 | 见 `docs/v03-acceptance-map.md` |
+
 ---
 
 ## 附录：打包环境网络说明

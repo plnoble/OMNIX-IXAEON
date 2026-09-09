@@ -137,6 +137,64 @@ describe('A05 ChatGPT 规范化结构', () => {
     expect(secondTitle.created[0]!.id).not.toBe(first.created[0]!.id);
   });
 
+  it('官方导出缺 children 时仍能从 parent 还原树；thoughts 不当正文', () => {
+    const conv = {
+      title: '无 children 导出',
+      create_time: 1735689600,
+      update_time: 1735689700,
+      conversation_id: 'conv-no-children',
+      current_node: 'n-asst',
+      mapping: {
+        root: { id: 'root', message: null, parent: null },
+        'n-user': {
+          id: 'n-user',
+          parent: 'root',
+          message: {
+            id: 'n-user',
+            author: { role: 'user' },
+            create_time: 1735689601,
+            content: { content_type: 'text', parts: ['用户可见问题'] },
+          },
+        },
+        'n-thought': {
+          id: 'n-thought',
+          parent: 'n-user',
+          message: {
+            id: 'n-thought',
+            author: { role: 'assistant' },
+            create_time: 1735689602,
+            content: { content_type: 'thoughts', thoughts: [{ summary: '内部思考' }] },
+          },
+        },
+        'n-recap': {
+          id: 'n-recap',
+          parent: 'n-thought',
+          message: {
+            id: 'n-recap',
+            author: { role: 'assistant' },
+            create_time: 1735689603,
+            content: { content_type: 'reasoning_recap', content: '内部摘要' },
+          },
+        },
+        'n-asst': {
+          id: 'n-asst',
+          parent: 'n-recap',
+          message: {
+            id: 'n-asst',
+            author: { role: 'assistant' },
+            create_time: 1735689604,
+            content: { content_type: 'text', parts: ['用户可见回答'] },
+          },
+        },
+      },
+    };
+    const parsed = parseChatgptConversations([conv], { externalId: '' });
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]!.segments.map((s) => s.text)).toEqual(['用户可见问题', '用户可见回答']);
+    expect(parsed[0]!.segments.every((s) => s.metadata.content_type !== 'thoughts')).toBe(true);
+    expect(parsed[0]!.segments[1]!.externalParentId).toBe('n-recap');
+  });
+
   it('非文本附件只记元数据，不声称已理解', () => {
     const conv = makeFakeConversation({ title: '带附件', turns: 1 });
     const userNode = Object.values(conv.mapping).find((n) => n.message?.author.role === 'user');

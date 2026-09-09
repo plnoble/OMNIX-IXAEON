@@ -171,3 +171,27 @@
 
 - 新增 `packages/core/test/integration/s6-roles-privacy.test.ts`。
 - T01–T05 仍未完成。不得写成全部验收通过。
+
+## 2026-09-09 · ChatGPT 官方导出（未脱敏，仅结构）
+
+用户提供桌面官方导出目录（未脱敏）。**正文未读入仓库、未复制、未提交。**
+
+### 结构事实（计数，无正文）
+
+- `conversations.json` 约 18.5MiB，34 段对话，全部有 `conversation_id` / `current_node`
+- mapping 节点 1879，**全部没有 `children` 字段**，只有 `parent`
+- 内容类型：text 860、thoughts 634、reasoning_recap 337、multimodal_text 14
+- 102 个 `file_*.dat` 附件；不解析、不声称已理解
+- `user.json` 含邮箱等身份字段，未使用
+
+### 代码
+
+- 解析器：缺 `children` 时从 `parent` 反推树；`thoughts`/`reasoning_recap` 不当正文
+- 合成回归：`s2-import.test.ts`「官方导出缺 children」
+- 真实包内存计数：34 来源、866 可见段（user 354 / assistant 512）、7 个未解析附件、0 崩溃
+
+### 未完成
+
+- 未把该包导入用户 IXAEON 数据目录（需你在应用内选择导入）
+- Gemini/Grok/Claude 仍无脱敏样本
+- T01 真人理解、T02 网页采集未做

@@ -281,7 +281,7 @@ interface RawNode {
   id: string;
   message: RawMessage | null;
   parent: string | null;
-  children: string[];
+  children?: string[];
 }
 
 interface RawConversation {
@@ -325,6 +325,11 @@ function mapRole(role: string | undefined): SegmentRole | null {
 
 /** 提取消息文本：仅拼接字符串 part；非文本 part 计数入 metadata。 */
 function extractText(message: RawMessage): { text: string; nonTextParts: number } {
+  const contentType = message.content?.content_type;
+  // thoughts / reasoning_recap 是模型内部过程，不是用户可见对话，不当正文。
+  if (contentType === 'thoughts' || contentType === 'reasoning_recap') {
+    return { text: '', nonTextParts: 0 };
+  }
   const parts = message.content?.parts ?? [];
   const texts: string[] = [];
   let nonText = 0;
@@ -362,6 +367,17 @@ export function parseChatgptConversations(
     const conv = raw as RawConversation;
     const mapping = conv.mapping ?? {};
     const title = (conv.title ?? '未命名对话').trim() || '未命名对话';
+    // 2026-09 官方导出的 mapping 节点经常没有 children，只保留 parent。
+    // 遍历必须能从 parent 反推，不能假设 children 数组存在。
+    const childrenByParent = new Map<string, string[]>();
+    for (const node of Object.values(mapping)) {
+      if (!node?.id) continue;
+      const pid = node.parent;
+      if (!pid) continue;
+      const list = childrenByParent.get(pid) ?? [];
+      list.push(node.id);
+      childrenByParent.set(pid, list);
+    }
 
     // 活动分支：current_node → 根
     const activeNodes = new Set<string>();
@@ -425,8 +441,13 @@ export function parseChatgptConversations(
           hashInput += `${node.id}|${role}|${msg.create_time ?? ''}|${text}\n`;
         }
       }
-      // 子节点逆序入栈，保证出栈顺序与原递归 DFS（先序）一致
-      const children = node.children
+      // 子节点逆序入栈，保证出栈顺序与原递归 DFS（先序）一致。
+      // 优先用导出自带的 children；缺失时用 parent 反推。
+      const childIds =
+        Array.isArray(node.children) && node.children.length > 0
+          ? node.children
+          : (childrenByParent.get(node.id) ?? []);
+      const children = childIds
         .map((cid) => mapping[cid])
         .filter((c): c is RawNode => c !== undefined);
       for (let i = children.length - 1; i >= 0; i--) {
