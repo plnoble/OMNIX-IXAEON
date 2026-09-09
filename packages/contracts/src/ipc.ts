@@ -62,6 +62,12 @@ export const createProjectInputSchema = z.object({
   name: z.string().min(1).max(200),
   rootPath: z.string().nullable(),
   description: z.string().max(4000).nullable(),
+  purpose: z.string().max(2000).nullable().optional(),
+  currentState: z.string().max(2000).nullable().optional(),
+  primaryIo: z.string().max(2000).nullable().optional(),
+  capabilities: z.string().max(2000).nullable().optional(),
+  relatedGoals: z.string().max(2000).nullable().optional(),
+  unknowns: z.string().max(2000).nullable().optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
 
@@ -80,6 +86,8 @@ export const importPickedInputSchema = z.object({
   /** pickFiles 返回的一次性票据（使用后立即作废） */
   ticket: z.string().min(8),
   projectId: z.string().uuid().nullable(),
+  /** 用户自命名的本地账户命名空间；默认 local。不读取密码/Cookie。 */
+  accountNamespace: z.string().min(1).max(80).optional(),
 });
 export type ImportPickedInput = z.infer<typeof importPickedInputSchema>;
 
@@ -269,6 +277,7 @@ export interface IxaIpcApi {
   // 项目
   listProjects(): Promise<Project[]>;
   createProject(input: CreateProjectInput): Promise<Project>;
+  createProjects(inputs: CreateProjectInput[]): Promise<Project[]>;
   updateProjectStatus(input: {
     id: string;
     status: 'active' | 'paused' | 'archived';

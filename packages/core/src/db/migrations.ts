@@ -331,6 +331,25 @@ CREATE TABLE disclosure_grants (
 CREATE INDEX idx_disclosure_item ON disclosure_grants(item_id, audience);
 `,
   },
+  {
+    id: 12,
+    name: 'source-account-namespace',
+    sql: `
+-- S2：导入标识含平台 + 本地账户命名空间，跨账号相同标题/对话 ID 不误合并。
+-- 命名空间由用户自命名，不读取密码或 Cookie。旧来源映射为 local（不扩权）。
+ALTER TABLE sources ADD COLUMN account_namespace TEXT NOT NULL DEFAULT 'local';
+DROP INDEX IF EXISTS idx_sources_dedup;
+CREATE UNIQUE INDEX idx_sources_dedup ON sources(provider, account_namespace, external_id, content_hash);
+
+-- 项目登记卡：构想可以没有目录；有目录时根路径身份关联，不凭同名合并。
+ALTER TABLE projects ADD COLUMN purpose TEXT;
+ALTER TABLE projects ADD COLUMN current_state TEXT;
+ALTER TABLE projects ADD COLUMN primary_io TEXT;
+ALTER TABLE projects ADD COLUMN capabilities TEXT;
+ALTER TABLE projects ADD COLUMN related_goals TEXT;
+ALTER TABLE projects ADD COLUMN unknowns TEXT;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

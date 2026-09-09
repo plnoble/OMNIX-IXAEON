@@ -32,12 +32,20 @@ export class SourceStore {
   constructor(private readonly db: CoreDatabase) {}
 
   /**
-   * 按 (provider, external_id, content_hash) 查找已有来源（幂等去重键）。
+   * 按 (provider, account_namespace, external_id, content_hash) 查找已有来源（幂等去重键）。
+   * 跨账号相同标题/对话 ID 不合并。
    */
-  findExisting(provider: string, externalId: string, contentHash: string): Source | null {
+  findExisting(
+    provider: string,
+    externalId: string,
+    contentHash: string,
+    accountNamespace = 'local',
+  ): Source | null {
     const row = this.db
-      .prepare('SELECT * FROM sources WHERE provider = ? AND external_id = ? AND content_hash = ?')
-      .get(provider, externalId, contentHash) as Source | undefined;
+      .prepare(
+        'SELECT * FROM sources WHERE provider = ? AND account_namespace = ? AND external_id = ? AND content_hash = ?',
+      )
+      .get(provider, accountNamespace, externalId, contentHash) as Source | undefined;
     return row ?? null;
   }
 
@@ -49,9 +57,9 @@ export class SourceStore {
     const now = new Date().toISOString();
     const sourceId = randomUUID();
     const insertSource = this.db.prepare(
-      `INSERT INTO sources (id, kind, provider, external_id, title, content_hash, raw_path,
+      `INSERT INTO sources (id, kind, provider, account_namespace, external_id, title, content_hash, raw_path,
         captured_at, imported_at, permission_id, project_id, metadata_json, content_revision)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     );
     const insertSegment = this.db.prepare(
       `INSERT INTO segments (id, source_id, sequence, role, external_node_id, external_parent_id,
@@ -63,6 +71,7 @@ export class SourceStore {
         sourceId,
         parsed.kind,
         parsed.provider,
+        parsed.accountNamespace,
         parsed.externalId,
         parsed.title,
         parsed.contentHash,
@@ -94,7 +103,12 @@ export class SourceStore {
     } catch (err) {
       if (String(err).includes('UNIQUE constraint failed: sources.provider')) {
         // 并发下重复导入：视为已存在
-        const existing = this.findExisting(parsed.provider, parsed.externalId, parsed.contentHash);
+        const existing = this.findExisting(
+          parsed.provider,
+          parsed.externalId,
+          parsed.contentHash,
+          parsed.accountNamespace,
+        );
         if (existing) return existing;
       }
       throw err;
@@ -237,6 +251,7 @@ export class SourceStore {
         id: r.id,
         kind: r.kind,
         provider: r.provider,
+        account_namespace: (r as { account_namespace?: string }).account_namespace ?? 'local',
         external_id: r.external_id,
         title: r.title,
         content_hash: r.content_hash,

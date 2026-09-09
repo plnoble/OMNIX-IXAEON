@@ -52,9 +52,11 @@ afterEach(() => {
 
 describe('A12 迁移 11', () => {
   it('全新库版本为 11，且旧空归属映射为 unassigned', () => {
-    expect(currentMigrationVersion(db)).toBe(11);
+    expect(currentMigrationVersion(db)).toBeGreaterThanOrEqual(11);
     const tables = (
-      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+        name: string;
+      }>
     ).map((r) => r.name);
     expect(tables).toContain('item_links');
     expect(tables).toContain('disclosure_grants');
@@ -96,9 +98,9 @@ describe('A12 迁移 11', () => {
 
     const upgraded = openDatabase(oldDbPath);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(11);
+    expect(currentMigrationVersion(upgraded)).toBeGreaterThanOrEqual(11);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(11);
+    expect(currentMigrationVersion(upgraded)).toBeGreaterThanOrEqual(11);
     const a = upgraded.prepare('SELECT scope FROM items WHERE id = ?').get(withProject) as {
       scope: string;
     };
@@ -140,26 +142,26 @@ describe('A01 无项目也能开始', () => {
 
 describe('A02 范围与待处理原因', () => {
   it('personal 不产生 no_project；unassigned 仍产生；改范围只清自己负责原因', () => {
-    expect(
-      [...derivedNeedsReasons({
+    expect([
+      ...derivedNeedsReasons({
         project_id: null,
         scope: 'personal',
         type: 'goal',
         origin: 'user',
         state: 'current',
         confirmation: 'none',
-      })],
-    ).not.toContain('no_project');
-    expect(
-      [...derivedNeedsReasons({
+      }),
+    ]).not.toContain('no_project');
+    expect([
+      ...derivedNeedsReasons({
         project_id: null,
         scope: 'unassigned',
         type: 'goal',
         origin: 'user',
         state: 'current',
         confirmation: 'none',
-      })],
-    ).toContain('no_project');
+      }),
+    ]).toContain('no_project');
 
     const item = items.createManual({
       projectId: null,
@@ -179,7 +181,9 @@ describe('A02 范围与待处理原因', () => {
     // manual 原因保留
     expect(personal.needs_review).toBe(true);
     const reasons = (
-      db.prepare('SELECT needs_reasons FROM items WHERE id = ?').get(item.id) as { needs_reasons: string }
+      db.prepare('SELECT needs_reasons FROM items WHERE id = ?').get(item.id) as {
+        needs_reasons: string;
+      }
     ).needs_reasons;
     expect(reasons.split(',')).toContain('manual');
     expect(reasons.split(',')).not.toContain('no_project');

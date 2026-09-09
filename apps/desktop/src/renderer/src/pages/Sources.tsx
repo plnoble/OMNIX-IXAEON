@@ -255,6 +255,8 @@ export function SourcesPage({
       >
         <p className="note">
           原文导入后永久保留、只读。导入相同内容会自动去重。授权只覆盖你在对话框中明确选择的文件。
+          ChatGPT 历史导出是一次性导入；浏览器扩展只采集当前打开且可见的对话，不是后台读取整个账号。
+          Gemini / Grok / Claude 历史导入需脱敏导出样本后才能接入，本版未伪称已支持。
         </p>
         {list === null ? (
           <Spinner />

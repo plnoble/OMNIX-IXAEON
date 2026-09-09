@@ -735,7 +735,15 @@ export class LocalServer {
       .join('\n\n');
     const { hash } = vault.store(initialText);
     // 修复 N1/T1：创建来源时持久化可靠的会话标识（草稿身份的依据）
-    const newMetadata: Record<string, unknown> = { via: 'extension', first_seen: now };
+    const newMetadata: Record<string, unknown> = {
+      via: 'extension',
+      first_seen: now,
+      platform: 'chatgpt',
+      account_namespace: 'local',
+      import_method: 'live_capture',
+      missing_fields: [],
+      unparsed_attachments: 0,
+    };
     if (batchSession !== null) newMetadata.sessionId = batchSession;
     // 修复 F1 要求 5：建源 + 片段登记同一事务 —— 失败完整回滚，不留半成品
     const createResult = db.transaction(() => {

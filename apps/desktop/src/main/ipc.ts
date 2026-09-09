@@ -132,6 +132,7 @@ export function registerIpc(runtime: AppRuntime): void {
     // --- 项目 ---
     listProjects: async (): Promise<Project[]> => runtime.projects.list(),
     createProject: async (input) => runtime.projects.create(input),
+    createProjects: async (inputs) => runtime.projects.createMany(inputs),
     updateProjectStatus: async (input) => runtime.projects.updateStatus(input.id, input.status),
 
     // --- 导入（票据制） ---
@@ -198,6 +199,7 @@ export function registerIpc(runtime: AppRuntime): void {
           const result = runtime.imports.importFile(p, {
             projectId: input.projectId,
             permissionId: permission.id,
+            accountNamespace: input.accountNamespace,
           });
           pending = pending.concat(result.pendingExtraction);
         } catch (err) {
@@ -217,6 +219,7 @@ export function registerIpc(runtime: AppRuntime): void {
       const result = runtime.imports.importFolder(rootPath, {
         projectId: input.projectId,
         permissionId: permission.id,
+        accountNamespace: input.accountNamespace,
       });
       const jobIds = enqueueExtractions(result.pendingExtraction, input.projectId);
       return { jobIds, failed: result.failed, scanned: result.scanned };

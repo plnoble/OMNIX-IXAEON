@@ -331,7 +331,8 @@ export function SettingsPage() {
         </p>
         <p className="note">
           边界说明：已经发出的模型请求无法撤回；关闭开关或暂停对话只阻止后续调用。
-          暂停的对话会保留「待分析」状态，恢复后处理最新内容。
+          暂停的对话会保留「待分析」状态，恢复后处理最新内容。 扩展只采集当前打开且可见的
+          chatgpt.com 对话，不是后台读取整个账号；未打开的对话与手机端不同步。
         </p>
         <div className="field-row">
           <label className="check">

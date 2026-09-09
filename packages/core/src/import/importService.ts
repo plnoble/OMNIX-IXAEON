@@ -122,7 +122,12 @@ export class ImportService {
    */
   importFile(
     absPath: string,
-    opts: { projectId: string | null; permissionId: string; maxBytes?: number },
+    opts: {
+      projectId: string | null;
+      permissionId: string;
+      maxBytes?: number;
+      accountNamespace?: string;
+    },
   ): ImportFileResult {
     const permission = this.requirePermission(opts.permissionId, absPath);
     const { content, hash: fileHash } = this.readAuthorized(absPath, { maxBytes: opts.maxBytes });
@@ -131,7 +136,9 @@ export class ImportService {
     const deduplicated: Source[] = [];
 
     // conversations.json：一个文件包含多场对话
-    const convs = tryParseChatgptConversations(content);
+    const convs = tryParseChatgptConversations(content, {
+      accountNamespace: opts.accountNamespace,
+    });
     if (convs) {
       for (const parsed of convs) {
         const result = this.insertParsed(parsed, {
@@ -191,7 +198,7 @@ export class ImportService {
    */
   importFolder(
     absPath: string,
-    opts: { projectId: string | null; permissionId: string },
+    opts: { projectId: string | null; permissionId: string; accountNamespace?: string },
   ): {
     created: Source[];
     deduplicated: Source[];
@@ -211,6 +218,7 @@ export class ImportService {
         const result = this.importFile(file, {
           projectId: opts.projectId,
           permissionId: opts.permissionId,
+          accountNamespace: opts.accountNamespace,
         });
         created.push(...result.created);
         deduplicated.push(...result.deduplicated);
@@ -233,7 +241,7 @@ export class ImportService {
   /** 显式按 ChatGPT 导出解析（同样要求传入可信授权 ID）。 */
   importChatgptExport(
     absPath: string,
-    opts: { projectId: string | null; permissionId: string },
+    opts: { projectId: string | null; permissionId: string; accountNamespace?: string },
   ): ImportFileResult {
     const permission = this.requirePermission(opts.permissionId, absPath);
     const { content, hash: fileHash } = this.readAuthorized(absPath);
@@ -246,7 +254,10 @@ export class ImportService {
     if (!Array.isArray(parsedJson)) {
       throw new IxaError(ErrorCodes.PARSE_FAILED, 'conversations.json 顶层应为数组');
     }
-    const convs = parseChatgptConversations(parsedJson, { externalId: '' });
+    const convs = parseChatgptConversations(parsedJson, {
+      externalId: '',
+      accountNamespace: opts.accountNamespace,
+    });
     const created: Source[] = [];
     const deduplicated: Source[] = [];
     for (const parsed of convs) {
@@ -313,6 +324,7 @@ export class ImportService {
       parsed.provider,
       parsed.externalId,
       parsed.contentHash,
+      parsed.accountNamespace,
     );
     if (existing) return { created: false, source: existing };
     const source = this.sources.insertParsed(parsed, {

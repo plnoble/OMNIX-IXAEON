@@ -21,6 +21,7 @@ const api: IxaIpcApi = {
   completeSetup: (input) => ipcRenderer.invoke('ixaeon:completeSetup', input),
   listProjects: () => ipcRenderer.invoke('ixaeon:listProjects'),
   createProject: (input) => ipcRenderer.invoke('ixaeon:createProject', input),
+  createProjects: (inputs) => ipcRenderer.invoke('ixaeon:createProjects', inputs),
   updateProjectStatus: (input) => ipcRenderer.invoke('ixaeon:updateProjectStatus', input),
   pickFiles: (kind) => ipcRenderer.invoke('ixaeon:pickFiles', kind),
   pickSaveZip: (defaultName) => ipcRenderer.invoke('ixaeon:pickSaveZip', defaultName),

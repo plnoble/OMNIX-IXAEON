@@ -139,7 +139,13 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    purpose: '',
+    currentState: '',
+    unknowns: '',
+  });
 
   const reload = useCallback(async () => {
     try {
@@ -164,8 +170,11 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
         name: form.name.trim(),
         rootPath: null,
         description: form.description.trim() || null,
+        purpose: form.purpose.trim() || null,
+        currentState: form.currentState.trim() || null,
+        unknowns: form.unknowns.trim() || null,
       });
-      setForm({ name: '', description: '' });
+      setForm({ name: '', description: '', purpose: '', currentState: '', unknowns: '' });
       setCreating(false);
       await reload();
     } catch (err) {
@@ -214,6 +223,25 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
             </Field>
+            <Field label="目的（可选，无目录的构想也可登记）">
+              <input
+                value={form.purpose}
+                onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+                data-testid="project-form-purpose"
+              />
+            </Field>
+            <Field label="当前状态（可选）">
+              <input
+                value={form.currentState}
+                onChange={(e) => setForm({ ...form, currentState: e.target.value })}
+              />
+            </Field>
+            <Field label="未知项（可选）">
+              <input
+                value={form.unknowns}
+                onChange={(e) => setForm({ ...form, unknowns: e.target.value })}
+              />
+            </Field>
             <div className="wizard-nav">
               <Button onClick={() => setCreating(false)}>取消</Button>
               <Button kind="primary" disabled={busy} onClick={create} testId="project-form-save">
@@ -226,7 +254,9 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
         {projects === null ? (
           <Spinner />
         ) : projects.length === 0 ? (
-          <Empty>还没有项目。新建一个项目，开始导入资料。</Empty>
+          <Empty>
+            还没有项目。可以登记有目录的项目，也可以只登记构想（不强迫创建文件夹）。导入授权只读，不授予执行权。
+          </Empty>
         ) : (
           <ul className="project-list">
             {projects.map((p) => (
@@ -234,7 +264,12 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
                 <div className="project-main">
                   <strong>{p.name}</strong>
                   <span className={`badge badge-${p.status}`}>{projectStatusLabel(p.status)}</span>
-                  <span className="muted">{p.root_path ?? '未绑定目录'}</span>
+                  <span className="muted">{p.root_path ?? '构想（未绑定目录）'}</span>
+                  {p.purpose && (
+                    <span className="muted" style={{ display: 'block', fontSize: 12 }}>
+                      目的：{p.purpose}
+                    </span>
+                  )}
                 </div>
                 <ProjectWorkRuns projectId={p.id} />
                 <div className="project-actions">

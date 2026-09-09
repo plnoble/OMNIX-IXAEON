@@ -47,6 +47,8 @@ export const sourceSchema = z.object({
   id: uuidSchema,
   kind: sourceKindSchema,
   provider: sourceProviderSchema,
+  /** 用户自命名的本地账户命名空间；跨账号相同标题/ID 不合并。 */
+  account_namespace: z.string().min(1).default('local'),
   external_id: z.string(),
   title: z.string(),
   content_hash: z.string().length(64),
@@ -103,6 +105,13 @@ export const projectSchema = z.object({
   status: projectStatusSchema,
   created_at: isoDateTimeSchema,
   updated_at: isoDateTimeSchema,
+  /** 项目建立目的（构想也可无目录登记）。 */
+  purpose: z.string().nullable().optional(),
+  current_state: z.string().nullable().optional(),
+  primary_io: z.string().nullable().optional(),
+  capabilities: z.string().nullable().optional(),
+  related_goals: z.string().nullable().optional(),
+  unknowns: z.string().nullable().optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 

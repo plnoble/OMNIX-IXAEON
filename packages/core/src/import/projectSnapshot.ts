@@ -201,7 +201,9 @@ export function readProjectSnapshot(rootPath: string): SnapshotResult {
     source: {
       kind: 'project_snapshot',
       provider: 'project',
+      accountNamespace: 'local',
       externalId: root,
+      importMethod: 'project_snapshot',
       title: `项目快照：${root.split(/[\\/]/).pop() ?? root}`,
       contentHash: sha256(fileHashes.join('\n') || 'empty'),
       capturedAt: new Date().toISOString(),

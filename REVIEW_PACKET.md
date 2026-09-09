@@ -724,6 +724,18 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 | 用户是否接受 | 未演示 | — |
 | 未完成 | S2–S5；A11 研究/任务背景；真实旧库升级 | 见 `docs/v03-acceptance-map.md` |
 
+## 14. v0.3 S2（多来源输入与项目目录，2026-09-09）
+
+提交边界：迁移 12、ChatGPT 规范化导入、多项目登记、文档。不混入他人未跟踪构思稿。
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| 实现完成度 | ChatGPT 历史导入 + 命名空间 + 多项目登记完成；三平台解析未做 | 迁移 12；`parsers.ts`/`sourceStore.ts`/`projects.ts` |
+| 自动化 | A05 ChatGPT 通过；A07 通过；A06 沿用 v0.2 | `s2-import.test.ts` |
+| 真实结果 | 未跑 T01 四平台 / T02 真机采集 | 不得写成全部验收通过 |
+| 用户是否接受 | 未演示 | — |
+| 受阻 | Gemini / Grok / Claude 无脱敏导出样本，不写伪解析器 | `docs/v03-source-support.md` |
+
 ---
 
 ## 附录：打包环境网络说明

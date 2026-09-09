@@ -19,13 +19,34 @@ export interface ParsedSegment {
 export interface ParsedSource {
   kind: 'conversation' | 'document' | 'project_snapshot';
   provider: 'chatgpt_export' | 'local_file' | 'project';
+  /** 用户自命名的本地账户命名空间；默认 local。不读取密码/Cookie。 */
+  accountNamespace: string;
   externalId: string;
   title: string;
   /** 来源级内容指纹（用于幂等去重） */
   contentHash: string;
   capturedAt: string | null;
+  /** 导入方式：一次性历史导出 / 当前可见对话增量 / 本地文件 / 项目快照 */
+  importMethod: 'history_export' | 'live_capture' | 'local_file' | 'project_snapshot';
   segments: ParsedSegment[];
   metadata: Record<string, unknown>;
+}
+
+/** 规范化导入元数据（S2）：所有平台同一结构。缺失字段显式标记，不凭标题合并。 */
+export interface CanonicalImportMeta {
+  platform: string;
+  account_namespace: string;
+  conversation_id: string;
+  import_method: ParsedSource['importMethod'];
+  missing_fields: string[];
+  unparsed_attachments: number;
+}
+
+export const DEFAULT_ACCOUNT_NAMESPACE = 'local';
+
+export function normalizeAccountNamespace(raw: string | null | undefined): string {
+  const t = (raw ?? '').trim();
+  return t.length > 0 ? t.slice(0, 80) : DEFAULT_ACCOUNT_NAMESPACE;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,16 +152,23 @@ function buildDocumentSegments(
   return {
     kind: 'document',
     provider: 'local_file',
+    accountNamespace: DEFAULT_ACCOUNT_NAMESPACE,
     externalId: opts.externalId,
     title: opts.title,
     contentHash: sha256(text),
     capturedAt: opts.capturedAt ?? null,
+    importMethod: 'local_file',
     segments,
     metadata: {
       format,
       chars: text.length,
       segments: segments.length,
       headings: pieces.filter((p) => p.heading).length,
+      platform: 'local_file',
+      account_namespace: DEFAULT_ACCOUNT_NAMESPACE,
+      import_method: 'local_file',
+      missing_fields: ['conversation_id', 'message_id', 'parent_id', 'occurred_at'],
+      unparsed_attachments: 0,
     },
   };
 }
@@ -160,7 +188,10 @@ export function parseTextDocument(
 }
 
 /** 若内容是 ChatGPT conversations.json 数组则返回解析结果，否则 null。 */
-export function tryParseChatgptConversations(content: string): ParsedSource[] | null {
+export function tryParseChatgptConversations(
+  content: string,
+  opts?: { accountNamespace?: string },
+): ParsedSource[] | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
@@ -170,7 +201,10 @@ export function tryParseChatgptConversations(content: string): ParsedSource[] | 
   if (!Array.isArray(parsed) || parsed.length === 0 || !isChatgptConversationArray(parsed)) {
     return null;
   }
-  return parseChatgptConversations(parsed, { externalId: '' });
+  return parseChatgptConversations(parsed, {
+    externalId: '',
+    accountNamespace: opts?.accountNamespace,
+  });
 }
 
 export function parseJsonDocument(
@@ -200,10 +234,12 @@ export function parseJsonDocument(
   return {
     kind: 'document',
     provider: 'local_file',
+    accountNamespace: DEFAULT_ACCOUNT_NAMESPACE,
     externalId: opts.externalId,
     title,
     contentHash: sha256(text),
     capturedAt: opts.capturedAt ?? null,
+    importMethod: 'local_file',
     segments: [
       {
         sequence: 0,
@@ -216,7 +252,15 @@ export function parseJsonDocument(
         metadata: { format: 'json' },
       },
     ],
-    metadata: { format: 'json', chars: text.length },
+    metadata: {
+      format: 'json',
+      chars: text.length,
+      platform: 'local_file',
+      account_namespace: DEFAULT_ACCOUNT_NAMESPACE,
+      import_method: 'local_file',
+      missing_fields: ['conversation_id', 'message_id', 'parent_id', 'occurred_at'],
+      unparsed_attachments: 0,
+    },
   };
 }
 
@@ -309,8 +353,9 @@ function extractText(message: RawMessage): { text: string; nonTextParts: number 
  */
 export function parseChatgptConversations(
   conversations: unknown[],
-  opts: { externalId: string },
+  opts: { externalId: string; accountNamespace?: string },
 ): ParsedSource[] {
+  const namespace = normalizeAccountNamespace(opts.accountNamespace);
   const sources: ParsedSource[] = [];
   for (const raw of conversations) {
     if (raw === null || typeof raw !== 'object') continue;
@@ -335,6 +380,9 @@ export function parseChatgptConversations(
     // contentHash 基于消息内容增量哈希（不整体 JSON.stringify —— 50k 消息时
     // 会把整个对话再复制成一份巨大字符串，违反流式底线）
     let hashInput = '';
+    let unparsedAttachments = 0;
+    let missingMessageId = 0;
+    let missingTime = 0;
 
     const stack: Array<{ node: RawNode; parentActive: boolean }> = roots.map((r) => ({
       node: r,
@@ -355,14 +403,22 @@ export function parseChatgptConversations(
             status: msg.status ?? null,
             original_role: msg.author?.role ?? null,
           };
-          if (nonTextParts > 0) metadata.non_text_parts = nonTextParts;
+          if (nonTextParts > 0) {
+            metadata.non_text_parts = nonTextParts;
+            metadata.unparsed_attachment = true;
+            metadata.unparsed_note = '附件/图片/音频未解析，不自动拉取 URL，不声称已理解内容';
+            unparsedAttachments += nonTextParts;
+          }
+          const occurredAt = unixToIso(msg.create_time);
+          if (!occurredAt) missingTime += 1;
+          if (!node.id) missingMessageId += 1;
           segments.push({
             sequence: sequence++,
             role,
-            externalNodeId: node.id,
+            externalNodeId: node.id ?? null,
             externalParentId: node.parent,
             isActiveBranch: isActive,
-            occurredAt: unixToIso(msg.create_time),
+            occurredAt,
             text,
             metadata,
           });
@@ -378,32 +434,44 @@ export function parseChatgptConversations(
       }
     }
 
-    const externalId =
-      typeof conv.conversation_id === 'string' && conv.conversation_id.length > 0
-        ? conv.conversation_id
-        : `${title}#${conv.create_time ?? 0}`;
+    const hasConversationId =
+      typeof conv.conversation_id === 'string' && conv.conversation_id.length > 0;
+    const externalId = hasConversationId
+      ? conv.conversation_id!
+      : `missing-id:${sha256(`${title}|${conv.create_time ?? 0}|${hashInput}`).slice(0, 24)}`;
+    const missingFields: string[] = [];
+    if (!hasConversationId) missingFields.push('conversation_id');
+    if (missingMessageId > 0) missingFields.push('message_id');
+    if (missingTime > 0) missingFields.push('occurred_at');
 
     sources.push({
       kind: 'conversation',
       provider: 'chatgpt_export',
+      accountNamespace: namespace,
       externalId,
       title,
       contentHash: sha256(
-        `${externalId}|${title}|${conv.create_time ?? ''}|${conv.update_time ?? ''}|${hashInput}`,
+        `${namespace}|${externalId}|${title}|${conv.create_time ?? ''}|${conv.update_time ?? ''}|${hashInput}`,
       ),
       capturedAt: unixToIso(conv.update_time ?? conv.create_time),
+      importMethod: 'history_export',
       segments,
       metadata: {
+        platform: 'chatgpt',
+        account_namespace: namespace,
+        conversation_id: hasConversationId ? conv.conversation_id : null,
+        import_method: 'history_export',
         create_time: conv.create_time ?? null,
         update_time: conv.update_time ?? null,
         active_branch_nodes: activeNodes.size,
         total_nodes: Object.keys(mapping).length,
+        missing_fields: missingFields,
+        unparsed_attachments: unparsedAttachments,
       },
     });
   }
   if (sources.length === 0) {
     throw new IxaError(ErrorCodes.PARSE_FAILED, 'conversations.json 中没有可解析的对话');
   }
-  void opts;
   return sources;
 }

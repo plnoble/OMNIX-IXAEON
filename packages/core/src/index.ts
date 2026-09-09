@@ -33,6 +33,8 @@ export {
   parseJsonDocument,
   parseChatgptConversations,
   tryParseChatgptConversations,
+  normalizeAccountNamespace,
+  DEFAULT_ACCOUNT_NAMESPACE,
   type ParsedSegment,
   type ParsedSource,
 } from './import/parsers.js';
