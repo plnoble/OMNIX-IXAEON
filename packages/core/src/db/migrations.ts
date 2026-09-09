@@ -387,6 +387,85 @@ CREATE INDEX idx_relations_from ON project_relations(from_project_id, status);
 CREATE INDEX idx_relations_fingerprint ON project_relations(evidence_fingerprint, status);
 `,
   },
+  {
+    id: 14,
+    name: 'research-topics',
+    sql: `
+-- S4：主动研究。第一版只检查用户批准的 HTTPS 来源，不接搜索 API。
+-- 自动关注默认关闭；失败不得写成「无变化」；accepted 研究不改用户偏好。
+CREATE TABLE research_topics (
+  id TEXT PRIMARY KEY,
+  question TEXT NOT NULL,
+  public_description TEXT NOT NULL,
+  related_goal_id TEXT REFERENCES items(id) ON DELETE SET NULL,
+  related_project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  paused INTEGER NOT NULL DEFAULT 0,
+  interval_ms INTEGER NOT NULL DEFAULT 86400000,
+  max_pages_per_run INTEGER NOT NULL DEFAULT 10,
+  paid_budget_mode TEXT NOT NULL DEFAULT 'none'
+    CHECK (paid_budget_mode IN ('none', 'request_cap')),
+  request_cap INTEGER NOT NULL DEFAULT 0,
+  generation INTEGER NOT NULL DEFAULT 0,
+  last_success_at TEXT,
+  last_failure_at TEXT,
+  last_failure TEXT,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  next_check_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE research_sources (
+  id TEXT PRIMARY KEY,
+  topic_id TEXT NOT NULL REFERENCES research_topics(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('page', 'feed')),
+  last_fingerprint TEXT,
+  last_checked_at TEXT,
+  last_success_at TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_research_sources_topic_url ON research_sources(topic_id, url);
+CREATE TABLE research_findings (
+  id TEXT PRIMARY KEY,
+  topic_id TEXT NOT NULL REFERENCES research_topics(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES research_sources(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  excerpt TEXT NOT NULL,
+  content_fingerprint TEXT NOT NULL,
+  evidence_class TEXT NOT NULL DEFAULT 'publisher'
+    CHECK (evidence_class IN ('publisher', 'third_party', 'cross_check', 'local_experiment')),
+  claimed_published_at TEXT,
+  fetched_at TEXT NOT NULL,
+  related_goal_id TEXT,
+  related_project_id TEXT,
+  speculation TEXT,
+  action_worthy INTEGER NOT NULL DEFAULT 0,
+  action_reason TEXT,
+  limitations TEXT,
+  next_experiment TEXT,
+  notified INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_research_findings_fp ON research_findings(topic_id, content_fingerprint);
+CREATE TABLE research_runs (
+  id TEXT PRIMARY KEY,
+  topic_id TEXT NOT NULL REFERENCES research_topics(id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'cancelled', 'skipped')),
+  pages_fetched INTEGER NOT NULL DEFAULT 0,
+  findings_new INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  lease_until TEXT
+);
+CREATE INDEX idx_research_topics_next ON research_topics(enabled, paused, next_check_at);
+CREATE INDEX idx_research_findings_topic ON research_findings(topic_id, created_at);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

@@ -11,6 +11,7 @@ import {
   RelationService,
   proposeObviousRelations,
   buildPersonalOverview,
+  ResearchChecker,
   OpenAIResponsesProvider,
   listUpstreamModels,
   ImportService,
@@ -63,6 +64,7 @@ export class AppRuntime {
   imports: ImportService;
   items: ItemService;
   relations: RelationService;
+  research: ResearchChecker;
   jobs: JobQueue;
   readonly logger: Logger;
   readonly localServer: LocalServer;
@@ -74,6 +76,7 @@ export class AppRuntime {
   private readonly configFile: string;
   private readonly dataDir: string;
   private modelCallCount = 0;
+  private researchTimer: NodeJS.Timeout | null = null;
 
   private constructor(deps: {
     dataDir: string;
@@ -88,6 +91,7 @@ export class AppRuntime {
     imports: ImportService;
     items: ItemService;
     relations: RelationService;
+    research: ResearchChecker;
     jobs: JobQueue;
     logger: Logger;
     localServer: LocalServer;
@@ -104,6 +108,7 @@ export class AppRuntime {
     this.imports = deps.imports;
     this.items = deps.items;
     this.relations = deps.relations;
+    this.research = deps.research;
     this.jobs = deps.jobs;
     this.logger = deps.logger;
     this.localServer = deps.localServer;
@@ -128,6 +133,7 @@ export class AppRuntime {
     const imports = new ImportService(db, vault, permissions, sources);
     const items = new ItemService(db);
     const relations = new RelationService(db);
+    const research = new ResearchChecker(db);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
     const config = loadConfig(layout.configFile);
@@ -187,6 +193,7 @@ export class AppRuntime {
       imports,
       items,
       relations,
+      research,
       jobs,
       logger,
       localServer,
@@ -203,6 +210,7 @@ export class AppRuntime {
     //（此时队列必空闲，running 记录没有执行者），再扫描欠分析来源
     runtime.recoverOrphanedJobs();
     runtime.sweepPendingAnalysis();
+    runtime.startResearchScheduler();
     await runtime.startServer();
     return runtime;
   }
@@ -553,6 +561,21 @@ export class AppRuntime {
     return proposeObviousRelations(this.db);
   }
 
+  researchSnapshot() {
+    const topics = this.research.store.listTopics().map((t) => ({
+      ...t,
+      sources: this.research.store.listSources(t.id),
+      findings: this.research.store.listFindings(t.id),
+      runs: this.research.store.listRuns(t.id),
+    }));
+    return {
+      mode: 'approved-sources-only' as const,
+      searchConfigured: false as const,
+      notice: '当前未配置搜索服务，只检查已批准来源，不是全网搜索。',
+      topics,
+    };
+  }
+
   /** 工作记录列表（M3：最近工作展示）。 */
   listWorkRuns(projectId: string, limit: number): Array<WorkRun> {
     return this.db
@@ -700,6 +723,7 @@ export class AppRuntime {
     const imports = new ImportService(db, vault, permissions, sources);
     const items = new ItemService(db);
     const relations = new RelationService(db);
+    const research = new ResearchChecker(db);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;
     this.vault = vault;
@@ -710,6 +734,7 @@ export class AppRuntime {
     this.imports = imports;
     this.items = items;
     this.relations = relations;
+    this.research = research;
     this.jobs = jobs;
     // localServer 持有的是旧 db 引用：用新服务重建其依赖（复用同一实例）
     this.localServer.rebindDeps({
@@ -720,6 +745,7 @@ export class AppRuntime {
     });
     this.registerJobHandlers();
     jobs.start();
+    this.startResearchScheduler();
     this.logger.info('运行时已重建（恢复失败后）', { dataDir: this.dataDir });
   }
 
@@ -740,7 +766,20 @@ export class AppRuntime {
     }
   }
 
+  startResearchScheduler(): void {
+    if (this.researchTimer) return;
+    this.researchTimer = setInterval(() => {
+      void this.research.tick().catch((err) => {
+        this.logger.warn('研究调度失败', { error: String(err) });
+      });
+    }, 60_000);
+  }
+
   async stop(): Promise<void> {
+    if (this.researchTimer) {
+      clearInterval(this.researchTimer);
+      this.researchTimer = null;
+    }
     // 修复 N3：应用退出时清理本地服务的后台补分析计时器，无残留回调
     this.localServer?.stopBackgroundTasks();
     // 修复 M0.2 第 8 条：退出前取消并**等待**在途写入任务结束，再关库

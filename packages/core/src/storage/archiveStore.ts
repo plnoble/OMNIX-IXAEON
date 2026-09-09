@@ -51,6 +51,10 @@ const TOP_ENTRIES = new Set([
   'data/item-links.json',
   'data/disclosure-grants.json',
   'data/project-relations.json',
+  'data/research-topics.json',
+  'data/research-sources.json',
+  'data/research-findings.json',
+  'data/research-runs.json',
 ]);
 
 /**
@@ -107,6 +111,10 @@ export class ArchiveService {
       ['data/item-links.json', this.dumpTable('item_links')],
       ['data/disclosure-grants.json', this.dumpTable('disclosure_grants')],
       ['data/project-relations.json', this.dumpTable('project_relations')],
+      ['data/research-topics.json', this.dumpTable('research_topics')],
+      ['data/research-sources.json', this.dumpTable('research_sources')],
+      ['data/research-findings.json', this.dumpTable('research_findings')],
+      ['data/research-runs.json', this.dumpTable('research_runs')],
     ];
     for (const [name, rows] of dataFiles) {
       const payload = {
@@ -143,7 +151,7 @@ export class ArchiveService {
       `数据库：${counts.sources} 个来源 / ${counts.segments} 个片段 / ${counts.items} 条结论`,
       '',
       '内容：',
-      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权、项目关系提案',
+      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权、项目关系提案、研究关注',
       '  （人类可读 JSON，字段命名稳定，带 formatVersion）',
       '- db.sqlite：数据库副本（完整快速恢复用）',
       '- vault/：导入原文（sha256/xx/<64位哈希> 布局，逐字保留）',
@@ -500,6 +508,10 @@ export class ArchiveService {
       item_links: count('item_links'),
       disclosure_grants: count('disclosure_grants'),
       project_relations: count('project_relations'),
+      research_topics: count('research_topics'),
+      research_sources: count('research_sources'),
+      research_findings: count('research_findings'),
+      research_runs: count('research_runs'),
       audit_events: count('audit_events'),
     };
   }

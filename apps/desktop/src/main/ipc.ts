@@ -350,6 +350,13 @@ export function registerIpc(runtime: AppRuntime): void {
     proposeProjectRelations: async () => runtime.proposeRelations(),
     acceptProjectRelation: async (id) => runtime.relations.accept(id),
     rejectProjectRelation: async (id) => runtime.relations.reject(id),
+    listResearchTopics: async () => runtime.researchSnapshot(),
+    createResearchTopic: async (input) => runtime.research.createTopic(input),
+    setResearchTopicEnabled: async (input) =>
+      runtime.research.store.setEnabled(input.id, input.enabled),
+    setResearchTopicPaused: async (input) =>
+      runtime.research.store.setPaused(input.id, input.paused),
+    checkResearchTopicNow: async (id) => runtime.research.checkNow(id),
 
     // --- 工作记录（M3） ---
     listWorkRuns: async (input) => runtime.listWorkRuns(input.projectId, input.limit),

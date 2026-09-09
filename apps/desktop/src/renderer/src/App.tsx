@@ -9,6 +9,7 @@ import { UnderstandingPage } from './pages/Understanding.js';
 import { InboxPage, HistoryPage } from './pages/Inbox.js';
 import { AskPage } from './pages/Ask.js';
 import { PersonalOverviewPage } from './pages/Overview.js';
+import { ResearchPage } from './pages/Research.js';
 import { ErrorBanner } from './ui.js';
 
 type Page =
@@ -20,6 +21,7 @@ type Page =
   | 'projects'
   | 'sources'
   | 'search'
+  | 'research'
   | 'settings';
 
 export default function App() {
@@ -146,6 +148,14 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={page === 'research' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('research')}
+            data-testid="nav-research"
+          >
+            研究
+          </button>
+          <button
+            type="button"
             className={page === 'settings' ? 'nav-item active' : 'nav-item'}
             onClick={() => setPage('settings')}
             data-testid="nav-settings"
@@ -184,6 +194,8 @@ export default function App() {
         {page === 'search' && (
           <SearchPage projects={projects} projectId={projectId} onProjectChange={setProjectId} />
         )}
+
+        {page === 'research' && <ResearchPage />}
 
         {page === 'settings' && <SettingsPage />}
       </main>

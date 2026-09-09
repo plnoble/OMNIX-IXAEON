@@ -6,6 +6,10 @@ import type {
   Permission,
   Project,
   ProjectRelation,
+  ResearchFinding,
+  ResearchRun,
+  ResearchSource,
+  ResearchTopic,
   Segment,
   Source,
   WorkRun,
@@ -432,6 +436,33 @@ export interface IxaIpcApi {
   proposeProjectRelations(): Promise<Array<ProjectRelation | null>>;
   rejectProjectRelation(id: string): Promise<ProjectRelation>;
   acceptProjectRelation(id: string): Promise<ProjectRelation>;
+  listResearchTopics(): Promise<{
+    mode: 'approved-sources-only';
+    searchConfigured: false;
+    notice: string;
+    topics: Array<
+      ResearchTopic & {
+        sources: ResearchSource[];
+        findings: ResearchFinding[];
+        runs: ResearchRun[];
+      }
+    >;
+  }>;
+  createResearchTopic(input: {
+    question: string;
+    publicDescription: string;
+    relatedGoalId?: string | null;
+    relatedProjectId?: string | null;
+    sources: Array<{ url: string; kind: 'page' | 'feed' }>;
+  }): Promise<ResearchTopic>;
+  setResearchTopicEnabled(input: { id: string; enabled: boolean }): Promise<ResearchTopic>;
+  setResearchTopicPaused(input: { id: string; paused: boolean }): Promise<ResearchTopic>;
+  checkResearchTopicNow(id: string): Promise<{
+    run: ResearchRun;
+    findings: ResearchFinding[];
+    mode: 'approved-sources-only';
+    searchUsed: false;
+  }>;
   // 工作记录
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置

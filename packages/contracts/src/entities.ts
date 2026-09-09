@@ -329,3 +329,91 @@ export const projectRelationSchema = z.object({
   supersedes_id: uuidSchema.nullable(),
 });
 export type ProjectRelation = z.infer<typeof projectRelationSchema>;
+
+// ---------------------------------------------------------------------------
+// research：批准来源检查（S4；无搜索 API 时不得声称全网搜索）
+// ---------------------------------------------------------------------------
+
+export const researchSourceKindSchema = z.enum(['page', 'feed']);
+export type ResearchSourceKind = z.infer<typeof researchSourceKindSchema>;
+
+export const researchEvidenceClassSchema = z.enum([
+  'publisher',
+  'third_party',
+  'cross_check',
+  'local_experiment',
+]);
+export type ResearchEvidenceClass = z.infer<typeof researchEvidenceClassSchema>;
+
+export const researchTopicSchema = z.object({
+  id: uuidSchema,
+  question: z.string().min(1),
+  public_description: z.string().min(1),
+  related_goal_id: uuidSchema.nullable(),
+  related_project_id: uuidSchema.nullable(),
+  enabled: z.boolean(),
+  paused: z.boolean(),
+  interval_ms: z.number().int().positive(),
+  max_pages_per_run: z.number().int().positive(),
+  paid_budget_mode: z.enum(['none', 'request_cap']),
+  request_cap: z.number().int().nonnegative(),
+  generation: z.number().int().nonnegative(),
+  last_success_at: isoDateTimeSchema.nullable(),
+  last_failure_at: isoDateTimeSchema.nullable(),
+  last_failure: z.string().nullable(),
+  consecutive_failures: z.number().int().nonnegative(),
+  next_check_at: isoDateTimeSchema.nullable(),
+  created_at: isoDateTimeSchema,
+  updated_at: isoDateTimeSchema,
+});
+export type ResearchTopic = z.infer<typeof researchTopicSchema>;
+
+export const researchSourceSchema = z.object({
+  id: uuidSchema,
+  topic_id: uuidSchema,
+  url: z.string().min(1),
+  kind: researchSourceKindSchema,
+  last_fingerprint: z.string().nullable(),
+  last_checked_at: isoDateTimeSchema.nullable(),
+  last_success_at: isoDateTimeSchema.nullable(),
+  last_error: z.string().nullable(),
+  created_at: isoDateTimeSchema,
+});
+export type ResearchSource = z.infer<typeof researchSourceSchema>;
+
+export const researchFindingSchema = z.object({
+  id: uuidSchema,
+  topic_id: uuidSchema,
+  source_id: uuidSchema,
+  title: z.string().min(1),
+  url: z.string().min(1),
+  excerpt: z.string(),
+  content_fingerprint: z.string().min(1),
+  evidence_class: researchEvidenceClassSchema,
+  claimed_published_at: isoDateTimeSchema.nullable(),
+  fetched_at: isoDateTimeSchema,
+  related_goal_id: uuidSchema.nullable(),
+  related_project_id: uuidSchema.nullable(),
+  speculation: z.string().nullable(),
+  action_worthy: z.boolean(),
+  action_reason: z.string().nullable(),
+  limitations: z.string().nullable(),
+  next_experiment: z.string().nullable(),
+  notified: z.boolean(),
+  created_at: isoDateTimeSchema,
+});
+export type ResearchFinding = z.infer<typeof researchFindingSchema>;
+
+export const researchRunSchema = z.object({
+  id: uuidSchema,
+  topic_id: uuidSchema,
+  generation: z.number().int().nonnegative(),
+  status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'skipped']),
+  pages_fetched: z.number().int().nonnegative(),
+  findings_new: z.number().int().nonnegative(),
+  error: z.string().nullable(),
+  started_at: isoDateTimeSchema,
+  finished_at: isoDateTimeSchema.nullable(),
+  lease_until: isoDateTimeSchema.nullable(),
+});
+export type ResearchRun = z.infer<typeof researchRunSchema>;

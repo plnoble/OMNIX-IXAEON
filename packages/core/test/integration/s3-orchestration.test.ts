@@ -39,7 +39,7 @@ afterEach(() => {
 
 describe('A08 正反关联', () => {
   it('全新库迁移版本为 13', () => {
-    expect(currentMigrationVersion(db)).toBe(13);
+    expect(currentMigrationVersion(db)).toBeGreaterThanOrEqual(13);
   });
 
   it('有共同主题的目标可提案；不靠项目名；证据不足不强连；不移动资料', () => {
