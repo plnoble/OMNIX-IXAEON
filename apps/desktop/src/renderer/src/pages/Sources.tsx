@@ -132,6 +132,31 @@ export function SourcesPage({
     }
   };
 
+  // 文件夹导入：递归导入目录内 .md/.txt/.json（跳过 node_modules、密钥类文件）
+  const importFolder = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const picked = await api.pickFiles('directory');
+      if (!picked || picked.paths.length === 0) return;
+      const result = await api.importFolder({ ticket: picked.ticket, projectId });
+      const summary = `文件夹导入完成：${result.scanned} 个文件进入分析队列`;
+      if (result.failed.length > 0) {
+        setError(
+          `${summary}；${result.failed.length} 个文件被跳过：\n` +
+            result.failed.map((f) => `${f.path}: ${f.message}`).join('\n'),
+        );
+      } else {
+        setError(null);
+      }
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const importChatgptExport = async () => {
     setBusy(true);
     setError(null);
@@ -219,6 +244,9 @@ export function SourcesPage({
             <Button disabled={busy} onClick={importDocuments} testId="sources-import-docs">
               导入文档
             </Button>
+            <Button disabled={busy} onClick={importFolder} testId="sources-import-folder">
+              导入文件夹
+            </Button>
             <Button disabled={busy} onClick={importChatgptExport} testId="sources-import-chatgpt">
               导入 ChatGPT 导出
             </Button>
@@ -296,6 +324,12 @@ export function SourcesPage({
           onClose={() => setDetail(null)}
           onLoadMore={loadMore}
           onDelete={() => removeSource(detail.source.id)}
+          onReanalyze={async () => {
+            await retryAnalysis(detail.source.id);
+            // 重进详情拿最新状态（分析任务状态由轮询更新列表）
+            const source = await api.getSource(detail.source.id);
+            if (source) setDetail({ ...detail, source });
+          }}
           onProjectBound={async (projectId) => {
             await api.bindSourceProject({ sourceId: detail.source.id, projectId });
             await reload();
@@ -314,6 +348,7 @@ function SourceDetail({
   onClose,
   onLoadMore,
   onDelete,
+  onReanalyze,
   onProjectBound,
 }: {
   detail: { source: Source; segments: Segment[]; total: number };
@@ -321,6 +356,8 @@ function SourceDetail({
   onClose: () => void;
   onLoadMore: () => void;
   onDelete: () => void;
+  /** P3：详情内直接触发重新分析（不止失败态可重试） */
+  onReanalyze: () => Promise<void>;
   onProjectBound: (projectId: string | null) => Promise<void>;
 }) {
   const { source, segments, total } = detail;
@@ -358,6 +395,9 @@ function SourceDetail({
       testId="source-detail"
       actions={
         <>
+          <Button onClick={() => void onReanalyze()} testId="source-reanalyze">
+            重新分析
+          </Button>
           <Button kind="danger" onClick={onDelete} testId="source-delete">
             删除来源
           </Button>
@@ -385,6 +425,7 @@ function SourceDetail({
       </div>
       <p className="note">
         共 {total} 个片段；显示 {segments.length} 个。点击“上下文”查看该片段前后原文（证据核验）。
+        「重新分析」把当前片段重新交给模型提取（人工确认/纠正的内容受保护，不会被覆盖）。
       </p>
       <div className="segment-list" data-testid="segment-list">
         {segments.map((seg) => (

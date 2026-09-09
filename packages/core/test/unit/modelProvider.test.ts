@@ -73,6 +73,78 @@ describe('OpenAIResponsesProvider 端点探测', () => {
     expect(text).toBe('plain answer');
   });
 
+  it('chatStructured 把 JSON Schema 附加到 system（chat-completions 端点的结构说明）', async () => {
+    let seenSystem = '';
+    const fetchImpl = stubFetch((url, init) => {
+      if (url.endsWith('/responses')) {
+        return new Response('{"error":"not found"}', { status: 404 });
+      }
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        messages?: Array<{ role: string; content: string }>;
+      };
+      seenSystem = body.messages?.[0]?.content ?? '';
+      // 模拟遵循提示结构的模型：system 含 items 结构说明 → 正确输出
+      if (seenSystem.includes('"items"')) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"items":[{"type":"decision","statement":"甲","rationale":null,"confidence":0.9,"segment_ref":"S2","project_hint":null,"excerpt":"甲"}]}',
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      // 无结构说明 → 模型自创结构（v1 旧行为，导致用户实测的校验失败）
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '{"items": {"type": "decision"}}' } }],
+        }),
+        { status: 200 },
+      );
+    });
+    const provider = new OpenAIResponsesProvider({
+      apiKey: 'sk-test',
+      modelName: 'deepseek-test',
+      baseUrl: 'https://api.example.com/v1',
+      fetchImpl,
+    });
+    const { z } = await import('zod');
+    const result = await provider.chatStructured({
+      system: '你是提取引擎',
+      user: '资料……',
+      schema: z.object({
+        items: z.array(
+          z.object({
+            type: z.enum([
+              'project_summary',
+              'decision',
+              'rejected_option',
+              'open_loop',
+              'goal',
+              'constraint',
+              'preference',
+            ]),
+            statement: z.string(),
+            rationale: z.string().nullable(),
+            confidence: z.number(),
+            segment_ref: z.string(),
+            project_hint: z.string().nullable(),
+            excerpt: z.string(),
+          }),
+        ),
+      }),
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]!.statement).toBe('甲');
+    expect(seenSystem).toContain('输出格式');
+    expect(seenSystem).toContain('只输出一个 JSON 对象');
+  });
+
   it('上游 400 且错误信息含 unknown url 时切换（OpenAI 兼容网关常见行为）', async () => {
     const fetchImpl = stubFetch((url) => {
       if (url.endsWith('/responses')) {

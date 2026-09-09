@@ -1024,3 +1024,47 @@ win-unpacked 复核 3/3、打包文件与重建产物逐字节一致（app.asar 
   （Setup-0.2.1.exe）；此后（0.2.1+）的更新为自动检测。
 - 自动更新只对生产构建生效；verify/e2e 环境无法覆盖真实下载安装路径
   （无更高版本可测），该路径待 0.2.2 发版时真机验证。
+
+# v0.2.2 发布：首个真实用户实测反馈修复（2026-09-08）
+
+用户在 A 组验收中反馈三个问题（另有一条未发完）：
+
+## P1 文件夹导入（「一个项目这么多东西，怎么可以是一个文件说得明白」）
+
+- core 新增 `ImportService.importFolder`：递归白名单（.md/.txt/.json）+
+  排除规则（node_modules/.git/构建目录/点目录、密钥类文件名——与项目快照
+  同一套规则）+ 单文件 10MB + 单目录 500 文件上限；逐文件失败隔离。
+- IPC `importFolder`（目录票据 → folder 授权 → 核心层逐文件 importFile）；
+  来源页新增「导入文件夹」按钮，完成摘要 + 跳过清单如实显示。
+- 测试：3 项核心集成（递归/排除/失败隔离/去重/撤权拒绝）+ SRC01 真实
+  Electron 界面（导入后 3 来源、排除内容不出现）。
+
+## P2 分析失败（DeepSeek「模型结构化输出两次校验失败：items 应为数组」）
+
+根因：提取只支持 OpenAI /responses 的 json_schema strict 约束；DeepSeek 等
+/chat/completions 服务只有 json_object 模式，模型不知道目标 JSON 结构，
+自创 `items` 为对象而非数组。
+
+- `chatStructured` 把 zod→JSON Schema 附加到 system 提示（两端口统一生效）；
+- 提取提示词 v2（EXTRACT_PROMPT_VERSION bump）：补输出格式说明、修正
+  segment_ref 字段名（v1 写的 segment_id 与 schema 不一致）。
+- 测试：modelProvider 单测 7 项（新增 schema 注入用例：无说明 → 复现用户
+  失败；有说明 → 正确结构）。
+
+## P3 重新分析入口（「没看到重新分析，也没看到确认/不采纳/纠正」）
+
+说明：确认/不采纳/纠正不在来源页——它们在「理解」与「待讨论」页，作用于
+提取出的条目；此前因 P2 分析失败无条目产生，所以什么都看不到（P2 修复后
+自然出现）。来源详情页补常驻「重新分析」按钮（此前仅失败态有小字重试）。
+
+## 验证与发布
+
+- 完整 verify 17 步全绿；desktop e2e 16/16；sources 界面测试 2/2；
+  打包产物复核 3/3。
+- GitHub Release v0.2.2 已发布（IXAEON-Setup-0.2.2.exe，122,838,622 字节，
+  SHA-256 2BE87ADD0A0BC4C5081A178921618FA26401AB31776ACA80A9282328AD152FC2）。
+- 0.2.2 win-unpacked 真实 Electron 更新检查两次实测：网络闪断时如实显示
+  「更新检查失败：net::ERR_CONNECTION_CLOSED（不影响当前使用）」；恢复后
+  正确显示「当前已是最新版本」——错误反馈与正常路径都真实验证。
+- 如实边界：已安装 0.2.0/0.2.1 的真实「下载→安装」升级路径仍待用户实机
+  验证（0.2.0 需手动装一次）。

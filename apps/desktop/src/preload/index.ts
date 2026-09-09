@@ -26,6 +26,7 @@ const api: IxaIpcApi = {
   pickSaveZip: (defaultName) => ipcRenderer.invoke('ixaeon:pickSaveZip', defaultName),
   pickRestoreZip: () => ipcRenderer.invoke('ixaeon:pickRestoreZip'),
   importPaths: (input) => ipcRenderer.invoke('ixaeon:importPaths', input),
+  importFolder: (input) => ipcRenderer.invoke('ixaeon:importFolder', input),
   registerProjectDirectory: (input) => ipcRenderer.invoke('ixaeon:registerProjectDirectory', input),
   listSources: (input) => ipcRenderer.invoke('ixaeon:listSources', input),
   getSource: (id) => ipcRenderer.invoke('ixaeon:getSource', id),

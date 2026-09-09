@@ -1,7 +1,7 @@
 {
   "name": "@ixaeon/extension",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "IXAEON 浏览器扩展（Chrome/Edge Manifest V3，仅 chatgpt.com）",
   "type": "module",
   "scripts": {

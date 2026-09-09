@@ -280,6 +280,13 @@ export interface IxaIpcApi {
     jobIds: string[];
     failed: ImportFailure[];
   }>;
+  /** 文件夹导入（递归白名单 .md/.txt/.json；逐文件失败隔离） */
+  importFolder(input: ImportPickedInput): Promise<{
+    jobIds: string[];
+    failed: ImportFailure[];
+    /** 实际纳入导入的文件数 */
+    scanned: number;
+  }>;
   registerProjectDirectory(input: RegisterProjectDirInput): Promise<{ jobId: string }>;
   // 来源
   listSources(input: { projectId: string | null }): Promise<SourceListItem[]>;

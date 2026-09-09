@@ -1,9 +1,9 @@
-import { readFileSync, statSync } from 'node:fs';
-import { basename } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { normalize } from 'node:path';
 import type { CoreDatabase } from '../db/database.js';
 import type { Permission, Source } from '@ixaeon/contracts';
-import { ErrorCodes, IxaError } from '@ixaeon/contracts';
+import { ErrorCodes, IxaError, toApiError } from '@ixaeon/contracts';
 import { type PermissionService } from '../permissions.js';
 import { isPathInside } from '../paths.js';
 import { Vault } from '../vault.js';
@@ -179,6 +179,57 @@ export class ImportService {
     return { created, deduplicated, pendingExtraction: created };
   }
 
+  /**
+   * 导入文件夹（2026-09-08 用户需求：一个项目不止一个文件）。
+   * 递归收集白名单内的文本文件（.md/.txt/.json），逐文件走 importFile：
+   * - folder 授权覆盖全部子路径（requirePermission 对每个文件校验）；
+   * - 排除 node_modules/.git/dist 等构建目录、点开头目录与密钥类文件
+   *  （与项目目录快照同一套规则，用户不会一次性导入敏感内容）；
+   * - 单文件失败（过大/二进制/空文件）只记录，不阻塞其他文件；
+   * - conversations.json 在目录里按 ChatGPT 导出处理（一个文件多对话）；
+   * - 文件数量上限 500，超出部分记录跳过（防误选巨大目录拖垮机器）。
+   */
+  importFolder(
+    absPath: string,
+    opts: { projectId: string | null; permissionId: string },
+  ): {
+    created: Source[];
+    deduplicated: Source[];
+    pendingExtraction: Source[];
+    failed: Array<{ path: string; message: string }>;
+    scanned: number;
+  } {
+    // 先验证 folder 授权存在且覆盖根路径（子路径在 importFile 内逐个复核）
+    this.requirePermission(opts.permissionId, absPath);
+    const files = listFolderTextFiles(absPath);
+    const created: Source[] = [];
+    const deduplicated: Source[] = [];
+    const pendingExtraction: Source[] = [];
+    const failed: Array<{ path: string; message: string }> = files.failed.concat();
+    for (const file of files.files) {
+      try {
+        const result = this.importFile(file, {
+          projectId: opts.projectId,
+          permissionId: opts.permissionId,
+        });
+        created.push(...result.created);
+        deduplicated.push(...result.deduplicated);
+        pendingExtraction.push(...result.pendingExtraction);
+      } catch (err) {
+        const api = toApiError(err);
+        failed.push({ path: file, message: `${api.code} ${api.message}` });
+      }
+    }
+    recordAudit(this.db, 'import.folder', {
+      root: basename(absPath),
+      scanned: files.files.length + files.failed.length,
+      created: created.length,
+      deduplicated: deduplicated.length,
+      failed: failed.length,
+    });
+    return { created, deduplicated, pendingExtraction, failed, scanned: files.files.length };
+  }
+
   /** 显式按 ChatGPT 导出解析（同样要求传入可信授权 ID）。 */
   importChatgptExport(
     absPath: string,
@@ -275,3 +326,75 @@ export class ImportService {
 
 /** 兼容旧调用形态的路径规范化（Windows 大小写不敏感比较用）。 */
 export const normalizeForCompare = (p: string): string => normalize(p).toLowerCase();
+
+/** 文件夹导入的文本文件白名单。 */
+const FOLDER_TEXT_RE = /\.(md|txt|json)$/i;
+
+/** 文件夹导入单目录文件数上限（防误选巨大目录）。 */
+const FOLDER_MAX_FILES = 500;
+
+/** 目录遍历深度上限。 */
+const FOLDER_MAX_DEPTH = 8;
+
+/** 与项目目录快照同一套排除规则：永不遍历的目录名。 */
+const FOLDER_SKIP_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  'out',
+  '.next',
+  'target',
+  'vendor',
+  '__pycache__',
+  '.venv',
+  'venv',
+  '.cache',
+  'coverage',
+  '.idea',
+  '.vs',
+  'bin',
+  'obj',
+]);
+
+/** 永不导入的文件名（密钥、Cookie、令牌等——密钥类文件即使 .json 也不进）。 */
+const FOLDER_SKIP_NAME_RE =
+  /^(\.env.*|.*\.pem|.*\.key|.*\.p12|.*\.pfx|id_rsa.*|id_ed25519.*|.*\.cookie|.*cookie.*\.json|.*token.*|.*secret.*|.*credential.*)$/i;
+
+/**
+ * 递归列出文件夹内可导入的文本文件（白名单 + 排除规则 + 数量上限）。
+ * 超限与无法读取的条目记录为 failed，不中断遍历。
+ */
+function listFolderTextFiles(root: string): {
+  files: string[];
+  failed: Array<{ path: string; message: string }>;
+} {
+  const files: string[] = [];
+  const failed: Array<{ path: string; message: string }> = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > FOLDER_MAX_DEPTH) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // 无法读取的目录跳过（无权限等）
+    }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name.startsWith('.') || FOLDER_SKIP_DIRS.has(e.name)) continue;
+        walk(full, depth + 1);
+      } else if (e.isFile()) {
+        if (FOLDER_SKIP_NAME_RE.test(e.name)) continue;
+        if (!FOLDER_TEXT_RE.test(e.name)) continue;
+        if (files.length >= FOLDER_MAX_FILES) {
+          failed.push({ path: full, message: `超过单目录 ${FOLDER_MAX_FILES} 个文件上限，已跳过` });
+          continue;
+        }
+        files.push(full);
+      }
+    }
+  };
+  walk(root, 0);
+  return { files, failed };
+}

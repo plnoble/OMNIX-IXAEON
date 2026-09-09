@@ -33,10 +33,16 @@ export class OpenAIResponsesProvider implements ModelProvider {
     user: string;
     schema: z.ZodType<T>;
   }): Promise<T> {
-    // 计划 5.3.5：Zod 校验失败最多重试一次
+    // 计划 5.3.5：Zod 校验失败最多重试一次。
+    // json_object 模式（/chat/completions 端点）没有 schema 强约束——
+    // DeepSeek 等服务只认提示里的结构描述；把 JSON Schema 附加到 system
+    // 尾部，两个端点统一生效（/responses 端点同时有 json_schema strict，
+    // 双保险不冲突）。
+    const schemaHint = buildSchemaHint(zodToJsonSchema(input.schema));
+    const systemWithSchema = input.system + '\n\n' + schemaHint;
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const raw = await this.request(input.system, input.user, {
+      const raw = await this.request(systemWithSchema, input.user, {
         name: 'extraction',
         schema: zodToJsonSchema(input.schema),
       });
@@ -250,4 +256,31 @@ export async function listUpstreamModels(opts: {
 function zodToJsonSchema(schema: zType.ZodType<unknown>): Record<string, unknown> {
   const json = z.toJSONSchema(schema, { target: 'draft-7' }) as Record<string, unknown>;
   return json;
+}
+
+/**
+ * 把 JSON Schema 转成给模型看的输出结构说明（chat-completions 的
+ * json_object 模式没有原生 schema 约束，必须在提示中给出结构）。
+ * 只保留类型/必填/枚举等对生成有用的骨架，剔除 $schema 等噪音。
+ */
+function buildSchemaHint(jsonSchema: Record<string, unknown>): string {
+  const clean = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(clean);
+    if (node && typeof node === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (k === '$schema' || k === 'additionalProperties' || k === 'description') continue;
+        out[k] = clean(v);
+      }
+      return out;
+    }
+    return node;
+  };
+  const cleaned = clean(jsonSchema);
+  return [
+    '输出格式（必须严格遵守）：',
+    '只输出一个 JSON 对象，不要输出任何其他文字、注释或代码块标记。',
+    '结构定义如下：',
+    JSON.stringify(cleaned, null, 1),
+  ].join('\n');
 }
