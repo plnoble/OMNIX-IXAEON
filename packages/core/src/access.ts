@@ -1,5 +1,6 @@
 import type { CoreDatabase } from './db/database.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
+import type { MemoryScope } from '@ixaeon/contracts';
 
 /**
  * 撤销授权后的统一读取边界。
@@ -56,3 +57,60 @@ export function assertSegmentAuthorized(db: CoreDatabase, segmentId: string): st
  */
 export const PROJECT_ISOLATION_RULE =
   '指定项目时仅返回明确归属该项目的资料；未分配资料只在全局检索中出现，不自动混入项目上下文。';
+
+export type DisclosureAudience = 'coding_client' | 'model' | 'research';
+
+/**
+ * S1：编码客户端默认只能看到已允许共享的项目背景。
+ * personal / unassigned 必须有未过期、未撤销的 disclosure_grants，
+ * 旧 localToken 不自动解锁新增个人资料。
+ */
+export function isItemDisclosedTo(
+  db: CoreDatabase,
+  itemId: string,
+  audience: DisclosureAudience,
+): boolean {
+  const now = new Date().toISOString();
+  const row = db
+    .prepare(
+      `SELECT 1 AS ok FROM disclosure_grants
+       WHERE item_id = ? AND audience = ?
+         AND revoked_at IS NULL
+         AND (expires_at IS NULL OR expires_at > ?)
+       LIMIT 1`,
+    )
+    .get(itemId, audience, now) as { ok: number } | undefined;
+  return row !== undefined;
+}
+
+/** 条目当前范围（缺列时按 project_id 回退，供迁移前诊断）。 */
+export function itemScope(db: CoreDatabase, itemId: string): MemoryScope | null {
+  const row = db.prepare('SELECT scope, project_id FROM items WHERE id = ?').get(itemId) as
+    { scope: MemoryScope; project_id: string | null } | undefined;
+  if (!row) return null;
+  if (row.scope === 'personal' || row.scope === 'project' || row.scope === 'unassigned') {
+    return row.scope;
+  }
+  return row.project_id ? 'project' : 'unassigned';
+}
+
+/**
+ * 编码客户端是否可读该条目（不含原文授权检查）。
+ * project 范围默认可见；personal/unassigned 需有效分享。
+ */
+export function codingClientMayReadItem(db: CoreDatabase, itemId: string): boolean {
+  const scope = itemScope(db, itemId);
+  if (scope === null) return false;
+  if (scope === 'project') return true;
+  return isItemDisclosedTo(db, itemId, 'coding_client');
+}
+
+/** 断言编码客户端可读该条目，否则 SCOPE_DENIED。 */
+export function assertCodingClientMayReadItem(db: CoreDatabase, itemId: string): void {
+  if (!codingClientMayReadItem(db, itemId)) {
+    throw new IxaError(
+      ErrorCodes.SCOPE_DENIED,
+      '该条目属于个人或未整理资料，未获准分享给编码客户端',
+    );
+  }
+}

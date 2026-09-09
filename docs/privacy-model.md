@@ -25,11 +25,15 @@
 ## 项目隔离与全局检索（明确规则）
 
 - **指定项目检索**（问答、`prepare_task`、`search_context` 带 project_ref）：只返回
-  `project_id` 严格等于该项目的资料。`project_id IS NULL`（未分配）的资料**绝不**自动
-  混入项目上下文——未分配可能包含私人对话，不允许进入某个编码 Agent 的视野。
-- **全局检索**（不指定项目）：返回全部资料（含未分配）。这是用户显式发起的跨项目
-  查询，仅发生在桌面检索页与不带 project_ref 的 `search_context`。
-- **授权过滤**：任何检索入口（含全局）都不返回授权已撤销来源的原文。
+  `project_id` 严格等于该项目、且 `scope=project` 的资料。`unassigned` / `personal`
+  **绝不**自动混入项目上下文。
+- **桌面个人视角问答**（不指定项目）：可检索个人与未整理记忆；这是本机用户视角，
+  不等于把个人资料交给编码客户端。
+- **MCP 编码客户端**：默认只看到 `scope=project` 的项目背景。`personal` /
+  `unassigned` 必须有未过期、未撤销的 `disclosure_grants`（受众 `coding_client`）。
+  旧 `localToken` 不自动解锁新增个人资料。去掉引用改写成摘要不构成脱敏。
+- **授权过滤**：任何检索入口（含全局）都不返回授权已撤销来源的原文。撤权后晚到
+  结果不得重新建回已删除或已撤权的有效派生资料。
 - **当前对话暂停**（`capture.pausedConversations`）：扩展端本地拦截 + 桌面端服务
   403 双重强制；全局暂停（`capture.enabled=false`）停止一切采集提交。
 

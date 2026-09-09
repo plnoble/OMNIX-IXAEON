@@ -184,7 +184,8 @@ export const correctItemInputSchema = z.object({
 export type CorrectItemInput = z.infer<typeof correctItemInputSchema>;
 
 export const askQuestionInputSchema = z.object({
-  projectId: z.string().uuid(),
+  /** null = 个人视角（不强制选项目）；uuid = 项目视角 */
+  projectId: z.string().uuid().nullable(),
   question: z.string().min(1).max(4000),
 });
 export type AskQuestionInput = z.infer<typeof askQuestionInputSchema>;
@@ -325,6 +326,7 @@ export interface IxaIpcApi {
     type?: string;
     /** N01：Inbox 可处理范围排除已被替代的历史条目（默认 false 不排除） */
     excludeSuperseded?: boolean;
+    scope?: 'personal' | 'project' | 'unassigned';
   }): Promise<Item[]>;
   getItemEvidence(itemId: string): Promise<ItemEvidenceView[]>;
   previewCorrection(input: { itemId: string; userText: string }): Promise<CorrectionPreview>;
@@ -340,11 +342,49 @@ export interface IxaIpcApi {
   rejectItem(itemId: string): Promise<Item>;
   shelveItem(input: { itemId: string; shelved: boolean }): Promise<Item>;
   assignItemToProject(input: { itemId: string; projectId: string }): Promise<Item>;
+  /** S1：显式校正语义范围。标为 personal 只消除 no_project，不清除其它待处理原因。 */
+  setItemScope(input: {
+    itemId: string;
+    scope: 'personal' | 'project' | 'unassigned';
+  }): Promise<Item>;
+  listItemLinks(itemId: string): Promise<
+    Array<{
+      id: string;
+      item_id: string;
+      kind: 'project' | 'topic';
+      target_id: string;
+      created_at: string;
+    }>
+  >;
+  addItemLink(input: { itemId: string; kind: 'project' | 'topic'; targetId: string }): Promise<{
+    id: string;
+    item_id: string;
+    kind: 'project' | 'topic';
+    target_id: string;
+    created_at: string;
+  }>;
+  removeItemLink(linkId: string): Promise<{ ok: true }>;
+  grantItemDisclosure(input: {
+    itemId: string;
+    audience: 'coding_client' | 'model' | 'research';
+    expiresAt?: string | null;
+    note?: string | null;
+  }): Promise<{
+    id: string;
+    item_id: string;
+    audience: 'coding_client' | 'model' | 'research';
+    granted_at: string;
+    expires_at: string | null;
+    revoked_at: string | null;
+    note: string | null;
+  }>;
+  revokeItemDisclosure(grantId: string): Promise<{ ok: true }>;
   createManualItem(input: {
     projectId: string | null;
     type: z.infer<typeof itemTypeSchema>;
     statement: string;
     rationale: string | null;
+    scope?: 'personal' | 'project' | 'unassigned';
   }): Promise<Item>;
   listCorrections(input: {
     projectId: string | null;

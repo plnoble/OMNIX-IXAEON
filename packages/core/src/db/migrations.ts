@@ -294,10 +294,47 @@ UPDATE items SET needs_reasons = '', needs_review = 0
 WHERE state = 'superseded' AND needs_review = 1;
 `,
   },
+  {
+    id: 11,
+    name: 'memory-scope-and-disclosure',
+    sql: `
+-- S1：语义范围与项目归属正交。personal 是合法的个人记忆，不再用
+-- project_id IS NULL 同时表示「个人」和「归属失败」。
+-- 旧 project_id != null → scope=project；旧空归属 → unassigned（保守，
+-- 不自动升级为 personal、不扩权、不清待处理、不改纠正链）。
+ALTER TABLE items ADD COLUMN scope TEXT NOT NULL DEFAULT 'unassigned'
+  CHECK (scope IN ('personal', 'project', 'unassigned'));
+UPDATE items SET scope = 'project' WHERE project_id IS NOT NULL;
+
+-- 关联不复制原文、不移动所有者、不等于共享权限。
+CREATE TABLE item_links (
+  id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('project', 'topic')),
+  target_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (item_id, kind, target_id)
+);
+CREATE INDEX idx_item_links_item ON item_links(item_id);
+CREATE INDEX idx_item_links_target ON item_links(kind, target_id);
+
+-- 把指定条目分享给编码客户端等受众。旧 localToken 不自动解锁个人资料。
+CREATE TABLE disclosure_grants (
+  id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  audience TEXT NOT NULL CHECK (audience IN ('coding_client', 'model', 'research')),
+  granted_at TEXT NOT NULL,
+  expires_at TEXT,
+  revoked_at TEXT,
+  note TEXT
+);
+CREATE INDEX idx_disclosure_item ON disclosure_grants(item_id, audience);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
-export function migrate(db: CoreDatabase): void {
+export function migrate(db: CoreDatabase, upTo?: number): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id INTEGER PRIMARY KEY,
@@ -311,6 +348,7 @@ export function migrate(db: CoreDatabase): void {
   const applied = new Set(appliedRows.map((r) => r.id));
 
   for (const m of MIGRATIONS) {
+    if (upTo !== undefined && m.id > upTo) continue;
     if (applied.has(m.id)) continue;
     const run = db.transaction(() => {
       db.exec(m.sql);

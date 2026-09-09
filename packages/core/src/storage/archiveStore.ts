@@ -31,8 +31,8 @@ import { recordAudit } from '../audit.js';
  * 4. 原子替换（rename staging 目录为正式目录）
  * 5. 任一步失败：staging 废弃 + 备份回滚，原数据保持可用
  */
-const MANIFEST_VERSION = 1;
-const DATA_FORMAT_VERSION = 1;
+const MANIFEST_VERSION = 2;
+const DATA_FORMAT_VERSION = 2;
 const SQLITE_HEADER = 'SQLite format 3';
 
 /** 允许的 ZIP 条目（其余一律拒绝）。 */
@@ -48,6 +48,8 @@ const TOP_ENTRIES = new Set([
   'data/corrections.json',
   'data/work-runs.json',
   'data/permissions.json',
+  'data/item-links.json',
+  'data/disclosure-grants.json',
 ]);
 
 /**
@@ -101,6 +103,8 @@ export class ArchiveService {
       ['data/corrections.json', this.dumpTable('corrections')],
       ['data/work-runs.json', this.dumpTable('work_runs')],
       ['data/permissions.json', this.dumpTable('permissions')],
+      ['data/item-links.json', this.dumpTable('item_links')],
+      ['data/disclosure-grants.json', this.dumpTable('disclosure_grants')],
     ];
     for (const [name, rows] of dataFiles) {
       const payload = {
@@ -120,7 +124,7 @@ export class ArchiveService {
     const manifest = {
       manifestVersion: MANIFEST_VERSION,
       exportedAt: new Date().toISOString(),
-      appVersion: '0.1.0',
+      appVersion: '0.2.3',
       counts,
       dataFormatVersion: DATA_FORMAT_VERSION,
     };
@@ -137,7 +141,7 @@ export class ArchiveService {
       `数据库：${counts.sources} 个来源 / ${counts.segments} 个片段 / ${counts.items} 条结论`,
       '',
       '内容：',
-      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限',
+      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权',
       '  （人类可读 JSON，字段命名稳定，带 formatVersion）',
       '- db.sqlite：数据库副本（完整快速恢复用）',
       '- vault/：导入原文（sha256/xx/<64位哈希> 布局，逐字保留）',
@@ -261,7 +265,7 @@ export class ArchiveService {
 
     try {
       const { manifest, zip } = await this.openAndValidateManifest(zipPath);
-      if (manifest.manifestVersion !== MANIFEST_VERSION) {
+      if (manifest.manifestVersion < 1 || manifest.manifestVersion > MANIFEST_VERSION) {
         throw new IxaError(
           ErrorCodes.VALIDATION_FAILED,
           `不支持的清单版本 ${manifest.manifestVersion}（当前 ${MANIFEST_VERSION}）`,
@@ -491,6 +495,8 @@ export class ArchiveService {
       corrections: count('corrections'),
       work_runs: count('work_runs'),
       permissions: count('permissions'),
+      item_links: count('item_links'),
+      disclosure_grants: count('disclosure_grants'),
       audit_events: count('audit_events'),
     };
   }

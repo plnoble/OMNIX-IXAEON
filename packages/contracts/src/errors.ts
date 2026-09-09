@@ -50,6 +50,8 @@ export const ErrorCodes = {
   DISABLED: 'IXA0022',
   /** 后台任务被取消（开关/暂停/状态在执行期间变化；可重试） */
   JOB_CANCELLED: 'IXA0023',
+  /** 个人/未整理资料未获准分享给该受众（MCP/外发） */
+  SCOPE_DENIED: 'IXA0024',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

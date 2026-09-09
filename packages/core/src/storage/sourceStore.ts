@@ -418,8 +418,10 @@ export class SourceStore {
              AND manual_project = 0`,
         )
         .all(sourceId) as Array<{ id: string }>;
-      const setProject = this.db.prepare('UPDATE items SET project_id = ? WHERE id = ?');
-      for (const row of moved) setProject.run(projectId, row.id);
+      const setProject = this.db.prepare(
+        "UPDATE items SET project_id = ?, scope = CASE WHEN ? IS NULL THEN 'unassigned' ELSE 'project' END WHERE id = ?",
+      );
+      for (const row of moved) setProject.run(projectId, projectId, row.id);
       movedItems = moved.length;
       // C04/A02/F01：归属与确认是两个维度 —— 待处理原因按集中规则重算
       //（needsReview.ts syncDerivedNeedsReasons，与条目归属入口同一函数）：

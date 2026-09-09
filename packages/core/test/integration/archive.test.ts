@@ -111,7 +111,7 @@ describe('M5 恢复预览', () => {
   it('预览返回计数 + 项目 + 警告（替换提醒）', async () => {
     const zipPath = join(dir, 'export.zip');
     const preview = await archive.previewRestore(zipPath);
-    expect(preview.manifestVersion).toBe(1);
+    expect(preview.manifestVersion).toBe(2);
     expect(preview.counts.projects).toBe(1);
     expect(preview.projects[0]!.name).toBe('导出测试项目');
     expect(preview.warnings.some((w) => w.includes('替换当前全部数据'))).toBe(true);

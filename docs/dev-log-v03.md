@@ -38,3 +38,30 @@
   权限贯穿）不依赖样本，可直接开始。
 - 四平台样本、搜索服务、执行入口确认到位前，对应 S2/S4/S5 项保持受阻
   标记，不降低验收标准。
+
+## 2026-09-09 · S1：个人层与权限模型（第一批第 2 部分）
+
+交付迁移 11 + 范围/关联/分享授权贯穿后端，无破坏已发布迁移 1–10。
+
+### 本批内容
+
+- `items.scope`：`personal` / `project` / `unassigned`。旧 `project_id != null`
+  → project；旧空归属 → unassigned（不自动升级 personal）。
+- `no_project` 只由 `unassigned` 派生；标为 personal 或归属项目只清这一原因。
+- `item_links`：条目可关联多个项目/主题，不复制原文、不等于共享权限。
+- `disclosure_grants`：编码客户端默认只见 `scope=project`；个人/未整理须显式
+  分享，撤权立即失效。旧 localToken 不自动解锁个人资料。
+- 桌面：问答默认「个人视角（不选项目）」；待讨论增加「标为个人」。
+- 导出 `data/item-links.json`、`data/disclosure-grants.json`；清单版本 2，
+  仍接受旧清单 1 恢复。
+
+### 自动化
+
+- 新增 `packages/core/test/integration/s1-scope.test.ts`（A01/A02/A11/A12）。
+- A03/A04 的既有纠正语义沿用 v0.2 回归；本批只增范围维度。
+- A11 研究查询/任务背景、A12 真实旧库升级仍未完成（T05）。
+
+### 未完成与下一步
+
+- S2：四平台导入（Gemini/Grok/Claude 仍待脱敏样本）。
+- 不把本批写成「全部验收通过」：真实验收 T01–T05 未完。

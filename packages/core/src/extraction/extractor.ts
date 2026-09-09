@@ -237,10 +237,10 @@ export class Extractor {
     // 2) 单个短事务：删除旧 current AI 条目 + 写入新结论 + 冲突标记（原子替换）
     const now = new Date().toISOString();
     const insertItem = this.db.prepare(
-      `INSERT INTO items (id, project_id, type, statement, rationale, state, confidence,
+      `INSERT INTO items (id, project_id, scope, type, statement, rationale, state, confidence,
          origin, observed_at, created_at, updated_at, extracted_from_source_id,
          prompt_version, model_name, needs_review, suggested_project_id)
-       VALUES (?, ?, ?, ?, ?, 'current', ?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, 'current', ?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertEvidence = this.db.prepare(
       `INSERT INTO item_evidence (item_id, segment_id, excerpt, relevance)
@@ -306,6 +306,7 @@ export class Extractor {
         insertItem.run(
           itemId,
           projectId,
+          projectId ? 'project' : 'unassigned',
           row.type,
           row.statement,
           row.rationale,

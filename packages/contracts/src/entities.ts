@@ -121,10 +121,15 @@ export const itemTypeSchema = z.enum([
 ]);
 export const itemStateSchema = z.enum(['current', 'disputed', 'superseded']);
 export const itemOriginSchema = z.enum(['ai', 'user', 'work_result']);
+/** S1：语义范围与项目归属正交。personal ≠ 缺项目；unassigned 才是未整理。 */
+export const memoryScopeSchema = z.enum(['personal', 'project', 'unassigned']);
+export type MemoryScope = z.infer<typeof memoryScopeSchema>;
 
 export const itemSchema = z.object({
   id: uuidSchema,
   project_id: uuidSchema.nullable(),
+  /** 语义范围。旧库空归属保守映射为 unassigned，不自动升级为 personal。 */
+  scope: memoryScopeSchema.default('unassigned'),
   type: itemTypeSchema,
   statement: z.string().min(1),
   rationale: z.string().nullable(),
@@ -153,6 +158,38 @@ export const itemSchema = z.object({
   manual_project: z.boolean().default(false),
 });
 export type Item = z.infer<typeof itemSchema>;
+
+// ---------------------------------------------------------------------------
+// item_links：条目与项目/主题的关联（不复制原文、不等于共享权限）
+// ---------------------------------------------------------------------------
+
+export const itemLinkKindSchema = z.enum(['project', 'topic']);
+
+export const itemLinkSchema = z.object({
+  id: uuidSchema,
+  item_id: uuidSchema,
+  kind: itemLinkKindSchema,
+  target_id: uuidSchema,
+  created_at: isoDateTimeSchema,
+});
+export type ItemLink = z.infer<typeof itemLinkSchema>;
+
+// ---------------------------------------------------------------------------
+// disclosure_grants：把指定条目分享给编码客户端等受众（有期限、可撤销）
+// ---------------------------------------------------------------------------
+
+export const disclosureAudienceSchema = z.enum(['coding_client', 'model', 'research']);
+
+export const disclosureGrantSchema = z.object({
+  id: uuidSchema,
+  item_id: uuidSchema,
+  audience: disclosureAudienceSchema,
+  granted_at: isoDateTimeSchema,
+  expires_at: isoDateTimeSchema.nullable(),
+  revoked_at: isoDateTimeSchema.nullable(),
+  note: z.string().nullable(),
+});
+export type DisclosureGrant = z.infer<typeof disclosureGrantSchema>;
 
 // ---------------------------------------------------------------------------
 // item_evidence：结论依据

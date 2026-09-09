@@ -6,8 +6,9 @@ import type { CoreDatabase } from '../db/database.js';
  * needs_review 不再被任何入口整体覆写：它是 needs_reasons 的物化视图
  * （非空 = 待处理）。每个操作只增删自己负责的原因：
  *
- * - no_project   派生：条目没有归属项目（等待归属）。选项目/来源绑定
- *                只解决这一个原因 —— 这是 F01 的核心要求。
+ * - no_project   派生：scope=unassigned（尚未整理）。选项目/标为 personal
+ *                只解决这一个原因 —— 这是 F01 的核心要求。personal 合法
+ *                记忆不再产生 no_project。
  * - unconfirmed  派生：重要 AI 决定类（decision/rejected_option/
  *                project_summary）尚未确认；agent 自报 open_loop 候选
  *                （origin=work_result）同样待用户确认。
@@ -26,6 +27,7 @@ const PERSISTENT: ReadonlySet<NeedsReason> = new Set<NeedsReason>(['conflict', '
 /** 派生原因计算所需的最小事实。 */
 export interface NeedsReviewFacts {
   project_id: string | null;
+  scope?: string | null;
   type: string;
   origin: string;
   state: string;
@@ -35,7 +37,9 @@ export interface NeedsReviewFacts {
 /** 按当前事实计算派生原因（不含 manual / conflict）。 */
 export function derivedNeedsReasons(facts: NeedsReviewFacts): Set<NeedsReason> {
   const out = new Set<NeedsReason>();
-  if (facts.project_id === null) out.add('no_project');
+  const scope = facts.scope ?? (facts.project_id === null ? 'unassigned' : 'project');
+  // personal 是合法个人记忆，不产生 no_project；unassigned 才是未整理。
+  if (scope === 'unassigned') out.add('no_project');
   const importantAi =
     facts.origin === 'ai' &&
     facts.state === 'current' &&
@@ -71,7 +75,7 @@ function serialize(reasons: Set<NeedsReason>): string {
 
 function factsOf(db: CoreDatabase, itemId: string): NeedsReviewFacts | undefined {
   const row = db
-    .prepare(`SELECT project_id, type, origin, state, confirmation FROM items WHERE id = ?`)
+    .prepare(`SELECT project_id, scope, type, origin, state, confirmation FROM items WHERE id = ?`)
     .get(itemId) as NeedsReviewFacts | undefined;
   return row ?? undefined;
 }

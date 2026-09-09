@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { api, errMsg, type Project, type AskAnswer } from '../api.js';
 import { Button, Card, Empty, ErrorBanner, Spinner } from '../ui.js';
 
-/** 问答页：针对项目记忆提问，回答带引用可展开核验。 */
+/** 问答页：个人视角（不强制选项目）或项目视角；回答带引用可展开核验。 */
 export function AskPage({ projects }: { projects: Project[] }) {
-  const [projectId, setProjectId] = useState<string>(projects[0]?.id ?? '');
+  const [projectId, setProjectId] = useState<string>('');
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
@@ -18,7 +18,7 @@ export function AskPage({ projects }: { projects: Project[] }) {
     setAnswer(null);
     try {
       const result = await api.askQuestion({
-        projectId: projectId || projects[0]?.id || '',
+        projectId: projectId.length > 0 ? projectId : null,
         question: question.trim(),
       });
       setAnswer(result);
@@ -39,6 +39,7 @@ export function AskPage({ projects }: { projects: Project[] }) {
             onChange={(e) => setProjectId(e.target.value)}
             data-testid="ask-project-select"
           >
+            <option value="">个人视角（不选项目）</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -47,7 +48,7 @@ export function AskPage({ projects }: { projects: Project[] }) {
           </select>
           <input
             value={question}
-            placeholder="问一个关于项目的问题（回答附引用，可核验）"
+            placeholder="问一个关于自己或项目的问题（回答附引用，可核验）"
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void ask();

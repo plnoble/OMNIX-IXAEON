@@ -78,7 +78,11 @@ it('C01: migration 10 retires only historical pending rows, retaining history an
       previous.state === 'superseded' && previous.needs_review === 1
         ? { ...previous, needs_review: 0, needs_reasons: '' }
         : previous;
-    expect(row(f.db, previous.id as string)).toEqual(expected);
+    // 迁移 11 追加 scope：有项目 → project，空归属 → unassigned；不改纠正链。
+    expect(row(f.db, previous.id as string)).toEqual({
+      ...expected,
+      scope: previous.project_id ? 'project' : 'unassigned',
+    });
   }
   expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: before.length });
   expect(f.db.prepare('SELECT * FROM corrections').all()).toEqual(historyBefore);

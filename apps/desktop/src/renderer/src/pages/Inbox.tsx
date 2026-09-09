@@ -115,6 +115,22 @@ export function InboxPage({ projects }: { projects: Project[] }) {
                       </Button>
                     </>
                   )}
+                  {item.scope !== 'personal' && (
+                    <Button
+                      kind="ghost"
+                      onClick={async () => {
+                        try {
+                          await api.setItemScope({ itemId: item.id, scope: 'personal' });
+                          await reload();
+                        } catch (err) {
+                          setError(errMsg(err));
+                        }
+                      }}
+                      testId={`inbox-personal-${item.id}`}
+                    >
+                      标为个人
+                    </Button>
+                  )}
                   <select
                     value=""
                     onChange={(e) => e.target.value && void assign(item.id, e.target.value)}

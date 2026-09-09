@@ -5,6 +5,9 @@ import {
   type Item,
   type Correction,
   type ItemEvidenceView,
+  type ItemLink,
+  type DisclosureGrant,
+  type MemoryScope,
 } from '@ixaeon/contracts';
 import { assertSourceAuthorized } from '../access.js';
 import {
@@ -20,6 +23,8 @@ function toItem(row: Record<string, unknown>): Item {
   return {
     id: row['id'] as string,
     project_id: (row['project_id'] as string | null) ?? null,
+    scope: ((row['scope'] as MemoryScope | undefined) ??
+      (row['project_id'] ? 'project' : 'unassigned')) as MemoryScope,
     type: row['type'] as Item['type'],
     statement: row['statement'] as string,
     rationale: (row['rationale'] as string | null) ?? null,
@@ -57,12 +62,18 @@ export class ItemService {
     limit?: number;
     /** N01：排除已被替代的历史条目（Inbox 可处理范围） */
     excludeSuperseded?: boolean;
+    /** S1：按语义范围过滤；不传则不过滤 */
+    scope?: MemoryScope;
   }): Item[] {
     const where: string[] = [];
     const args: unknown[] = [];
     if (filter.projectId !== null) {
       where.push('project_id = ?');
       args.push(filter.projectId);
+    }
+    if (filter.scope) {
+      where.push('scope = ?');
+      args.push(filter.scope);
     }
     if (filter.state) {
       where.push('state = ?');
@@ -164,16 +175,20 @@ export class ItemService {
       // 清空。旧条目、纠正链与依据保留，仅退出操作队列。
       clearNeedsReasons(this.db, input.itemId);
 
+      const nextProjectId = input.projectId !== undefined ? input.projectId : old.project_id;
+      const nextScope: MemoryScope =
+        nextProjectId !== null ? 'project' : old.scope === 'personal' ? 'personal' : old.scope;
       this.db
         .prepare(
-          `INSERT INTO items (id, project_id, type, statement, rationale, state, confidence,
+          `INSERT INTO items (id, project_id, scope, type, statement, rationale, state, confidence,
              origin, observed_at, created_at, updated_at, supersedes_item_id,
              prompt_version, model_name, needs_review)
-           VALUES (?, ?, ?, ?, NULL, 'current', 1.0, 'user', ?, ?, ?, ?, NULL, NULL, 0)`,
+           VALUES (?, ?, ?, ?, ?, NULL, 'current', 1.0, 'user', ?, ?, ?, ?, NULL, NULL, 0)`,
         )
         .run(
           newId,
-          input.projectId !== undefined ? input.projectId : old.project_id,
+          nextProjectId,
+          nextScope,
           input.newType ?? old.type,
           input.userText.trim(),
           now,
@@ -317,12 +332,106 @@ export class ItemService {
     // 未确认 / 冲突 / 用户显式要求等原因原样保留（集中规则见 needsReview.ts）。
     const tx = this.db.transaction(() => {
       this.db
-        .prepare('UPDATE items SET project_id = ?, manual_project = 1, updated_at = ? WHERE id = ?')
+        .prepare(
+          "UPDATE items SET project_id = ?, scope = 'project', manual_project = 1, updated_at = ? WHERE id = ?",
+        )
         .run(projectId, new Date().toISOString(), itemId);
       syncDerivedNeedsReasons(this.db, itemId);
     });
     tx();
     return this.get(itemId);
+  }
+
+  /**
+   * S1：显式校正语义范围。标为 personal 只消除 no_project（sync 派生原因），
+   * 不清除 manual / conflict / unconfirmed，不复活 superseded。
+   */
+  setScope(itemId: string, scope: MemoryScope): Item {
+    const item = this.get(itemId);
+    if (item.state === 'superseded') {
+      throw new IxaError(ErrorCodes.CONFLICT, '该条目已被替代，不能改变范围');
+    }
+    if (scope === 'project' && item.project_id === null) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '标为项目范围前请先归属到具体项目');
+    }
+    const tx = this.db.transaction(() => {
+      // personal / unassigned 解除项目所有者；project 保留已有 project_id。
+      const projectId = scope === 'project' ? item.project_id : null;
+      this.db
+        .prepare('UPDATE items SET scope = ?, project_id = ?, updated_at = ? WHERE id = ?')
+        .run(scope, projectId, new Date().toISOString(), itemId);
+      syncDerivedNeedsReasons(this.db, itemId);
+    });
+    tx();
+    return this.get(itemId);
+  }
+
+  listLinks(itemId: string): ItemLink[] {
+    this.get(itemId);
+    return this.db
+      .prepare('SELECT * FROM item_links WHERE item_id = ? ORDER BY created_at')
+      .all(itemId) as ItemLink[];
+  }
+
+  addLink(input: { itemId: string; kind: ItemLink['kind']; targetId: string }): ItemLink {
+    this.get(input.itemId);
+    if (input.kind === 'project') {
+      const proj = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(input.targetId);
+      if (!proj) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在: ${input.targetId}`);
+    }
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    try {
+      this.db
+        .prepare(
+          'INSERT INTO item_links (id, item_id, kind, target_id, created_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(id, input.itemId, input.kind, input.targetId, now);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/UNIQUE/i.test(msg)) {
+        throw new IxaError(ErrorCodes.CONFLICT, '该关联已存在');
+      }
+      throw err;
+    }
+    return this.db.prepare('SELECT * FROM item_links WHERE id = ?').get(id) as ItemLink;
+  }
+
+  removeLink(linkId: string): { ok: true } {
+    const info = this.db.prepare('DELETE FROM item_links WHERE id = ?').run(linkId);
+    if (info.changes === 0) throw new IxaError(ErrorCodes.NOT_FOUND, `关联不存在: ${linkId}`);
+    return { ok: true };
+  }
+
+  grantDisclosure(input: {
+    itemId: string;
+    audience: DisclosureGrant['audience'];
+    expiresAt?: string | null;
+    note?: string | null;
+  }): DisclosureGrant {
+    this.get(input.itemId);
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO disclosure_grants (id, item_id, audience, granted_at, expires_at, revoked_at, note)
+         VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(id, input.itemId, input.audience, now, input.expiresAt ?? null, input.note ?? null);
+    return this.db
+      .prepare('SELECT * FROM disclosure_grants WHERE id = ?')
+      .get(id) as DisclosureGrant;
+  }
+
+  revokeDisclosure(grantId: string): { ok: true } {
+    const now = new Date().toISOString();
+    const info = this.db
+      .prepare('UPDATE disclosure_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
+      .run(now, grantId);
+    if (info.changes === 0) {
+      throw new IxaError(ErrorCodes.NOT_FOUND, `分享授权不存在或已撤销: ${grantId}`);
+    }
+    return { ok: true };
   }
 
   /**
@@ -339,16 +448,26 @@ export class ItemService {
     type: Item['type'];
     statement: string;
     rationale: string | null;
+    scope?: MemoryScope;
   }): Item {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
-    this.db
-      .prepare(
-        `INSERT INTO items (id, project_id, type, statement, rationale, state, confidence,
-           origin, observed_at, created_at, updated_at, needs_review)
-         VALUES (?, ?, ?, ?, ?, 'current', 1.0, 'user', ?, ?, ?, 0)`,
-      )
-      .run(id, input.projectId, input.type, input.statement, input.rationale, now, now, now);
+    const scope: MemoryScope = input.scope ?? (input.projectId !== null ? 'project' : 'unassigned');
+    if (scope === 'project' && input.projectId === null) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '项目范围条目必须指定项目');
+    }
+    const projectId = scope === 'project' ? input.projectId : null;
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO items (id, project_id, scope, type, statement, rationale, state, confidence,
+             origin, observed_at, created_at, updated_at, needs_review)
+           VALUES (?, ?, ?, ?, ?, ?, 'current', 1.0, 'user', ?, ?, ?, 0)`,
+        )
+        .run(id, projectId, scope, input.type, input.statement, input.rationale, now, now, now);
+      syncDerivedNeedsReasons(this.db, id);
+    });
+    tx();
     return this.get(id);
   }
 }

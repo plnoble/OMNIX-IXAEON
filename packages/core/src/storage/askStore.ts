@@ -182,7 +182,10 @@ export class AskService {
 
     if (cited.length === 0) {
       return {
-        answer: '资料不足：当前项目还没有可用的记忆。请先导入资料或等待提取完成。',
+        answer:
+          projectId === null
+            ? '资料不足：还没有可用的个人或跨项目记忆。请先导入资料、标为个人，或等待提取完成。'
+            : '资料不足：当前项目还没有可用的记忆。请先导入资料或等待提取完成。',
         citations: [],
         notice: '资料不足',
         usedChars: 0,

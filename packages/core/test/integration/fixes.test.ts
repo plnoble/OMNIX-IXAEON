@@ -476,6 +476,8 @@ describe('P1-7 导出/恢复补充（人类可读 JSON + 恶意 raw_path）', ()
       'data/corrections.json',
       'data/work-runs.json',
       'data/permissions.json',
+      'data/item-links.json',
+      'data/disclosure-grants.json',
     ];
     for (const name of dataFiles) {
       const f = zip.file(name);
@@ -484,7 +486,7 @@ describe('P1-7 导出/恢复补充（人类可读 JSON + 恶意 raw_path）', ()
         formatVersion: number;
         rows: unknown[];
       };
-      expect(parsed.formatVersion).toBe(1);
+      expect(parsed.formatVersion).toBe(2);
       expect(Array.isArray(parsed.rows)).toBe(true);
     }
     // 项目 JSON 包含真实项目名

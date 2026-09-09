@@ -12,7 +12,7 @@ import type {
   SearchResult,
 } from '@ixaeon/contracts';
 import { recordAudit } from '../audit.js';
-import { assertSourceAuthorized } from '../access.js';
+import { assertSourceAuthorized, assertCodingClientMayReadItem } from '../access.js';
 
 /**
  * MCP 工具逻辑（计划 6.x）。
@@ -51,7 +51,7 @@ export class McpService {
       .prepare(
         `SELECT id, type, statement, rationale, state, origin, needs_review, updated_at, confirmation
          FROM items
-         WHERE project_id = ? AND shelved_at IS NULL AND state != 'superseded'
+         WHERE project_id = ? AND scope = 'project' AND shelved_at IS NULL AND state != 'superseded'
            AND confirmation != 'rejected'
          ORDER BY CASE type
            WHEN 'project_summary' THEN 0
@@ -399,6 +399,13 @@ export class McpService {
            -- C06/A10：已拒绝建议不作为当前结论返回（历史原文仍可经
            -- get_source_excerpt 按 segment/item 引用展开，不删除历史）
            AND (i.confirmation IS NULL OR i.confirmation != 'rejected')
+            AND (i.scope = 'project'
+              OR i.id IN (
+                SELECT item_id FROM disclosure_grants
+                WHERE audience = 'coding_client'
+                  AND revoked_at IS NULL
+                  AND (expires_at IS NULL OR expires_at > datetime('now'))
+              ))
            ${projectId !== null ? 'AND i.project_id = ?' : ''}
            ${input.type ? 'AND i.type = ?' : ''}
          ORDER BY i.updated_at DESC LIMIT ?`,
@@ -557,6 +564,7 @@ export class McpService {
       | undefined;
     if (itemEvidence) {
       assertSourceAuthorized(this.db, itemEvidence.source_id);
+      assertCodingClientMayReadItem(this.db, ref);
       return {
         ref,
         excerpt: itemEvidence.text.slice(0, maxChars),
@@ -588,6 +596,7 @@ export class McpService {
         }
       | undefined;
     if (manualItem && manualItem.origin === 'user') {
+      assertCodingClientMayReadItem(this.db, ref);
       const lines: Array<string | null> = [];
       let role: string;
       let title: string;
@@ -801,9 +810,9 @@ export class McpService {
         const itemId = crypto.randomUUID();
         this.db
           .prepare(
-            `INSERT INTO items (id, project_id, type, statement, state, confidence,
+            `INSERT INTO items (id, project_id, scope, type, statement, state, confidence,
                origin, created_at, updated_at, needs_review, needs_reasons)
-             VALUES (?, ?, 'open_loop', ?, 'current', 0.5, 'work_result', ?, ?, 1, 'unconfirmed')`,
+             VALUES (?, ?, 'project', 'open_loop', ?, 'current', 0.5, 'work_result', ?, ?, 1, 'unconfirmed')`,
           )
           .run(itemId, project.id, loop, now, now);
         candidates.push({ item_id: itemId, statement: loop, ref: itemId });

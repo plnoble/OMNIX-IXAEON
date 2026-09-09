@@ -295,6 +295,7 @@ export function registerIpc(runtime: AppRuntime): void {
         ...(input.excludeSuperseded !== undefined
           ? { excludeSuperseded: input.excludeSuperseded }
           : {}),
+        ...(input.scope !== undefined ? { scope: input.scope } : {}),
       }),
     getItemEvidence: async (itemId) => runtime.items.getEvidence(itemId),
     previewCorrection: async (input) => {
@@ -323,6 +324,19 @@ export function registerIpc(runtime: AppRuntime): void {
     shelveItem: async (input) => runtime.items.shelve(input.itemId, input.shelved),
     assignItemToProject: async (input) =>
       runtime.items.assignToProject(input.itemId, input.projectId),
+    setItemScope: async (input) => runtime.items.setScope(input.itemId, input.scope),
+    listItemLinks: async (itemId) => runtime.items.listLinks(itemId),
+    addItemLink: async (input) =>
+      runtime.items.addLink({ itemId: input.itemId, kind: input.kind, targetId: input.targetId }),
+    removeItemLink: async (linkId) => runtime.items.removeLink(linkId),
+    grantItemDisclosure: async (input) =>
+      runtime.items.grantDisclosure({
+        itemId: input.itemId,
+        audience: input.audience,
+        expiresAt: input.expiresAt ?? null,
+        note: input.note ?? null,
+      }),
+    revokeItemDisclosure: async (grantId) => runtime.items.revokeDisclosure(grantId),
     createManualItem: async (input) => runtime.items.createManual(input),
     listCorrections: async (input) => runtime.items.listCorrections(input.projectId),
 
