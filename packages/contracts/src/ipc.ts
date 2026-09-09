@@ -5,6 +5,7 @@ import type {
   Job,
   Permission,
   Project,
+  ProjectRelation,
   Segment,
   Source,
   WorkRun,
@@ -217,6 +218,16 @@ export const askAnswerSchema = z.object({
   /** 例如“不同来源存在冲突”或“资料不足”的提示 */
   notice: z.string().nullable(),
   usedChars: z.number().int(),
+  coverage: z
+    .object({
+      generatedAt: z.string(),
+      includedProjects: z.array(z.string()),
+      omittedProjects: z.array(z.string()),
+      unanalyzedSources: z.number().int(),
+      unassignedItems: z.number().int(),
+      budgetLimited: z.boolean(),
+    })
+    .optional(),
 });
 export type AskAnswer = z.infer<typeof askAnswerSchema>;
 
@@ -400,6 +411,27 @@ export interface IxaIpcApi {
   }): Promise<Array<Correction & { oldItem: Item; newItem: Item }>>;
   // 问答
   askQuestion(input: AskQuestionInput): Promise<AskAnswer>;
+  getPersonalOverview(): Promise<{
+    generatedAt: string;
+    goals: Item[];
+    constraints: Item[];
+    unknowns: Item[];
+    conflicts: Item[];
+    projects: Array<{ project: Project; goals: Item[]; constraints: Item[] }>;
+    relations: ProjectRelation[];
+    coverage: {
+      projectCount: number;
+      analyzedSources: number;
+      unanalyzedSources: number;
+      unassignedItems: number;
+    };
+  }>;
+  listProjectRelations(input?: {
+    status?: 'proposed' | 'accepted' | 'rejected' | 'superseded';
+  }): Promise<ProjectRelation[]>;
+  proposeProjectRelations(): Promise<Array<ProjectRelation | null>>;
+  rejectProjectRelation(id: string): Promise<ProjectRelation>;
+  acceptProjectRelation(id: string): Promise<ProjectRelation>;
   // 工作记录
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置

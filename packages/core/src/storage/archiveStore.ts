@@ -50,6 +50,7 @@ const TOP_ENTRIES = new Set([
   'data/permissions.json',
   'data/item-links.json',
   'data/disclosure-grants.json',
+  'data/project-relations.json',
 ]);
 
 /**
@@ -105,6 +106,7 @@ export class ArchiveService {
       ['data/permissions.json', this.dumpTable('permissions')],
       ['data/item-links.json', this.dumpTable('item_links')],
       ['data/disclosure-grants.json', this.dumpTable('disclosure_grants')],
+      ['data/project-relations.json', this.dumpTable('project_relations')],
     ];
     for (const [name, rows] of dataFiles) {
       const payload = {
@@ -141,7 +143,7 @@ export class ArchiveService {
       `数据库：${counts.sources} 个来源 / ${counts.segments} 个片段 / ${counts.items} 条结论`,
       '',
       '内容：',
-      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权',
+      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权、项目关系提案',
       '  （人类可读 JSON，字段命名稳定，带 formatVersion）',
       '- db.sqlite：数据库副本（完整快速恢复用）',
       '- vault/：导入原文（sha256/xx/<64位哈希> 布局，逐字保留）',
@@ -497,6 +499,7 @@ export class ArchiveService {
       permissions: count('permissions'),
       item_links: count('item_links'),
       disclosure_grants: count('disclosure_grants'),
+      project_relations: count('project_relations'),
       audit_events: count('audit_events'),
     };
   }

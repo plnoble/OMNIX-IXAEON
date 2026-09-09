@@ -24,11 +24,11 @@ Legend：⬜ 未开始 | 🟡 进行中 | ✅ 通过（附证据） | ❌ 失败
 
 | 编号 | 要求 | 状态 | 测试位置 | 结果路径 | 缺口备注 |
 | --- | --- | --- | --- | --- | --- |
-| A08 | 正反关联；不靠名称硬编码；不自动移动资料 | ⬜ | — | — | 依赖 S3 |
-| A09 | 关系生命周期：确认/不采纳/纠正/新证据；不骚扰；accepted≠已联通 | ⬜ | — | — | 依赖 S3 |
-| A10 | 个人问答覆盖：多项目/目标/约束按需检索+未知/冲突/时效/预算说明 | ⬜ | — | — | 依赖 S3 |
+| A08 | 正反关联；不靠名称硬编码；不自动移动资料 | ✅ | `s3-orchestration.test.ts` A08 | vitest 2026-09-09 | 主题 token 重叠才提案；无证据拒绝；不搬条目 |
+| A09 | 关系生命周期：确认/不采纳/纠正/新证据；不骚扰；accepted≠已联通 | ✅ | `s3-orchestration.test.ts` A09 | vitest 2026-09-09 | 同样指纹拒绝后不再催促；新证据可修订；纠正后 stale；accepted 默认 unverified |
+| A10 | 个人问答覆盖：多项目/目标/约束按需检索+未知/冲突/时效/预算说明 | 🟡 | `s3-orchestration.test.ts` A10 + Ask coverage | vitest 2026-09-09 | 总览+问答覆盖字段已有。真机四问属 T01；模型轮数预算仍粗 |
 | A11 | 全入口隐私：新旧 MCP/无项目搜索/ref/前后文/摘要/研究查询/任务背景/缓存；撤权晚到结果不绕过 | 🟡 | `s1-scope.test.ts` A11 + 既有 `fixes.test.ts` 项目隔离 | vitest integration 2026-09-09 | S1 已覆盖 MCP search/excerpt + 分享/撤权；研究查询与任务背景待 S4/S5 |
-| A12 | 非空迁移 10 库→最新且幂等；新表导出/恢复；失败回滚；恢复不自动联网 | 🟡 | `s1-scope.test.ts` A12 + `archive.test.ts` | vitest integration 2026-09-09 | 迁移 10→11 幂等、导出含新表；恢复不自动联网沿用既有恢复语义。真实旧库升级属 T05 |
+| A12 | 非空迁移 10 库→最新且幂等；新表导出/恢复；失败回滚；恢复不自动联网 | 🟡 | `s1-scope.test.ts` A12 + `archive.test.ts` + `fixes.test.ts` | vitest 2026-09-09 | 迁移 10→最新幂等；导出含 item_links / disclosure_grants / project_relations。真实旧库升级属 T05 |
 
 ### 主动研究
 

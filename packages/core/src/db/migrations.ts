@@ -350,6 +350,43 @@ ALTER TABLE projects ADD COLUMN related_goals TEXT;
 ALTER TABLE projects ADD COLUMN unknowns TEXT;
 `,
   },
+  {
+    id: 13,
+    name: 'project-relations',
+    sql: `
+-- S3：项目关系是有状态的提案，不是已联通的事实。
+-- accepted ≠ 接口已存在；实际联通用 verification 另存。
+-- 同样证据被拒绝后不得每次刷新再催促（evidence_fingerprint）。
+CREATE TABLE project_relations (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN (
+    'serves_goal', 'depends_on', 'provides_capability',
+    'reusable', 'suspected_duplicate', 'conflict'
+  )),
+  from_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  to_entity_kind TEXT NOT NULL CHECK (to_entity_kind IN ('project', 'item')),
+  to_entity_id TEXT NOT NULL,
+  rationale TEXT NOT NULL,
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  evidence_fingerprint TEXT NOT NULL,
+  proposer TEXT NOT NULL CHECK (proposer IN ('system', 'user')),
+  status TEXT NOT NULL CHECK (status IN ('proposed', 'accepted', 'rejected', 'superseded')),
+  verification TEXT NOT NULL DEFAULT 'unverified'
+    CHECK (verification IN ('unverified', 'verified', 'failed')),
+  benefit TEXT,
+  cost TEXT,
+  prerequisites TEXT,
+  independent_alternative TEXT,
+  stale INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  supersedes_id TEXT REFERENCES project_relations(id)
+);
+CREATE INDEX idx_relations_from ON project_relations(from_project_id, status);
+CREATE INDEX idx_relations_fingerprint ON project_relations(evidence_fingerprint, status);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

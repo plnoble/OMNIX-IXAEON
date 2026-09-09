@@ -8,7 +8,8 @@ import { SettingsPage } from './pages/Settings.js';
 import { UnderstandingPage } from './pages/Understanding.js';
 import { InboxPage, HistoryPage } from './pages/Inbox.js';
 import { AskPage } from './pages/Ask.js';
-import { Card, ErrorBanner } from './ui.js';
+import { PersonalOverviewPage } from './pages/Overview.js';
+import { ErrorBanner } from './ui.js';
 
 type Page =
   | 'overview'
@@ -71,15 +72,13 @@ export default function App() {
     );
   }
 
-  const activeProject = projects.find((p) => p.id === projectId) ?? null;
-
   return (
     <div className="app" data-testid="app-root">
       <header className="app-header">
         <h1>
           IXAEON <span className="cn">析衍</span>
         </h1>
-        <p className="tagline">本地项目记忆与编码 AI 背景服务 · OMNIX</p>
+        <p className="tagline">本地个人内核：理解你、统筹项目、在授权边界内行动 · OMNIX</p>
         <nav className="nav" data-testid="main-nav">
           <button
             type="button"
@@ -159,24 +158,7 @@ export default function App() {
       <main className="app-main">
         {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
-        {page === 'overview' && (
-          <Card title="系统状态" testId="state-card">
-            <dl>
-              <dt>版本</dt>
-              <dd data-testid="state-version">{state.version}</dd>
-              <dt>数据目录</dt>
-              <dd data-testid="state-datadir">{state.dataDir}</dd>
-              <dt>首次设置</dt>
-              <dd data-testid="state-setup">已完成</dd>
-              <dt>本地服务</dt>
-              <dd data-testid="state-server">
-                {state.serverRunning ? `127.0.0.1:${state.serverPort}` : '未运行'}
-              </dd>
-              <dt>当前项目</dt>
-              <dd data-testid="state-current-project">{activeProject?.name ?? '全部'}</dd>
-            </dl>
-          </Card>
-        )}
+        {page === 'overview' && <PersonalOverviewPage state={state} />}
 
         {page === 'projects' && (
           <ProjectsPage

@@ -90,6 +90,9 @@ export function AskPage({ projects }: { projects: Project[] }) {
             )}
             <p className="muted">
               模型 {answer.modelName} · 使用 {answer.usedChars} 字符资料
+              {answer.coverage
+                ? ` · 覆盖项目 ${answer.coverage.includedProjects.join('、') || '无'} · 未分析来源 ${answer.coverage.unanalyzedSources}`
+                : ''}
             </p>
           </div>
         )}

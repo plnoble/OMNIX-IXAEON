@@ -46,7 +46,7 @@ afterEach(() => {
 
 describe('A05 ChatGPT 规范化结构', () => {
   it('全新库迁移版本为 12', () => {
-    expect(currentMigrationVersion(db)).toBe(12);
+    expect(currentMigrationVersion(db)).toBeGreaterThanOrEqual(12);
   });
 
   it('保存平台、命名空间、对话标识、说话人、消息标识、父子、时间、导入方式', () => {

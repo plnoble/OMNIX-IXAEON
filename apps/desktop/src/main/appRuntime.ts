@@ -8,6 +8,9 @@ import {
   Extractor,
   FakeProvider,
   ItemService,
+  RelationService,
+  proposeObviousRelations,
+  buildPersonalOverview,
   OpenAIResponsesProvider,
   listUpstreamModels,
   ImportService,
@@ -59,6 +62,7 @@ export class AppRuntime {
   search: SearchService;
   imports: ImportService;
   items: ItemService;
+  relations: RelationService;
   jobs: JobQueue;
   readonly logger: Logger;
   readonly localServer: LocalServer;
@@ -83,6 +87,7 @@ export class AppRuntime {
     search: SearchService;
     imports: ImportService;
     items: ItemService;
+    relations: RelationService;
     jobs: JobQueue;
     logger: Logger;
     localServer: LocalServer;
@@ -98,6 +103,7 @@ export class AppRuntime {
     this.search = deps.search;
     this.imports = deps.imports;
     this.items = deps.items;
+    this.relations = deps.relations;
     this.jobs = deps.jobs;
     this.logger = deps.logger;
     this.localServer = deps.localServer;
@@ -121,6 +127,7 @@ export class AppRuntime {
     const search = new SearchService(db);
     const imports = new ImportService(db, vault, permissions, sources);
     const items = new ItemService(db);
+    const relations = new RelationService(db);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
     const config = loadConfig(layout.configFile);
@@ -179,6 +186,7 @@ export class AppRuntime {
       search,
       imports,
       items,
+      relations,
       jobs,
       logger,
       localServer,
@@ -537,6 +545,14 @@ export class AppRuntime {
     return asker.ask(projectId, question);
   }
 
+  personalOverview() {
+    return buildPersonalOverview(this.db);
+  }
+
+  proposeRelations() {
+    return proposeObviousRelations(this.db);
+  }
+
   /** 工作记录列表（M3：最近工作展示）。 */
   listWorkRuns(projectId: string, limit: number): Array<WorkRun> {
     return this.db
@@ -683,6 +699,7 @@ export class AppRuntime {
     const search = new SearchService(db);
     const imports = new ImportService(db, vault, permissions, sources);
     const items = new ItemService(db);
+    const relations = new RelationService(db);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;
     this.vault = vault;
@@ -692,6 +709,7 @@ export class AppRuntime {
     this.search = search;
     this.imports = imports;
     this.items = items;
+    this.relations = relations;
     this.jobs = jobs;
     // localServer 持有的是旧 db 引用：用新服务重建其依赖（复用同一实例）
     this.localServer.rebindDeps({

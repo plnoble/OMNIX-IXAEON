@@ -345,6 +345,11 @@ export function registerIpc(runtime: AppRuntime): void {
 
     // --- 问答（M2） ---
     askQuestion: async (input) => runtime.ask(input.projectId, input.question),
+    getPersonalOverview: async () => runtime.personalOverview(),
+    listProjectRelations: async (input) => runtime.relations.list(input),
+    proposeProjectRelations: async () => runtime.proposeRelations(),
+    acceptProjectRelation: async (id) => runtime.relations.accept(id),
+    rejectProjectRelation: async (id) => runtime.relations.reject(id),
 
     // --- 工作记录（M3） ---
     listWorkRuns: async (input) => runtime.listWorkRuns(input.projectId, input.limit),

@@ -67,3 +67,14 @@ export {
 export { AskService, type AskResult } from './storage/askStore.js';
 export { McpService } from './storage/mcpStore.js';
 export { ArchiveService } from './storage/archiveStore.js';
+export {
+  RelationService,
+  proposeObviousRelations,
+  type ProposeRelationInput,
+} from './orchestration/relationStore.js';
+export {
+  Orchestrator,
+  type OrchestratorResult,
+  type OrchestratorStep,
+} from './orchestration/orchestrator.js';
+export { buildPersonalOverview, type PersonalOverview } from './personal/overview.js';

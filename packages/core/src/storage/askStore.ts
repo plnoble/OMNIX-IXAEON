@@ -17,6 +17,15 @@ interface CitedSegment {
   isUserCorrection: boolean;
 }
 
+export interface AskCoverage {
+  generatedAt: string;
+  includedProjects: string[];
+  omittedProjects: string[];
+  unanalyzedSources: number;
+  unassignedItems: number;
+  budgetLimited: boolean;
+}
+
 export interface AskResult {
   answer: string;
   citations: Array<{
@@ -30,6 +39,7 @@ export interface AskResult {
   notice: string | null;
   usedChars: number;
   modelName: string;
+  coverage?: AskCoverage;
 }
 
 const MAX_CONTEXT_CHARS = 12_000;
@@ -56,19 +66,20 @@ export class AskService {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '问题不能为空');
     }
 
-    // 1) 当前条目（用户纠正优先排前）作为候选资料
+    const coverage = this.coverage(projectId);
+    let budgetHit = false;
+    // 1) 当前条目：个人视角从全部获准候选按问题筛选，不取「最近 60 条」冒充完整理解
     const items = this.db
       .prepare(
         `SELECT i.id, i.type, i.statement, i.state, i.origin, i.updated_at,
-                i.extracted_from_source_id, i.confirmation
+                i.extracted_from_source_id, i.confirmation, i.project_id, i.scope
          FROM items i
          WHERE i.state IN ('current', 'disputed') AND i.shelved_at IS NULL
            AND i.confirmation != 'rejected'
            ${projectId !== null ? 'AND i.project_id = ?' : ''}
          ORDER BY CASE WHEN i.origin = 'user' THEN 0
                        WHEN i.confirmation = 'confirmed' THEN 1
-                       ELSE 2 END, i.updated_at DESC
-         LIMIT 60`,
+                       ELSE 2 END, i.updated_at DESC`,
       )
       .all(...(projectId !== null ? [projectId] : [])) as Array<{
       id: string;
@@ -79,7 +90,10 @@ export class AskService {
       updated_at: string;
       extracted_from_source_id: string | null;
       confirmation: string;
+      project_id: string | null;
+      scope: string;
     }>;
+    const ranked = rankItemsForQuestion(items, question).slice(0, 80);
 
     const cited: CitedSegment[] = [];
     // C07/A12：去重键分两层 —— 「条目身份」（item.id）与「原文依据身份」
@@ -104,7 +118,7 @@ export class AskService {
        WHERE e.item_id = ? LIMIT 1`,
     );
     let refCounter = 0;
-    for (const item of items) {
+    for (const item of ranked) {
       refCounter += 1;
       const ref = `R${refCounter}`;
       const ev = evidenceStmt.get(item.id) as
@@ -135,7 +149,10 @@ export class AskService {
             : `[${item.type}${item.state === 'disputed' ? ' · 存在冲突' : ''}${confirmationLabel(item.confirmation)}] ${item.statement}${evAllowed && ev ? `\n依据摘录：${ev.excerpt}` : ''}`,
         isUserCorrection: item.origin === 'user',
       });
-      if (usedChars(cited) > MAX_CONTEXT_CHARS) break;
+      if (usedChars(cited) > MAX_CONTEXT_CHARS) {
+        budgetHit = true;
+        break;
+      }
     }
 
     // 2) 关键词检索补充原文片段（FTS rowid 正确连接 + 项目隔离 + 授权过滤）
@@ -176,7 +193,10 @@ export class AskService {
           text: seg.text.slice(0, 1200),
           isUserCorrection: false,
         });
-        if (usedChars(cited) > MAX_CONTEXT_CHARS) break;
+        if (usedChars(cited) > MAX_CONTEXT_CHARS) {
+          budgetHit = true;
+          break;
+        }
       }
     }
 
@@ -190,6 +210,7 @@ export class AskService {
         notice: '资料不足',
         usedChars: 0,
         modelName: this.provider.modelName,
+        coverage,
       };
     }
 
@@ -198,17 +219,31 @@ export class AskService {
       .map((c) => `[${c.ref}]（${c.sourceTitle} / ${c.role}）\n${c.text}`)
       .join('\n\n');
 
+    const disputedItems = ranked.filter((i) => i.state === 'disputed');
+    const coverageNotes: string[] = [];
+    if (disputedItems.length > 0) {
+      coverageNotes.push(`有 ${disputedItems.length} 条结论存在来源冲突，回答中应已分别标注。`);
+    }
+    if (coverage.unanalyzedSources > 0) {
+      coverageNotes.push(`${coverage.unanalyzedSources} 个来源有新内容尚未分析。`);
+    }
+    if (coverage.unassignedItems > 0 && projectId === null) {
+      coverageNotes.push(`${coverage.unassignedItems} 条记忆仍未整理范围。`);
+    }
+    coverage.budgetLimited = budgetHit;
+    if (coverage.budgetLimited) {
+      coverageNotes.push('检索预算不足，部分候选未纳入本次回答，未静默截掉冲突项。');
+    }
+    const notice = coverageNotes.length > 0 ? coverageNotes.join(' ') : null;
+    const coverageBlock =
+      notice === null
+        ? '覆盖说明：本次检索未发现未分析来源、未整理范围或预算截断。资料仍不是用户的全部记忆。'
+        : `覆盖说明：${notice}`;
+
     const answer = await this.provider.chatText({
       system: ASK_SYSTEM_PROMPT,
-      user: `问题：${question.trim()}\n\n资料（每条头部为引用编号）：\n\n${context}`,
+      user: `问题：${question.trim()}\n\n${coverageBlock}\n\n资料（每条头部为引用编号）：\n\n${context}`,
     });
-
-    // 冲突提示
-    const disputedItems = items.filter((i) => i.state === 'disputed');
-    const notice =
-      disputedItems.length > 0
-        ? `注意：有 ${disputedItems.length} 条结论存在来源冲突，回答中应已分别标注。`
-        : null;
 
     // 4) 提取回答中实际使用的引用（[R3] 形式）
     const usedRefs = new Set<string>();
@@ -230,6 +265,40 @@ export class AskService {
       notice,
       usedChars: context.length,
       modelName: this.provider.modelName,
+      coverage,
+    };
+  }
+
+  private coverage(projectId: string | null): AskCoverage {
+    const projects = this.db.prepare('SELECT id, name FROM projects').all() as Array<{
+      id: string;
+      name: string;
+    }>;
+    const unanalyzed = (
+      this.db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM sources WHERE COALESCE(content_revision, 0) > COALESCE(analyzed_revision, 0)',
+        )
+        .get() as { n: number }
+    ).n;
+    const unassigned = (
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM items WHERE scope = 'unassigned' AND state IN ('current', 'disputed') AND confirmation != 'rejected'",
+        )
+        .get() as { n: number }
+    ).n;
+    const included =
+      projectId === null
+        ? projects.map((p) => p.name)
+        : projects.filter((p) => p.id === projectId).map((p) => p.name);
+    return {
+      generatedAt: new Date().toISOString(),
+      includedProjects: included,
+      omittedProjects: [],
+      unanalyzedSources: unanalyzed,
+      unassignedItems: unassigned,
+      budgetLimited: false,
     };
   }
 
@@ -271,4 +340,23 @@ function extractKeywords(question: string): string[] {
   const cjk = question.match(/[\u4e00-\u9fff]{2,4}/g) ?? [];
   keywords.push(...cjk.map((w) => `"${w}"`));
   return keywords.slice(0, 6);
+}
+
+function rankItemsForQuestion<T extends { statement: string; type: string; origin: string }>(
+  items: T[],
+  question: string,
+): T[] {
+  const q = question.toLowerCase();
+  const keys = extractKeywords(question).map((k) => k.replace(/"/g, ''));
+  const score = (item: T): number => {
+    let s = 0;
+    const st = item.statement.toLowerCase();
+    if (keys.some((k) => k.length > 0 && st.includes(k.toLowerCase()))) s += 8;
+    if (item.origin === 'user') s += 4;
+    if (item.type === 'goal' || item.type === 'constraint' || item.type === 'preference') s += 2;
+    if (q.includes('冲突') && item.type === 'constraint') s += 3;
+    if (q.includes('目标') && item.type === 'goal') s += 3;
+    return s;
+  };
+  return [...items].sort((a, b) => score(b) - score(a));
 }

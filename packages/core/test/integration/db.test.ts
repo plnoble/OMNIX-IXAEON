@@ -38,6 +38,7 @@ describe('数据库迁移', () => {
       'schema_migrations',
       'item_links',
       'disclosure_grants',
+      'project_relations',
     ]) {
       expect(tables).toContain(expected);
     }

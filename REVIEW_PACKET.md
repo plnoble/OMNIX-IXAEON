@@ -736,6 +736,18 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 | 用户是否接受 | 未演示 | — |
 | 受阻 | Gemini / Grok / Claude 无脱敏导出样本，不写伪解析器 | `docs/v03-source-support.md` |
 
+## 15. v0.3 S3（个人理解与跨项目统筹，2026-09-09）
+
+提交边界：迁移 13、关系服务、个人总览、问答覆盖、测试与文档。不混入他人未跟踪构思稿。
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| 实现完成度 | 关系提案生命周期 + 个人总览 + 有界统筹器完成；无联网/Shell | 迁移 13；`relationStore.ts`/`orchestrator.ts`/`overview.ts`/`Overview.tsx` |
+| 自动化 | A08/A09 通过；A10 部分通过 | `s3-orchestration.test.ts` |
+| 真实结果 | 未跑 T01 四问现场 | 不得写成全部验收通过 |
+| 用户是否接受 | 未演示 | — |
+| 未完成 | S4–S5；A10 真机问答；研究/执行 | 见 `docs/v03-acceptance-map.md` |
+
 ---
 
 ## 附录：打包环境网络说明

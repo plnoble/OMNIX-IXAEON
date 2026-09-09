@@ -285,3 +285,47 @@ export const auditEventSchema = z.object({
   created_at: isoDateTimeSchema,
 });
 export type AuditEvent = z.infer<typeof auditEventSchema>;
+
+// ---------------------------------------------------------------------------
+// project_relations：有状态的跨项目提案（S3）
+// ---------------------------------------------------------------------------
+
+export const relationKindSchema = z.enum([
+  'serves_goal',
+  'depends_on',
+  'provides_capability',
+  'reusable',
+  'suspected_duplicate',
+  'conflict',
+]);
+export type RelationKind = z.infer<typeof relationKindSchema>;
+
+export const relationStatusSchema = z.enum(['proposed', 'accepted', 'rejected', 'superseded']);
+export type RelationStatus = z.infer<typeof relationStatusSchema>;
+
+export const relationVerificationSchema = z.enum(['unverified', 'verified', 'failed']);
+export type RelationVerification = z.infer<typeof relationVerificationSchema>;
+
+export const projectRelationSchema = z.object({
+  id: uuidSchema,
+  kind: relationKindSchema,
+  from_project_id: uuidSchema,
+  to_entity_kind: z.enum(['project', 'item']),
+  to_entity_id: z.string().min(1),
+  rationale: z.string().min(1),
+  evidence_json: z.string(),
+  evidence_fingerprint: z.string().min(1),
+  proposer: z.enum(['system', 'user']),
+  status: relationStatusSchema,
+  verification: relationVerificationSchema,
+  benefit: z.string().nullable(),
+  cost: z.string().nullable(),
+  prerequisites: z.string().nullable(),
+  independent_alternative: z.string().nullable(),
+  stale: z.boolean(),
+  created_at: isoDateTimeSchema,
+  updated_at: isoDateTimeSchema,
+  reviewed_at: isoDateTimeSchema.nullable(),
+  supersedes_id: uuidSchema.nullable(),
+});
+export type ProjectRelation = z.infer<typeof projectRelationSchema>;

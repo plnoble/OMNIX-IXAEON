@@ -203,6 +203,14 @@ export class ItemService {
            VALUES (?, ?, ?, ?, ?)`,
         )
         .run(correctionId, input.itemId, input.userText.trim(), newId, now);
+      // S3：纠正后旧关系不再当确定事实
+      this.db
+        .prepare(
+          `UPDATE project_relations SET stale = 1, updated_at = ?
+           WHERE stale = 0 AND status != 'superseded'
+             AND evidence_json LIKE ?`,
+        )
+        .run(now, `%"itemId":"${input.itemId}"%`);
     });
     tx();
 
