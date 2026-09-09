@@ -466,6 +466,57 @@ CREATE INDEX idx_research_topics_next ON research_topics(enabled, paused, next_c
 CREATE INDEX idx_research_findings_topic ON research_findings(topic_id, created_at);
 `,
   },
+  {
+    id: 15,
+    name: 'coding-tasks',
+    sql: `
+-- S5：获准编码任务。执行器自报成功 ≠ 用户验收；独立验证器核对范围与测试。
+-- 批准绑定任务版本/工作区/快照/允许命令；变更后旧批准失效。
+CREATE TABLE coding_tasks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  goal TEXT NOT NULL,
+  scope_json TEXT NOT NULL DEFAULT '[]',
+  workspace_path TEXT,
+  snapshot_ref TEXT,
+  context_digest TEXT NOT NULL,
+  allowed_commands_json TEXT NOT NULL DEFAULT '[]',
+  timeout_ms INTEGER NOT NULL DEFAULT 900000,
+  status TEXT NOT NULL CHECK (status IN (
+    'draft', 'waiting_approval', 'queued', 'running',
+    'pending_verify', 'pending_accept', 'completed', 'failed', 'cancelled', 'unknown'
+  )),
+  version INTEGER NOT NULL DEFAULT 1,
+  approval_id TEXT,
+  dispatch_key TEXT,
+  generation INTEGER NOT NULL DEFAULT 0,
+  executor_name TEXT,
+  executor_report_json TEXT,
+  verify_status TEXT CHECK (verify_status IS NULL OR verify_status IN ('passed', 'failed', 'not_run')),
+  verify_exit_code INTEGER,
+  verify_output TEXT,
+  tests_modified INTEGER NOT NULL DEFAULT 0,
+  accepted_at TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_coding_tasks_dispatch ON coding_tasks(dispatch_key) WHERE dispatch_key IS NOT NULL;
+CREATE TABLE coding_approvals (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES coding_tasks(id) ON DELETE CASCADE,
+  task_version INTEGER NOT NULL,
+  digest TEXT NOT NULL,
+  workspace_path TEXT NOT NULL,
+  snapshot_ref TEXT,
+  allowed_commands_json TEXT NOT NULL,
+  granted_at TEXT NOT NULL,
+  expires_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX idx_coding_tasks_status ON coding_tasks(status, updated_at);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

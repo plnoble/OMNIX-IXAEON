@@ -18,9 +18,12 @@
 | 费用 | 走用户 Codex 订阅额度（ChatGPT 计划内），IXAEON 侧无法直接计量——按「次数上限」而非金额上限 |
 | 取消 | exec 进程树可终止（子进程管理由 IXAEON 编排层负责） |
 
-**待 S5 实施前核实**（不臆造）：`codex exec` 的完整旗标表（`--sandbox` / `--cd` /
-`--json` / 超时 / 输出格式）；退出码语义；alpha 版本旗标可能变化，实施时以
-`codex exec --help` 实测为准并记录版本。
+**S5 实施时核实（2026-09-09，codex-cli 0.130.0-alpha.5）**：
+`codex exec --help` 确认存在 `-s/--sandbox`（read-only / workspace-write /
+danger-full-access）、`-C/--cd`、`--json`、`--skip-git-repo-check`、
+`--ignore-user-config`、`-o/--output-last-message`。默认拟用
+`--sandbox workspace-write -C <隔离工作区> --ignore-user-config --skip-git-repo-check`。
+**真机派发仍待用户确认这些默认值**；当前产品走 Fake 执行器，T04 未完成。
 
 ### 备选（不接入，仅记录存在）
 

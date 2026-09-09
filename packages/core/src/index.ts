@@ -83,3 +83,12 @@ export { ResearchChecker, type CheckResult, type Clock } from './research/checke
 export { assertPublicHttpsUrl, isBlockedIpLiteral } from './research/urlSafety.js';
 export { fetchApprovedSource, type FetchDeps } from './research/fetchApproved.js';
 export { parseFeed, parsePage, fingerprintText } from './research/parse.js';
+export { CodingTaskStore, approvalDigest, DEFAULT_TASK_TIMEOUT_MS } from './execution/taskStore.js';
+export {
+  CodingOrchestrator,
+  FakeCodingExecutor,
+  CodexCliExecutor,
+  type CodingExecutor,
+  type ExecutorReport,
+  type IndependentCheck,
+} from './execution/executor.js';

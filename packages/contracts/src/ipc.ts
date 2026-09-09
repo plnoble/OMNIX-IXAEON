@@ -1,5 +1,6 @@
 import type {
   AuditEvent,
+  CodingTask,
   Correction,
   Item,
   Job,
@@ -463,6 +464,22 @@ export interface IxaIpcApi {
     mode: 'approved-sources-only';
     searchUsed: false;
   }>;
+  listCodingTasks(projectId?: string): Promise<{
+    executor: 'fake';
+    realDispatchEnabled: false;
+    notice: string;
+    tasks: CodingTask[];
+  }>;
+  createCodingTask(input: {
+    projectId: string;
+    goal: string;
+    scope: string[];
+    allowedCommands: string[][];
+  }): Promise<CodingTask>;
+  approveCodingTask(id: string): Promise<CodingTask>;
+  dispatchCodingTask(id: string): Promise<CodingTask>;
+  cancelCodingTask(id: string): Promise<CodingTask>;
+  acceptCodingTask(id: string): Promise<CodingTask>;
   // 工作记录
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置

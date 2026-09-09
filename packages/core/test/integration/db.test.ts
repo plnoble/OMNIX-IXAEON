@@ -43,6 +43,8 @@ describe('数据库迁移', () => {
       'research_sources',
       'research_findings',
       'research_runs',
+      'coding_tasks',
+      'coding_approvals',
     ]) {
       expect(tables).toContain(expected);
     }

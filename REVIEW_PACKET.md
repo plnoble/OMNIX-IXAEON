@@ -760,6 +760,18 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 | 用户是否接受 | 未演示 | — |
 | 未完成 | S5；T03；搜索 API 仍未配置 | 见 `docs/v03-acceptance-map.md` |
 
+## 17. v0.3 S5（最小编码执行，Fake 先行，2026-09-09）
+
+提交边界：迁移 15、任务批准/执行/验证、Fake 适配器、任务页、测试与文档。不混入他人未跟踪构思稿。真机 Codex 未派发。
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| 实现完成度 | Fake 端到端批准→派发→独立验证→接受完成；Codex argv 已按 help 固定但未启用 | 迁移 15；`execution/`；`Tasks.tsx` |
+| 自动化 | A18/A20/A21 通过；A19 部分；A22 模块可见未现场演示 | `s5-execution.test.ts` |
+| 真实结果 | T04 未跑 | 界面写明 Fake，接受≠部署 |
+| 用户是否接受 | 未确认 Codex 隔离默认值 | — |
+| 未完成 | T01–T05；真机派发 | 见 `docs/v03-acceptance-map.md` |
+
 ---
 
 ## 附录：打包环境网络说明

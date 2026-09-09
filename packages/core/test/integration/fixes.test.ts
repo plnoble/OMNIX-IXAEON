@@ -483,6 +483,8 @@ describe('P1-7 导出/恢复补充（人类可读 JSON + 恶意 raw_path）', ()
       'data/research-sources.json',
       'data/research-findings.json',
       'data/research-runs.json',
+      'data/coding-tasks.json',
+      'data/coding-approvals.json',
     ];
     for (const name of dataFiles) {
       const f = zip.file(name);

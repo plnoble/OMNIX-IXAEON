@@ -357,6 +357,18 @@ export function registerIpc(runtime: AppRuntime): void {
     setResearchTopicPaused: async (input) =>
       runtime.research.store.setPaused(input.id, input.paused),
     checkResearchTopicNow: async (id) => runtime.research.checkNow(id),
+    listCodingTasks: async (projectId) => ({
+      executor: 'fake' as const,
+      realDispatchEnabled: false as const,
+      notice:
+        '当前使用 Fake 执行器做隔离与批准回归。Codex CLI 已核实可用，真机派发待确认隔离默认值后开启。接受结果不会自动合并或部署。',
+      tasks: runtime.coding.store.list(projectId),
+    }),
+    createCodingTask: async (input) => runtime.coding.create(input),
+    approveCodingTask: async (id) => runtime.coding.approveAndQueue(id),
+    dispatchCodingTask: async (id) => runtime.coding.dispatch(id),
+    cancelCodingTask: async (id) => runtime.coding.cancel(id),
+    acceptCodingTask: async (id) => runtime.coding.accept(id),
 
     // --- 工作记录（M3） ---
     listWorkRuns: async (input) => runtime.listWorkRuns(input.projectId, input.limit),

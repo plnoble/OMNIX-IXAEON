@@ -60,7 +60,7 @@ afterEach(() => {
 
 describe('A13 调度结构', () => {
   it('全新库迁移版本为 14', () => {
-    expect(currentMigrationVersion(db)).toBe(14);
+    expect(currentMigrationVersion(db)).toBeGreaterThanOrEqual(14);
   });
 
   it('创建默认不启用；启用后到期才检查；暂停取消；错过周期合并一次', async () => {

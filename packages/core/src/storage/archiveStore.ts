@@ -55,6 +55,8 @@ const TOP_ENTRIES = new Set([
   'data/research-sources.json',
   'data/research-findings.json',
   'data/research-runs.json',
+  'data/coding-tasks.json',
+  'data/coding-approvals.json',
 ]);
 
 /**
@@ -115,6 +117,8 @@ export class ArchiveService {
       ['data/research-sources.json', this.dumpTable('research_sources')],
       ['data/research-findings.json', this.dumpTable('research_findings')],
       ['data/research-runs.json', this.dumpTable('research_runs')],
+      ['data/coding-tasks.json', this.dumpTable('coding_tasks')],
+      ['data/coding-approvals.json', this.dumpTable('coding_approvals')],
     ];
     for (const [name, rows] of dataFiles) {
       const payload = {
@@ -151,7 +155,7 @@ export class ArchiveService {
       `数据库：${counts.sources} 个来源 / ${counts.segments} 个片段 / ${counts.items} 条结论`,
       '',
       '内容：',
-      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权、项目关系提案、研究关注',
+      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权、项目关系提案、研究关注、编码任务',
       '  （人类可读 JSON，字段命名稳定，带 formatVersion）',
       '- db.sqlite：数据库副本（完整快速恢复用）',
       '- vault/：导入原文（sha256/xx/<64位哈希> 布局，逐字保留）',
@@ -512,6 +516,8 @@ export class ArchiveService {
       research_sources: count('research_sources'),
       research_findings: count('research_findings'),
       research_runs: count('research_runs'),
+      coding_tasks: count('coding_tasks'),
+      coding_approvals: count('coding_approvals'),
       audit_events: count('audit_events'),
     };
   }

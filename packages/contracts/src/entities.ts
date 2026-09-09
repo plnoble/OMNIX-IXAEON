@@ -254,6 +254,66 @@ export const workRunSchema = z.object({
 export type WorkRun = z.infer<typeof workRunSchema>;
 
 // ---------------------------------------------------------------------------
+// coding_tasks：获准编码执行（S5）
+// ---------------------------------------------------------------------------
+
+export const codingTaskStatusSchema = z.enum([
+  'draft',
+  'waiting_approval',
+  'queued',
+  'running',
+  'pending_verify',
+  'pending_accept',
+  'completed',
+  'failed',
+  'cancelled',
+  'unknown',
+]);
+export type CodingTaskStatus = z.infer<typeof codingTaskStatusSchema>;
+
+export const codingTaskSchema = z.object({
+  id: uuidSchema,
+  project_id: uuidSchema,
+  goal: z.string().min(1),
+  scope_json: z.string(),
+  workspace_path: z.string().nullable(),
+  snapshot_ref: z.string().nullable(),
+  context_digest: z.string(),
+  allowed_commands_json: z.string(),
+  timeout_ms: z.number().int().positive(),
+  status: codingTaskStatusSchema,
+  version: z.number().int().positive(),
+  approval_id: uuidSchema.nullable(),
+  dispatch_key: z.string().nullable(),
+  generation: z.number().int().nonnegative(),
+  executor_name: z.string().nullable(),
+  executor_report_json: z.string().nullable(),
+  verify_status: z.enum(['passed', 'failed', 'not_run']).nullable(),
+  verify_exit_code: z.number().int().nullable(),
+  verify_output: z.string().nullable(),
+  tests_modified: z.boolean(),
+  accepted_at: isoDateTimeSchema.nullable(),
+  error: z.string().nullable(),
+  created_at: isoDateTimeSchema,
+  updated_at: isoDateTimeSchema,
+});
+export type CodingTask = z.infer<typeof codingTaskSchema>;
+
+export const codingApprovalSchema = z.object({
+  id: uuidSchema,
+  task_id: uuidSchema,
+  task_version: z.number().int().positive(),
+  digest: z.string().min(1),
+  workspace_path: z.string().min(1),
+  snapshot_ref: z.string().nullable(),
+  allowed_commands_json: z.string(),
+  granted_at: isoDateTimeSchema,
+  expires_at: isoDateTimeSchema.nullable(),
+  revoked_at: isoDateTimeSchema.nullable(),
+});
+export type CodingApproval = z.infer<typeof codingApprovalSchema>;
+
+// ---------------------------------------------------------------------------
 // jobs：后台任务
 // ---------------------------------------------------------------------------
 

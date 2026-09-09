@@ -12,6 +12,8 @@ import {
   proposeObviousRelations,
   buildPersonalOverview,
   ResearchChecker,
+  CodingOrchestrator,
+  FakeCodingExecutor,
   OpenAIResponsesProvider,
   listUpstreamModels,
   ImportService,
@@ -65,6 +67,7 @@ export class AppRuntime {
   items: ItemService;
   relations: RelationService;
   research: ResearchChecker;
+  coding: CodingOrchestrator;
   jobs: JobQueue;
   readonly logger: Logger;
   readonly localServer: LocalServer;
@@ -92,6 +95,7 @@ export class AppRuntime {
     items: ItemService;
     relations: RelationService;
     research: ResearchChecker;
+    coding: CodingOrchestrator;
     jobs: JobQueue;
     logger: Logger;
     localServer: LocalServer;
@@ -109,6 +113,7 @@ export class AppRuntime {
     this.items = deps.items;
     this.relations = deps.relations;
     this.research = deps.research;
+    this.coding = deps.coding;
     this.jobs = deps.jobs;
     this.logger = deps.logger;
     this.localServer = deps.localServer;
@@ -134,6 +139,7 @@ export class AppRuntime {
     const items = new ItemService(db);
     const relations = new RelationService(db);
     const research = new ResearchChecker(db);
+    const coding = new CodingOrchestrator(db, new FakeCodingExecutor(), resolved.dataDir);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
     const config = loadConfig(layout.configFile);
@@ -194,6 +200,7 @@ export class AppRuntime {
       items,
       relations,
       research,
+      coding,
       jobs,
       logger,
       localServer,
@@ -209,6 +216,7 @@ export class AppRuntime {
     // C02：启动阶段先恢复上一运行代次真正遗留的 running 任务
     //（此时队列必空闲，running 记录没有执行者），再扫描欠分析来源
     runtime.recoverOrphanedJobs();
+    runtime.coding.store.markUnknownRunning();
     runtime.sweepPendingAnalysis();
     runtime.startResearchScheduler();
     await runtime.startServer();
@@ -724,6 +732,7 @@ export class AppRuntime {
     const items = new ItemService(db);
     const relations = new RelationService(db);
     const research = new ResearchChecker(db);
+    const coding = new CodingOrchestrator(db, new FakeCodingExecutor(), this.dataDir);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;
     this.vault = vault;
@@ -735,6 +744,7 @@ export class AppRuntime {
     this.items = items;
     this.relations = relations;
     this.research = research;
+    this.coding = coding;
     this.jobs = jobs;
     // localServer 持有的是旧 db 引用：用新服务重建其依赖（复用同一实例）
     this.localServer.rebindDeps({
@@ -746,6 +756,7 @@ export class AppRuntime {
     this.registerJobHandlers();
     jobs.start();
     this.startResearchScheduler();
+    this.coding.store.markUnknownRunning();
     this.logger.info('运行时已重建（恢复失败后）', { dataDir: this.dataDir });
   }
 

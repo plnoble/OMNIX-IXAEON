@@ -10,6 +10,7 @@ import { InboxPage, HistoryPage } from './pages/Inbox.js';
 import { AskPage } from './pages/Ask.js';
 import { PersonalOverviewPage } from './pages/Overview.js';
 import { ResearchPage } from './pages/Research.js';
+import { TasksPage } from './pages/Tasks.js';
 import { ErrorBanner } from './ui.js';
 
 type Page =
@@ -22,6 +23,7 @@ type Page =
   | 'sources'
   | 'search'
   | 'research'
+  | 'tasks'
   | 'settings';
 
 export default function App() {
@@ -156,6 +158,14 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={page === 'tasks' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('tasks')}
+            data-testid="nav-tasks"
+          >
+            任务
+          </button>
+          <button
+            type="button"
             className={page === 'settings' ? 'nav-item active' : 'nav-item'}
             onClick={() => setPage('settings')}
             data-testid="nav-settings"
@@ -196,6 +206,8 @@ export default function App() {
         )}
 
         {page === 'research' && <ResearchPage />}
+
+        {page === 'tasks' && <TasksPage projects={projects} />}
 
         {page === 'settings' && <SettingsPage />}
       </main>
