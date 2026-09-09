@@ -10,6 +10,7 @@ import {
 } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { assertInside, isPathInside, normalizeLocalPath } from '../paths.js';
+import { codingClientMayReadItem } from '../access.js';
 
 export const DEFAULT_TASK_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -134,10 +135,7 @@ export class CodingTaskStore {
     const now = input.now ?? new Date().toISOString();
     const id = randomUUID();
     const contextDigest =
-      input.contextDigest ??
-      createHash('sha256')
-        .update(`${goal}|${input.scope.join(',')}`)
-        .digest('hex');
+      input.contextDigest ?? this.buildSafeContextDigest(input.projectId, goal, input.scope);
     this.db
       .prepare(
         `INSERT INTO coding_tasks (
@@ -160,6 +158,46 @@ export class CodingTaskStore {
         now,
       );
     return this.get(id);
+  }
+
+  /**
+   * 任务背景只含本项目、且编码客户端可读的条目。
+   * 未分享的 personal/unassigned 不得进入 digest / 派发上下文。
+   */
+  buildSafeContextDigest(projectId: string, goal: string, scope: string[]): string {
+    const rows = this.db
+      .prepare(
+        `SELECT id, statement, origin, type FROM items
+         WHERE project_id = ? AND state = 'current' AND confirmation != 'rejected'`,
+      )
+      .all(projectId) as Array<{ id: string; statement: string; origin: string; type: string }>;
+    const allowed = rows.filter((row) => codingClientMayReadItem(this.db, row.id));
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          goal,
+          scope,
+          projectId,
+          items: allowed.map((r) => ({ id: r.id, origin: r.origin, type: r.type })),
+        }),
+      )
+      .digest('hex');
+  }
+
+  /** 派发给执行器的背景：不含未分享个人资料。 */
+  taskBackground(task: CodingTask): { goal: string; statements: string[] } {
+    const rows = this.db
+      .prepare(
+        `SELECT id, statement FROM items
+         WHERE project_id = ? AND state = 'current' AND confirmation != 'rejected'`,
+      )
+      .all(task.project_id) as Array<{ id: string; statement: string }>;
+    return {
+      goal: task.goal,
+      statements: rows
+        .filter((row) => codingClientMayReadItem(this.db, row.id))
+        .map((row) => row.statement),
+    };
   }
 
   get(id: string): CodingTask {

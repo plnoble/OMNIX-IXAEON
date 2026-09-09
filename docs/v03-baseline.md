@@ -3,7 +3,7 @@
 日期：2026-09-08。编写时 HEAD：`3a6fe76`（v0.2.3）。包版本 0.2.3。
 S1 起迁移账本追加 **11**（`memory-scope-and-disclosure`）；S2 追加 **12**
 （`source-account-namespace`）；S3 追加 **13**（`project-relations`）；
-S4 追加 **14**（`research-topics`）；S5 追加 **15**（`coding-tasks`）。1–10 未改写。
+S4 追加 **14**（`research-topics`）；S5 追加 **15**（`coding-tasks`）；补齐批次追加 **16**（`item-origin-roles-and-restore-defaults`）。1–10 未改写。
 
 本文件是《IXAEON_v0.3_开发计划_个人内核与最小Agent闭环.md》S0 的现状清点。
 先查代码与最新记录再写，不把计划文字或 README 当成实现事实。

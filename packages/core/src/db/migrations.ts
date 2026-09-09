@@ -517,6 +517,55 @@ CREATE TABLE coding_approvals (
 CREATE INDEX idx_coding_tasks_status ON coding_tasks(status, updated_at);
 `,
   },
+  {
+    id: 16,
+    name: 'item-origin-roles-and-restore-defaults',
+    sql: `
+-- A04：助手建议 / 外部研究 / 用户决定分开。未知不写成用户目标。
+-- SQLite 不能放宽 CHECK：重建表。PRAGMA foreign_keys 由 migrate() 在本迁移内关闭。
+CREATE TABLE items_v16 (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL DEFAULT 'unassigned' CHECK (scope IN ('personal', 'project', 'unassigned')),
+  type TEXT NOT NULL CHECK (type IN ('project_summary', 'decision', 'rejected_option', 'open_loop', 'goal', 'constraint', 'preference')),
+  statement TEXT NOT NULL,
+  rationale TEXT,
+  state TEXT NOT NULL DEFAULT 'current' CHECK (state IN ('current', 'disputed', 'superseded')),
+  confidence REAL NOT NULL DEFAULT 0.5 CHECK (confidence >= 0 AND confidence <= 1),
+  origin TEXT NOT NULL CHECK (origin IN ('ai', 'user', 'work_result', 'research', 'assistant_suggestion')),
+  observed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  supersedes_item_id TEXT,
+  extracted_from_source_id TEXT REFERENCES sources(id) ON DELETE SET NULL,
+  prompt_version TEXT,
+  model_name TEXT,
+  needs_review INTEGER NOT NULL DEFAULT 0,
+  needs_reasons TEXT NOT NULL DEFAULT '',
+  suggested_project_id TEXT REFERENCES projects(id),
+  shelved_at TEXT,
+  confirmation TEXT NOT NULL DEFAULT 'none' CHECK (confirmation IN ('none', 'confirmed', 'rejected')),
+  confirmation_at TEXT,
+  manual_project INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO items_v16 (
+  id, project_id, scope, type, statement, rationale, state, confidence, origin,
+  observed_at, created_at, updated_at, supersedes_item_id, extracted_from_source_id,
+  prompt_version, model_name, needs_review, needs_reasons, suggested_project_id,
+  shelved_at, confirmation, confirmation_at, manual_project
+) SELECT
+  id, project_id, scope, type, statement, rationale, state, confidence, origin,
+  observed_at, created_at, updated_at, supersedes_item_id, extracted_from_source_id,
+  prompt_version, model_name, needs_review, needs_reasons, suggested_project_id,
+  shelved_at, confirmation, confirmation_at, manual_project
+FROM items;
+DROP TABLE items;
+ALTER TABLE items_v16 RENAME TO items;
+CREATE INDEX IF NOT EXISTS idx_items_project ON items(project_id);
+CREATE INDEX IF NOT EXISTS idx_items_scope ON items(scope);
+CREATE INDEX IF NOT EXISTS idx_items_origin ON items(origin, type);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
@@ -536,15 +585,32 @@ export function migrate(db: CoreDatabase, upTo?: number): void {
   for (const m of MIGRATIONS) {
     if (upTo !== undefined && m.id > upTo) continue;
     if (applied.has(m.id)) continue;
-    const run = db.transaction(() => {
+    const apply = (): void => {
       db.exec(m.sql);
       db.prepare('INSERT INTO schema_migrations (id, name, applied_at) VALUES (?, ?, ?)').run(
         m.id,
         m.name,
         new Date().toISOString(),
       );
-    });
-    run();
+    };
+    if (m.id === 16) {
+      // 重建 items 时必须先关闭外键（SQLite 事务内改 PRAGMA 无效）。
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec('BEGIN');
+        try {
+          apply();
+          db.exec('COMMIT');
+        } catch (err) {
+          db.exec('ROLLBACK');
+          throw err;
+        }
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    } else {
+      db.transaction(apply)();
+    }
   }
 }
 

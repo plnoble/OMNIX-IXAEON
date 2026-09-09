@@ -129,7 +129,13 @@ export const itemTypeSchema = z.enum([
   'preference',
 ]);
 export const itemStateSchema = z.enum(['current', 'disputed', 'superseded']);
-export const itemOriginSchema = z.enum(['ai', 'user', 'work_result']);
+export const itemOriginSchema = z.enum([
+  'ai',
+  'user',
+  'work_result',
+  'research',
+  'assistant_suggestion',
+]);
 /** S1：语义范围与项目归属正交。personal ≠ 缺项目；unassigned 才是未整理。 */
 export const memoryScopeSchema = z.enum(['personal', 'project', 'unassigned']);
 export type MemoryScope = z.infer<typeof memoryScopeSchema>;

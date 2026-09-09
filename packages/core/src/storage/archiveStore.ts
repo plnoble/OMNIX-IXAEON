@@ -432,6 +432,44 @@ export class ArchiveService {
         check.close();
       }
 
+      // A12：恢复后不自动联网、不复用执行批准。
+      const sanitize = openDatabase(this.deps.dbPath);
+      try {
+        migrate(sanitize);
+        if (
+          sanitize
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='research_topics'")
+            .get() as { name: string } | undefined
+        ) {
+          sanitize
+            .prepare('UPDATE research_topics SET enabled = 0, paused = 1, next_check_at = NULL')
+            .run();
+        }
+        if (
+          sanitize
+            .prepare(
+              "SELECT name FROM sqlite_master WHERE type='table' AND name='coding_approvals'",
+            )
+            .get() as { name: string } | undefined
+        ) {
+          const now = new Date().toISOString();
+          sanitize
+            .prepare('UPDATE coding_approvals SET revoked_at = COALESCE(revoked_at, ?)')
+            .run(now);
+          sanitize
+            .prepare(
+              `UPDATE coding_tasks SET approval_id = NULL, status = CASE
+                 WHEN status IN ('queued', 'running', 'pending_verify') THEN 'unknown'
+                 ELSE status END,
+                 error = COALESCE(error, '恢复后旧批准作废，需重新批准')
+               WHERE approval_id IS NOT NULL OR status IN ('queued', 'running')`,
+            )
+            .run();
+        }
+      } finally {
+        sanitize.close();
+      }
+
       // staging 清理（config.json 不迁移：恢复保持当前机器的本地令牌/扩展配对）
       await rm(stagingDir, { recursive: true, force: true });
       return { ok: true, backupDir };

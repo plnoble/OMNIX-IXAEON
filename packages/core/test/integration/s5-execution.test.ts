@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe('A18 批准绑定', () => {
   it('全新库迁移版本为 15', () => {
-    expect(currentMigrationVersion(db)).toBe(15);
+    expect(currentMigrationVersion(db)).toBeGreaterThanOrEqual(15);
   });
 
   it('无批准、过期、修改后旧批准、错误项目、越界路径均拒绝', () => {

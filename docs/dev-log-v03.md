@@ -155,3 +155,19 @@
 ### 未完成
 
 - 真机 Codex 派发与 T01–T05。不得写成全部验收通过。
+
+## 2026-09-09 · 补齐 A04/A11/A12（迁移 16）
+
+不擅自开真机 Codex / 全网搜索。补 origin 角色、研究/任务隐私、恢复后安全默认。
+
+### 本批内容
+
+- origin 增加 `research` / `assistant_suggestion`；助手建议不能写成用户目标或偏好。
+- 研究发现写入 open_loop（origin=research），总览目标只收 origin=user。
+- 研究公开描述不含私人语句；任务背景排除未分享 personal。
+- 恢复后关闭研究自动检查、撤销编码批准，不复用执行授权。
+
+### 自动化
+
+- 新增 `packages/core/test/integration/s6-roles-privacy.test.ts`。
+- T01–T05 仍未完成。不得写成全部验收通过。

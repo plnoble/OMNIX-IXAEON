@@ -15,7 +15,7 @@ Legend：⬜ 未开始 | 🟡 进行中 | ✅ 通过（附证据） | ❌ 失败
 | A01 | 空项目列表可导入个人资料、形成个人候选、个人问答，不强迫建「我」项目 | ✅ | `s1-scope.test.ts` A01 | vitest integration 2026-09-09 | 桌面个人问答 UI 已接 null projectId；真机问答属 T01 |
 | A02 | personal 不产生 no_project；unassigned 保守；改范围只清自己负责原因 | ✅ | `s1-scope.test.ts` A02 | vitest integration 2026-09-09 | superseded 改范围拒绝；manual 原因保留 |
 | A03 | 连续纠正/重提取/改范围/重绑/重启后人工结论不丢、superseded 不复活 | 🟡 | v0.2 纠正回归 + `s1-scope.test.ts` superseded 改范围拒绝 | vitest 2026-09-09 | 范围维度已覆盖；完整「重提取+重绑+重启」串联仍待补 |
-| A04 | 助手建议/外部研究/用户拒绝/用户决定分开；未知不写成用户目标 | ⬜ | — | — | 依赖 S1 origin 扩展 + S4 |
+| A04 | 助手建议/外部研究/用户拒绝/用户决定分开；未知不写成用户目标 | ✅ | `s6-roles-privacy.test.ts` A04 | vitest 2026-09-09 | origin 增 research / assistant_suggestion；总览目标仅 user。真机判断属 T01 |
 | A05 | 四平台解析/重复/缺失字段/编辑分支/坏格式；跨平台不误合并 | 🟡 | `s2-import.test.ts` A05 + 既有 `import.test.ts` ChatGPT | vitest 2026-09-09 | ChatGPT 命名空间/缺 ID/附件元数据/坏文件隔离已过。Gemini/Grok/Claude ⛔ 无样本不写解析器 |
 | A06 | ChatGPT 可见采集/刷新去重/暂停/版本差/失败覆盖 | ✅(v0.2) | 扩展 e2e + serial | 历轮记录 | S2 复验边界文案（来源页/设置页）；真机 T02 未做 |
 | A07 | 三项目登记；未选目录/敏感文件/符号链接拒绝；导入不获执行权 | 🟡 | `s2-import.test.ts` A07 | vitest 2026-09-09 | 三项目（含无目录构想）+ 同路径不合并 + 导入无执行权。符号链接无权限时跳过；真机目录选择属 T01 |
@@ -27,8 +27,8 @@ Legend：⬜ 未开始 | 🟡 进行中 | ✅ 通过（附证据） | ❌ 失败
 | A08 | 正反关联；不靠名称硬编码；不自动移动资料 | ✅ | `s3-orchestration.test.ts` A08 | vitest 2026-09-09 | 主题 token 重叠才提案；无证据拒绝；不搬条目 |
 | A09 | 关系生命周期：确认/不采纳/纠正/新证据；不骚扰；accepted≠已联通 | ✅ | `s3-orchestration.test.ts` A09 | vitest 2026-09-09 | 同样指纹拒绝后不再催促；新证据可修订；纠正后 stale；accepted 默认 unverified |
 | A10 | 个人问答覆盖：多项目/目标/约束按需检索+未知/冲突/时效/预算说明 | 🟡 | `s3-orchestration.test.ts` A10 + Ask coverage | vitest 2026-09-09 | 总览+问答覆盖字段已有。真机四问属 T01；模型轮数预算仍粗 |
-| A11 | 全入口隐私：新旧 MCP/无项目搜索/ref/前后文/摘要/研究查询/任务背景/缓存；撤权晚到结果不绕过 | 🟡 | `s1-scope.test.ts` A11 + 既有 `fixes.test.ts` 项目隔离 | vitest integration 2026-09-09 | S1 已覆盖 MCP search/excerpt + 分享/撤权；研究查询与任务背景待 S4/S5 |
-| A12 | 非空迁移 10 库→最新且幂等；新表导出/恢复；失败回滚；恢复不自动联网 | 🟡 | `s1-scope.test.ts` A12 + `archive.test.ts` + `fixes.test.ts` | vitest 2026-09-09 | 迁移 10→最新幂等；导出含 item_links / disclosure_grants / project_relations。真实旧库升级属 T05 |
+| A11 | 全入口隐私：新旧 MCP/无项目搜索/ref/前后文/摘要/研究查询/任务背景/缓存；撤权晚到结果不绕过 | ✅ | `s1-scope.test.ts` A11 + `s6-roles-privacy.test.ts` A11 | vitest 2026-09-09 | 研究公开描述不含私人语句；任务背景排除未分享 personal |
+| A12 | 非空迁移 10 库→最新且幂等；新表导出/恢复；失败回滚；恢复不自动联网 | 🟡 | `s1-scope.test.ts` A12 + `s6-roles-privacy.test.ts` A12 + archive 回归 | vitest 2026-09-09 | 恢复后研究关闭、编码批准作废。真实旧库升级属 T05 |
 
 ### 主动研究
 

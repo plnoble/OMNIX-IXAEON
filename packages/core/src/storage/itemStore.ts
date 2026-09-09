@@ -450,6 +450,34 @@ export class ItemService {
     syncDerivedNeedsReasons(this.db, itemId);
   }
 
+  /** 助手建议：origin=assistant_suggestion，不自动确认，不能冒充用户目标。 */
+  createAssistantSuggestion(input: {
+    projectId: string | null;
+    type: Item['type'];
+    statement: string;
+    rationale: string | null;
+    scope?: MemoryScope;
+  }): Item {
+    if (input.type === 'goal' || input.type === 'preference') {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '助手建议不能直接写成用户目标或偏好，请用 open_loop 等待用户确认',
+      );
+    }
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const scope: MemoryScope = input.scope ?? (input.projectId !== null ? 'project' : 'unassigned');
+    const projectId = scope === 'project' ? input.projectId : null;
+    this.db
+      .prepare(
+        `INSERT INTO items (id, project_id, scope, type, statement, rationale, state, confidence,
+           origin, observed_at, created_at, updated_at, needs_review, needs_reasons)
+         VALUES (?, ?, ?, ?, ?, ?, 'current', 0.5, 'assistant_suggestion', ?, ?, ?, 1, 'unconfirmed')`,
+      )
+      .run(id, projectId, scope, input.type, input.statement, input.rationale, now, now, now);
+    return this.get(id);
+  }
+
   /** 手工条目（origin=user，无依据）。 */
   createManual(input: {
     projectId: string | null;

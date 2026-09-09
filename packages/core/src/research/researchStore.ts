@@ -117,6 +117,18 @@ export class ResearchStore {
     if (input.sources.length === 0) {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '至少批准一个 HTTPS 来源');
     }
+    if (input.relatedGoalId) {
+      const goal = this.db
+        .prepare(`SELECT id, origin, type FROM items WHERE id = ?`)
+        .get(input.relatedGoalId) as { id: string; origin: string; type: string } | undefined;
+      if (!goal) throw new IxaError(ErrorCodes.NOT_FOUND, '关联目标不存在');
+      if (goal.origin !== 'user' || goal.type !== 'goal') {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          '研究只能关联用户确认的目标，不能把助手建议或外部事实写成用户目标',
+        );
+      }
+    }
     const now = input.now ?? new Date().toISOString();
     const id = randomUUID();
     const tx = this.db.transaction(() => {
@@ -346,12 +358,42 @@ export class ResearchStore {
         input.relatedProjectId,
         input.fetchedAt,
       );
+    this.recordResearchCandidate(input);
     return toFinding(
       this.db.prepare('SELECT * FROM research_findings WHERE id = ?').get(id) as Record<
         string,
         unknown
       >,
     );
+  }
+
+  /**
+   * 外部发现入 items，origin=research，永不写成用户目标/偏好。
+   * 候选保持 needs_review，不自动确认。
+   */
+  private recordResearchCandidate(input: {
+    title: string;
+    excerpt: string;
+    relatedProjectId: string | null;
+  }): void {
+    const now = new Date().toISOString();
+    const itemId = randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO items (id, project_id, scope, type, statement, rationale, state, confidence,
+           origin, observed_at, created_at, updated_at, needs_review, needs_reasons)
+         VALUES (?, ?, ?, 'open_loop', ?, ?, 'current', 0.4, 'research', ?, ?, ?, 1, 'unconfirmed')`,
+      )
+      .run(
+        itemId,
+        input.relatedProjectId,
+        input.relatedProjectId ? 'project' : 'unassigned',
+        input.title.slice(0, 300),
+        `外部研究摘录，未经用户确认：${input.excerpt.slice(0, 400)}`,
+        now,
+        now,
+        now,
+      );
   }
 
   markNotified(findingId: string): void {

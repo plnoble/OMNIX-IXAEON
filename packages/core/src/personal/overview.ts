@@ -79,7 +79,10 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
   return {
     generatedAt: new Date().toISOString(),
     goals: all.filter(
-      (i) => i.type === 'goal' && (i.scope === 'personal' || i.project_id === null),
+      (i) =>
+        i.type === 'goal' &&
+        i.origin === 'user' &&
+        (i.scope === 'personal' || i.project_id === null),
     ),
     constraints: all.filter(
       (i) => i.type === 'constraint' && (i.scope === 'personal' || i.project_id === null),
@@ -90,7 +93,7 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
     conflicts: all.filter((i) => i.state === 'disputed'),
     projects: projects.map((p) => ({
       project: p,
-      goals: all.filter((i) => i.project_id === p.id && i.type === 'goal'),
+      goals: all.filter((i) => i.project_id === p.id && i.type === 'goal' && i.origin === 'user'),
       constraints: all.filter((i) => i.project_id === p.id && i.type === 'constraint'),
     })),
     relations: new RelationService(db).list({ includeStale: true }),
