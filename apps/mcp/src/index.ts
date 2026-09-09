@@ -160,7 +160,7 @@ async function main(): Promise<void> {
   }
 
   const server = new McpServer(
-    { name: 'ixaeon', version: '0.2.2' },
+    { name: 'ixaeon', version: '0.2.3' },
     { instructions: MCP_SERVER_INSTRUCTIONS },
   );
 

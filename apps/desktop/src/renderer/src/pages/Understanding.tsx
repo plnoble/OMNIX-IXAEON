@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errMsg, type Item, type ItemEvidenceView, type Project } from '../api.js';
 import { Button, Card, Empty, ErrorBanner, Field, Spinner } from '../ui.js';
 
@@ -35,6 +35,7 @@ export function UnderstandingPage({ projects }: { projects: Project[] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [evidence, setEvidence] = useState<ItemEvidenceView[] | null>(null);
   const [correcting, setCorrecting] = useState<Item | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -48,6 +49,14 @@ export function UnderstandingPage({ projects }: { projects: Project[] }) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // 修复：纠正对话框渲染在列表之后（页面底部）——打开时滚到可见位置，
+  // 否则用户在长列表里点「纠正」看起来像没有反应。
+  useEffect(() => {
+    if (correcting) {
+      requestAnimationFrame(() => dialogRef.current?.scrollIntoView({ block: 'nearest' }));
+    }
+  }, [correcting]);
 
   const showEvidence = async (itemId: string) => {
     if (expanded === itemId) {
@@ -100,6 +109,7 @@ export function UnderstandingPage({ projects }: { projects: Project[] }) {
                     evidence={expanded === item.id ? evidence : null}
                     onToggleEvidence={() => void showEvidence(item.id)}
                     onCorrect={() => setCorrecting(item)}
+                    onChanged={reload}
                   />
                 ))}
               </div>
@@ -122,6 +132,7 @@ export function UnderstandingPage({ projects }: { projects: Project[] }) {
               evidence={expanded === item.id ? evidence : null}
               onToggleEvidence={() => void showEvidence(item.id)}
               onCorrect={() => setCorrecting(item)}
+              onChanged={reload}
               disputed
             />
           ))}
@@ -129,14 +140,16 @@ export function UnderstandingPage({ projects }: { projects: Project[] }) {
       )}
 
       {correcting && (
-        <CorrectionDialog
-          item={correcting}
-          onClose={() => setCorrecting(null)}
-          onDone={() => {
-            setCorrecting(null);
-            void reload();
-          }}
-        />
+        <div ref={dialogRef}>
+          <CorrectionDialog
+            item={correcting}
+            onClose={() => setCorrecting(null)}
+            onDone={() => {
+              setCorrecting(null);
+              void reload();
+            }}
+          />
+        </div>
       )}
     </div>
   );
@@ -149,6 +162,7 @@ function ItemRow({
   evidence,
   onToggleEvidence,
   onCorrect,
+  onChanged,
   disputed = false,
 }: {
   item: Item;
@@ -157,6 +171,8 @@ function ItemRow({
   evidence: ItemEvidenceView[] | null;
   onToggleEvidence: () => void;
   onCorrect: () => void;
+  /** 确认/不采纳/搁置后的局部刷新（不整页 reload —— 修复确认后跳回总览） */
+  onChanged: () => Promise<void>;
   disputed?: boolean;
 }) {
   const [shelved, setShelved] = useState(item.shelved_at !== null);
@@ -190,7 +206,7 @@ function ItemRow({
             <Button
               onClick={async () => {
                 await api.confirmItem(item.id);
-                window.location.reload();
+                await onChanged(); // 局部刷新，停留在理解页继续工作
               }}
               testId={`confirm-${item.id}`}
             >
@@ -200,7 +216,7 @@ function ItemRow({
               kind="ghost"
               onClick={async () => {
                 await api.rejectItem(item.id);
-                window.location.reload();
+                await onChanged();
               }}
               testId={`reject-${item.id}`}
             >
@@ -219,6 +235,7 @@ function ItemRow({
           onClick={async () => {
             await api.shelveItem({ itemId: item.id, shelved: !shelved });
             setShelved(!shelved);
+            await onChanged(); // 搁置后条目应从列表消失（shelved 过滤）
           }}
         >
           {shelved ? '取消搁置' : '搁置'}

@@ -165,6 +165,17 @@ results.push(
   ]),
 );
 
+// 理解页连续工作（确认不跳页 + 纠正对话框可见），依赖 build 产物
+results.push(
+  run('review-understanding-ui（理解页 UND01-UND02，真实 Electron）', [
+    resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
+    'test',
+    '-c',
+    'apps/desktop/test/review/playwright.understanding-20260908.config.ts',
+    '--output=apps/desktop/test/review/.understanding-verify',
+  ]),
+);
+
 // RF09：UI01 / BUI01 / BUI02 真实 Electron 界面检查纳入默认验证入口。
 // 依赖 build 产物 out/main/index.js（上面 build 步骤已生成）。
 results.push(
