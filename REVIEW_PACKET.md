@@ -865,6 +865,9 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 日用增量，不是 0.3.0。含：研究抓取改 Electron net.fetch（fake-ip）、扩展随包并给出加载目录、配对码、来源归档、任务删除、Fake/Codex 标明、研究发现可跟进。T01 日用库已导入 chatgpt_export 30 条；T02 真机采集未做；T03 待用户在 0.2.5 研究页检查。
 
+- 安装包：`IXAEON-Setup-0.2.5.exe` 122,909,747 字节
+- SHA-256：`C8825E721DF3C797FD4251E6ED18D5970EE9ACB053209CEA2A331F2E292C92C5`
+
 ---
 
 ## 附录：打包环境网络说明
