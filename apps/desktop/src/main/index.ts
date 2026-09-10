@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { registerIpc } from './ipc.js';
-import { startAutoUpdater } from './updater.js';
+import { pushUpdateStatusToWindow, startAutoUpdater } from './updater.js';
 import type { AppState } from '@ixaeon/contracts';
 
 let mainWindow: BrowserWindow | null = null;
@@ -27,6 +27,10 @@ async function createWindow(): Promise<void> {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (mainWindow) pushUpdateStatusToWindow(mainWindow);
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {

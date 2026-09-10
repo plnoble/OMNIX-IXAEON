@@ -26,6 +26,10 @@ function UpdateCard() {
     const updates = window.ixaeonUpdates;
     if (!updates) return; // 开发运行（preload 未暴露更新能力）
     const off = updates.onStatus((s) => setStatus(s));
+    void updates
+      .get()
+      .then(setStatus)
+      .catch(() => undefined);
     return () => {
       off();
     };
@@ -74,7 +78,9 @@ function UpdateCard() {
       )}
       {status?.state === 'downloading' && status.version && (
         <p className="note" data-testid="update-downloading">
-          正在下载新版本 {status.version}…（可在下方继续使用，下载完成后再安装）
+          正在下载新版本 {status.version}
+          {status.downloadPercent != null ? `（${status.downloadPercent}%）` : '…'}
+          ，可继续使用，下载完成后再安装
         </p>
       )}
       {status?.state === 'error' && (

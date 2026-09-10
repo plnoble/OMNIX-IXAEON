@@ -523,6 +523,8 @@ export interface UpdateStatusView {
   state: 'none' | 'downloading' | 'ready' | 'error';
   error: string | null;
   releaseNotes: string | null;
+  /** 下载进度 0–100；未开始或已完成时为 null */
+  downloadPercent: number | null;
 }
 
 declare global {
@@ -530,6 +532,7 @@ declare global {
     ixaeon?: IxaIpcApi;
     /** 更新能力（生产构建存在；开发运行 preload 未加载时 undefined） */
     ixaeonUpdates?: {
+      get: () => Promise<UpdateStatusView>;
       check: () => Promise<UpdateStatusView>;
       install: () => Promise<{ ok: boolean; reason?: string }>;
       onStatus: (listener: (status: UpdateStatusView) => void) => () => void;

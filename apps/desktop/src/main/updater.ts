@@ -2,9 +2,9 @@ import { autoUpdater } from 'electron-updater';
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 /**
- * GitHub 发版自动更新（2026-09-08 用户需求）：
- * 检查 GitHub Releases（github.com/plnoble/OMNIX-IXAEON），发现新版本
- * 下载并在界面提示；下载完成后由用户点击安装（不自动重启应用）。
+ * GitHub 发版自动更新（2026-09-08 用户需求；2026-09-10 启动弹窗）：
+ * 打开应用后检查 GitHub Releases（github.com/plnoble/OMNIX-IXAEON），
+ * 发现新版本自动下载并弹窗提醒；下载完成后由用户点击安装（不自动重启应用）。
  *
  * 边界：
  * - 仅生产构建（app.isPackaged）启用；开发运行不检查（本地无更新元数据）；
@@ -21,6 +21,8 @@ export interface UpdateStatus {
   error: string | null;
   /** 更新说明（Release body 前若干字符） */
   releaseNotes: string | null;
+  /** 下载进度 0–100；未开始或已完成时为 null */
+  downloadPercent: number | null;
 }
 
 const status: UpdateStatus = {
@@ -29,6 +31,7 @@ const status: UpdateStatus = {
   state: 'none',
   error: null,
   releaseNotes: null,
+  downloadPercent: null,
 };
 
 let started = false;
@@ -53,6 +56,7 @@ export function startAutoUpdater(logger?: { info: (m: string, e?: unknown) => vo
     status.version = info.version ?? null;
     status.state = 'downloading';
     status.error = null;
+    status.downloadPercent = 0;
     status.releaseNotes =
       typeof info.releaseNotes === 'string' ? info.releaseNotes.slice(0, 2000) : null;
     pushStatus();
@@ -62,16 +66,24 @@ export function startAutoUpdater(logger?: { info: (m: string, e?: unknown) => vo
     status.version = null;
     status.state = 'none';
     status.error = null;
+    status.downloadPercent = null;
     pushStatus();
   });
-  autoUpdater.on('download-progress', () => {
+  let lastProgressAt = 0;
+  autoUpdater.on('download-progress', (progress) => {
     status.state = 'downloading';
-    pushStatus();
+    status.downloadPercent = Math.max(0, Math.min(100, Math.round(progress.percent)));
+    const now = Date.now();
+    if (now - lastProgressAt >= 250 || status.downloadPercent >= 100) {
+      lastProgressAt = now;
+      pushStatus();
+    }
   });
   autoUpdater.on('update-downloaded', (info) => {
     status.available = true;
     status.version = info.version ?? status.version;
     status.state = 'ready';
+    status.downloadPercent = 100;
     pushStatus();
   });
   autoUpdater.on('error', (err) => {
@@ -81,6 +93,7 @@ export function startAutoUpdater(logger?: { info: (m: string, e?: unknown) => vo
     logger?.info('更新检查失败', { error: status.error });
   });
 
+  ipcMain.handle('ixaeon:get-update-status', () => ({ ...status }));
   // 渲染进程：手动检查 / 立即安装
   ipcMain.handle('ixaeon:check-update', async () => {
     checkRequested = true;
@@ -103,10 +116,15 @@ export function startAutoUpdater(logger?: { info: (m: string, e?: unknown) => vo
     return { ok: true as const };
   });
 
-  // 启动后 5 秒静默检查一次（失败不打扰）
+  // 窗口起来后再查，避免状态推到还没加载的页面上。失败不打扰。
   setTimeout(() => {
     void autoUpdater.checkForUpdates().catch(() => undefined);
-  }, 5_000);
+  }, 3_000);
+}
+
+/** 窗口加载完成后补发当前状态（启动检查可能早于渲染进程订阅）。 */
+export function pushUpdateStatusToWindow(win: BrowserWindow): void {
+  win.webContents.send('ixaeon:update-status', { ...status });
 }
 
 export function getUpdateStatus(): UpdateStatus {

@@ -12,6 +12,7 @@ import { PersonalOverviewPage } from './pages/Overview.js';
 import { ResearchPage } from './pages/Research.js';
 import { TasksPage } from './pages/Tasks.js';
 import { ErrorBanner } from './ui.js';
+import { UpdatePrompt } from './UpdatePrompt.js';
 
 type Page =
   | 'overview'
@@ -99,12 +100,14 @@ export default function App() {
             setPage('sources');
           }}
         />
+        <UpdatePrompt />
       </div>
     );
   }
 
   return (
     <div className="app" data-testid="app-root">
+      <UpdatePrompt />
       <header className="app-header">
         <h1>
           IXAEON <span className="cn">析衍</span>

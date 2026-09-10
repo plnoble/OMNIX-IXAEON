@@ -14,6 +14,7 @@ export interface UpdateStatusView {
   state: 'none' | 'downloading' | 'ready' | 'error';
   error: string | null;
   releaseNotes: string | null;
+  downloadPercent: number | null;
 }
 
 const api: IxaIpcApi = {
@@ -93,6 +94,7 @@ const api: IxaIpcApi = {
 
 /** 更新能力（独立于 IxaIpcApi：仅生产构建存在，开发运行为 no-op）。 */
 const updates = {
+  get: (): Promise<UpdateStatusView> => ipcRenderer.invoke('ixaeon:get-update-status'),
   check: (): Promise<UpdateStatusView> => ipcRenderer.invoke('ixaeon:check-update'),
   install: (): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke('ixaeon:install-update'),
