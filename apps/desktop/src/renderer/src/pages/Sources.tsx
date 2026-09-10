@@ -41,8 +41,8 @@ export function analysisStatus(
   }
   if (a.lastJobStatus === 'failed') {
     return {
-      text: '分析失败，可以重试',
-      detail: a.lastJobError ? a.lastJobError.slice(0, 120) : undefined,
+      text: '这次没改理解，可以重新分析',
+      detail: a.lastJobError ? a.lastJobError.slice(0, 280) : undefined,
       tone: 'bad',
     };
   }

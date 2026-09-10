@@ -142,56 +142,85 @@ export class Extractor {
       disputed: 0,
       needsReview: 0,
     };
-    const collected: Array<{
+    type Collected = {
       row: z.infer<typeof extractionOutputSchema>['items'][number];
       segmentId: string;
       conflictsWithProtected: boolean;
-    }> = [];
+    };
     const textById = new Map(pool.map((s) => [s.id, s.text]));
+    const blocks = this.buildBlocks(pool);
 
-    // 1) 全部模型调用（跨网络，不持锁）。任一失败直接抛出 —— 旧 current 理解保持不变。
-    // 修复 R3b：每次模型请求前重新检查授权 —— 撤销后立即停止发送尚未发送的块
-    //（已经发出的网络请求无法收回，但撤销之后不再发送任何新内容）。
-    for (const block of this.buildBlocks(pool)) {
-      ensureContinuing();
-      assertSourceAuthorized(this.db, sourceId);
-      const output = await this.provider.chatStructured({
-        system: EXTRACT_SYSTEM_PROMPT,
-        user: block.userText,
-        schema: extractionOutputSchema,
-      });
-      for (const item of output.items) {
-        const segmentId = block.refMap.get(item.segment_ref);
-        if (!segmentId) {
-          stats.skippedBadRef++;
-          continue;
+    const runModelPass = async (): Promise<{
+      collected: Collected[];
+      problems: BadRefProblem[];
+      skippedPreserved: number;
+    }> => {
+      const collected: Collected[] = [];
+      const problems: BadRefProblem[] = [];
+      let skippedPreserved = 0;
+      // 全部模型调用（跨网络，不持锁）。任一失败直接抛出 —— 旧 current 理解保持不变。
+      // 修复 R3b：每次模型请求前重新检查授权 —— 撤销后立即停止发送尚未发送的块
+      //（已经发出的网络请求无法收回，但撤销之后不再发送任何新内容）。
+      for (const block of blocks) {
+        ensureContinuing();
+        assertSourceAuthorized(this.db, sourceId);
+        const output = await this.provider.chatStructured({
+          system: EXTRACT_SYSTEM_PROMPT,
+          user: block.userText,
+          schema: extractionOutputSchema,
+        });
+        for (const item of output.items) {
+          const segmentId = block.refMap.get(item.segment_ref);
+          if (!segmentId) {
+            problems.push({
+              segmentRef: item.segment_ref,
+              reason: 'missing',
+              excerptPreview: item.excerpt,
+            });
+            continue;
+          }
+          // 修复 R5：摘录必须真实来自所引用的片段 —— 空白规范化后做子串校验，
+          // 引用编号真实但摘录是模型自编（或来自其他片段）的，一律视为无效依据。
+          const segText = textById.get(segmentId) ?? '';
+          if (!isExcerptGroundedInSegment(item.excerpt, segText)) {
+            problems.push({
+              segmentRef: item.segment_ref,
+              reason: 'ungrounded',
+              excerptPreview: item.excerpt,
+            });
+            continue;
+          }
+          if (exactProtected(item.statement)) {
+            // 与人工决定逐字相同 → 不复活/不重复（G4：完全相同才跳过）
+            skippedPreserved += 1;
+            continue;
+          }
+          // 高度相似但不完全相同：可能是有真实依据的相反意见（V07）——
+          // 保留入库但标记待讨论，与人工决定形成可见冲突，不替用户选边。
+          const conflictsWithProtected = similarProtected(item.statement);
+          collected.push({ row: item, segmentId, conflictsWithProtected });
         }
-        // 修复 R5：摘录必须真实来自所引用的片段 —— 空白规范化后做子串校验，
-        // 引用编号真实但摘录是模型自编（或来自其他片段）的，一律视为无效依据。
-        const segText = textById.get(segmentId) ?? '';
-        if (!isExcerptGroundedInSegment(item.excerpt, segText)) {
-          stats.skippedBadRef++;
-          continue;
-        }
-        if (exactProtected(item.statement)) {
-          // 与人工决定逐字相同 → 不复活/不重复（G4：完全相同才跳过）
-          stats.skippedPreserved++;
-          continue;
-        }
-        // 高度相似但不完全相同：可能是有真实依据的相反意见（V07）——
-        // 保留入库但标记待讨论，与人工决定形成可见冲突，不替用户选边。
-        const conflictsWithProtected = similarProtected(item.statement);
-        collected.push({ row: item, segmentId, conflictsWithProtected });
       }
+      return { collected, problems, skippedPreserved };
+    };
+
+    let pass = await runModelPass();
+    if (pass.problems.length > 0) {
+      // 同一来源自动再跑一轮（模型偶发胡编引用时常见）；仍失败才对人说明。
+      pass = await runModelPass();
     }
+
+    const collected = pass.collected;
+    stats.skippedBadRef = pass.problems.length;
+    stats.skippedPreserved += pass.skippedPreserved;
 
     // 2) 替换前置校验（修复 R4）：引用校验是整次替换的前置条件 ——
     // 存在无效引用（含虚构摘录）时明确失败并保留旧状态，绝不「跳过后继续替换」。
     // 与「合法分析结果为空」（模型未给出任何结论，保持旧理解、返回 0 inserted）区分。
-    if (stats.skippedBadRef > 0) {
+    if (pass.problems.length > 0) {
       throw new IxaError(
         ErrorCodes.VALIDATION_FAILED,
-        `模型返回 ${stats.skippedBadRef} 条无效引用/依据，本次提取已取消，现有理解保持不变`,
+        formatBadRefMessage(source.title, pass.problems),
       );
     }
     if (collected.length === 0) {
@@ -533,6 +562,32 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  * 模型自编的概述（FABRICATED_…）或来自其他片段的摘录都无法通过；
  * 用户看到的每一段引文都能在对应原文中定位。
  */
+type BadRefProblem = {
+  segmentRef: string;
+  reason: 'missing' | 'ungrounded';
+  excerptPreview: string;
+};
+
+function previewExcerpt(text: string): string {
+  const t = text.replace(/\s+/g, ' ').trim();
+  return t.length > 40 ? `${t.slice(0, 40)}…` : t;
+}
+
+function formatBadRefMessage(title: string, problems: BadRefProblem[]): string {
+  const shown = problems.slice(0, 8).map((p) => {
+    const excerpt = previewExcerpt(p.excerptPreview);
+    if (p.reason === 'missing') {
+      return `${p.segmentRef} 对不上这段对话里的句子` + (excerpt ? `（摘录：${excerpt}）` : '');
+    }
+    return `${p.segmentRef} 的摘录不是原文里的话` + (excerpt ? `（摘录：${excerpt}）` : '');
+  });
+  const extra = problems.length > 8 ? `；另有 ${problems.length - 8} 条类似问题` : '';
+  return (
+    `分析「${title}」时，模型给的 ${problems.length} 条依据对不上原文，` +
+    `所以这次没有改理解（原文还在，可点重新分析）。有问题的引用：${shown.join('；')}${extra}`
+  );
+}
+
 export function isExcerptGroundedInSegment(excerpt: string, segmentText: string): boolean {
   const norm = (s: string): string =>
     s

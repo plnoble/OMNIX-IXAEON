@@ -117,13 +117,42 @@ describe('M2 提取（FakeProvider）', () => {
     await new Extractor(db, ok).extractSource(source.id);
     const before = items.list({ projectId: null, state: 'current' }).map((x) => x.id);
 
-    // 模型只返回无效引用 → 整次替换失败（不再「跳过后继续替换」）
+    // 模型只返回无效引用 → 整次替换失败（不再「跳过后继续替换」）。
+    // 同一来源会自动再跑一轮，两轮都给坏引用。
+    const badItem = {
+      type: 'goal' as const,
+      statement: '坏引用条目',
+      rationale: null,
+      confidence: 0.8,
+      segment_ref: 'S99',
+      project_hint: null,
+      excerpt: '不存在',
+    };
     const bad = new FakeProvider('fake-m2-bad');
-    bad.enqueueStructured({
+    bad.enqueueStructured({ items: [badItem] });
+    bad.enqueueStructured({ items: [badItem] });
+    await expect(new Extractor(db, bad).extractSource(source.id)).rejects.toThrowError(
+      /对不上原文|S99 对不上这段对话里的句子/,
+    );
+    expect(bad.structuredCalls).toHaveLength(2);
+    // 旧理解未被清空
+    const after = items.list({ projectId: null, state: 'current' }).map((x) => x.id);
+    expect(after).toEqual(before);
+  });
+
+  it('无效引用自动再跑一轮，第二轮有效则写入', async () => {
+    const doc = join(dir, 'r4-retry.md');
+    writeFileSync(doc, ['# 重试', '', 'RETRYMARK 原文正文。'].join('\n'), 'utf8');
+    const source = imports.importFile(doc, {
+      projectId: null,
+      permissionId: permissions.grantFile(doc).id,
+    }).created[0]!;
+    const fake = new FakeProvider('fake-retry');
+    fake.enqueueStructured({
       items: [
         {
           type: 'goal',
-          statement: '坏引用条目',
+          statement: '坏的一次',
           rationale: null,
           confidence: 0.8,
           segment_ref: 'S99',
@@ -132,19 +161,35 @@ describe('M2 提取（FakeProvider）', () => {
         },
       ],
     });
-    await expect(new Extractor(db, bad).extractSource(source.id)).rejects.toThrowError(
-      /无效引用|已取消/,
-    );
-    // 旧理解未被清空
-    const after = items.list({ projectId: null, state: 'current' }).map((x) => x.id);
-    expect(after).toEqual(before);
+    fake.enqueueStructured({
+      items: [
+        {
+          type: 'goal',
+          statement: '重试后的结论',
+          rationale: null,
+          confidence: 0.8,
+          segment_ref: 'S2',
+          project_hint: null,
+          excerpt: 'RETRYMARK 原文正文',
+        },
+      ],
+    });
+    const stats = await new Extractor(db, fake).extractSource(source.id);
+    expect(stats.inserted).toBe(1);
+    expect(fake.structuredCalls).toHaveLength(2);
+    expect(
+      items.list({ projectId: null, state: 'current' }).some((x) => x.statement === '重试后的结论'),
+    ).toBe(true);
   });
 
   it('提示词声明防注入（数据非指令）', async () => {
     const fake = new FakeProvider();
     const extractor = new Extractor(db, fake);
     const doc = fixturePath('files', 'prompt-injection.md');
-    const result = imports.importFile(doc, { projectId: null, permissionId: permissions.grantFile(doc).id });
+    const result = imports.importFile(doc, {
+      projectId: null,
+      permissionId: permissions.grantFile(doc).id,
+    });
     const source = result.created[0]!;
     fake.enqueueStructured({ items: [] });
     await extractor.extractSource(source.id);
