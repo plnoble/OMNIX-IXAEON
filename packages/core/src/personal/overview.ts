@@ -1,5 +1,5 @@
 import type { CoreDatabase } from '../db/database.js';
-import type { Item, Project, ProjectRelation } from '@ixaeon/contracts';
+import type { Item, Project, ProjectRelation, ResearchFinding } from '@ixaeon/contracts';
 import { RelationService } from '../orchestration/relationStore.js';
 
 export interface PersonalOverview {
@@ -14,6 +14,13 @@ export interface PersonalOverview {
     constraints: Item[];
   }>;
   relations: ProjectRelation[];
+  /** 用户在研究页标过「值得行动」的发现；外部线索，不是用户目标。 */
+  researchFollowUps: Array<
+    Pick<
+      ResearchFinding,
+      'id' | 'title' | 'url' | 'excerpt' | 'action_reason' | 'related_project_id'
+    >
+  >;
   coverage: {
     projectCount: number;
     analyzedSources: number;
@@ -100,6 +107,18 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
       constraints: all.filter((i) => i.project_id === p.id && i.type === 'constraint'),
     })),
     relations: new RelationService(db).list({ includeStale: true }),
+    researchFollowUps: db
+      .prepare(
+        `SELECT id, title, url, excerpt, action_reason, related_project_id
+           FROM research_findings WHERE action_worthy = 1
+           ORDER BY created_at DESC LIMIT 20`,
+      )
+      .all() as Array<
+      Pick<
+        ResearchFinding,
+        'id' | 'title' | 'url' | 'excerpt' | 'action_reason' | 'related_project_id'
+      >
+    >,
     coverage: {
       projectCount: projects.length,
       analyzedSources: analyzed,

@@ -387,6 +387,29 @@ export function registerIpc(runtime: AppRuntime): void {
     setResearchTopicPaused: async (input) =>
       runtime.research.store.setPaused(input.id, input.paused),
     checkResearchTopicNow: async (id) => runtime.research.checkNow(id),
+    addResearchSource: async (input) => {
+      const source = runtime.research.store.addSource(input.topicId, {
+        url: input.url,
+        kind: input.kind,
+      });
+      recordAudit(runtime.db, 'research.source_added', {
+        topicId: input.topicId,
+        url: source.url,
+      });
+      return source;
+    },
+    setResearchFindingAction: async (input) => {
+      const finding = runtime.research.store.setFindingAction(input.findingId, {
+        actionWorthy: input.actionWorthy,
+        actionReason: input.actionReason,
+        nextExperiment: input.nextExperiment,
+      });
+      recordAudit(runtime.db, 'research.finding_action', {
+        findingId: input.findingId,
+        actionWorthy: input.actionWorthy,
+      });
+      return finding;
+    },
     listCodingTasks: async (projectId) => {
       const name = runtime.codingExecutorName();
       const real = name === 'codex-cli';

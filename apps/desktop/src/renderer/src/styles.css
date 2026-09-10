@@ -124,6 +124,19 @@ body,
   align-items: center;
 }
 
+.field-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 8px 0 12px;
+}
+
+.field-row input {
+  flex: 1;
+  min-width: 16rem;
+}
+
 .card dl {
   display: grid;
   grid-template-columns: 110px 1fr;

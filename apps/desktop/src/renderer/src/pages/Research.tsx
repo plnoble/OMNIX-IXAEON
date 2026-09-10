@@ -27,6 +27,8 @@ interface Snapshot {
       fetched_at: string;
       evidence_class: string;
       limitations: string | null;
+      action_worthy: boolean;
+      action_reason: string | null;
     }>;
     runs: Array<{
       id: string;
@@ -46,6 +48,7 @@ export function ResearchPage() {
   const [publicDescription, setPublicDescription] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceKind, setSourceKind] = useState<'page' | 'feed'>('page');
+  const [extraUrl, setExtraUrl] = useState<Record<string, string>>({});
 
   const reload = useCallback(async () => {
     try {
@@ -199,9 +202,35 @@ export function ResearchPage() {
               </li>
             ))}
           </ul>
+          <div className="field-row">
+            <input
+              value={extraUrl[t.id] ?? ''}
+              onChange={(e) => setExtraUrl((prev) => ({ ...prev, [t.id]: e.target.value }))}
+              placeholder="再批准一个 HTTPS 来源"
+              data-testid={`research-add-url-${t.id}`}
+            />
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void act(async () => {
+                  await api.addResearchSource({
+                    topicId: t.id,
+                    url: (extraUrl[t.id] ?? '').trim(),
+                    kind: 'page',
+                  });
+                  setExtraUrl((prev) => ({ ...prev, [t.id]: '' }));
+                })
+              }
+              testId={`research-add-source-${t.id}`}
+            >
+              加来源
+            </Button>
+          </div>
           <h3>发现</h3>
           {t.findings.length === 0 ? (
-            <p className="muted">尚无发现。无变化不会伪造成功水位。</p>
+            <p className="muted">
+              尚无发现。检查成功只表示这个网址能打开；没新标题就不会重复通知。
+            </p>
           ) : (
             <ul>
               {t.findings.map((f) => (
@@ -217,8 +246,25 @@ export function ResearchPage() {
                     {' · '}
                     {f.evidence_class === 'publisher' ? '发布方声明' : f.evidence_class}
                     {f.limitations ? ` · ${f.limitations}` : ''}
+                    {f.action_worthy ? ' · 你标了值得行动' : ''}
                   </div>
                   <p>{f.excerpt}</p>
+                  {f.action_reason && <p className="muted">{f.action_reason}</p>}
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void act(() =>
+                        api.setResearchFindingAction({
+                          findingId: f.id,
+                          actionWorthy: !f.action_worthy,
+                          actionReason: f.action_worthy ? null : '用户标记：值得跟进',
+                        }),
+                      )
+                    }
+                    testId={`research-action-${f.id}`}
+                  >
+                    {f.action_worthy ? '取消「值得行动」' : '标为值得行动'}
+                  </Button>
                 </li>
               ))}
             </ul>

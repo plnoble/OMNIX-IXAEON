@@ -11,6 +11,14 @@ interface OverviewData {
   conflicts: Item[];
   projects: Array<{ project: { id: string; name: string }; goals: Item[]; constraints: Item[] }>;
   relations: ProjectRelation[];
+  researchFollowUps: Array<{
+    id: string;
+    title: string;
+    url: string;
+    excerpt: string;
+    action_reason: string | null;
+    related_project_id: string | null;
+  }>;
   coverage: {
     projectCount: number;
     analyzedSources: number;
@@ -124,6 +132,22 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
       </Card>
       <Card title="冲突" testId="overview-conflicts">
         <ItemList items={data?.conflicts ?? []} />
+      </Card>
+      <Card title="研究里你标过值得行动" testId="overview-research-followups">
+        {(data?.researchFollowUps ?? []).length === 0 ? (
+          <p className="muted">没有。检查成功不会自动变成目标；要跟进请在研究页自己标。</p>
+        ) : (
+          <ul>
+            {(data?.researchFollowUps ?? []).map((f) => (
+              <li key={f.id}>
+                <a href={f.url} target="_blank" rel="noreferrer">
+                  {f.title}
+                </a>
+                {f.action_reason ? <span className="muted"> · {f.action_reason}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
       <Card title="各项目服务的目标" testId="overview-projects">
         {(data?.projects ?? []).length === 0 ? (

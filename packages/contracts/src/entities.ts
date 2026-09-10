@@ -418,7 +418,8 @@ export type ResearchEvidenceClass = z.infer<typeof researchEvidenceClassSchema>;
 export const researchTopicSchema = z.object({
   id: uuidSchema,
   question: z.string().min(1),
-  public_description: z.string().min(1),
+  /** 选填。当前抓取不外发；空串表示未写出门说法。 */
+  public_description: z.string(),
   related_goal_id: uuidSchema.nullable(),
   related_project_id: uuidSchema.nullable(),
   enabled: z.boolean(),

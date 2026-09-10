@@ -277,3 +277,40 @@ describe('A17 预算与故障', () => {
     expect(topic.question).toBe('只盯这个页');
   });
 });
+
+describe('检查之后：加来源与值得行动', () => {
+  it('可再批准来源；重复拒绝；用户标记值得行动', async () => {
+    const checker = new ResearchChecker(
+      db,
+      clock,
+      pages({
+        'https://example.com/page': {
+          body: '<html><title>v1</title><p>hello release</p></html>',
+        },
+      }),
+    );
+    const topic = checker.createTopic({
+      question: '有新版本吗',
+      sources: [{ url: 'https://example.com/page', kind: 'page' }],
+    });
+    const added = checker.store.addSource(topic.id, {
+      url: 'https://example.com/feed.xml',
+      kind: 'feed',
+    });
+    expect(added.kind).toBe('feed');
+    expect(() =>
+      checker.store.addSource(topic.id, { url: 'https://example.com/page', kind: 'page' }),
+    ).toThrow(/已有这个来源/);
+
+    const result = await checker.checkNow(topic.id);
+    expect(result.findings).toHaveLength(1);
+    const marked = checker.store.setFindingAction(result.findings[0]!.id, {
+      actionWorthy: true,
+      actionReason: '用户标记：值得跟进',
+    });
+    expect(marked.action_worthy).toBe(true);
+    expect(checker.store.setFindingAction(marked.id, { actionWorthy: false }).action_worthy).toBe(
+      false,
+    );
+  });
+});

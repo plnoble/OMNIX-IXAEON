@@ -209,6 +209,7 @@ describe('A10 个人问答覆盖', () => {
     expect(overview.goals.some((g) => g.statement.includes('理解我自己'))).toBe(true);
     expect(overview.projects).toHaveLength(2);
     expect(overview.coverage.projectCount).toBe(2);
+    expect(overview.researchFollowUps).toEqual([]);
 
     const fake = new FakeProvider('s3-ask');
     fake.enqueueText('你目前想持续理解自己，并做本地桌面记忆系统 [R1]。');

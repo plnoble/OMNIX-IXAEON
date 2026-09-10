@@ -37,17 +37,17 @@
 修复后 **11/11 通过**，并已纳入 `pnpm verify` 持续回归。审核提供的打包产物复核脚本
 （`apps/desktop/test/review/packaged-20260905.mjs`）在重建后的 win-unpacked 上 **3 项检查全部通过**。
 
-| 问题 | 修复 | 回归测试 | 状态 |
-| --- | --- | --- | --- |
-| R1 恢复凭证实例隔离 | previewToken 从 ArchiveService 实例 Map 移到**进程级注册表**（模块级 `restoreTokenStore`）：previewRestore（实例 A）签发、restoreData（实例 B）核销；一次性 + 10 分钟有效期 + 未预览拒绝规则不变 | review R1（真实 AppRuntime 预览→确认成功）+ archiveFixes「跨实例核销成功/二次使用失败」 | ✅ 自动化已验证 |
-| R2 恢复失败回滚不完整 | restoreData 改为**按步骤精确回滚**（oldDbInBackup / oldVaultInBackup / newDbInstalled / newVaultInstalled 四个状态位）：先移开已安装的新数据，再把旧数据库与旧 vault **一起**还原；回滚失败明确报错并保留备份目录。AppRuntime 失败分支新增 `rebuildRuntimeServices()`：重开数据库 + 重建全部依赖服务 + 重绑 LocalServer（`rebindDeps`）+ 重启任务队列与 HTTP 服务 | review R2a/R2b（注入真实 rename 失败）+ 新增运行时重建由 e2e 链路验证 | ✅ 自动化已验证 |
-| R3 撤销后仍有原文读取/模型发送 | `ItemService.getEvidence()` 对每个来源做 `assertSourceAuthorized`（撤销即整体拒绝）；提取器**每个模型请求前**重新检查授权（撤销后不再发送后续块）+ **提交新理解前**最终检查 | review R3a（撤销后序列化不含原文）/ R3b（4 次调用 → 1 次） | ✅ 自动化已验证 |
-| R4 无效引用清空旧理解 | 引用/摘录校验改为**整次替换的前置条件**：任一无效引用（含虚构摘录）→ 明确抛错、旧理解不变；与「合法分析结果为空」（保持旧理解、0 inserted）区分。extraction.test.ts 旧「跳过后继续替换」断言已按新契约重写 | review R4 + extraction.test.ts「R4 契约」用例 | ✅ 自动化已验证 |
-| R5 引用编号真实但摘录伪造 | 新增 `isExcerptGroundedInSegment`：摘录与片段文本做空白/引号规范化后必须子串匹配，模型自编摘录一律视为无效依据（触发 R4 的整次失败语义）；规则记录在 extractor.ts 注释 | review R5（FABRICATED_NOT_IN_SOURCE 不入库） | ✅ 自动化已验证 |
-| R6 说话人角色丢失 | buildBlocks 组装块时保留片段真实 role（`[S1]（user）`/`（assistant）`），长段展开与重组同样保留，不再硬编码 doc | review R6（模型输入可识别 user/assistant） | ✅ 自动化已验证 |
-| R7 60 秒窗口漏分析 | maybeAutoAnalyze 重写：窗口内新内容标记 pending 并安排**窗口结束后的补分析计时器**（每来源一个、多次变更合并）；补分析前复查采集开关/autoAnalyze/域授权；AppRuntime 入队不再因「已有排队/运行中任务」丢弃需求（提取幂等，最终状态=最新版本） | review R7（fake timers：窗口内新内容最终获得第 2 次分析回调） | ✅ 自动化已验证 |
-| R8 误合并 + 暂停失效 | 合并候选判定 `isMergeCandidate`：a) 双方都有 sessionId 时必须一致；b) 缺 sessionId 时回退**完整包含检查**（临时来源全部片段必须在批次内）——仅首句相同绝不合并。扩展新增采集会话标识 `sessionId`（同标签页同对话跨 URL 转正保持，跨标签页/新对话必不同）。合并前若候选来源被暂停 → **暂停状态随身份转正迁移**并立即 403 | review R8a（两个来源）/ R8b（403 且内容未入库） | ✅ 自动化已验证 |
-| R9 自定义目录勾选框误禁用 | AppState 新增 `envOverride` + `dataDirSource`（主进程按 resolveDataDir 真实解析返回）；Setup.tsx 改用 `state.envOverride`，不再用「目录字符串非空」推断 | review 打包脚本「custom directory checkbox without IXAEON_DATA_DIR override → ok, disabled:false」 | ✅ 自动化已验证 |
+| 问题                           | 修复                                                                                                                                                                                                                                                                                                                                                              | 回归测试                                                                                           | 状态            |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------- |
+| R1 恢复凭证实例隔离            | previewToken 从 ArchiveService 实例 Map 移到**进程级注册表**（模块级 `restoreTokenStore`）：previewRestore（实例 A）签发、restoreData（实例 B）核销；一次性 + 10 分钟有效期 + 未预览拒绝规则不变                                                                                                                                                                  | review R1（真实 AppRuntime 预览→确认成功）+ archiveFixes「跨实例核销成功/二次使用失败」            | ✅ 自动化已验证 |
+| R2 恢复失败回滚不完整          | restoreData 改为**按步骤精确回滚**（oldDbInBackup / oldVaultInBackup / newDbInstalled / newVaultInstalled 四个状态位）：先移开已安装的新数据，再把旧数据库与旧 vault **一起**还原；回滚失败明确报错并保留备份目录。AppRuntime 失败分支新增 `rebuildRuntimeServices()`：重开数据库 + 重建全部依赖服务 + 重绑 LocalServer（`rebindDeps`）+ 重启任务队列与 HTTP 服务 | review R2a/R2b（注入真实 rename 失败）+ 新增运行时重建由 e2e 链路验证                              | ✅ 自动化已验证 |
+| R3 撤销后仍有原文读取/模型发送 | `ItemService.getEvidence()` 对每个来源做 `assertSourceAuthorized`（撤销即整体拒绝）；提取器**每个模型请求前**重新检查授权（撤销后不再发送后续块）+ **提交新理解前**最终检查                                                                                                                                                                                       | review R3a（撤销后序列化不含原文）/ R3b（4 次调用 → 1 次）                                         | ✅ 自动化已验证 |
+| R4 无效引用清空旧理解          | 引用/摘录校验改为**整次替换的前置条件**：任一无效引用（含虚构摘录）→ 明确抛错、旧理解不变；与「合法分析结果为空」（保持旧理解、0 inserted）区分。extraction.test.ts 旧「跳过后继续替换」断言已按新契约重写                                                                                                                                                        | review R4 + extraction.test.ts「R4 契约」用例                                                      | ✅ 自动化已验证 |
+| R5 引用编号真实但摘录伪造      | 新增 `isExcerptGroundedInSegment`：摘录与片段文本做空白/引号规范化后必须子串匹配，模型自编摘录一律视为无效依据（触发 R4 的整次失败语义）；规则记录在 extractor.ts 注释                                                                                                                                                                                            | review R5（FABRICATED_NOT_IN_SOURCE 不入库）                                                       | ✅ 自动化已验证 |
+| R6 说话人角色丢失              | buildBlocks 组装块时保留片段真实 role（`[S1]（user）`/`（assistant）`），长段展开与重组同样保留，不再硬编码 doc                                                                                                                                                                                                                                                   | review R6（模型输入可识别 user/assistant）                                                         | ✅ 自动化已验证 |
+| R7 60 秒窗口漏分析             | maybeAutoAnalyze 重写：窗口内新内容标记 pending 并安排**窗口结束后的补分析计时器**（每来源一个、多次变更合并）；补分析前复查采集开关/autoAnalyze/域授权；AppRuntime 入队不再因「已有排队/运行中任务」丢弃需求（提取幂等，最终状态=最新版本）                                                                                                                      | review R7（fake timers：窗口内新内容最终获得第 2 次分析回调）                                      | ✅ 自动化已验证 |
+| R8 误合并 + 暂停失效           | 合并候选判定 `isMergeCandidate`：a) 双方都有 sessionId 时必须一致；b) 缺 sessionId 时回退**完整包含检查**（临时来源全部片段必须在批次内）——仅首句相同绝不合并。扩展新增采集会话标识 `sessionId`（同标签页同对话跨 URL 转正保持，跨标签页/新对话必不同）。合并前若候选来源被暂停 → **暂停状态随身份转正迁移**并立即 403                                            | review R8a（两个来源）/ R8b（403 且内容未入库）                                                    | ✅ 自动化已验证 |
+| R9 自定义目录勾选框误禁用      | AppState 新增 `envOverride` + `dataDirSource`（主进程按 resolveDataDir 真实解析返回）；Setup.tsx 改用 `state.envOverride`，不再用「目录字符串非空」推断                                                                                                                                                                                                           | review 打包脚本「custom directory checkbox without IXAEON_DATA_DIR override → ok, disabled:false」 | ✅ 自动化已验证 |
 
 ---
 
@@ -58,15 +58,15 @@
 持续回归（verify 新增 review-round3 步骤）。报告确认上轮 R1–R9 的原始复现全部
 保持解决。
 
-| 问题 | 修复 | 回归测试 | 状态 |
-| --- | --- | --- | --- |
-| N1 会话编号未参与来源隔离 | ①创建来源时持久化 `sessionId` 到 metadata（T1 断言）；②来源查找增加会话比对：同 externalId 但 sessionId 不同 → 视为不同对话（T2 两个同路径标签页各自成源）；③合并候选判定：双方都有 sessionId 时必须一致（不再退化为「仅首句相同就合并」） | round3 T1/T2/T3 | ✅ 自动化已验证 |
-| N2 转正后无法恢复采集 | 暂停状态绑定到稳定会话：config 新增 `pausedSessions`（按 sessionId）与 `sessionAliases`（externalId→sessionId，任何拒绝路径之前记录）；恢复操作清除该会话的全部有效别名（临时 ID + 正式 ID） | round3 T4（暂停→转正→明确继续→200 闭环） | ✅ 自动化已验证 |
-| N3 补分析计时器不随暂停/恢复停止 | 计时器携带对话身份（externalId+sessionId），触发前复查该会话暂停状态；`pause-conversation` 时同步取消该会话的计时器与 pending；AppRuntime 恢复前与退出时调用 `localServer.stopBackgroundTasks()`（先停计时器再关数据库） | round3 T5（暂停后不再触发）/ T6（恢复后 61 秒无旧回调访问关闭的连接） | ✅ 自动化已验证 |
-| N4 无效凭证后合法恢复 EBUSY | AppRuntime.restoreData 失败分类：关库之前的失败（凭证/预校验）→ 原运行时未被触动，直接复用（不叠加第二套服务、不重建） | round3 T7（无效凭证后仍是一套运行时/队列）/ T7b（随后合法恢复成功） | ✅ 自动化已验证 |
-| N5 回滚未完成却新建空库 | archiveStore 回滚自身失败时抛出携带 `rollbackIncomplete` 标记的错误；AppRuntime 据此进入**恢复故障态**：不重建、不启动服务、不写数据；`rebuildRuntimeServices` 增加 `existsSync(dbPath)` 兜底，拒绝 openDatabase 静默建空库；日志如实记录备份位置 | round3 T8（双重注入失败：不建空库、不 startServer；T9 正向对照保持通过） | ✅ 自动化已验证 |
-| N6 长段子块突破 8000 | buildBlocks 预算按「真实编号+角色头」计算并为后缀位数留余量，切分后用真实头逐一校验、超限收紧重切 | round3 T10（30,000 字符无换行 user 片段：所有完整块 ≤8000） | ✅ 自动化已验证 |
-| T11/T12 客户端会话身份 | content.ts 弃用「正文超集」判据，改为**会话生命周期**：同 URL 同会话（编辑/重新生成不变）；formal→不同 formal 永远新会话；仅 page:→/c/ 且首条用户消息一致视为转正 | round3 T11（不同正式 URL 不同会话）/ T12（重新生成不变） | ✅ 自动化已验证 |
+| 问题                             | 修复                                                                                                                                                                                                                                              | 回归测试                                                                 | 状态            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | --------------- |
+| N1 会话编号未参与来源隔离        | ①创建来源时持久化 `sessionId` 到 metadata（T1 断言）；②来源查找增加会话比对：同 externalId 但 sessionId 不同 → 视为不同对话（T2 两个同路径标签页各自成源）；③合并候选判定：双方都有 sessionId 时必须一致（不再退化为「仅首句相同就合并」）        | round3 T1/T2/T3                                                          | ✅ 自动化已验证 |
+| N2 转正后无法恢复采集            | 暂停状态绑定到稳定会话：config 新增 `pausedSessions`（按 sessionId）与 `sessionAliases`（externalId→sessionId，任何拒绝路径之前记录）；恢复操作清除该会话的全部有效别名（临时 ID + 正式 ID）                                                      | round3 T4（暂停→转正→明确继续→200 闭环）                                 | ✅ 自动化已验证 |
+| N3 补分析计时器不随暂停/恢复停止 | 计时器携带对话身份（externalId+sessionId），触发前复查该会话暂停状态；`pause-conversation` 时同步取消该会话的计时器与 pending；AppRuntime 恢复前与退出时调用 `localServer.stopBackgroundTasks()`（先停计时器再关数据库）                          | round3 T5（暂停后不再触发）/ T6（恢复后 61 秒无旧回调访问关闭的连接）    | ✅ 自动化已验证 |
+| N4 无效凭证后合法恢复 EBUSY      | AppRuntime.restoreData 失败分类：关库之前的失败（凭证/预校验）→ 原运行时未被触动，直接复用（不叠加第二套服务、不重建）                                                                                                                            | round3 T7（无效凭证后仍是一套运行时/队列）/ T7b（随后合法恢复成功）      | ✅ 自动化已验证 |
+| N5 回滚未完成却新建空库          | archiveStore 回滚自身失败时抛出携带 `rollbackIncomplete` 标记的错误；AppRuntime 据此进入**恢复故障态**：不重建、不启动服务、不写数据；`rebuildRuntimeServices` 增加 `existsSync(dbPath)` 兜底，拒绝 openDatabase 静默建空库；日志如实记录备份位置 | round3 T8（双重注入失败：不建空库、不 startServer；T9 正向对照保持通过） | ✅ 自动化已验证 |
+| N6 长段子块突破 8000             | buildBlocks 预算按「真实编号+角色头」计算并为后缀位数留余量，切分后用真实头逐一校验、超限收紧重切                                                                                                                                                 | round3 T10（30,000 字符无换行 user 片段：所有完整块 ≤8000）              | ✅ 自动化已验证 |
+| T11/T12 客户端会话身份           | content.ts 弃用「正文超集」判据，改为**会话生命周期**：同 URL 同会话（编辑/重新生成不变）；formal→不同 formal 永远新会话；仅 page:→/c/ 且首条用户消息一致视为转正                                                                                 | round3 T11（不同正式 URL 不同会话）/ T12（重新生成不变）                 | ✅ 自动化已验证 |
 
 ---
 
@@ -80,12 +80,12 @@
 建档、追加内容增量入库、暂停/继续、SPA pushState 草稿转正合并。
 身份与任务生命周期规则记录于 `docs/identity-lifecycle.md`。
 
-| 问题 | 修复 | 回归测试 | 状态 |
-| --- | --- | --- | --- |
-| F1 页面采集会话被当成对话身份 | 身份模型重定义（docs/identity-lifecycle.md）：正式对话身份 = URL（任意 sessionId 落同一来源，U1/U2）；草稿身份 = sessionId，按「同路径 + metadata.sessionId 精确匹配」找回（草稿 A→B→A 各自归位，U3）；旧客户端无标识保守新建；建源+片段登记/建正式源+合并在同一事务（失败完整回滚，不留半成品） | round4 U1/U2/U3 + round3 全部（T1–T4 暂停/转正语义保持） | ✅ 自动化已验证 |
-| F2 多草稿共用一个分析计时器 | 防抖/待分析/计时器全部改按 **sourceId**（稳定来源身份）而非临时网页地址；同来源多次更新仍合并，不同来源互不覆盖 | round4 U4（三个草稿全部获得补分析回调） | ✅ 自动化已验证 |
-| F3 恢复拒绝后待分析工作消失 | `stopBackgroundTasks` 从凭证校验之前移入 `closeCurrentDb` 回调 —— 只有校验全部通过、即将替换磁盘时才停止后台任务；早期失败完整保留原运行时与待分析状态 | round4 U5（无效凭证拒绝后第二次分析仍发生）+ round3 T6/T7/T7b（恢复/凭证语义保持） | ✅ 自动化已验证 |
-| F4 关闭自动分析后排队任务仍调模型 | 任务执行前复查（auto 任务：autoAnalyze、capture.enabled、来源授权、所属会话暂停；手动任务只查授权）；每个模型块前与结果提交前通过 `shouldContinue` 再复查；取消以 `cancelled` 状态落库（新增 IXA0023 JOB_CANCELLED，可见、可重试），不伪装成功 | round4 U6（关闭开关后 0 次模型调用）/ U7 对照（开启时正常执行成功） | ✅ 自动化已验证 |
+| 问题                              | 修复                                                                                                                                                                                                                                                                                             | 回归测试                                                                           | 状态            |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | --------------- |
+| F1 页面采集会话被当成对话身份     | 身份模型重定义（docs/identity-lifecycle.md）：正式对话身份 = URL（任意 sessionId 落同一来源，U1/U2）；草稿身份 = sessionId，按「同路径 + metadata.sessionId 精确匹配」找回（草稿 A→B→A 各自归位，U3）；旧客户端无标识保守新建；建源+片段登记/建正式源+合并在同一事务（失败完整回滚，不留半成品） | round4 U1/U2/U3 + round3 全部（T1–T4 暂停/转正语义保持）                           | ✅ 自动化已验证 |
+| F2 多草稿共用一个分析计时器       | 防抖/待分析/计时器全部改按 **sourceId**（稳定来源身份）而非临时网页地址；同来源多次更新仍合并，不同来源互不覆盖                                                                                                                                                                                  | round4 U4（三个草稿全部获得补分析回调）                                            | ✅ 自动化已验证 |
+| F3 恢复拒绝后待分析工作消失       | `stopBackgroundTasks` 从凭证校验之前移入 `closeCurrentDb` 回调 —— 只有校验全部通过、即将替换磁盘时才停止后台任务；早期失败完整保留原运行时与待分析状态                                                                                                                                           | round4 U5（无效凭证拒绝后第二次分析仍发生）+ round3 T6/T7/T7b（恢复/凭证语义保持） | ✅ 自动化已验证 |
+| F4 关闭自动分析后排队任务仍调模型 | 任务执行前复查（auto 任务：autoAnalyze、capture.enabled、来源授权、所属会话暂停；手动任务只查授权）；每个模型块前与结果提交前通过 `shouldContinue` 再复查；取消以 `cancelled` 状态落库（新增 IXA0023 JOB_CANCELLED，可见、可重试），不伪装成功                                                   | round4 U6（关闭开关后 0 次模型调用）/ U7 对照（开启时正常执行成功）                | ✅ 自动化已验证 |
 
 ---
 
@@ -94,56 +94,56 @@
 按 [docs/identity-lifecycle.md](docs/identity-lifecycle.md) 的设计实施：
 持久化版本三元组 + 暂时性失败退避重试 + 别名入库 + 启动扫描找回欠分析工作。
 
-| 计划条目 | 实现 | 测试 | 状态 |
-| --- | --- | --- | --- |
-| M0.2 版本三元组 | 迁移 2 新增 `sources.content_revision / analyzed_revision`（导入=1、追加影响理解的内容递增、完全重复不递增；analyzed 只前进不回退，迁移旧行回填 1/1）；任务以「开始执行时版本」为目标，完成后守卫推进（`advanceAnalyzedRevision`），滞后自动补队 | m0-core「contentRevision 语义」+ m0-gates 门槛 1 | ✅ 自动化已验证 |
-| M0.2 第 1 条 合并/去重 | 自动入队去重（同来源 queued/running 唯一，排除当前任务）；完成时版本滞后 → 补队一次 | m0-gates 门槛 1（运行中到达新版本 → 追平） | ✅ 自动化已验证 |
-| M0.2 第 2/3 条 持久化待分析 + 崩溃恢复 | 「欠分析」= content > analyzed 持久化于 sources 表；启动时 `sweepPendingAnalysis()` 找回（网页来源受开关/授权/暂停复查，其他来源沿用导入管线语义） | m0-gates 门槛 2（窗口内退出重启 → 重启后追平） | ✅ 自动化已验证 |
-| M0.2 第 4 条 执行时复查 | F4 已实现（U6/U7）；本轮接入取消信号 `shouldContinue` 于每块与提交前 | m0-gates 门槛 3（取消后不发新块、不提交、旧理解不变） | ✅ 自动化已验证 |
-| M0.2 第 5 条 自动/手动分离 | F4 已实现（auto 标记 + autoGuardSatisfied；手动不受自动开关约束） | round4 U6/U7 | ✅ 自动化已验证 |
-| M0.2 第 6 条 版本一致 | 目标版本在任务开始时锁定；analyzed 只前进（`WHERE analyzed_revision < target`），旧任务不能覆盖新结果 | m0-core「analyzed 只前进」 | ✅ 自动化已验证 |
-| M0.2 第 7 条 有限重试 | JobQueue 对暂时性失败（MODEL_CALL_FAILED / SERVER_UNAVAILABLE / retriable ModelError）自动重试，默认 3 次、退避 5s/30s/120s（经 `jobs.not_before` 持久调度）；认证/预算/权限/校验/取消不重试；重试计数与错误入库可见 | m0-core 重试 2 项 | ✅ 自动化已验证 |
-| M0.2 第 8 条 退出等待 | `stop()` 停止接收 → 等待在途任务结束（`jobs.idle()`）→ 关库；恢复失败不丢待处理（F3/U5 保持） | m0-gates 门槛 4 + round3 T6/T7/T8/T9 保持 | ✅ 自动化已验证 |
-| M0.1 迁移 | 迁移 2 在旧库（仅迁移 1 + 数据）上验证：列补齐、行完整、回填策略明确（旧行标记 1/1，不批量触发补分析；需重分析可手动） | m0-core「旧库升级」 | ✅ 自动化已验证 |
-| 附加修复 | sessionAliases 迁入 SQLite `session_aliases` 表（上限 500 裁剪）——修复每批采集重写整份 config.json 且别名无限增长的问题；恢复对话/重新开启开关后自动补齐欠分析（`onConversationResumed` / `sweepPendingAnalysis`） | round3 T1–T4 全部保持 | ✅ 自动化已验证 |
+| 计划条目                               | 实现                                                                                                                                                                                                                                             | 测试                                                  | 状态            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- | --------------- |
+| M0.2 版本三元组                        | 迁移 2 新增 `sources.content_revision / analyzed_revision`（导入=1、追加影响理解的内容递增、完全重复不递增；analyzed 只前进不回退，迁移旧行回填 1/1）；任务以「开始执行时版本」为目标，完成后守卫推进（`advanceAnalyzedRevision`），滞后自动补队 | m0-core「contentRevision 语义」+ m0-gates 门槛 1      | ✅ 自动化已验证 |
+| M0.2 第 1 条 合并/去重                 | 自动入队去重（同来源 queued/running 唯一，排除当前任务）；完成时版本滞后 → 补队一次                                                                                                                                                              | m0-gates 门槛 1（运行中到达新版本 → 追平）            | ✅ 自动化已验证 |
+| M0.2 第 2/3 条 持久化待分析 + 崩溃恢复 | 「欠分析」= content > analyzed 持久化于 sources 表；启动时 `sweepPendingAnalysis()` 找回（网页来源受开关/授权/暂停复查，其他来源沿用导入管线语义）                                                                                               | m0-gates 门槛 2（窗口内退出重启 → 重启后追平）        | ✅ 自动化已验证 |
+| M0.2 第 4 条 执行时复查                | F4 已实现（U6/U7）；本轮接入取消信号 `shouldContinue` 于每块与提交前                                                                                                                                                                             | m0-gates 门槛 3（取消后不发新块、不提交、旧理解不变） | ✅ 自动化已验证 |
+| M0.2 第 5 条 自动/手动分离             | F4 已实现（auto 标记 + autoGuardSatisfied；手动不受自动开关约束）                                                                                                                                                                                | round4 U6/U7                                          | ✅ 自动化已验证 |
+| M0.2 第 6 条 版本一致                  | 目标版本在任务开始时锁定；analyzed 只前进（`WHERE analyzed_revision < target`），旧任务不能覆盖新结果                                                                                                                                            | m0-core「analyzed 只前进」                            | ✅ 自动化已验证 |
+| M0.2 第 7 条 有限重试                  | JobQueue 对暂时性失败（MODEL_CALL_FAILED / SERVER_UNAVAILABLE / retriable ModelError）自动重试，默认 3 次、退避 5s/30s/120s（经 `jobs.not_before` 持久调度）；认证/预算/权限/校验/取消不重试；重试计数与错误入库可见                             | m0-core 重试 2 项                                     | ✅ 自动化已验证 |
+| M0.2 第 8 条 退出等待                  | `stop()` 停止接收 → 等待在途任务结束（`jobs.idle()`）→ 关库；恢复失败不丢待处理（F3/U5 保持）                                                                                                                                                    | m0-gates 门槛 4 + round3 T6/T7/T8/T9 保持             | ✅ 自动化已验证 |
+| M0.1 迁移                              | 迁移 2 在旧库（仅迁移 1 + 数据）上验证：列补齐、行完整、回填策略明确（旧行标记 1/1，不批量触发补分析；需重分析可手动）                                                                                                                           | m0-core「旧库升级」                                   | ✅ 自动化已验证 |
+| 附加修复                               | sessionAliases 迁入 SQLite `session_aliases` 表（上限 500 裁剪）——修复每批采集重写整份 config.json 且别名无限增长的问题；恢复对话/重新开启开关后自动补齐欠分析（`onConversationResumed` / `sweepPendingAnalysis`）                               | round3 T1–T4 全部保持                                 | ✅ 自动化已验证 |
 
 ---
 
 ## 0.9 M1.2 展示真实状态（对《下一阶段开发计划》M1.2）
 
-| 计划要求 | 实现 | 测试 | 状态 |
-| --- | --- | --- | --- |
-| 每来源可见：所属项目/最后收到时间/内容版本/已分析版本/最后成功分析时间/任务状态/错误原因 | 迁移 4 新增 `sources.analyzed_at`（最后成功分析时间，仅在 analyzed 前进时更新）；`SourceStore.list` 联查项目名与最近 extract 任务状态/错误；`SourceListItem` 契约新增 `projectName` + `analysis` 对象 | m1-status 4 项（等待分析/追平/欠分析可见/失败原因可见） | ✅ 自动化已验证 |
-| 普通人文案 | Sources 表格新增「所属项目」与「状态」列，`analysisStatus()` 把版本差+任务状态映射为：已收到等待分析 / 正在分析… / 已分析最新内容 / 有新内容尚未分析，当前显示旧理解 / 自动分析已关闭 / 授权已撤销 / 分析失败可以重试（含错误摘要与重试按钮） | UI 渲染 + desktop e2e 全部保持通过 | ✅ 自动化已验证（文案映射） |
-| 「收到资料」与「模型理解完成」不共用标记 | content_revision 与 analyzed_revision 分别记录；analyzed_at 独立于 imported_at | m1-status | ✅ 自动化已验证 |
-| 状态刷新不靠切页、不调模型 | Sources 页 5 秒低频轮询（页面可见时才刷新，静默更新不闪烁） | desktop e2e 保持通过 | ✅ 自动化已验证 |
-| 分析失败可重试 | 失败行内「重试」按钮调用已有 reextractSource（手动任务，不受自动开关约束） | UI + round4 U7 语义 | ✅ 自动化已验证 |
+| 计划要求                                                                                 | 实现                                                                                                                                                                                                                                          | 测试                                                    | 状态                        |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------- |
+| 每来源可见：所属项目/最后收到时间/内容版本/已分析版本/最后成功分析时间/任务状态/错误原因 | 迁移 4 新增 `sources.analyzed_at`（最后成功分析时间，仅在 analyzed 前进时更新）；`SourceStore.list` 联查项目名与最近 extract 任务状态/错误；`SourceListItem` 契约新增 `projectName` + `analysis` 对象                                         | m1-status 4 项（等待分析/追平/欠分析可见/失败原因可见） | ✅ 自动化已验证             |
+| 普通人文案                                                                               | Sources 表格新增「所属项目」与「状态」列，`analysisStatus()` 把版本差+任务状态映射为：已收到等待分析 / 正在分析… / 已分析最新内容 / 有新内容尚未分析，当前显示旧理解 / 自动分析已关闭 / 授权已撤销 / 分析失败可以重试（含错误摘要与重试按钮） | UI 渲染 + desktop e2e 全部保持通过                      | ✅ 自动化已验证（文案映射） |
+| 「收到资料」与「模型理解完成」不共用标记                                                 | content_revision 与 analyzed_revision 分别记录；analyzed_at 独立于 imported_at                                                                                                                                                                | m1-status                                               | ✅ 自动化已验证             |
+| 状态刷新不靠切页、不调模型                                                               | Sources 页 5 秒低频轮询（页面可见时才刷新，静默更新不闪烁）                                                                                                                                                                                   | desktop e2e 保持通过                                    | ✅ 自动化已验证             |
+| 分析失败可重试                                                                           | 失败行内「重试」按钮调用已有 reextractSource（手动任务，不受自动开关约束）                                                                                                                                                                    | UI + round4 U7 语义                                     | ✅ 自动化已验证             |
 
 ---
 
 ## 0.10 M2 重要理解可确认，改口不会被冲掉（对《下一阶段开发计划》M2）
 
-| 计划要求 | 实现 | 测试 | 状态 |
-| --- | --- | --- | --- |
-| 三维度分离：谁提取的 / 用户是否确认 / 目前是否有效 | 迁移 5 新增 `items.confirmation（none/confirmed/rejected）+ confirmation_at`，与 `origin`（谁提取）、`state`（是否有效）正交；确认不把 AI 条目篡改为「用户写的」 | m2-confirmation「确认」 | ✅ 自动化已验证 |
-| 确认/不采纳动作 | `ItemService.confirm/reject`（superseded 条目拒绝操作；清待讨论；留时间戳）+ IPC 审计（item.confirmed / item.rejected）+ Inbox「确认正确/不采纳/暂不处理」+ Understanding 徽章与动作按钮 | m2-confirmation | ✅ 自动化已验证 |
-| 「不采纳」≠「确认正确」 | rejected 条目保留可追溯（state=current），但从 prepare_task 简报、问答上下文、search_context 条目检索中排除 | m2-confirmation「简报排除」 | ✅ 自动化已验证 |
-| 人工改口优先 | 重新提取时：已确认/已不采纳条目不删除（deleteOldAiItems 加 confirmation='none' 条件）；新结论与它们高度相似（Jaccard bigram ≥0.6）→ 跳过并计 `skippedPreserved` —— 不复活已否决建议、不重复已确认结论 | m2-confirmation「重新提取不冲掉改口」 | ✅ 自动化已验证 |
-| 冲突真的可见 | Understanding 页查询不再只取 current 再筛 disputed —— disputed 与 current 一起取回并分组展示（「存在冲突的结论」卡片） | UI 查询路径 + m2-confirmation | ✅ 自动化已验证 |
-| 审批负担控制 | 普通有依据 AI 理解自动产生并明确标记（origin=ai）；未归属/冲突仍进待讨论（needs_review）；用户确认/不采纳后退出待讨论 | m1-binding + m2-confirmation | ✅ 自动化已验证 |
+| 计划要求                                           | 实现                                                                                                                                                                                                  | 测试                                  | 状态            |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | --------------- |
+| 三维度分离：谁提取的 / 用户是否确认 / 目前是否有效 | 迁移 5 新增 `items.confirmation（none/confirmed/rejected）+ confirmation_at`，与 `origin`（谁提取）、`state`（是否有效）正交；确认不把 AI 条目篡改为「用户写的」                                      | m2-confirmation「确认」               | ✅ 自动化已验证 |
+| 确认/不采纳动作                                    | `ItemService.confirm/reject`（superseded 条目拒绝操作；清待讨论；留时间戳）+ IPC 审计（item.confirmed / item.rejected）+ Inbox「确认正确/不采纳/暂不处理」+ Understanding 徽章与动作按钮              | m2-confirmation                       | ✅ 自动化已验证 |
+| 「不采纳」≠「确认正确」                            | rejected 条目保留可追溯（state=current），但从 prepare_task 简报、问答上下文、search_context 条目检索中排除                                                                                           | m2-confirmation「简报排除」           | ✅ 自动化已验证 |
+| 人工改口优先                                       | 重新提取时：已确认/已不采纳条目不删除（deleteOldAiItems 加 confirmation='none' 条件）；新结论与它们高度相似（Jaccard bigram ≥0.6）→ 跳过并计 `skippedPreserved` —— 不复活已否决建议、不重复已确认结论 | m2-confirmation「重新提取不冲掉改口」 | ✅ 自动化已验证 |
+| 冲突真的可见                                       | Understanding 页查询不再只取 current 再筛 disputed —— disputed 与 current 一起取回并分组展示（「存在冲突的结论」卡片）                                                                                | UI 查询路径 + m2-confirmation         | ✅ 自动化已验证 |
+| 审批负担控制                                       | 普通有依据 AI 理解自动产生并明确标记（origin=ai）；未归属/冲突仍进待讨论（needs_review）；用户确认/不采纳后退出待讨论                                                                                 | m1-binding + m2-confirmation          | ✅ 自动化已验证 |
 
 ---
 
 ## 0.11 M3 编码 AI 的开工与收工闭环（对《下一阶段开发计划》M3）
 
-| 计划要求 | 实现 | 测试 | 状态 |
-| --- | --- | --- | --- |
-| 简报区分 AI 提取 / 用户确认·纠正 / 编码 agent 自报 | BriefingEntry 新增 `origin（ai/user/work_result）`：条目带真实 origin，recent_work 固定 work_result；MCP 初始化说明新增第 7 条规则（agent 自报 ≠ 用户验收） | m3-loop「简报区分来源」 | ✅ 自动化已验证 |
-| 标明覆盖到哪个内容/分析版本；新内容未分析时简报明确「可能落后」 | prepareTask 输出新增 `coverage { maxContentRevision, maxAnalyzedRevision, hasUnanalyzedContent }`；hasUnanalyzedContent 时 staleness_notice 追加明确提示 | m3-loop「覆盖版本」×2 | ✅ 自动化已验证 |
-| 回写幂等：相同请求重试不产生重复 work_run；同键不同内容报冲突；旧客户端兼容 | 迁移 6 `work_runs.client_ref`（部分唯一索引）；`record_work_result` 可选 `client_ref`：相同键同内容 → 返回 `deduplicated: true` 且不重复入库；同键不同内容 → CONFLICT 明确报错；不传时维持原行为 | m3-loop「幂等」×3 | ✅ 自动化已验证 |
-| 旧四工具旧输入仍有效；新增字段有契约测试 | 旧输入全部通过（mcp.test 10 项 + 四轮独立回归 31 项保持）；新字段 schema 于 contracts（client_ref/deduplicated/coverage/origin） | 契约 + 回归 | ✅ 自动化已验证 |
-| 独立 MCP 客户端进程走完闭环（不预塞背景） | 安装版 MCP 复核脚本（packaged-20260905.mjs 第 3 项）：独立进程 STDIO 握手 + 四工具真实调用 + 写回持久化，在新产物上通过 | 打包复核 | ✅ 自动化已验证（FakeProvider 语义层面） |
-| 真实编码 AI 客户端验证 | 需用户可用客户端与授权（计划 M3 验收第 2 项）；未执行，如实标注 | — | ⏳ 未验证（见第 11 节） |
+| 计划要求                                                                    | 实现                                                                                                                                                                                             | 测试                    | 状态                                     |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | ---------------------------------------- |
+| 简报区分 AI 提取 / 用户确认·纠正 / 编码 agent 自报                          | BriefingEntry 新增 `origin（ai/user/work_result）`：条目带真实 origin，recent_work 固定 work_result；MCP 初始化说明新增第 7 条规则（agent 自报 ≠ 用户验收）                                      | m3-loop「简报区分来源」 | ✅ 自动化已验证                          |
+| 标明覆盖到哪个内容/分析版本；新内容未分析时简报明确「可能落后」             | prepareTask 输出新增 `coverage { maxContentRevision, maxAnalyzedRevision, hasUnanalyzedContent }`；hasUnanalyzedContent 时 staleness_notice 追加明确提示                                         | m3-loop「覆盖版本」×2   | ✅ 自动化已验证                          |
+| 回写幂等：相同请求重试不产生重复 work_run；同键不同内容报冲突；旧客户端兼容 | 迁移 6 `work_runs.client_ref`（部分唯一索引）；`record_work_result` 可选 `client_ref`：相同键同内容 → 返回 `deduplicated: true` 且不重复入库；同键不同内容 → CONFLICT 明确报错；不传时维持原行为 | m3-loop「幂等」×3       | ✅ 自动化已验证                          |
+| 旧四工具旧输入仍有效；新增字段有契约测试                                    | 旧输入全部通过（mcp.test 10 项 + 四轮独立回归 31 项保持）；新字段 schema 于 contracts（client_ref/deduplicated/coverage/origin）                                                                 | 契约 + 回归             | ✅ 自动化已验证                          |
+| 独立 MCP 客户端进程走完闭环（不预塞背景）                                   | 安装版 MCP 复核脚本（packaged-20260905.mjs 第 3 项）：独立进程 STDIO 握手 + 四工具真实调用 + 写回持久化，在新产物上通过                                                                          | 打包复核                | ✅ 自动化已验证（FakeProvider 语义层面） |
+| 真实编码 AI 客户端验证                                                      | 需用户可用客户端与授权（计划 M3 验收第 2 项）；未执行，如实标注                                                                                                                                  | —                       | ⏳ 未验证（见第 11 节）                  |
 
 ---
 
@@ -154,18 +154,18 @@
 按报告要求更新了 4 处旧断言（迁移回填/重要决定待确认/相似结论处理/归属断言）——
 均为新契约的如实适配，未削弱业务要求。
 
-| 问题 | 修复 | 测试 | 状态 |
-| --- | --- | --- | --- |
-| G1 任务标取消结果仍写入 | 真实取消信号（ctx.signal）与自动开关/暂停检查**组合**注入提取器（手动任务同样受约束）；提交后若已中止 → 抛 JOB_CANCELLED，不推进 analyzed、不入库 | V01 | ✅ |
-| G2 崩溃遗留 running 任务永久阻塞 | sweepPendingAnalysis 启动阶段将无执行者的 running 任务转 queued（保留重试预算，记审计）；恢复受开关/权限/暂停复查 | V02 | ✅ |
-| G3a 切回旧分支不更新版本 | 旧指纹重新激活 = 「当前有效内容变化」（非无变化重复）→ 递增 content_revision 进待分析 | V03 | ✅ |
-| G3b coverage 跨来源误判追平 | 按「每个来源」检查版本差再聚合（SUM pending>0）；staleness_notice 指明落后来源数 | V04 | ✅ |
-| G3c 迁移伪造已分析 | 迁移 7：无 items 且无 succeeded 任务的来源 analyzed 回退 0（按成功证据判定）；迁移不调用模型，补分析由启动扫描按开关控制 | V05 | ✅ |
-| G4 纠正失效/反向意见被丢 | 保护集扩展：superseded（被纠正前驱）+ confirmed/rejected + origin=user 全链；**字符相似只作候选信号**——完全相同才跳过，相似但不相同 → 入库并 needs_review（可见冲突，不替用户选边） | V06/V07 | ✅ |
-| G5 单独归属被搬/在途写旧项目 | 迁移 8 `items.manual_project`：人工 assignToProject 置 1，来源级批量重绑不搬；提取器提交前重验来源归属，以提交时点归属入库 | V08/V09 | ✅ |
-| G6 重要决定绕过待确认 | decision/rejected_option/project_summary 且未确认 → needs_review=1（与项目归属正交）；简报该类条目标「（待用户确认）」并同步进 risks 组 | V10 | ✅ |
-| G7 幂等丢项目/提交差异、破坏引用契约 | client_ref 与内部 ID 分开保存（work_run_id 恒为 UUID，长度契约不破坏）；比较含解析后项目 ID + commit_ref + 全字段——跨项目/不同 commit → CONFLICT | V11/V12/V13 | ✅ |
-| G8 简报完整输出超预算 | 预算按**完整序列化输出**核算（含任务/项目/coverage/时间/提示/JSON 容器）：条目粗裁 → 完整复核 → 仍超限按优先级（work→status→rejected→loops→decisions）逐条移除再复核；待确认/过期提示不优先裁 | V14 | ✅ |
+| 问题                                 | 修复                                                                                                                                                                                          | 测试        | 状态 |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---- |
+| G1 任务标取消结果仍写入              | 真实取消信号（ctx.signal）与自动开关/暂停检查**组合**注入提取器（手动任务同样受约束）；提交后若已中止 → 抛 JOB_CANCELLED，不推进 analyzed、不入库                                             | V01         | ✅   |
+| G2 崩溃遗留 running 任务永久阻塞     | sweepPendingAnalysis 启动阶段将无执行者的 running 任务转 queued（保留重试预算，记审计）；恢复受开关/权限/暂停复查                                                                             | V02         | ✅   |
+| G3a 切回旧分支不更新版本             | 旧指纹重新激活 = 「当前有效内容变化」（非无变化重复）→ 递增 content_revision 进待分析                                                                                                         | V03         | ✅   |
+| G3b coverage 跨来源误判追平          | 按「每个来源」检查版本差再聚合（SUM pending>0）；staleness_notice 指明落后来源数                                                                                                              | V04         | ✅   |
+| G3c 迁移伪造已分析                   | 迁移 7：无 items 且无 succeeded 任务的来源 analyzed 回退 0（按成功证据判定）；迁移不调用模型，补分析由启动扫描按开关控制                                                                      | V05         | ✅   |
+| G4 纠正失效/反向意见被丢             | 保护集扩展：superseded（被纠正前驱）+ confirmed/rejected + origin=user 全链；**字符相似只作候选信号**——完全相同才跳过，相似但不相同 → 入库并 needs_review（可见冲突，不替用户选边）           | V06/V07     | ✅   |
+| G5 单独归属被搬/在途写旧项目         | 迁移 8 `items.manual_project`：人工 assignToProject 置 1，来源级批量重绑不搬；提取器提交前重验来源归属，以提交时点归属入库                                                                    | V08/V09     | ✅   |
+| G6 重要决定绕过待确认                | decision/rejected_option/project_summary 且未确认 → needs_review=1（与项目归属正交）；简报该类条目标「（待用户确认）」并同步进 risks 组                                                       | V10         | ✅   |
+| G7 幂等丢项目/提交差异、破坏引用契约 | client_ref 与内部 ID 分开保存（work_run_id 恒为 UUID，长度契约不破坏）；比较含解析后项目 ID + commit_ref + 全字段——跨项目/不同 commit → CONFLICT                                              | V11/V12/V13 | ✅   |
+| G8 简报完整输出超预算                | 预算按**完整序列化输出**核算（含任务/项目/coverage/时间/提示/JSON 容器）：条目粗裁 → 完整复核 → 仍超限按优先级（work→status→rejected→loops→decisions）逐条移除再复核；待确认/过期提示不优先裁 | V14         | ✅   |
 
 ---
 
@@ -194,18 +194,18 @@
   （listItems 含 confirmation/needs_review 字段，页面渲染逻辑由 desktop e2e
   覆盖）；串联断言聚焦持久化+MCP 输出两端，与报告要求的三层中可自动化部分对应。
 
-| 测试 | 结果 |
-| --- | --- |
+| 测试                                 | 结果                                         |
+| ------------------------------------ | -------------------------------------------- |
 | m2-semantics 7 项（S1–S6 + S6 附加） | ✅ 全部通过，纳入 verify（integration 计入） |
 
 ---
 
 ## 0.14 用户复核反馈修复（2026-09-06 复核两处缺口）
 
-| 反馈 | 修复 | 回归测试 | 状态 |
-| --- | --- | --- | --- |
+| 反馈                                                                                     | 修复                                                                                                                                            | 回归测试                                                                                                                | 状态            |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------- |
 | 切回旧回答不会自动重新分析（版本号更新但 accepted=0 被跳过——知道内容变了却未必开始处理） | `appendCapturedTurns` 返回值增加 `branchSwitched`；采集路径以「内容是否变化」（新增片段 **或** 分支切换）判断是否排队分析，不再只看 accepted 数 | review-followup「分支切换后分析必然触发」（fake timers：切换后推进防抖窗口 → onCaptured 被调用、content_revision 递增） | ✅ 自动化已验证 |
-| 重新提取仍会删除人工分配过项目的条目（G5 只保护了来源级改绑路径） | `deleteOldAiItems` 增加 `manual_project = 0` 条件——人工单独分配过项目的 AI 条目与确认/不采纳同属人工决定保护，重提不删除 | review-followup「manual_project=1 的条目重提后保留」 | ✅ 自动化已验证 |
+| 重新提取仍会删除人工分配过项目的条目（G5 只保护了来源级改绑路径）                        | `deleteOldAiItems` 增加 `manual_project = 0` 条件——人工单独分配过项目的 AI 条目与确认/不采纳同属人工决定保护，重提不删除                        | review-followup「manual_project=1 的条目重提后保留」                                                                    | ✅ 自动化已验证 |
 
 对第三点反馈的回应（历史记录，当时状态）：六类场景原有测试验证「数据持久化 +
 MCP 简报」两端；当轮补的 Playwright 界面级场景（`apps/desktop/e2e/m2-ui.spec.ts`，
@@ -225,21 +225,21 @@ MCP 简报」两端；当轮补的 Playwright 界面级场景（`apps/desktop/e2
 > verify 只含 15 项核心检查，UI01 未进入默认验证入口（复审报告 RF09 指出）。
 > 现已把 UI01 与 BUI01/BUI02 一并纳入 verify（review-recheck-ui 步骤）。
 
-| 问题 | 修复 | 证据 | 状态 |
-| --- | --- | --- | --- |
-| C01 verify 失败 | m2-ui 空循环 + window.ixaeon 判空；完整 verify 从当前 HEAD 实跑通过 | verify 全绿 | ✅ |
-| C02 取消绕过 | 取消依据队列内存执行事实（currentJobId）而非数据库状态；遗留任务恢复独立为 recoverOrphanedJobs（仅启动+队列空闲时）；tick 落终态前复查数据库当前状态（已被取消的不回写成功） | A06 | ✅ |
-| C03 重复副本 | 提交事务内过滤与 manual_project=1 逐字相同的新候选——人工搬走的结论不在原项目复制 | A01 | ✅ |
-| C04 归属≠确认 | bindProject 不清 needs_review（仅解绑重置）；assignToProject 不清 needs_review——选项目不是确认 | A02/A03 | ✅ |
-| C05 纠正链+并发 | 保护集沿 corrections 双向追溯（含 origin=user 结果与前驱）；提交前用最新人工状态重新协调候选（模型等待期间的改口生效） | A04/A05 | ✅ |
-| C06 确认语义统一 | 桌面与 MCP 条目搜索默认排除 rejected；问答上下文带「待用户确认/用户已确认」标注 | A10/A11 | ✅ |
-| C07 问答去重分层 | 条目身份（item.id）与依据身份（segmentId）分开；一段原文多条结论全部保留 | A12 | ✅ |
-| C08 简报预算真实 | 按最终 JSON.stringify(完整返回值) 核算；条目按序装回不二次扣元数据；chars_used 按最终序列化迭代收敛；任务超限截断 task 并标记 | A07/A08/A09 | ✅ |
-| C09 工作引用可展开 | getSourceExcerpt 新增 work_run 分支——recent_work 引用展开为 agent 自报摘要（标注用户尚未验收） | A13 | ✅ |
-| C10 工作记录入项目页 | Projects 页新增最近工作列表（任务/执行者/时间/结果/摘要），标注 agent 自报 ≠ 用户验收 | UI01 | ✅ |
-| C11 密钥拒绝降级 | safeStorage 不可用时 encryptApiKey 抛明确错误，不再静默 Base64（提示文案后在 RF08 修正：不再承诺会话密钥方案） | A15 | ✅ |
-| C12 六类界面场景重写 | 新增测试模型入口 IXAEON_FAKE_MODEL_SCRIPT（仅环境变量存在时读取预置响应）；m2-ui 6 项重写为「非空数据 + 真实界面操作（确认/不采纳/纠正点击）+ 持久化/简报/引用展开跨层断言」——含等待任务完成的轮询与失败如实暴露 | m2-ui 6/6 | ✅ |
-| C13 版本对齐 | 全部 package/manifest/健康接口/MCP serverInfo 统一 0.2.0；产物改名 IXAEON-Setup-0.2.0.exe；REVIEW_PACKET 更正超出证据的表述 | 版本清单 | ✅ |
+| 问题                 | 修复                                                                                                                                                                                                             | 证据        | 状态 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---- |
+| C01 verify 失败      | m2-ui 空循环 + window.ixaeon 判空；完整 verify 从当前 HEAD 实跑通过                                                                                                                                              | verify 全绿 | ✅   |
+| C02 取消绕过         | 取消依据队列内存执行事实（currentJobId）而非数据库状态；遗留任务恢复独立为 recoverOrphanedJobs（仅启动+队列空闲时）；tick 落终态前复查数据库当前状态（已被取消的不回写成功）                                     | A06         | ✅   |
+| C03 重复副本         | 提交事务内过滤与 manual_project=1 逐字相同的新候选——人工搬走的结论不在原项目复制                                                                                                                                 | A01         | ✅   |
+| C04 归属≠确认        | bindProject 不清 needs_review（仅解绑重置）；assignToProject 不清 needs_review——选项目不是确认                                                                                                                   | A02/A03     | ✅   |
+| C05 纠正链+并发      | 保护集沿 corrections 双向追溯（含 origin=user 结果与前驱）；提交前用最新人工状态重新协调候选（模型等待期间的改口生效）                                                                                           | A04/A05     | ✅   |
+| C06 确认语义统一     | 桌面与 MCP 条目搜索默认排除 rejected；问答上下文带「待用户确认/用户已确认」标注                                                                                                                                  | A10/A11     | ✅   |
+| C07 问答去重分层     | 条目身份（item.id）与依据身份（segmentId）分开；一段原文多条结论全部保留                                                                                                                                         | A12         | ✅   |
+| C08 简报预算真实     | 按最终 JSON.stringify(完整返回值) 核算；条目按序装回不二次扣元数据；chars_used 按最终序列化迭代收敛；任务超限截断 task 并标记                                                                                    | A07/A08/A09 | ✅   |
+| C09 工作引用可展开   | getSourceExcerpt 新增 work_run 分支——recent_work 引用展开为 agent 自报摘要（标注用户尚未验收）                                                                                                                   | A13         | ✅   |
+| C10 工作记录入项目页 | Projects 页新增最近工作列表（任务/执行者/时间/结果/摘要），标注 agent 自报 ≠ 用户验收                                                                                                                            | UI01        | ✅   |
+| C11 密钥拒绝降级     | safeStorage 不可用时 encryptApiKey 抛明确错误，不再静默 Base64（提示文案后在 RF08 修正：不再承诺会话密钥方案）                                                                                                   | A15         | ✅   |
+| C12 六类界面场景重写 | 新增测试模型入口 IXAEON_FAKE_MODEL_SCRIPT（仅环境变量存在时读取预置响应）；m2-ui 6 项重写为「非空数据 + 真实界面操作（确认/不采纳/纠正点击）+ 持久化/简报/引用展开跨层断言」——含等待任务完成的轮询与失败如实暴露 | m2-ui 6/6   | ✅   |
+| C13 版本对齐         | 全部 package/manifest/健康接口/MCP serverInfo 统一 0.2.0；产物改名 IXAEON-Setup-0.2.0.exe；REVIEW_PACKET 更正超出证据的表述                                                                                      | 版本清单    | ✅   |
 
 隐私说明更新（C13.4）：除直接模型 API 调用外，MCP 返回的数据也可能由外部
 编码客户端发送给其云模型——本地服务不等于资料永不离机。
@@ -259,17 +259,17 @@ UI01/BUI01/BUI02 全部通过，并已纳入 `pnpm verify`
 > 仍会清除用户显式置位与人工约束冲突的待处理状态。最终修复见 0.18 节，
 > 本行以 0.18 为准。
 
-| 问题 | 修复 | 证据 | 状态 |
-| --- | --- | --- | --- |
-| RF01 保护集括号错误（普通未确认 AI 结论被当成人工保护，重提后丢失） | 保护集 SQL 改为「（当前来源 ∪ 纠正链可达）AND 人工条件」——superseded 前驱、已确认/不采纳、origin=user 才受保护 | B01 | ✅ |
-| RF02 纠正链追溯不全（两次连续纠正后最新人工约束不在保护集） | 递归 CTE 沿 corrections 双向扩展（old→new 与 new→old，UNION 去重防循环），初次读取与提交前重查共用同一查询 | B02 | ✅ |
-| RF03 待处理标记两入口规则不一致 | recomputeNeedsReview 集中实现（无归属 OR 重要 AI 决定未确认 OR 冲突）；assignToProject 与 bindProject 都按同一事实重算 | B03-item / B03-source | ✅ |
-| RF04 简报预算边缘超限 2–32 字符 | 条目试放探针按最坏情形（truncated=true + 99999 位数）核算；返回前对真实完整序列化作最终校验，超限时按装填逆序（recentWork→status→risks→rejected→open_loops→decisions→purpose）收缩；极端小预算抛 BUDGET_EXCEEDED 契约错误 | B04 | ✅ |
-| RF05 人工创建/纠正条目引用不可展开 | getSourceExcerpt 新增 origin=user 分支：纠正条目返回「用户纠正记录」（附纠正前旧结论，旧结论带依据时校验来源授权），手工条目返回「用户手工记录」——明确标注非对话原文摘录，不伪造原文 | B05 / B06 | ✅ |
-| RF06 项目页看不到失败测试与未完成事项 | 工作记录摘要行直接点名失败测试与未完成事项；新增可展开详情（变更/测试全量/未完成事项，标注待用户确认）；加载失败如实报错不伪装「暂无记录」；BUI01 附加重进页面、详情展开、项目隔离检查，BUI02 验证重启后仍可见 | UI01 + BUI01 + BUI02 | ✅ |
-| RF07 六类界面测试名实不符 | S1 改为真实「不采纳」流程（验证用户否决 AI 建议 + 动作前后简报变化）；S2 改为真实「确认」流程（AI 已记录否决、用户确认这条理解，简报标签从「待用户确认」变「用户已确认」）；S4 构造两个真实来源的相反结论（方案甲 vs 方案乙），验证双方同时保留、均 disputed、均待处理、简报均标「存在冲突」、不自动选边 | m2-ui 6/6 | ✅ |
-| RF08 旧 plain: 密钥无迁移、错误提示承诺不存在的会话密钥 | 启动时 migrateLegacyPlainApiKey：safeStorage 可用→原地升级为系统加密（审计记录不含密钥内容）；不可用→清除旧值并把 apiKeyPresent 置 false，设置页提示重新输入（apiKeyNeedsReentry）；decryptApiKey 运行期不再解码 plain:（迁移专用入口独立）；保存失败文案不再承诺「仅本次会话的密钥」 | B08 / B09 / B10 | ✅ |
-| RF09 交付声明与实际状态不同步 | verify 纳入 review-recheck（11 项）与 review-recheck-ui（UI01/BUI01/BUI02）；0.16 节更正 UI01 声明；privacy-model.md 补 MCP 外部客户端边界与扩展 tabs 权限用途；dev-log-fixes.md 补本轮记录；未完成项（非空旧库升级、安装流程、真人验证）如实保留 | verify 全绿 + 本节 | ✅ |
+| 问题                                                                | 修复                                                                                                                                                                                                                                                                                                     | 证据                  | 状态 |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ---- |
+| RF01 保护集括号错误（普通未确认 AI 结论被当成人工保护，重提后丢失） | 保护集 SQL 改为「（当前来源 ∪ 纠正链可达）AND 人工条件」——superseded 前驱、已确认/不采纳、origin=user 才受保护                                                                                                                                                                                           | B01                   | ✅   |
+| RF02 纠正链追溯不全（两次连续纠正后最新人工约束不在保护集）         | 递归 CTE 沿 corrections 双向扩展（old→new 与 new→old，UNION 去重防循环），初次读取与提交前重查共用同一查询                                                                                                                                                                                               | B02                   | ✅   |
+| RF03 待处理标记两入口规则不一致                                     | recomputeNeedsReview 集中实现（无归属 OR 重要 AI 决定未确认 OR 冲突）；assignToProject 与 bindProject 都按同一事实重算                                                                                                                                                                                   | B03-item / B03-source | ✅   |
+| RF04 简报预算边缘超限 2–32 字符                                     | 条目试放探针按最坏情形（truncated=true + 99999 位数）核算；返回前对真实完整序列化作最终校验，超限时按装填逆序（recentWork→status→risks→rejected→open_loops→decisions→purpose）收缩；极端小预算抛 BUDGET_EXCEEDED 契约错误                                                                                | B04                   | ✅   |
+| RF05 人工创建/纠正条目引用不可展开                                  | getSourceExcerpt 新增 origin=user 分支：纠正条目返回「用户纠正记录」（附纠正前旧结论，旧结论带依据时校验来源授权），手工条目返回「用户手工记录」——明确标注非对话原文摘录，不伪造原文                                                                                                                     | B05 / B06             | ✅   |
+| RF06 项目页看不到失败测试与未完成事项                               | 工作记录摘要行直接点名失败测试与未完成事项；新增可展开详情（变更/测试全量/未完成事项，标注待用户确认）；加载失败如实报错不伪装「暂无记录」；BUI01 附加重进页面、详情展开、项目隔离检查，BUI02 验证重启后仍可见                                                                                           | UI01 + BUI01 + BUI02  | ✅   |
+| RF07 六类界面测试名实不符                                           | S1 改为真实「不采纳」流程（验证用户否决 AI 建议 + 动作前后简报变化）；S2 改为真实「确认」流程（AI 已记录否决、用户确认这条理解，简报标签从「待用户确认」变「用户已确认」）；S4 构造两个真实来源的相反结论（方案甲 vs 方案乙），验证双方同时保留、均 disputed、均待处理、简报均标「存在冲突」、不自动选边 | m2-ui 6/6             | ✅   |
+| RF08 旧 plain: 密钥无迁移、错误提示承诺不存在的会话密钥             | 启动时 migrateLegacyPlainApiKey：safeStorage 可用→原地升级为系统加密（审计记录不含密钥内容）；不可用→清除旧值并把 apiKeyPresent 置 false，设置页提示重新输入（apiKeyNeedsReentry）；decryptApiKey 运行期不再解码 plain:（迁移专用入口独立）；保存失败文案不再承诺「仅本次会话的密钥」                    | B08 / B09 / B10       | ✅   |
+| RF09 交付声明与实际状态不同步                                       | verify 纳入 review-recheck（11 项）与 review-recheck-ui（UI01/BUI01/BUI02）；0.16 节更正 UI01 声明；privacy-model.md 补 MCP 外部客户端边界与扩展 tabs 权限用途；dev-log-fixes.md 补本轮记录；未完成项（非空旧库升级、安装流程、真人验证）如实保留                                                        | verify 全绿 + 本节    | ✅   |
 
 已知剩余（如实，未验证）：非空旧库的真实升级路径、安装器真实安装流程、
 真人真实环境验证仍未执行——与 0.16 节前的未完成清单一致，本轮未改变。
@@ -282,11 +282,11 @@ UI01/BUI01/BUI02 全部通过，并已纳入 `pnpm verify`
 `results-recheck-round2-20260907.json` 与复跑 `-repeat.json` 均保留）。本轮
 修复后同一文件 10 项（原 8 项 + F01 附验 2 项）全部通过。
 
-| 问题 | 修复 | 证据 | 状态 |
-| --- | --- | --- | --- |
-| F01 归属操作清除非归属原因的待处理状态（用户显式置位的 AI 条目、与人工约束冲突的候选，选项目/绑来源后待处理被擦掉；且两入口实际是两套规则） | **needs_review 改为原因集合管理**：migration 9 新增 `needs_reasons` 列（no_project / unconfirmed / conflict / manual），needs_review 成为它的物化视图；每个操作只增删自己负责的原因——归属（assignToProject / bindProject 经 `syncDerivedNeedsReasons` 同一函数）只解除 no_project，conflict（提取器人工约束冲突 + markDisputed）与 manual（setPendingReview 置位）只有用户动作能清；确认/不采纳清空全部原因；来源绑定只处理本次真正移动的条目（manual_project=1 不再被顺带改写）。旧库迁移：needs_review=1 回填全部当前派生原因 + manual（保守，不静默清历史状态）；needs_review=0 保持空 | R2-01-item/source、R2-02-item/source 转绿；F01-a（明确解除只清 manual）、F01-b（人工搬走后来源重绑不动其待处理）新增通过 | ✅ |
-| F02 隐私文档承诺不存在的「每次 MCP 调用前界面展示范围」 | 文案更正：MCP 调用由已配置客户端发起，受本地令牌/来源授权/工具参数约束，IXAEON 不会逐次弹确认或展示范围；模型 API 调用前的来源范围展示保留（那一条真实存在） | privacy-model.md 第 48 行区块 | ✅ |
-| F03 历史界面失败上下文未完整保留（Playwright 复跑通过时清理了 outputDir，error-context.md 丢失） | 如实更正：核心失败 JSON 完整保留，界面 BUI01 错误上下文缺失（不重造记录，以旧报告与核心 JSON 为准）；本轮起各轮使用独立输出目录、失败证据先归档再复跑 | dev-log-fixes.md 复审节更正 + 本节 | ✅ |
+| 问题                                                                                                                                        | 修复                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 证据                                                                                                                     | 状态 |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---- |
+| F01 归属操作清除非归属原因的待处理状态（用户显式置位的 AI 条目、与人工约束冲突的候选，选项目/绑来源后待处理被擦掉；且两入口实际是两套规则） | **needs_review 改为原因集合管理**：migration 9 新增 `needs_reasons` 列（no_project / unconfirmed / conflict / manual），needs_review 成为它的物化视图；每个操作只增删自己负责的原因——归属（assignToProject / bindProject 经 `syncDerivedNeedsReasons` 同一函数）只解除 no_project，conflict（提取器人工约束冲突 + markDisputed）与 manual（setPendingReview 置位）只有用户动作能清；确认/不采纳清空全部原因；来源绑定只处理本次真正移动的条目（manual_project=1 不再被顺带改写）。旧库迁移：needs_review=1 回填全部当前派生原因 + manual（保守，不静默清历史状态）；needs_review=0 保持空 | R2-01-item/source、R2-02-item/source 转绿；F01-a（明确解除只清 manual）、F01-b（人工搬走后来源重绑不动其待处理）新增通过 | ✅   |
+| F02 隐私文档承诺不存在的「每次 MCP 调用前界面展示范围」                                                                                     | 文案更正：MCP 调用由已配置客户端发起，受本地令牌/来源授权/工具参数约束，IXAEON 不会逐次弹确认或展示范围；模型 API 调用前的来源范围展示保留（那一条真实存在）                                                                                                                                                                                                                                                                                                                                                                                                                              | privacy-model.md 第 48 行区块                                                                                            | ✅   |
+| F03 历史界面失败上下文未完整保留（Playwright 复跑通过时清理了 outputDir，error-context.md 丢失）                                            | 如实更正：核心失败 JSON 完整保留，界面 BUI01 错误上下文缺失（不重造记录，以旧报告与核心 JSON 为准）；本轮起各轮使用独立输出目录、失败证据先归档再复跑                                                                                                                                                                                                                                                                                                                                                                                                                                     | dev-log-fixes.md 复审节更正 + 本节                                                                                       | ✅   |
 
 F01 附带回归（全部通过）：recheck 11 项、project-audit 15 项、核心集成
 135 项（含原有 B02/B03、A02/A03、确认/不采纳、连续纠正、Inbox 契约）；
@@ -304,10 +304,10 @@ serial 串联 PASS；重新打包并复核（哈希见第 12 节）。
 `.needs-lifecycle-ui-20260908-checked/…/error-context.md`；修复后另存
 `results-needs-lifecycle-20260908-fixed.json` 与独立 UI 输出目录。
 
-| 问题 | 修复 | 证据 | 状态 |
-| --- | --- | --- | --- |
-| N01 纠正后旧条目不退出待处理（superseded 旧项仍带 unconfirmed/conflict/manual 原因，继续占据 Inbox 且不能再正常确认/不采纳） | `correct()` 事务内对**被替代旧条目**清空全部待处理原因（旧内容、纠正链、依据与历史全部保留，仅退出操作队列）；Inbox 可处理范围排除 superseded（`listItems` 新增 `excludeSuperseded`，历史查询不受影响）；migration 10 定向清理本版本已产生的历史残留（只清 `state='superseded' AND needs_review=1` 的行，不触碰 current/disputed，不删数据） | L01 / L02 / LUI02 转绿；LUI02 附验重归属后旧条目不复活；L04 迁移执行器（升到最新且幂等，v8 三行合成数据语义保留）通过 | ✅ |
-| N02 「暂不处理」按钮无实际效果（旧入口 setPendingReview(false) 在原因集合模型下不再能表达暂缓） | 按钮改用已有搁置能力 `shelveItem(true)`——暂缓有实际可见效果：条目移入 Inbox 下方「已搁置（暂不处理）」区，显示搁置时间并提供「恢复待讨论」入口；待处理原因与 `confirmation=none` 原样保留（未用确认/不采纳/删除冒充）；恢复后回到待讨论；操作失败有错误反馈；重进页面与重启后状态可理解可恢复 | LUI01 转绿；新增 LUI03（暂缓→重进→重启→恢复，原因与确认状态未被篡改）通过 | ✅ |
+| 问题                                                                                                                         | 修复                                                                                                                                                                                                                                                                                                                                         | 证据                                                                                                                  | 状态 |
+| ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---- |
+| N01 纠正后旧条目不退出待处理（superseded 旧项仍带 unconfirmed/conflict/manual 原因，继续占据 Inbox 且不能再正常确认/不采纳） | `correct()` 事务内对**被替代旧条目**清空全部待处理原因（旧内容、纠正链、依据与历史全部保留，仅退出操作队列）；Inbox 可处理范围排除 superseded（`listItems` 新增 `excludeSuperseded`，历史查询不受影响）；migration 10 定向清理本版本已产生的历史残留（只清 `state='superseded' AND needs_review=1` 的行，不触碰 current/disputed，不删数据） | L01 / L02 / LUI02 转绿；LUI02 附验重归属后旧条目不复活；L04 迁移执行器（升到最新且幂等，v8 三行合成数据语义保留）通过 | ✅   |
+| N02 「暂不处理」按钮无实际效果（旧入口 setPendingReview(false) 在原因集合模型下不再能表达暂缓）                              | 按钮改用已有搁置能力 `shelveItem(true)`——暂缓有实际可见效果：条目移入 Inbox 下方「已搁置（暂不处理）」区，显示搁置时间并提供「恢复待讨论」入口；待处理原因与 `confirmation=none` 原样保留（未用确认/不采纳/删除冒充）；恢复后回到待讨论；操作失败有错误反馈；重进页面与重启后状态可理解可恢复                                                | LUI01 转绿；新增 LUI03（暂缓→重进→重启→恢复，原因与确认状态未被篡改）通过                                             | ✅   |
 
 N01/N02 附带回归（全部通过）：三次复审控制组 L03（确认/不采纳后重绑不
 复活）、二次复审 round2 11 项（含 F01-a 显式解除语义未被破坏——搁置与
@@ -716,117 +716,117 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 提交边界：S1 代码、迁移 11、测试与文档。不混入他人未提交文件（当时工作区仅两份未跟踪构思稿）。
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | 工程完成：范围/关联/分享授权/MCP 默认不泄露个人 | 迁移 11；`itemStore`/`needsReview`/`mcpStore`/`Ask.tsx`/`Inbox.tsx` |
-| 自动化 | A01/A02 通过；A11 MCP 部分通过；A12 迁移+导出通过 | `s1-scope.test.ts` |
-| 真实结果 | 未跑 T01–T05 | 不得写成全部验收通过 |
-| 用户是否接受 | 未演示 | — |
-| 未完成 | S2–S5；A11 研究/任务背景；真实旧库升级 | 见 `docs/v03-acceptance-map.md` |
+| 项           | 状态                                              | 证据                                                                |
+| ------------ | ------------------------------------------------- | ------------------------------------------------------------------- |
+| 实现完成度   | 工程完成：范围/关联/分享授权/MCP 默认不泄露个人   | 迁移 11；`itemStore`/`needsReview`/`mcpStore`/`Ask.tsx`/`Inbox.tsx` |
+| 自动化       | A01/A02 通过；A11 MCP 部分通过；A12 迁移+导出通过 | `s1-scope.test.ts`                                                  |
+| 真实结果     | 未跑 T01–T05                                      | 不得写成全部验收通过                                                |
+| 用户是否接受 | 未演示                                            | —                                                                   |
+| 未完成       | S2–S5；A11 研究/任务背景；真实旧库升级            | 见 `docs/v03-acceptance-map.md`                                     |
 
 ## 14. v0.3 S2（多来源输入与项目目录，2026-09-09）
 
 提交边界：迁移 12、ChatGPT 规范化导入、多项目登记、文档。不混入他人未跟踪构思稿。
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | ChatGPT 历史导入 + 命名空间 + 多项目登记完成；三平台解析未做 | 迁移 12；`parsers.ts`/`sourceStore.ts`/`projects.ts` |
-| 自动化 | A05 ChatGPT 通过；A07 通过；A06 沿用 v0.2 | `s2-import.test.ts` |
-| 真实结果 | 未跑 T01 四平台 / T02 真机采集 | 不得写成全部验收通过 |
-| 用户是否接受 | 未演示 | — |
-| 受阻 | Gemini / Grok / Claude 无脱敏导出样本，不写伪解析器 | `docs/v03-source-support.md` |
+| 项           | 状态                                                         | 证据                                                 |
+| ------------ | ------------------------------------------------------------ | ---------------------------------------------------- |
+| 实现完成度   | ChatGPT 历史导入 + 命名空间 + 多项目登记完成；三平台解析未做 | 迁移 12；`parsers.ts`/`sourceStore.ts`/`projects.ts` |
+| 自动化       | A05 ChatGPT 通过；A07 通过；A06 沿用 v0.2                    | `s2-import.test.ts`                                  |
+| 真实结果     | 未跑 T01 四平台 / T02 真机采集                               | 不得写成全部验收通过                                 |
+| 用户是否接受 | 未演示                                                       | —                                                    |
+| 受阻         | Gemini / Grok / Claude 无脱敏导出样本，不写伪解析器          | `docs/v03-source-support.md`                         |
 
 ## 15. v0.3 S3（个人理解与跨项目统筹，2026-09-09）
 
 提交边界：迁移 13、关系服务、个人总览、问答覆盖、测试与文档。不混入他人未跟踪构思稿。
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | 关系提案生命周期 + 个人总览 + 有界统筹器完成；无联网/Shell | 迁移 13；`relationStore.ts`/`orchestrator.ts`/`overview.ts`/`Overview.tsx` |
-| 自动化 | A08/A09 通过；A10 部分通过 | `s3-orchestration.test.ts` |
-| 真实结果 | 未跑 T01 四问现场 | 不得写成全部验收通过 |
-| 用户是否接受 | 未演示 | — |
-| 未完成 | S4–S5；A10 真机问答；研究/执行 | 见 `docs/v03-acceptance-map.md` |
+| 项           | 状态                                                       | 证据                                                                       |
+| ------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 实现完成度   | 关系提案生命周期 + 个人总览 + 有界统筹器完成；无联网/Shell | 迁移 13；`relationStore.ts`/`orchestrator.ts`/`overview.ts`/`Overview.tsx` |
+| 自动化       | A08/A09 通过；A10 部分通过                                 | `s3-orchestration.test.ts`                                                 |
+| 真实结果     | 未跑 T01 四问现场                                          | 不得写成全部验收通过                                                       |
+| 用户是否接受 | 未演示                                                     | —                                                                          |
+| 未完成       | S4–S5；A10 真机问答；研究/执行                             | 见 `docs/v03-acceptance-map.md`                                            |
 
 ## 16. v0.3 S4（批准来源研究，2026-09-09）
 
 提交边界：迁移 14、研究检查器、安全抓取、研究页、测试与文档。不接付费搜索、不混入他人未跟踪构思稿。
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | 关注主题 + 批准 HTTPS 来源检查完成；无搜索 API | 迁移 14；`research/`；`Research.tsx` |
-| 自动化 | A13–A16 通过；A17 部分（无付费路径） | `s4-research.test.ts` |
-| 真实结果 | 未跑 T03 真实网站 | 界面写明不是全网搜索 |
-| 用户是否接受 | 未演示 | — |
-| 未完成 | S5；T03；搜索 API 仍未配置 | 见 `docs/v03-acceptance-map.md` |
+| 项           | 状态                                           | 证据                                 |
+| ------------ | ---------------------------------------------- | ------------------------------------ |
+| 实现完成度   | 关注主题 + 批准 HTTPS 来源检查完成；无搜索 API | 迁移 14；`research/`；`Research.tsx` |
+| 自动化       | A13–A16 通过；A17 部分（无付费路径）           | `s4-research.test.ts`                |
+| 真实结果     | 未跑 T03 真实网站                              | 界面写明不是全网搜索                 |
+| 用户是否接受 | 未演示                                         | —                                    |
+| 未完成       | S5；T03；搜索 API 仍未配置                     | 见 `docs/v03-acceptance-map.md`      |
 
 ## 17. v0.3 S5（最小编码执行，Fake 先行，2026-09-09）
 
 提交边界：迁移 15、任务批准/执行/验证、Fake 适配器、任务页、测试与文档。不混入他人未跟踪构思稿。真机 Codex 未派发。
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | Fake 端到端批准→派发→独立验证→接受完成；Codex argv 已按 help 固定但未启用 | 迁移 15；`execution/`；`Tasks.tsx` |
-| 自动化 | A18/A20/A21 通过；A19 部分；A22 模块可见未现场演示 | `s5-execution.test.ts` |
-| 真实结果 | T04 未跑 | 界面写明 Fake，接受≠部署 |
-| 用户是否接受 | 未确认 Codex 隔离默认值 | — |
-| 未完成 | T01–T05；真机派发 | 见 `docs/v03-acceptance-map.md` |
+| 项           | 状态                                                                      | 证据                               |
+| ------------ | ------------------------------------------------------------------------- | ---------------------------------- |
+| 实现完成度   | Fake 端到端批准→派发→独立验证→接受完成；Codex argv 已按 help 固定但未启用 | 迁移 15；`execution/`；`Tasks.tsx` |
+| 自动化       | A18/A20/A21 通过；A19 部分；A22 模块可见未现场演示                        | `s5-execution.test.ts`             |
+| 真实结果     | T04 未跑                                                                  | 界面写明 Fake，接受≠部署           |
+| 用户是否接受 | 未确认 Codex 隔离默认值                                                   | —                                  |
+| 未完成       | T01–T05；真机派发                                                         | 见 `docs/v03-acceptance-map.md`    |
 
 ## 18. v0.3 补齐 A04/A11/A12（迁移 16，2026-09-09）
 
 提交边界：origin 角色、研究/任务隐私、恢复后安全默认、测试与文档。不混入他人未跟踪构思稿。
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | 助手建议/外部研究/用户目标分开；任务背景过滤；恢复不作废联网与旧批准 | 迁移 16；`s6-roles-privacy.test.ts` |
-| 自动化 | A04/A11 通过；A12 恢复默认通过（真实旧库仍属 T05） | vitest 2026-09-09 |
-| 真实结果 | T01–T05 未跑 | — |
-| 用户是否接受 | 未演示 | — |
-| 未完成 | 真机演示与四平台样本 | 见 `docs/v03-acceptance-map.md` |
+| 项           | 状态                                                                 | 证据                                |
+| ------------ | -------------------------------------------------------------------- | ----------------------------------- |
+| 实现完成度   | 助手建议/外部研究/用户目标分开；任务背景过滤；恢复不作废联网与旧批准 | 迁移 16；`s6-roles-privacy.test.ts` |
+| 自动化       | A04/A11 通过；A12 恢复默认通过（真实旧库仍属 T05）                   | vitest 2026-09-09                   |
+| 真实结果     | T01–T05 未跑                                                         | —                                   |
+| 用户是否接受 | 未演示                                                               | —                                   |
+| 未完成       | 真机演示与四平台样本                                                 | 见 `docs/v03-acceptance-map.md`     |
 
 ## 19. ChatGPT 官方导出结构适配（2026-09-09）
 
 提交边界：解析器兼容无 `children` 的官方 mapping、跳过 thoughts/reasoning_recap、合成测试与文档。用户未脱敏导出**未入库、未提交**。
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | ChatGPT 导出可解析 2026-09 官方包结构 | `parsers.ts` |
-| 自动化 | `s2-import.test.ts` 缺 children / thoughts 用例通过 | vitest 2026-09-09 |
-| 真实结果 | 内存计数 34 对话 / 866 可见段 / 7 未解析附件；正文未导入应用数据目录 | 用户桌面导出路径（未复制） |
-| 用户是否接受 | 未在应用内导入 | — |
-| 未完成 | Gemini/Grok/Claude；T01 真人理解；T02 网页采集 | 见 `docs/v03-acceptance-map.md` |
+| 项           | 状态                                                                 | 证据                            |
+| ------------ | -------------------------------------------------------------------- | ------------------------------- |
+| 实现完成度   | ChatGPT 导出可解析 2026-09 官方包结构                                | `parsers.ts`                    |
+| 自动化       | `s2-import.test.ts` 缺 children / thoughts 用例通过                  | vitest 2026-09-09               |
+| 真实结果     | 内存计数 34 对话 / 866 可见段 / 7 未解析附件；正文未导入应用数据目录 | 用户桌面导出路径（未复制）      |
+| 用户是否接受 | 未在应用内导入                                                       | —                               |
+| 未完成       | Gemini/Grok/Claude；T01 真人理解；T02 网页采集                       | 见 `docs/v03-acceptance-map.md` |
 
 ## 20. 删除项目（2026-09-10）
 
 提交边界：项目删除、来源未归属、项目理解级联删除、个人条目保留、确认对话框。不混入未跟踪构思稿。
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | 项目页可删除；来源保留为未归属 | `projects.ts` `delete` |
-| 自动化 | `s2-import.test.ts` 删除项目用例通过 | vitest 2026-09-10 |
-| 真实结果 | 未在日用库演示 | — |
-| 用户是否接受 | 未演示 | — |
-| 未完成 | 归档仍参与问答；无批量删除 | — |
+| 项           | 状态                                 | 证据                   |
+| ------------ | ------------------------------------ | ---------------------- |
+| 实现完成度   | 项目页可删除；来源保留为未归属       | `projects.ts` `delete` |
+| 自动化       | `s2-import.test.ts` 删除项目用例通过 | vitest 2026-09-10      |
+| 真实结果     | 未在日用库演示                       | —                      |
+| 用户是否接受 | 未演示                               | —                      |
+| 未完成       | 归档仍参与问答；无批量删除           | —                      |
 
 ## 21. 来源多选删除与项目下拉刷新（2026-09-10）
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | 来源多选删除；切页刷新项目列表 | `Sources.tsx` `App.tsx` |
-| 自动化 | 类型检查 / ESLint | 本批 |
-| 真实结果 | 未在日用库演示 | — |
-| 用户是否接受 | 未演示 | — |
-| 未完成 | 无 IPC 批量删除接口（逐条调用） | — |
+| 项           | 状态                            | 证据                    |
+| ------------ | ------------------------------- | ----------------------- |
+| 实现完成度   | 来源多选删除；切页刷新项目列表  | `Sources.tsx` `App.tsx` |
+| 自动化       | 类型检查 / ESLint               | 本批                    |
+| 真实结果     | 未在日用库演示                  | —                       |
+| 用户是否接受 | 未演示                          | —                       |
+| 未完成       | 无 IPC 批量删除接口（逐条调用） | —                       |
 
 ## 22. 启动自动检查更新并弹窗（2026-09-10）
 
-| 项 | 状态 | 证据 |
-| --- | --- | --- |
-| 实现完成度 | 启动检查、弹窗、进度、用户批准安装 | `updater.ts` `UpdatePrompt.tsx` |
-| 自动化 | 类型检查 / ESLint | 本批 |
-| 真实结果 | 仅生产构建对 GitHub Releases 生效；开发运行不检查 | — |
-| 用户是否接受 | 未演示 | — |
-| 未完成 | 安装器发版流程仍属 T05 | — |
+| 项           | 状态                                              | 证据                            |
+| ------------ | ------------------------------------------------- | ------------------------------- |
+| 实现完成度   | 启动检查、弹窗、进度、用户批准安装                | `updater.ts` `UpdatePrompt.tsx` |
+| 自动化       | 类型检查 / ESLint                                 | 本批                            |
+| 真实结果     | 仅生产构建对 GitHub Releases 生效；开发运行不检查 | —                               |
+| 用户是否接受 | 未演示                                            | —                               |
+| 未完成       | 安装器发版流程仍属 T05                            | —                               |
 
 ## 23. v0.2.4 发版（2026-09-10）
 
@@ -837,6 +837,25 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 - GitHub：[v0.2.4](https://github.com/plnoble/OMNIX-IXAEON/releases/tag/v0.2.4)
 - 安装包：`IXAEON-Setup-0.2.4.exe` 122,892,441 字节
 - SHA-256：`3453EC7CA41D4079C22D8EF0A5822526EC0725B10E14B840189C2E780232E50C`
+
+## 24. 0.2.4 之后的日用缺口（2026-09-10）
+
+包版本仍是 0.2.4。下列提交在发版之后，安装包里没有。不是 0.3.0。T01–T05 仍未完成。
+
+| 提交      | 内容                                          | 完成度                                                                       |
+| --------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
+| `a66b30b` | 设置页显示扩展配对码                          | 实现完成；0.2.4 安装版看不到按钮                                             |
+| `56989e2` | 提取失败人话 + 同一来源自动再跑一轮           | 自动化：`extraction.test.ts`                                                 |
+| `59ca309` | 来源归档 + 短经验摘要（迁移 17）              | 自动化：`source-archive.test.ts`。原文可查，不当现行目标                     |
+| `3775670` | 出门说法选填；真机 Codex 按确认的隔离默认开启 | 自动化：`s4-research.test.ts` / `s5-execution.test.ts`。T04 真机小任务未跑完 |
+
+用户确认：Codex 隔离默认 `workspace-write` + 隔离工作区 + `--ignore-user-config --skip-git-repo-check`。找到 `codex.exe` 则真机派发，找不到则 Fake。接受结果不自动合并/部署。
+
+未完成：扩展随安装包分发、Gemini/Grok/Claude 解析、付费搜索、T01–T05。不得写成全部验收通过。
+
+## 25. 研究发现可跟进（2026-09-10）
+
+检查成功后：可再批准来源；用户可把发现标为值得行动。标过的条目出现在个人总览，仍是外部线索，不是用户目标。出门说法 schema 允许空串。
 
 ---
 

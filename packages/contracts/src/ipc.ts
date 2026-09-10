@@ -431,6 +431,14 @@ export interface IxaIpcApi {
     conflicts: Item[];
     projects: Array<{ project: Project; goals: Item[]; constraints: Item[] }>;
     relations: ProjectRelation[];
+    researchFollowUps: Array<{
+      id: string;
+      title: string;
+      url: string;
+      excerpt: string;
+      action_reason: string | null;
+      related_project_id: string | null;
+    }>;
     coverage: {
       projectCount: number;
       analyzedSources: number;
@@ -471,6 +479,17 @@ export interface IxaIpcApi {
     mode: 'approved-sources-only';
     searchUsed: false;
   }>;
+  addResearchSource(input: {
+    topicId: string;
+    url: string;
+    kind: 'page' | 'feed';
+  }): Promise<ResearchSource>;
+  setResearchFindingAction(input: {
+    findingId: string;
+    actionWorthy: boolean;
+    actionReason?: string | null;
+    nextExperiment?: string | null;
+  }): Promise<ResearchFinding>;
   listCodingTasks(projectId?: string): Promise<{
     executor: 'fake' | 'codex-cli';
     realDispatchEnabled: boolean;

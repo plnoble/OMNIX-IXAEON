@@ -173,6 +173,58 @@ export class ResearchStore {
     ).map(toTopic);
   }
 
+  addSource(
+    topicId: string,
+    input: { url: string; kind: ResearchSourceKind },
+    now = new Date().toISOString(),
+  ): ResearchSource {
+    this.getTopic(topicId);
+    const url = assertPublicHttpsUrl(input.url).toString();
+    const existing = this.db
+      .prepare('SELECT id FROM research_sources WHERE topic_id = ? AND url = ?')
+      .get(topicId, url) as { id: string } | undefined;
+    if (existing) {
+      throw new IxaError(ErrorCodes.CONFLICT, '该关注已有这个来源');
+    }
+    const id = randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO research_sources (id, topic_id, url, kind, last_fingerprint, last_checked_at, last_success_at, last_error, created_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?)`,
+      )
+      .run(id, topicId, url, input.kind, now);
+    const row = this.db.prepare('SELECT * FROM research_sources WHERE id = ?').get(id) as Record<
+      string,
+      unknown
+    >;
+    return toSource(row);
+  }
+
+  setFindingAction(
+    findingId: string,
+    input: { actionWorthy: boolean; actionReason?: string | null; nextExperiment?: string | null },
+  ): ResearchFinding {
+    const row = this.db.prepare('SELECT * FROM research_findings WHERE id = ?').get(findingId) as
+      Record<string, unknown> | undefined;
+    if (!row) throw new IxaError(ErrorCodes.NOT_FOUND, `研究发现不存在: ${findingId}`);
+    this.db
+      .prepare(
+        `UPDATE research_findings SET action_worthy = ?, action_reason = ?, next_experiment = ? WHERE id = ?`,
+      )
+      .run(
+        input.actionWorthy ? 1 : 0,
+        input.actionReason?.trim() || null,
+        input.nextExperiment?.trim() || null,
+        findingId,
+      );
+    return toFinding(
+      this.db.prepare('SELECT * FROM research_findings WHERE id = ?').get(findingId) as Record<
+        string,
+        unknown
+      >,
+    );
+  }
+
   listSources(topicId: string): ResearchSource[] {
     return (
       this.db
