@@ -868,9 +868,13 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 - 安装包：`IXAEON-Setup-0.2.5.exe` 122,909,747 字节
 - SHA-256：`C8825E721DF3C797FD4251E6ED18D5970EE9ACB053209CEA2A331F2E292C92C5`
 
-## 28. 归档 prompt 失效（2026-09-10）
+## 28. 归档 prompt 失效；v0.2.6（2026-09-10）
 
-0.2.5 来源「归档为过往工作」用 `window.prompt`，Electron 里常直接取消，库里 archived=0。0.2.6 改为确认框。用户已配对（chatgpt_web=1），研究页立即检查已成功。不是全部验收通过。
+0.2.5 来源「归档为过往工作」用 `window.prompt`，Electron 里常直接取消，库里 archived=0。0.2.6 改为确认框，空摘要由主进程生成。用户已配对（chatgpt_web=1），研究页立即检查已成功。不是全部验收通过。
+
+- GitHub：[v0.2.6](https://github.com/plnoble/OMNIX-IXAEON/releases/tag/v0.2.6)
+- 安装包：`IXAEON-Setup-0.2.6.exe` 122,909,794 字节
+- SHA-256：`D5BB542B0AF6BA68160CDC4A7C732B5511E9135F4863D6AD18BB512CF57E5156`
 
 ---
 

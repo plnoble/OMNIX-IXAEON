@@ -248,3 +248,5 @@
 ## 2026-09-10 · 归档按钮无反应；T02/T03 日用库对照
 
 Electron 渲染进程 `window.prompt` 会立刻空返回，归档被当成取消。改为 `confirm`，空摘要由主进程生成。日用库：chatgpt_web=1（红魔玩PC游戏方式）；研究关注「全能AI工作台」立即检查 succeeded。归档条数仍为 0（0.2.5 的 prompt 缺陷）。
+
+安装包 `IXAEON-Setup-0.2.6.exe` 122,909,794 字节，SHA-256 `D5BB542B0AF6BA68160CDC4A7C732B5511E9135F4863D6AD18BB512CF57E5156`。
