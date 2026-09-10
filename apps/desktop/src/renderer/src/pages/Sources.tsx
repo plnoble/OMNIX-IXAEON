@@ -32,6 +32,13 @@ export function analysisStatus(
   if (item.permissionStatus === 'revoked') {
     return { text: '授权已撤销', detail: '不再读取原文；已导入的理解保留', tone: 'bad' };
   }
+  if (item.source.archived_at) {
+    return {
+      text: '已归档（过往工作）',
+      detail: item.source.archive_summary ?? '原文可查，不当现行目标',
+      tone: 'muted',
+    };
+  }
   if (a.lastJobStatus === 'running') return { text: '正在分析…', tone: 'muted' };
   if (a.lastJobStatus === 'queued') {
     return {
@@ -202,6 +209,45 @@ export function SourcesPage({
     setDetail({ ...detail, segments: detail.segments.concat(next.segments), total: next.total });
   };
 
+  const archiveOne = async (id: string, title: string) => {
+    const hint = window.prompt(
+      `把「${title}」归档为过往工作？可改一句经验摘要（取消则不归档）。`,
+      '',
+    );
+    if (hint === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.archiveSource({ sourceId: id, summary: hint.trim() || null });
+      if (detail?.source.id === id) {
+        const source = await api.getSource(id);
+        if (source) setDetail({ ...detail, source });
+      }
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unarchiveOne = async (id: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.unarchiveSource(id);
+      if (detail?.source.id === id) {
+        const source = await api.getSource(id);
+        if (source) setDetail({ ...detail, source });
+      }
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const retryAnalysis = async (id: string) => {
     setError(null);
     try {
@@ -244,6 +290,31 @@ export function SourcesPage({
   const toggleAllVisible = (checked: boolean) => {
     if (!list) return;
     setSelected(checked ? new Set(list.map((item) => item.source.id)) : new Set());
+  };
+
+  const archiveSelected = async () => {
+    if (selected.size === 0) return;
+    const ok = window.confirm(
+      `把选中的 ${selected.size} 个来源归档为过往工作？会留下短经验摘要，原文可查，不再进待讨论。`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    const ids = [...selected];
+    const failed: string[] = [];
+    try {
+      for (const id of ids) {
+        try {
+          await api.archiveSource({ sourceId: id, summary: null });
+        } catch (err) {
+          failed.push(`${id}: ${errMsg(err)}`);
+        }
+      }
+      await reload();
+      if (failed.length > 0) setError(`部分归档失败：\n${failed.join('\n')}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const removeSelected = async () => {
@@ -304,14 +375,23 @@ export function SourcesPage({
               导入 ChatGPT 导出
             </Button>
             {selected.size > 0 && (
-              <Button
-                kind="danger"
-                disabled={busy}
-                onClick={() => void removeSelected()}
-                testId="sources-delete-selected"
-              >
-                删除选中（{selected.size}）
-              </Button>
+              <>
+                <Button
+                  disabled={busy}
+                  onClick={() => void archiveSelected()}
+                  testId="sources-archive-selected"
+                >
+                  归档选中（{selected.size}）
+                </Button>
+                <Button
+                  kind="danger"
+                  disabled={busy}
+                  onClick={() => void removeSelected()}
+                  testId="sources-delete-selected"
+                >
+                  删除选中（{selected.size}）
+                </Button>
+              </>
             )}
           </>
         }
@@ -319,6 +399,7 @@ export function SourcesPage({
         <p className="note">
           原文导入后永久保留、只读。导入相同内容会自动去重。授权只覆盖你在对话框中明确选择的文件。
           ChatGPT 历史导出是一次性导入；浏览器扩展只采集当前打开且可见的对话，不是后台读取整个账号。
+          过往工作请「归档」：留下一句经验摘要，原文可检索，不当现行目标、不进待讨论。无营养问答可直接删除。
           Gemini / Grok / Claude 历史导入需脱敏导出样本后才能接入，本版未伪称已支持。
         </p>
         {list === null ? (
@@ -377,7 +458,30 @@ export function SourcesPage({
                           {status.detail}
                         </div>
                       )}
-                      {item.analysis.lastJobStatus === 'failed' && (
+                      {item.source.archived_at ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void unarchiveOne(item.source.id);
+                          }}
+                        >
+                          恢复活跃
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void archiveOne(item.source.id, item.source.title);
+                          }}
+                        >
+                          归档
+                        </button>
+                      )}
+                      {item.analysis.lastJobStatus === 'failed' && !item.source.archived_at && (
                         <button
                           type="button"
                           className="btn btn-ghost"
@@ -408,6 +512,8 @@ export function SourcesPage({
           onClose={() => setDetail(null)}
           onLoadMore={loadMore}
           onDelete={() => removeSource(detail.source.id)}
+          onArchive={() => void archiveOne(detail.source.id, detail.source.title)}
+          onUnarchive={() => void unarchiveOne(detail.source.id)}
           onReanalyze={async () => {
             await retryAnalysis(detail.source.id);
             // 重进详情拿最新状态（分析任务状态由轮询更新列表）
@@ -432,6 +538,8 @@ function SourceDetail({
   onClose,
   onLoadMore,
   onDelete,
+  onArchive,
+  onUnarchive,
   onReanalyze,
   onProjectBound,
 }: {
@@ -440,6 +548,8 @@ function SourceDetail({
   onClose: () => void;
   onLoadMore: () => void;
   onDelete: () => void;
+  onArchive: () => void;
+  onUnarchive: () => void;
   /** P3：详情内直接触发重新分析（不止失败态可重试） */
   onReanalyze: () => Promise<void>;
   onProjectBound: (projectId: string | null) => Promise<void>;
@@ -479,7 +589,20 @@ function SourceDetail({
       testId="source-detail"
       actions={
         <>
-          <Button onClick={() => void onReanalyze()} testId="source-reanalyze">
+          {source.archived_at ? (
+            <Button onClick={onUnarchive} testId="source-unarchive">
+              恢复活跃
+            </Button>
+          ) : (
+            <Button onClick={onArchive} testId="source-archive">
+              归档为过往工作
+            </Button>
+          )}
+          <Button
+            onClick={() => void onReanalyze()}
+            testId="source-reanalyze"
+            disabled={Boolean(source.archived_at)}
+          >
             重新分析
           </Button>
           <Button kind="danger" onClick={onDelete} testId="source-delete">
@@ -507,6 +630,12 @@ function SourceDetail({
           ))}
         </select>
       </div>
+      {source.archived_at && (
+        <p className="note" data-testid="source-archive-summary">
+          已归档。经验摘要：{source.archive_summary ?? '（无）'}
+          原文仍可检索；不当现行目标，不进待讨论。
+        </p>
+      )}
       <p className="note">
         共 {total} 个片段；显示 {segments.length} 个。点击“上下文”查看该片段前后原文（证据核验）。
         「重新分析」把当前片段重新交给模型提取（人工确认/纠正的内容受保护，不会被覆盖）。

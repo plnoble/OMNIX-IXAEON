@@ -232,6 +232,20 @@ export class JobQueue {
     return this.get(id) as Job;
   }
 
+  /** 取消某来源上排队或运行中的提取任务（归档时调用）。 */
+  cancelExtractJobsForSource(sourceId: string): number {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM jobs
+         WHERE kind = 'extract' AND status IN ('queued', 'running')
+           AND payload_json LIKE ?
+         ORDER BY created_at`,
+      )
+      .all(`%"sourceId":"${sourceId}"%`) as Array<{ id: string }>;
+    for (const row of rows) this.cancel(row.id);
+    return rows.length;
+  }
+
   /** 取消排队或运行中的任务。 */
   cancel(id: string): Job {
     const job = this.get(id);

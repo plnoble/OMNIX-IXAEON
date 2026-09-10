@@ -337,6 +337,12 @@ export interface IxaIpcApi {
   } | null>;
   searchSegments(input: SearchInput): Promise<SegmentHit[]>;
   reextractSource(sourceId: string): Promise<{ jobId: string }>;
+  archiveSource(input: {
+    sourceId: string;
+    /** 空则用标题+开头原文自动生成一句经验摘要 */
+    summary?: string | null;
+  }): Promise<{ archivedAt: string; summary: string; withdrawnItems: number }>;
+  unarchiveSource(sourceId: string): Promise<{ ok: true }>;
   revokeSourceReading(sourceId: string): Promise<Permission>;
   deleteSourceDerived(sourceId: string): Promise<{ deletedItems: number }>;
   deleteSource(sourceId: string): Promise<{ ok: true }>;

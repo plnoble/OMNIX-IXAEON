@@ -293,7 +293,8 @@ export class AppRuntime {
     const rows = this.db
       .prepare(
         `SELECT s.id, s.provider FROM sources s
-         WHERE s.content_revision > s.analyzed_revision
+         WHERE s.archived_at IS NULL
+           AND s.content_revision > s.analyzed_revision
          ORDER BY s.imported_at DESC LIMIT ?`,
       )
       .all(limit) as Array<{ id: string; provider: string }>;
@@ -357,6 +358,14 @@ export class AppRuntime {
         auto?: boolean;
       };
       const isAuto = payload.auto === true;
+      if (this.sources.isArchived(payload.sourceId)) {
+        const err = new IxaError(
+          ErrorCodes.JOB_CANCELLED,
+          '提取已取消（来源已归档，不再生成现行理解）',
+        ) as IxaError & { jobCancelled: boolean };
+        err.jobCancelled = true;
+        throw err;
+      }
       // 修复 F4：自动任务在真正执行前重新检查开关、来源授权与对话暂停状态 ——
       // 排队时允许不代表执行时仍被允许。手动任务只受授权约束（关闭自动分析
       // 不封死仍获授权的手动操作；撤销授权则一律禁止，由提取器内检查）。

@@ -566,6 +566,17 @@ CREATE INDEX IF NOT EXISTS idx_items_scope ON items(scope);
 CREATE INDEX IF NOT EXISTS idx_items_origin ON items(origin, type);
 `,
   },
+  {
+    id: 17,
+    name: 'source-archive-with-experience-summary',
+    sql: `
+-- 来源归档：原文可查，不再自动分析、不进现行理解/待讨论。
+-- 归档时留下短经验摘要（非用户目标）。
+ALTER TABLE sources ADD COLUMN archived_at TEXT;
+ALTER TABLE sources ADD COLUMN archive_summary TEXT;
+CREATE INDEX IF NOT EXISTS idx_sources_archived ON sources(archived_at);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

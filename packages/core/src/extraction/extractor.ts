@@ -85,9 +85,19 @@ export class Extractor {
     };
     ensureContinuing();
     const source = this.db
-      .prepare('SELECT id, title, project_id FROM sources WHERE id = ?')
-      .get(sourceId) as { id: string; title: string; project_id: string | null } | undefined;
+      .prepare('SELECT id, title, project_id, archived_at FROM sources WHERE id = ?')
+      .get(sourceId) as
+      | {
+          id: string;
+          title: string;
+          project_id: string | null;
+          archived_at: string | null;
+        }
+      | undefined;
     if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${sourceId}`);
+    if (source.archived_at) {
+      throw new IxaError(ErrorCodes.CONFLICT, '已归档来源不再提取现行理解；需要时先恢复为活跃');
+    }
     // 重新提取也是一次原文读取：授权撤销后拒绝
     assertSourceAuthorized(this.db, sourceId);
 

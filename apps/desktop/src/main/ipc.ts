@@ -272,9 +272,30 @@ export function registerIpc(runtime: AppRuntime): void {
           })
         : runtime.search.searchSegments(input.query, { limit: input.limit }),
     reextractSource: async (sourceId) => {
+      if (runtime.sources.isArchived(sourceId)) {
+        throw new IxaError(ErrorCodes.CONFLICT, '已归档来源请先恢复为活跃，再重新分析');
+      }
       const job = runtime.jobs.enqueue('extract', { sourceId, reextract: true });
       runtime.jobs.kick();
       return { jobId: job.id };
+    },
+    archiveSource: async (input) => {
+      const summary =
+        input.summary && input.summary.trim().length > 0
+          ? input.summary.trim()
+          : runtime.sources.composeArchiveSummary(input.sourceId);
+      runtime.jobs.cancelExtractJobsForSource(input.sourceId);
+      const result = runtime.sources.archive(input.sourceId, summary);
+      recordAudit(runtime.db, 'source.archived', {
+        sourceId: input.sourceId,
+        withdrawnItems: result.withdrawnItems,
+      });
+      return result;
+    },
+    unarchiveSource: async (sourceId) => {
+      runtime.sources.unarchive(sourceId);
+      recordAudit(runtime.db, 'source.unarchived', { sourceId });
+      return { ok: true as const };
     },
     revokeSourceReading: async (sourceId): Promise<Permission> => {
       const source = runtime.sources.get(sourceId);

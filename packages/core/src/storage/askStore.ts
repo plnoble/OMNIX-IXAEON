@@ -72,10 +72,16 @@ export class AskService {
     const items = this.db
       .prepare(
         `SELECT i.id, i.type, i.statement, i.state, i.origin, i.updated_at,
-                i.extracted_from_source_id, i.confirmation, i.project_id, i.scope
+                i.extracted_from_source_id, i.confirmation, i.project_id, i.scope,
+                i.rationale
          FROM items i
+         LEFT JOIN sources src_i ON src_i.id = i.extracted_from_source_id
          WHERE i.state IN ('current', 'disputed') AND i.shelved_at IS NULL
            AND i.confirmation != 'rejected'
+           AND (src_i.archived_at IS NULL
+                OR i.origin = 'user'
+                OR (i.origin = 'ai' AND i.type = 'project_summary'
+                    AND i.rationale LIKE '归档经验摘要%'))
            ${projectId !== null ? 'AND i.project_id = ?' : ''}
          ORDER BY CASE WHEN i.origin = 'user' THEN 0
                        WHEN i.confirmation = 'confirmed' THEN 1
@@ -92,6 +98,7 @@ export class AskService {
       confirmation: string;
       project_id: string | null;
       scope: string;
+      rationale: string | null;
     }>;
     const ranked = rankItemsForQuestion(items, question).slice(0, 80);
 
@@ -143,10 +150,7 @@ export class AskService {
         sourceTitle: item.origin === 'user' ? '用户纠正' : evAllowed && ev ? ev.title : '条目',
         role: item.origin === 'user' ? 'user' : evAllowed && ev ? ev.role : 'item',
         occurredAt: item.updated_at,
-        text:
-          item.origin === 'user'
-            ? `[用户纠正 · ${item.type}] ${item.statement}`
-            : `[${item.type}${item.state === 'disputed' ? ' · 存在冲突' : ''}${confirmationLabel(item.confirmation)}] ${item.statement}${evAllowed && ev ? `\n依据摘录：${ev.excerpt}` : ''}`,
+        text: formatItemForAsk(item, evAllowed && ev ? ev.excerpt : null),
         isUserCorrection: item.origin === 'user',
       });
       if (usedChars(cited) > MAX_CONTEXT_CHARS) {
@@ -160,7 +164,8 @@ export class AskService {
     if (keywords.length > 0) {
       const segs = this.db
         .prepare(
-          `SELECT sg.id, sg.role, sg.text, sg.occurred_at, src.title, src.project_id, src.id AS source_id
+          `SELECT sg.id, sg.role, sg.text, sg.occurred_at, src.title, src.project_id, src.id AS source_id,
+                  src.archived_at, src.archive_summary
            FROM segments_fts f
            JOIN segments sg ON sg.rowid = f.rowid
            JOIN sources src ON src.id = sg.source_id
@@ -175,6 +180,8 @@ export class AskService {
         title: string;
         project_id: string | null;
         source_id: string;
+        archived_at: string | null;
+        archive_summary: string | null;
       }>;
       for (const seg of segs) {
         // 项目隔离：指定项目时只允许明确属于该项目的片段（未分配不混入）
@@ -190,7 +197,9 @@ export class AskService {
           sourceTitle: seg.title,
           role: seg.role,
           occurredAt: seg.occurred_at,
-          text: seg.text.slice(0, 1200),
+          text: seg.archived_at
+            ? `[过往工作档案${seg.archive_summary ? ` · 经验：${seg.archive_summary}` : ''}] ${seg.text.slice(0, 1000)}`
+            : seg.text.slice(0, 1200),
           isUserCorrection: false,
         });
         if (usedChars(cited) > MAX_CONTEXT_CHARS) {
@@ -277,14 +286,19 @@ export class AskService {
     const unanalyzed = (
       this.db
         .prepare(
-          'SELECT COUNT(*) AS n FROM sources WHERE COALESCE(content_revision, 0) > COALESCE(analyzed_revision, 0)',
+          'SELECT COUNT(*) AS n FROM sources WHERE archived_at IS NULL AND COALESCE(content_revision, 0) > COALESCE(analyzed_revision, 0)',
         )
         .get() as { n: number }
     ).n;
     const unassigned = (
       this.db
         .prepare(
-          "SELECT COUNT(*) AS n FROM items WHERE scope = 'unassigned' AND state IN ('current', 'disputed') AND confirmation != 'rejected'",
+          `SELECT COUNT(*) AS n FROM items i
+           LEFT JOIN sources s ON s.id = i.extracted_from_source_id
+           WHERE i.scope = 'unassigned' AND i.state IN ('current', 'disputed')
+             AND i.confirmation != 'rejected' AND i.shelved_at IS NULL
+             AND s.archived_at IS NULL
+             AND NOT (i.origin = 'ai' AND i.type = 'project_summary' AND i.rationale LIKE '归档经验摘要%')`,
         )
         .get() as { n: number }
     ).n;
@@ -323,6 +337,34 @@ export class AskService {
 
 function usedChars(cited: CitedSegment[]): number {
   return cited.reduce((n, c) => n + c.text.length + 60, 0);
+}
+
+function isArchiveExperience(item: {
+  origin: string;
+  type: string;
+  rationale: string | null;
+}): boolean {
+  return (
+    item.origin === 'ai' &&
+    item.type === 'project_summary' &&
+    (item.rationale ?? '').startsWith('归档经验摘要')
+  );
+}
+
+function formatItemForAsk(
+  item: {
+    type: string;
+    statement: string;
+    state: string;
+    origin: string;
+    confirmation: string;
+    rationale: string | null;
+  },
+  excerpt: string | null,
+): string {
+  if (item.origin === 'user') return `[用户纠正 · ${item.type}] ${item.statement}`;
+  if (isArchiveExperience(item)) return `[过往工作档案 · 经验摘要] ${item.statement}`;
+  return `[${item.type}${item.state === 'disputed' ? ' · 存在冲突' : ''}${confirmationLabel(item.confirmation)}] ${item.statement}${excerpt ? `\n依据摘录：${excerpt}` : ''}`;
 }
 
 /** C06/A11：把确认状态告诉模型 —— 待确认与已确认的语境必须可区分。 */

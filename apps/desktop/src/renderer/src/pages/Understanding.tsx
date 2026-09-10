@@ -73,7 +73,16 @@ export function UnderstandingPage({ projects }: { projects: Project[] }) {
   };
 
   const projectById = new Map(projects.map((p) => [p.id, p]));
-  const active = items?.filter((i) => !i.shelved_at) ?? [];
+  const active =
+    items?.filter(
+      (i) =>
+        !i.shelved_at &&
+        !(
+          i.origin === 'ai' &&
+          i.type === 'project_summary' &&
+          (i.rationale ?? '').startsWith('归档经验摘要')
+        ),
+    ) ?? [];
   const current = active.filter((i) => i.state === 'current');
   const disputed = active.filter((i) => i.state === 'disputed');
 

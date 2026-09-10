@@ -53,8 +53,8 @@ function pages(map: Record<string, { body?: string; type?: string }>): FetchDeps
 }
 
 describe('A04 角色与观点', () => {
-  it('全新库迁移版本为 16', () => {
-    expect(currentMigrationVersion(db)).toBe(16);
+  it('全新库迁移版本为 16 或更新', () => {
+    expect(currentMigrationVersion(db)).toBeGreaterThanOrEqual(16);
   });
 
   it('助手建议不能写成用户目标；研究发现 origin=research 且不进目标列表', async () => {

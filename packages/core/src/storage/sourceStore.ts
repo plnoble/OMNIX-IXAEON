@@ -261,6 +261,8 @@ export class SourceStore {
         permission_id: r.permission_id,
         project_id: r.project_id,
         metadata_json: r.metadata_json,
+        archived_at: (r as { archived_at?: string | null }).archived_at ?? null,
+        archive_summary: (r as { archive_summary?: string | null }).archive_summary ?? null,
       },
       permissionStatus: r.permission_status,
       segmentCount: r.segment_count,
@@ -572,6 +574,112 @@ export class SourceStore {
     });
     tx();
     return rows.length;
+  }
+
+  /** 来源是否已归档（档案可检索，不再当现行工作）。 */
+  isArchived(id: string): boolean {
+    const row = this.db.prepare('SELECT archived_at AS a FROM sources WHERE id = ?').get(id) as
+      { a: string | null } | undefined;
+    return Boolean(row?.a);
+  }
+
+  /** 无模型时也能归档：标题 + 开头几句用户/文档原文，截成短经验。 */
+  composeArchiveSummary(id: string): string {
+    const source = this.get(id);
+    if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${id}`);
+    const rows = this.db
+      .prepare(
+        `SELECT text FROM segments
+         WHERE source_id = ? AND role IN ('user', 'document') AND is_active_branch != 0
+         ORDER BY sequence LIMIT 3`,
+      )
+      .all(id) as Array<{ text: string }>;
+    const body = rows
+      .map((r) => r.text.replace(/\s+/g, ' ').trim())
+      .filter((t) => t.length > 0)
+      .join('；')
+      .slice(0, 240);
+    const title = source.title.replace(/\s+/g, ' ').trim();
+    if (body.length === 0) return `过往工作：${title}`.slice(0, 400);
+    return `过往工作「${title}」：${body}`.slice(0, 400);
+  }
+
+  /**
+   * 归档来源：停分析、退出待讨论与现行理解；原文可查。
+   * 短经验摘要不写成用户目标（origin=ai，project_summary）。
+   */
+  archive(
+    id: string,
+    summary: string,
+  ): { archivedAt: string; summary: string; withdrawnItems: number } {
+    const source = this.get(id);
+    if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${id}`);
+    const now = new Date().toISOString();
+    const text = summary.replace(/\s+/g, ' ').trim().slice(0, 400);
+    if (text.length === 0) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '归档需要一句经验摘要');
+    }
+    let withdrawnItems = 0;
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare('UPDATE sources SET archived_at = ?, archive_summary = ? WHERE id = ?')
+        .run(now, text, id);
+      const withdrawn = this.db
+        .prepare(
+          `UPDATE items SET needs_review = 0, needs_reasons = '', shelved_at = COALESCE(shelved_at, ?), updated_at = ?
+           WHERE extracted_from_source_id = ? AND origin = 'ai'
+             AND state IN ('current', 'disputed')
+             AND NOT (type = 'project_summary' AND rationale LIKE '归档经验摘要%')`,
+        )
+        .run(now, now, id);
+      withdrawnItems = Number(withdrawn.changes ?? 0);
+      const existing = this.db
+        .prepare(
+          `SELECT id FROM items
+           WHERE extracted_from_source_id = ? AND origin = 'ai' AND type = 'project_summary'
+             AND statement = ? AND state IN ('current', 'disputed')
+           LIMIT 1`,
+        )
+        .get(id, text) as { id: string } | undefined;
+      if (existing) {
+        this.db
+          .prepare(
+            `UPDATE items SET needs_review = 0, needs_reasons = '', shelved_at = NULL,
+                    rationale = ?, updated_at = ?, confirmation = 'none', confirmation_at = NULL
+             WHERE id = ?`,
+          )
+          .run('归档经验摘要（过往工作，不是现行目标）', now, existing.id);
+      } else {
+        this.db
+          .prepare(
+            `INSERT INTO items (id, project_id, scope, type, statement, rationale, state, confidence,
+               origin, observed_at, created_at, updated_at, extracted_from_source_id,
+               prompt_version, model_name, needs_review, needs_reasons)
+             VALUES (?, ?, ?, 'project_summary', ?, ?, 'current', 0.4, 'ai', ?, ?, ?, ?, NULL, NULL, 0, '')`,
+          )
+          .run(
+            randomUUID(),
+            source.project_id,
+            source.project_id ? 'project' : 'unassigned',
+            text,
+            '归档经验摘要（过往工作，不是现行目标）',
+            now,
+            now,
+            now,
+            id,
+          );
+      }
+    });
+    tx();
+    return { archivedAt: now, summary: text, withdrawnItems };
+  }
+
+  /** 从档案恢复为活跃来源：可再分析。经验摘要保留，不自动重提。 */
+  unarchive(id: string): Source {
+    const source = this.get(id);
+    if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${id}`);
+    this.db.prepare('UPDATE sources SET archived_at = NULL WHERE id = ?').run(id);
+    return this.get(id) as Source;
   }
 
   /** 删除整份来源（含片段、派生理解；vault 原件保留）。 */

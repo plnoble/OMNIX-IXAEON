@@ -28,13 +28,16 @@ export interface PersonalOverview {
 export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
   const items = db
     .prepare(
-      `SELECT * FROM items
-       WHERE state IN ('current', 'disputed')
-         AND confirmation != 'rejected'
-         AND shelved_at IS NULL
-       ORDER BY CASE WHEN origin = 'user' THEN 0
-                     WHEN confirmation = 'confirmed' THEN 1
-                     ELSE 2 END, updated_at DESC`,
+      `SELECT i.* FROM items i
+       LEFT JOIN sources s ON s.id = i.extracted_from_source_id
+       WHERE i.state IN ('current', 'disputed')
+         AND i.confirmation != 'rejected'
+         AND i.shelved_at IS NULL
+         AND (s.archived_at IS NULL OR i.origin = 'user')
+         AND NOT (i.origin = 'ai' AND i.type = 'project_summary' AND i.rationale LIKE '归档经验摘要%')
+       ORDER BY CASE WHEN i.origin = 'user' THEN 0
+                     WHEN i.confirmation = 'confirmed' THEN 1
+                     ELSE 2 END, i.updated_at DESC`,
     )
     .all() as Array<Record<string, unknown>>;
   const toItem = (row: Record<string, unknown>): Item => ({
@@ -65,14 +68,14 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
   const analyzed = (
     db
       .prepare(
-        'SELECT COUNT(*) AS n FROM sources WHERE COALESCE(analyzed_revision, 0) >= COALESCE(content_revision, 0) AND COALESCE(content_revision, 0) > 0',
+        'SELECT COUNT(*) AS n FROM sources WHERE archived_at IS NULL AND COALESCE(analyzed_revision, 0) >= COALESCE(content_revision, 0) AND COALESCE(content_revision, 0) > 0',
       )
       .get() as { n: number }
   ).n;
   const unanalyzed = (
     db
       .prepare(
-        'SELECT COUNT(*) AS n FROM sources WHERE COALESCE(content_revision, 0) > COALESCE(analyzed_revision, 0)',
+        'SELECT COUNT(*) AS n FROM sources WHERE archived_at IS NULL AND COALESCE(content_revision, 0) > COALESCE(analyzed_revision, 0)',
       )
       .get() as { n: number }
   ).n;

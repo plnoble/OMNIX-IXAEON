@@ -66,6 +66,10 @@ export const sourceSchema = z.object({
   content_revision: z.number().int().nonnegative().optional(),
   /** 已成功生成理解的版本（提取失败/取消/引用不合法不得推进） */
   analyzed_revision: z.number().int().nonnegative().optional(),
+  /** 归档时间；非空表示档案，不再当现行工作分析 */
+  archived_at: isoDateTimeSchema.nullable().optional(),
+  /** 归档时留下的短经验摘要（非现行目标） */
+  archive_summary: z.string().nullable().optional(),
 });
 export type Source = z.infer<typeof sourceSchema>;
 
