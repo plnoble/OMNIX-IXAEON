@@ -77,6 +77,8 @@ const api: IxaIpcApi = {
   setResearchFindingAction: (input) => ipcRenderer.invoke('ixaeon:setResearchFindingAction', input),
   listCodingTasks: (projectId) => ipcRenderer.invoke('ixaeon:listCodingTasks', projectId),
   createCodingTask: (input) => ipcRenderer.invoke('ixaeon:createCodingTask', input),
+  createCodingDraftFromFinding: (input) =>
+    ipcRenderer.invoke('ixaeon:createCodingDraftFromFinding', input),
   approveCodingTask: (id) => ipcRenderer.invoke('ixaeon:approveCodingTask', id),
   dispatchCodingTask: (id) => ipcRenderer.invoke('ixaeon:dispatchCodingTask', id),
   cancelCodingTask: (id) => ipcRenderer.invoke('ixaeon:cancelCodingTask', id),

@@ -236,7 +236,9 @@ export default function App() {
           <SearchPage projects={projects} projectId={projectId} onProjectChange={setProjectId} />
         )}
 
-        {page === 'research' && <ResearchPage />}
+        {page === 'research' && (
+          <ResearchPage projects={projects} onOpenTasks={() => setPage('tasks')} />
+        )}
 
         {page === 'tasks' && <TasksPage projects={projects} />}
 

@@ -211,6 +211,41 @@ export class CodingOrchestrator {
     return this.store.create(input);
   }
 
+  /**
+   * 从用户标过「值得行动」的发现开编码草案。不批准、不派发。
+   * 同一发现同一项目幂等（dispatch_key）。
+   */
+  draftFromFinding(input: { findingId: string; projectId?: string | null }): CodingTask {
+    const row = this.db
+      .prepare('SELECT * FROM research_findings WHERE id = ?')
+      .get(input.findingId) as
+      | {
+          id: string;
+          title: string;
+          url: string;
+          excerpt: string;
+          action_worthy: number;
+          related_project_id: string | null;
+        }
+      | undefined;
+    if (!row) throw new IxaError(ErrorCodes.NOT_FOUND, `研究发现不存在: ${input.findingId}`);
+    if (!row.action_worthy) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '先把这条发现标为值得行动，再开草案');
+    }
+    const projectId = input.projectId?.trim() || row.related_project_id;
+    if (!projectId) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '开草案需要先选一个项目');
+    }
+    const goal = `跟进公开发现（不自动部署）：${row.title}\n来源 ${row.url}\n摘录：${row.excerpt.slice(0, 400)}`;
+    return this.store.create({
+      projectId,
+      goal,
+      scope: ['research-followup.md'],
+      allowedCommands: [['node', '-e', 'process.exit(0)']],
+      dispatchKey: `research-finding:${row.id}:${projectId}`,
+    });
+  }
+
   async approveAndQueue(taskId: string, expiresAt?: string | null): Promise<CodingTask> {
     const prepared = this.store.prepareWorkspace(taskId, this.dataDir);
     this.store.approve({

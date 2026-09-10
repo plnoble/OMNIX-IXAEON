@@ -10,6 +10,7 @@ import {
   CodingTaskStore,
   CodingOrchestrator,
   FakeCodingExecutor,
+  ResearchStore,
   type CoreDatabase,
   type IndependentCheck,
 } from '../../src/index.js';
@@ -256,5 +257,37 @@ describe('A21 幂等与重启', () => {
     store.setStatus(a.id, 'running');
     expect(store.markUnknownRunning()).toBeGreaterThan(0);
     expect(store.get(a.id).status).toBe('unknown');
+  });
+});
+
+describe('研究发现开草案', () => {
+  it('未标记拒绝；标记后开草案不派发；同一发现幂等', () => {
+    const research = new ResearchStore(db);
+    const topic = research.createTopic({
+      question: '有新版本吗',
+      sources: [{ url: 'https://example.com/releases', kind: 'page' }],
+    });
+    const finding = research.insertFinding({
+      topicId: topic.id,
+      sourceId: research.listSources(topic.id)[0]!.id,
+      title: 'v9 发布',
+      url: 'https://example.com/releases/v9',
+      excerpt: 'added sandbox flag',
+      fingerprint: 'fp-v9',
+      claimedPublishedAt: null,
+      fetchedAt: new Date().toISOString(),
+      relatedGoalId: null,
+      relatedProjectId: null,
+    });
+    expect(finding).not.toBeNull();
+    const orch = new CodingOrchestrator(db, new FakeCodingExecutor(), dir);
+    expect(() => orch.draftFromFinding({ findingId: finding!.id, projectId })).toThrow(/值得行动/);
+    research.setFindingAction(finding!.id, { actionWorthy: true, actionReason: '跟进' });
+    const draft = orch.draftFromFinding({ findingId: finding!.id, projectId });
+    expect(draft.status).toBe('draft');
+    expect(draft.goal).toMatch(/v9 发布/);
+    const again = orch.draftFromFinding({ findingId: finding!.id, projectId });
+    expect(again.id).toBe(draft.id);
+    expect(orch.store.get(draft.id).status).toBe('draft');
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, errMsg } from '../api.js';
+import { api, errMsg, type Project } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 
 interface Snapshot {
@@ -40,7 +40,13 @@ interface Snapshot {
   }>;
 }
 
-export function ResearchPage() {
+export function ResearchPage({
+  projects,
+  onOpenTasks,
+}: {
+  projects: Project[];
+  onOpenTasks?: () => void;
+}) {
   const [data, setData] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,6 +55,7 @@ export function ResearchPage() {
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceKind, setSourceKind] = useState<'page' | 'feed'>('page');
   const [extraUrl, setExtraUrl] = useState<Record<string, string>>({});
+  const [draftProjectId, setDraftProjectId] = useState(projects[0]?.id ?? '');
 
   const reload = useCallback(async () => {
     try {
@@ -62,6 +69,11 @@ export function ResearchPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (draftProjectId && projects.some((p) => p.id === draftProjectId)) return;
+    setDraftProjectId(projects[0]?.id ?? '');
+  }, [projects, draftProjectId]);
 
   const create = async () => {
     setBusy(true);
@@ -250,21 +262,56 @@ export function ResearchPage() {
                   </div>
                   <p>{f.excerpt}</p>
                   {f.action_reason && <p className="muted">{f.action_reason}</p>}
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      void act(() =>
-                        api.setResearchFindingAction({
-                          findingId: f.id,
-                          actionWorthy: !f.action_worthy,
-                          actionReason: f.action_worthy ? null : '用户标记：值得跟进',
-                        }),
-                      )
-                    }
-                    testId={`research-action-${f.id}`}
-                  >
-                    {f.action_worthy ? '取消「值得行动」' : '标为值得行动'}
-                  </Button>
+                  <div className="card-actions">
+                    <Button
+                      disabled={busy}
+                      onClick={() =>
+                        void act(() =>
+                          api.setResearchFindingAction({
+                            findingId: f.id,
+                            actionWorthy: !f.action_worthy,
+                            actionReason: f.action_worthy ? null : '用户标记：值得跟进',
+                          }),
+                        )
+                      }
+                      testId={`research-action-${f.id}`}
+                    >
+                      {f.action_worthy ? '取消「值得行动」' : '标为值得行动'}
+                    </Button>
+                    {f.action_worthy && projects.length > 0 ? (
+                      <>
+                        <select
+                          value={draftProjectId}
+                          onChange={(e) => setDraftProjectId(e.target.value)}
+                          data-testid={`research-draft-project-${f.id}`}
+                        >
+                          {projects.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          disabled={busy || !draftProjectId}
+                          onClick={() =>
+                            void act(async () => {
+                              await api.createCodingDraftFromFinding({
+                                findingId: f.id,
+                                projectId: draftProjectId,
+                              });
+                              onOpenTasks?.();
+                            })
+                          }
+                          testId={`research-draft-${f.id}`}
+                        >
+                          开编码草案（不派发）
+                        </Button>
+                      </>
+                    ) : null}
+                    {f.action_worthy && projects.length === 0 ? (
+                      <p className="muted">先登记一个项目，才能开草案。</p>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

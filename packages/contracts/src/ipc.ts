@@ -502,6 +502,10 @@ export interface IxaIpcApi {
     scope: string[];
     allowedCommands: string[][];
   }): Promise<CodingTask>;
+  createCodingDraftFromFinding(input: {
+    findingId: string;
+    projectId?: string | null;
+  }): Promise<CodingTask>;
   approveCodingTask(id: string): Promise<CodingTask>;
   dispatchCodingTask(id: string): Promise<CodingTask>;
   cancelCodingTask(id: string): Promise<CodingTask>;
