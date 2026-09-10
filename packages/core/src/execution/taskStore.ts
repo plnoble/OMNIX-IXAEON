@@ -396,6 +396,19 @@ export class CodingTaskStore {
     return this.get(id);
   }
 
+  /**
+   * 删除已结束或未派发的任务。执行中必须先取消。
+   * 工作区目录由编排层按 dataDir 删除，这里只删库记录。
+   */
+  remove(id: string): CodingTask {
+    const task = this.get(id);
+    if (task.status === 'running') {
+      throw new IxaError(ErrorCodes.CONFLICT, '正在执行的任务不能删除，请先取消');
+    }
+    this.db.prepare('DELETE FROM coding_tasks WHERE id = ?').run(id);
+    return task;
+  }
+
   cancel(id: string, now = new Date().toISOString()): CodingTask {
     const task = this.get(id);
     this.db

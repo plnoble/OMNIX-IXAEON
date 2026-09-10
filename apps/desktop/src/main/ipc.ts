@@ -436,6 +436,11 @@ export function registerIpc(runtime: AppRuntime): void {
     dispatchCodingTask: async (id) => runtime.coding.dispatch(id),
     cancelCodingTask: async (id) => runtime.coding.cancel(id),
     acceptCodingTask: async (id) => runtime.coding.accept(id),
+    deleteCodingTask: async (id) => {
+      const task = runtime.coding.remove(id);
+      recordAudit(runtime.db, 'coding.task_deleted', { taskId: id, status: task.status });
+      return task;
+    },
 
     // --- 工作记录（M3） ---
     listWorkRuns: async (input) => runtime.listWorkRuns(input.projectId, input.limit),

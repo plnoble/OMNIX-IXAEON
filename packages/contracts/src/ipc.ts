@@ -510,6 +510,7 @@ export interface IxaIpcApi {
   dispatchCodingTask(id: string): Promise<CodingTask>;
   cancelCodingTask(id: string): Promise<CodingTask>;
   acceptCodingTask(id: string): Promise<CodingTask>;
+  deleteCodingTask(id: string): Promise<CodingTask>;
   // 工作记录
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置

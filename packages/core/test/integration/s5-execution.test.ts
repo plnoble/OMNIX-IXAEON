@@ -290,4 +290,39 @@ describe('研究发现开草案', () => {
     expect(again.id).toBe(draft.id);
     expect(orch.store.get(draft.id).status).toBe('draft');
   });
+
+  it('已完成任务可删除；执行中必须先取消', async () => {
+    const orch = new CodingOrchestrator(
+      db,
+      new FakeCodingExecutor({ files: { 'note.txt': 'ok' } }),
+      dir,
+      async () => ({
+        argv: ['node', '-e', 'process.exit(0)'],
+        exitCode: 0,
+        output: 'ok',
+        ran: true,
+      }),
+    );
+    const task = orch.create({
+      projectId,
+      goal: '写 note',
+      scope: ['note.txt'],
+      allowedCommands: [['node', '-e', 'process.exit(0)']],
+    });
+    await orch.approveAndQueue(task.id);
+    const done = await orch.dispatch(task.id);
+    orch.accept(done.id);
+    const removed = orch.remove(done.id);
+    expect(removed.status).toBe('completed');
+    expect(() => orch.store.get(done.id)).toThrow(/不存在/);
+
+    const running = orch.create({
+      projectId,
+      goal: '执行中',
+      scope: ['a.txt'],
+      allowedCommands: [['node', '-e', 'process.exit(0)']],
+    });
+    orch.store.setStatus(running.id, 'running');
+    expect(() => orch.remove(running.id)).toThrow(/正在执行/);
+  });
 });

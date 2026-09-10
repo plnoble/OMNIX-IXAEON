@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { ErrorCodes, IxaError, type CodingTask } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { CodingTaskStore } from './taskStore.js';
@@ -345,6 +345,19 @@ export class CodingOrchestrator {
   cancel(taskId: string): CodingTask {
     if (this.currentTaskId === taskId) this.currentAbort?.abort();
     return this.store.cancel(taskId);
+  }
+
+  remove(taskId: string): CodingTask {
+    const task = this.store.remove(taskId);
+    const ws = task.workspace_path;
+    if (ws) {
+      const root = resolve(join(this.dataDir, 'workspaces'));
+      const abs = resolve(ws);
+      if (abs === root || abs.startsWith(root + '\\') || abs.startsWith(root + '/')) {
+        rmSync(abs, { recursive: true, force: true });
+      }
+    }
+    return task;
   }
 }
 

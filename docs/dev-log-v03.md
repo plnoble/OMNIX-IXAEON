@@ -234,3 +234,7 @@
 ## 2026-09-10 · 发现可开编码草案；真网探测
 
 标过值得行动的发现可开编码草案（不批准、不派发，同一发现同一项目幂等）。本机 Codex CLI 0.130.0-alpha.5 仍在。PowerShell 打开 `example.com` HTTP 200；产品用的 Node `fetch` 同机 TLS `ECONNRESET`。T03/T04 日用闭环未跑完。
+
+## 2026-09-10 · 编码任务可删除；卡片标明 Fake/Codex
+
+用户日用库一条「写 note.txt」是 Fake（executor_name=fake），不是真机 Codex。0.2.4 安装包仍走 Fake。任务页补删除（执行中先取消），并写明当前执行器。T04 真机仍未跑。

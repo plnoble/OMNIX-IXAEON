@@ -83,6 +83,7 @@ const api: IxaIpcApi = {
   dispatchCodingTask: (id) => ipcRenderer.invoke('ixaeon:dispatchCodingTask', id),
   cancelCodingTask: (id) => ipcRenderer.invoke('ixaeon:cancelCodingTask', id),
   acceptCodingTask: (id) => ipcRenderer.invoke('ixaeon:acceptCodingTask', id),
+  deleteCodingTask: (id) => ipcRenderer.invoke('ixaeon:deleteCodingTask', id),
   listWorkRuns: (input) => ipcRenderer.invoke('ixaeon:listWorkRuns', input),
   getSettings: () => ipcRenderer.invoke('ixaeon:getSettings'),
   saveModelSettings: (input) => ipcRenderer.invoke('ixaeon:saveModelSettings', input),

@@ -60,6 +60,11 @@ export function TasksPage({ projects }: { projects: Project[] }) {
       <Card title="编码任务" testId="tasks-notice">
         <p className="note">{notice || '加载中…'}</p>
         <p className="muted">
+          {realDispatch
+            ? '当前执行器：真机 Codex。没额度时派发会失败，不会改成 Fake。'
+            : '当前执行器：Fake（模拟写文件，不调用 Codex，不扣额度）。0.2.4 安装包还是 Fake；源码开发版找到 codex.exe 才会显示真机。'}
+        </p>
+        <p className="muted">
           批准绑定项目、隔离工作区、允许的验证命令。网页/MCP 不能替你批准。接受 ≠ 上线。
         </p>
       </Card>
@@ -114,6 +119,9 @@ export function TasksPage({ projects }: { projects: Project[] }) {
         <Card key={t.id} title={t.goal} testId={`task-${t.id}`}>
           <p className="muted">
             {statusLabel[t.status]} · 版本 {t.version}
+            {t.executor_name
+              ? ` · 执行器 ${t.executor_name === 'codex-cli' ? 'Codex' : t.executor_name}`
+              : ''}
             {t.verify_status ? ` · 独立验证 ${t.verify_status}` : ''}
             {t.tests_modified ? ' · 测试代码被修改' : ''}
           </p>
@@ -150,6 +158,22 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                 onClick={() => void act(() => api.cancelCodingTask(t.id))}
               >
                 取消
+              </Button>
+            )}
+            {t.status !== 'running' && (
+              <Button
+                kind="ghost"
+                disabled={busy}
+                onClick={() => {
+                  const ok = window.confirm(
+                    '删除这条编码任务？隔离工作区目录也会删。不会改你的项目主目录。',
+                  );
+                  if (!ok) return;
+                  void act(() => api.deleteCodingTask(t.id));
+                }}
+                testId={`task-delete-${t.id}`}
+              >
+                删除
               </Button>
             )}
           </div>
