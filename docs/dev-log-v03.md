@@ -244,3 +244,7 @@
 本机 Clash fake-ip 把 `example.com` 解析到 `198.18.0.173`，Node `fetch` TLS 失败。桌面研究改 `electron.net.fetch`。扩展打进 extraResources，启动同步到 userData/extension，设置页给出加载路径和配对码。T01：日用库已有 chatgpt_export 30 条（多数未分析）；chatgpt_web 仍为 0。T02 产品路径已齐，真机采集待用户。不是 0.3.0。
 
 安装包 `IXAEON-Setup-0.2.5.exe` 122,909,747 字节，SHA-256 `C8825E721DF3C797FD4251E6ED18D5970EE9ACB053209CEA2A331F2E292C92C5`。
+
+## 2026-09-10 · 归档按钮无反应；T02/T03 日用库对照
+
+Electron 渲染进程 `window.prompt` 会立刻空返回，归档被当成取消。改为 `confirm`，空摘要由主进程生成。日用库：chatgpt_web=1（红魔玩PC游戏方式）；研究关注「全能AI工作台」立即检查 succeeded。归档条数仍为 0（0.2.5 的 prompt 缺陷）。

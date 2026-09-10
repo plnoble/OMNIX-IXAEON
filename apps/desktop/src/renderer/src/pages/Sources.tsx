@@ -210,15 +210,15 @@ export function SourcesPage({
   };
 
   const archiveOne = async (id: string, title: string) => {
-    const hint = window.prompt(
-      `把「${title}」归档为过往工作？可改一句经验摘要（取消则不归档）。`,
-      '',
+    // Electron 渲染进程里 window.prompt 常直接返回空/取消，看起来像没反应。
+    const ok = window.confirm(
+      `把「${title}」归档为过往工作？会留下一句短经验摘要，原文仍可检索，不再进待讨论。`,
     );
-    if (hint === null) return;
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
-      await api.archiveSource({ sourceId: id, summary: hint.trim() || null });
+      await api.archiveSource({ sourceId: id, summary: null });
       if (detail?.source.id === id) {
         const source = await api.getSource(id);
         if (source) setDetail({ ...detail, source });

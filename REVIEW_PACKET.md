@@ -868,6 +868,10 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 - 安装包：`IXAEON-Setup-0.2.5.exe` 122,909,747 字节
 - SHA-256：`C8825E721DF3C797FD4251E6ED18D5970EE9ACB053209CEA2A331F2E292C92C5`
 
+## 28. 归档 prompt 失效（2026-09-10）
+
+0.2.5 来源「归档为过往工作」用 `window.prompt`，Electron 里常直接取消，库里 archived=0。0.2.6 改为确认框。用户已配对（chatgpt_web=1），研究页立即检查已成功。不是全部验收通过。
+
 ---
 
 ## 附录：打包环境网络说明
