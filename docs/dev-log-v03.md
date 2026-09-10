@@ -238,3 +238,7 @@
 ## 2026-09-10 · 编码任务可删除；卡片标明 Fake/Codex
 
 用户日用库一条「写 note.txt」是 Fake（executor_name=fake），不是真机 Codex。0.2.4 安装包仍走 Fake。任务页补删除（执行中先取消），并写明当前执行器。T04 真机仍未跑。
+
+## 2026-09-10 · 研究抓取走 Chromium；扩展随包；0.2.5
+
+本机 Clash fake-ip 把 `example.com` 解析到 `198.18.0.173`，Node `fetch` TLS 失败。桌面研究改 `electron.net.fetch`。扩展打进 extraResources，启动同步到 userData/extension，设置页给出加载路径和配对码。T01：日用库已有 chatgpt_export 30 条（多数未分析）；chatgpt_web 仍为 0。T02 产品路径已齐，真机采集待用户。不是 0.3.0。

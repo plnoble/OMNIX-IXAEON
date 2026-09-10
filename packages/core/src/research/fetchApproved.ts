@@ -22,6 +22,7 @@ export interface FetchDeps {
 /**
  * 批准来源抓取：HTTPS + DNS/连接地址双校验 + 重定向逐跳校验。
  * 无 Cookie、不执行脚本、不跟随 file:/私网。
+ * 桌面端应注入 Chromium net.fetch：本机 fake-ip（198.18.0.0/15）下 Node undici TLS 会断。
  */
 export async function fetchApprovedSource(
   rawUrl: string,

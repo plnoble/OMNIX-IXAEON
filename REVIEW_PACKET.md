@@ -861,6 +861,10 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 标过值得行动的发现可开编码草案，不批准、不派发。同一发现同一项目幂等。本机 Codex CLI 0.130.0-alpha.5。PowerShell 能打开 `example.com`；产品 Node `fetch` 同机 TLS `ECONNRESET`。不是桌面日用闭环，更不是全部验收通过。
 
+## 27. v0.2.5（2026-09-10）
+
+日用增量，不是 0.3.0。含：研究抓取改 Electron net.fetch（fake-ip）、扩展随包并给出加载目录、配对码、来源归档、任务删除、Fake/Codex 标明、研究发现可跟进。T01 日用库已导入 chatgpt_export 30 条；T02 真机采集未做；T03 待用户在 0.2.5 研究页检查。
+
 ---
 
 ## 附录：打包环境网络说明

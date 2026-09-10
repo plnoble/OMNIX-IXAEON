@@ -9,6 +9,7 @@ import {
   ResearchChecker,
   ResearchStore,
   assertPublicHttpsUrl,
+  isBlockedResolvedAddress,
   ItemService,
   type CoreDatabase,
   type FetchDeps,
@@ -201,6 +202,8 @@ describe('A16 网络与注入边界', () => {
     expect(() => assertPublicHttpsUrl('https://127.0.0.1/x')).toThrow(/私网|回环|元数据/);
     expect(() => assertPublicHttpsUrl('https://169.254.169.254/latest')).toThrow();
     expect(() => assertPublicHttpsUrl('https://localhost/x')).toThrow();
+    // Clash fake-ip：Node DNS 常见 198.18.0.0/15。不当私网拦截，桌面抓取改走 Chromium。
+    expect(isBlockedResolvedAddress('198.18.0.173')).toBe(false);
 
     const checker = new ResearchChecker(
       db,

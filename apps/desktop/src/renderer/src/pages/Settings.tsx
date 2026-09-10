@@ -346,8 +346,22 @@ export function SettingsPage() {
         <p className="note">
           {view.config.extensionPaired
             ? `扩展已配对。最近同步：${view.config.extensionLastSyncAt?.slice(0, 19).replace('T', ' ') ?? '无'}`
-            : '扩展未配对。安装浏览器扩展后，在弹窗中输入配对码。'}
+            : '扩展未配对。用下面目录加载扩展，再点「显示配对码」。'}
         </p>
+        {view.extensionLoadDir ? (
+          <p className="note" data-testid="settings-extension-dir">
+            Chrome / Edge：打开 <code>chrome://extensions</code> → 开发者模式 →
+            加载已解压的扩展程序，选
+            <br />
+            <code>{view.extensionLoadDir}</code>
+            <br />
+            只采集当前打开的 chatgpt.com 对话。改完扩展后重启 IXAEON 再刷新扩展。
+          </p>
+        ) : (
+          <p className="warn">
+            本包没有找到扩展文件。请用仓库 <code>apps/extension/dist</code> 加载。
+          </p>
+        )}
         <p className="note">
           边界说明：已经发出的模型请求无法撤回；关闭开关或暂停对话只阻止后续调用。
           暂停的对话会保留「待分析」状态，恢复后处理最新内容。 扩展只采集当前打开且可见的

@@ -79,8 +79,12 @@ export {
 } from './orchestration/orchestrator.js';
 export { buildPersonalOverview, type PersonalOverview } from './personal/overview.js';
 export { ResearchStore } from './research/researchStore.js';
-export { ResearchChecker, type CheckResult, type Clock } from './research/checker.js';
-export { assertPublicHttpsUrl, isBlockedIpLiteral } from './research/urlSafety.js';
+export { ResearchChecker, systemClock, type CheckResult, type Clock } from './research/checker.js';
+export {
+  assertPublicHttpsUrl,
+  isBlockedIpLiteral,
+  isBlockedResolvedAddress,
+} from './research/urlSafety.js';
 export { fetchApprovedSource, type FetchDeps } from './research/fetchApproved.js';
 export { parseFeed, parsePage, fingerprintText } from './research/parse.js';
 export { CodingTaskStore, approvalDigest, DEFAULT_TASK_TIMEOUT_MS } from './execution/taskStore.js';

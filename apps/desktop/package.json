@@ -1,7 +1,7 @@
 {
   "name": "@ixaeon/desktop",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "IXAEON（析衍）Windows 桌面应用：Electron 主进程、React 界面、本地 HTTP 接口",
   "main": "out/main/index.js",
   "scripts": {

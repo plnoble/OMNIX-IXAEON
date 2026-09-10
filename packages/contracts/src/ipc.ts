@@ -273,6 +273,8 @@ export const settingsViewSchema = z.object({
     localToken: z.string().nullable(),
   }),
   encryptionNotice: z.string(),
+  /** Chrome「加载已解压」应选的目录；安装包会同步到此。 */
+  extensionLoadDir: z.string().nullable().default(null),
   /** RF08：旧明文密钥因系统加密不可用被清除，需要用户重新输入 */
   apiKeyNeedsReentry: z.boolean().default(false),
 });

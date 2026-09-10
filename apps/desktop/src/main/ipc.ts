@@ -462,6 +462,7 @@ export function registerIpc(runtime: AppRuntime): void {
         mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
         encryptionNotice:
           '应用未实现全库加密：数据库与原文保存在本地文件中，建议开启 Windows BitLocker。',
+        extensionLoadDir: runtime.extensionUnpackedDir(),
         // RF08：旧明文密钥因系统加密不可用被清除 → 提示重新输入
         apiKeyNeedsReentry: runtime.apiKeyNeedsReentry(),
       };

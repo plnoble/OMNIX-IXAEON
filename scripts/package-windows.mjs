@@ -40,6 +40,12 @@ function run(label, command, args, cwd) {
 }
 
 run(
+  'extension build（随包采集助手）',
+  'node',
+  [resolve(root, 'apps', 'extension', 'scripts', 'build.mjs')],
+  resolve(root, 'apps', 'extension'),
+);
+run(
   'mcp build（vite，打包资源用）',
   'node',
   [resolve(root, 'apps', 'mcp', 'node_modules', 'vite', 'bin', 'vite.js'), 'build'],

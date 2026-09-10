@@ -12,6 +12,7 @@ import {
   proposeObviousRelations,
   buildPersonalOverview,
   ResearchChecker,
+  systemClock,
   CodingOrchestrator,
   FakeCodingExecutor,
   CodexCliExecutor,
@@ -52,6 +53,8 @@ import {
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
+import { desktopResearchFetchDeps } from './researchFetch.js';
+import { syncBundledExtension } from './extensionBundle.js';
 
 /**
  * 桌面应用主运行时：集中持有数据库、服务与本地 HTTP 服务。
@@ -80,6 +83,7 @@ export class AppRuntime {
   private config: AppConfig;
   private readonly configFile: string;
   private readonly dataDir: string;
+  private extensionLoadDir: string | null = null;
   private modelCallCount = 0;
   private researchTimer: NodeJS.Timeout | null = null;
 
@@ -140,7 +144,7 @@ export class AppRuntime {
     const imports = new ImportService(db, vault, permissions, sources);
     const items = new ItemService(db);
     const relations = new RelationService(db);
-    const research = new ResearchChecker(db);
+    const research = new ResearchChecker(db, systemClock, desktopResearchFetchDeps());
     const coding = new CodingOrchestrator(db, createCodingExecutor(), resolved.dataDir);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
@@ -221,6 +225,16 @@ export class AppRuntime {
     runtime.coding.store.markUnknownRunning();
     runtime.sweepPendingAnalysis();
     runtime.startResearchScheduler();
+    try {
+      const ext = syncBundledExtension();
+      runtime.extensionLoadDir = ext.loadUnpackedDir;
+      logger.info('扩展已同步到加载目录', {
+        dir: ext.loadUnpackedDir,
+        available: ext.available,
+      });
+    } catch (err) {
+      logger.warn('扩展同步失败（不影响其它功能）', { error: String(err) });
+    }
     await runtime.startServer();
     return runtime;
   }
@@ -742,7 +756,7 @@ export class AppRuntime {
     const imports = new ImportService(db, vault, permissions, sources);
     const items = new ItemService(db);
     const relations = new RelationService(db);
-    const research = new ResearchChecker(db);
+    const research = new ResearchChecker(db, systemClock, desktopResearchFetchDeps());
     const coding = new CodingOrchestrator(db, createCodingExecutor(), this.dataDir);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;
@@ -963,6 +977,10 @@ export class AppRuntime {
   /** 最近一次扩展同步时间（弹窗状态显示）。 */
   codingExecutorName(): string {
     return this.coding.executorName;
+  }
+
+  extensionUnpackedDir(): string | null {
+    return this.extensionLoadDir;
   }
 
   lastCaptureAt(): string | null {

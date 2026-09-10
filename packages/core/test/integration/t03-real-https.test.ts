@@ -3,8 +3,8 @@ import { fetchApprovedSource } from '../../src/index.js';
 
 /**
  * 真网探测，不是 T03 产品闭环。默认跳过；IXAEON_REAL_NET=1 才跑。
+ * 走 Node undici。桌面产品改走 Electron net.fetch（fake-ip TUN 下 Node TLS 会断）。
  * 成功只证明批准来源抓取能打开公开 HTTPS，不证明桌面关注/发现/通知已验收。
- * 2026-09-10 本机：PowerShell 200；Node fetch/https.get TLS ECONNRESET。失败要如实记。
  */
 const run = process.env.IXAEON_REAL_NET === '1';
 
