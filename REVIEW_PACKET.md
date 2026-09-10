@@ -834,6 +834,10 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 
 含：ChatGPT 2026-09 官方导出、项目删除、来源多选删除、项目列表刷新、启动检查更新弹窗。T01–T05 未完成，不得写成全部验收通过。
 
+- GitHub：[v0.2.4](https://github.com/plnoble/OMNIX-IXAEON/releases/tag/v0.2.4)
+- 安装包：`IXAEON-Setup-0.2.4.exe` 122,892,441 字节
+- SHA-256：`3453EC7CA41D4079C22D8EF0A5822526EC0725B10E14B840189C2E780232E50C`
+
 ---
 
 ## 附录：打包环境网络说明
