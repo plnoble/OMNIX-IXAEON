@@ -1,7 +1,7 @@
 {
   "name": "@ixaeon/contracts",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "IXAEON 共享契约：Zod schema、共享类型、统一错误码",
   "type": "module",
   "exports": {

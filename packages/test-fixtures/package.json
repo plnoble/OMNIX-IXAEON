@@ -1,7 +1,7 @@
 {
   "name": "@ixaeon/test-fixtures",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "IXAEON 脱敏测试资料与模拟 ChatGPT 页面",
   "type": "module",
   "exports": {
