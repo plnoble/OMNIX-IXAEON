@@ -458,7 +458,7 @@ export interface IxaIpcApi {
   }>;
   createResearchTopic(input: {
     question: string;
-    publicDescription: string;
+    publicDescription?: string;
     relatedGoalId?: string | null;
     relatedProjectId?: string | null;
     sources: Array<{ url: string; kind: 'page' | 'feed' }>;
@@ -472,8 +472,8 @@ export interface IxaIpcApi {
     searchUsed: false;
   }>;
   listCodingTasks(projectId?: string): Promise<{
-    executor: 'fake';
-    realDispatchEnabled: false;
+    executor: 'fake' | 'codex-cli';
+    realDispatchEnabled: boolean;
     notice: string;
     tasks: CodingTask[];
   }>;

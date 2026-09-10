@@ -101,7 +101,10 @@ export function ResearchPage() {
           {data?.notice ?? '当前未配置搜索服务，只检查已批准来源，不是全网搜索。'}
         </p>
         <p className="muted">
-          自动关注默认关闭。启用后每 24 小时检查一次；电脑休眠或退出期间不执行。
+          检查成功 =
+          这个网址能打开，内容记下来了。有新标题/摘录会出现在下面「发现」；没变化就是还是上次那样。
+          发现是外部线索，不会自动变成你的目标。启用自动后大约每 24
+          小时再看一次；电脑休眠或退出期间不执行。
         </p>
       </Card>
       <Card title="新建关注">
@@ -112,11 +115,15 @@ export function ResearchPage() {
             data-testid="research-question"
           />
         </Field>
-        <Field label="允许外发的公开描述（不含私人项目名/路径）">
+        <Field
+          label="出门说法（选填）"
+          hint="现在检查网页不会带上这句话。只有以后要对外说明「我在盯什么」时才用。不写也行。"
+        >
           <input
             value={publicDescription}
             onChange={(e) => setPublicDescription(e.target.value)}
             data-testid="research-public"
+            placeholder="可空。例如：关注某开源项目的 Release"
           />
         </Field>
         <Field label="批准来源 URL（仅 HTTPS）">
@@ -147,7 +154,7 @@ export function ResearchPage() {
       </Card>
       {(data?.topics ?? []).map((t) => (
         <Card key={t.id} title={t.question} testId={`research-topic-${t.id}`}>
-          <p className="muted">公开描述：{t.public_description}</p>
+          {t.public_description ? <p className="muted">出门说法：{t.public_description}</p> : null}
           <p className="muted">
             {t.enabled ? '已启用自动检查' : '自动检查关闭'} · {t.paused ? '已暂停' : '未暂停'}
           </p>

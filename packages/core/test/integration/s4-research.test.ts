@@ -265,4 +265,15 @@ describe('A17 预算与故障', () => {
     const store = new ResearchStore(db);
     expect(store.getTopic(topic.id).paid_budget_mode).toBe('none');
   });
+
+  it('出门说法可空，仍能创建关注', () => {
+    const store = new ResearchStore(db);
+    const topic = store.createTopic({
+      question: '只盯这个页',
+      publicDescription: '',
+      sources: [{ url: 'https://example.com/page', kind: 'page' }],
+    });
+    expect(topic.public_description).toBe('');
+    expect(topic.question).toBe('只盯这个页');
+  });
 });

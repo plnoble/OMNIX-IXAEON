@@ -14,6 +14,8 @@ import {
   ResearchChecker,
   CodingOrchestrator,
   FakeCodingExecutor,
+  CodexCliExecutor,
+  resolveCodexLocator,
   OpenAIResponsesProvider,
   listUpstreamModels,
   ImportService,
@@ -139,7 +141,7 @@ export class AppRuntime {
     const items = new ItemService(db);
     const relations = new RelationService(db);
     const research = new ResearchChecker(db);
-    const coding = new CodingOrchestrator(db, new FakeCodingExecutor(), resolved.dataDir);
+    const coding = new CodingOrchestrator(db, createCodingExecutor(), resolved.dataDir);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
     const config = loadConfig(layout.configFile);
@@ -741,7 +743,7 @@ export class AppRuntime {
     const items = new ItemService(db);
     const relations = new RelationService(db);
     const research = new ResearchChecker(db);
-    const coding = new CodingOrchestrator(db, new FakeCodingExecutor(), this.dataDir);
+    const coding = new CodingOrchestrator(db, createCodingExecutor(), this.dataDir);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;
     this.vault = vault;
@@ -959,6 +961,10 @@ export class AppRuntime {
   }
 
   /** 最近一次扩展同步时间（弹窗状态显示）。 */
+  codingExecutorName(): string {
+    return this.coding.executorName;
+  }
+
   lastCaptureAt(): string | null {
     const row = this.db
       .prepare(
@@ -967,4 +973,11 @@ export class AppRuntime {
       .get() as { t: string } | undefined;
     return row?.t ?? null;
   }
+}
+
+/** 用户已确认隔离默认值：有 Codex 就真机派发，否则 Fake。 */
+function createCodingExecutor(): FakeCodingExecutor | CodexCliExecutor {
+  const locator = resolveCodexLocator();
+  if (locator) return new CodexCliExecutor(locator);
+  return new FakeCodingExecutor();
 }

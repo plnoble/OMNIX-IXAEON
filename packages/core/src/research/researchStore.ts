@@ -99,21 +99,15 @@ export class ResearchStore {
 
   createTopic(input: {
     question: string;
-    publicDescription: string;
+    publicDescription?: string | null;
     relatedGoalId?: string | null;
     relatedProjectId?: string | null;
     sources: Array<{ url: string; kind: ResearchSourceKind }>;
     now?: string;
   }): ResearchTopic {
     const question = input.question.trim();
-    const publicDescription = input.publicDescription.trim();
+    const publicDescription = (input.publicDescription ?? '').trim();
     if (question.length === 0) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '研究问题不能为空');
-    if (publicDescription.length === 0) {
-      throw new IxaError(
-        ErrorCodes.VALIDATION_FAILED,
-        '公开主题描述不能为空（不会把私人项目名塞进外发）',
-      );
-    }
     if (input.sources.length === 0) {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '至少批准一个 HTTPS 来源');
     }

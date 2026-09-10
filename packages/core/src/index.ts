@@ -88,6 +88,7 @@ export {
   CodingOrchestrator,
   FakeCodingExecutor,
   CodexCliExecutor,
+  resolveCodexLocator,
   type CodingExecutor,
   type ExecutorReport,
   type IndependentCheck,

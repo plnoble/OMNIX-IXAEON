@@ -70,9 +70,27 @@ export interface CodexLocator {
   sandbox: 'read-only' | 'workspace-write';
 }
 
+const DEFAULT_CODEX_SANDBOX: CodexLocator['sandbox'] = 'workspace-write';
+
+/** 用户已确认的真机隔离默认：workspace-write + 隔离工作区 + 忽略用户更宽配置。 */
+export function resolveCodexLocator(): CodexLocator | null {
+  const fromEnv = process.env.IXAEON_CODEX_EXE?.trim();
+  const localApp = process.env.LOCALAPPDATA;
+  const candidates = [
+    fromEnv,
+    localApp ? join(localApp, 'OpenAI', 'Codex', 'bin', 'codex.exe') : '',
+    'codex',
+  ].filter((p): p is string => Boolean(p));
+  for (const exe of candidates) {
+    if (exe === 'codex') continue;
+    if (existsSync(exe)) return { exe, sandbox: DEFAULT_CODEX_SANDBOX };
+  }
+  return null;
+}
+
 /**
  * Codex CLI 适配器：固定 argv，不拼 shell。
- * 真实验收仍待用户确认隔离默认值；工具缺失时抛可操作缺口。
+ * 用户已确认隔离默认值；工具缺失时抛可操作缺口。
  */
 export class CodexCliExecutor implements CodingExecutor {
   readonly name = 'codex-cli';
@@ -172,6 +190,10 @@ export class CodingOrchestrator {
   private running = false;
   private currentAbort: AbortController | null = null;
   private currentTaskId: string | null = null;
+
+  get executorName(): string {
+    return this.executor.name;
+  }
 
   constructor(
     private readonly db: CoreDatabase,

@@ -387,13 +387,18 @@ export function registerIpc(runtime: AppRuntime): void {
     setResearchTopicPaused: async (input) =>
       runtime.research.store.setPaused(input.id, input.paused),
     checkResearchTopicNow: async (id) => runtime.research.checkNow(id),
-    listCodingTasks: async (projectId) => ({
-      executor: 'fake' as const,
-      realDispatchEnabled: false as const,
-      notice:
-        '当前使用 Fake 执行器做隔离与批准回归。Codex CLI 已核实可用，真机派发待确认隔离默认值后开启。接受结果不会自动合并或部署。',
-      tasks: runtime.coding.store.list(projectId),
-    }),
+    listCodingTasks: async (projectId) => {
+      const name = runtime.codingExecutorName();
+      const real = name === 'codex-cli';
+      return {
+        executor: (real ? 'codex-cli' : 'fake') as 'fake' | 'codex-cli',
+        realDispatchEnabled: real,
+        notice: real
+          ? '真机 Codex 已按你确认的隔离默认开启：workspace-write、隔离工作区、忽略更宽用户配置。不自动合并或部署。走你的 Codex 订阅额度。'
+          : '未找到 Codex CLI，仍用 Fake 执行器（只在隔离目录写模拟文件）。安装 Codex 或设置 IXAEON_CODEX_EXE 后重启。',
+        tasks: runtime.coding.store.list(projectId),
+      };
+    },
     createCodingTask: async (input) => runtime.coding.create(input),
     approveCodingTask: async (id) => runtime.coding.approveAndQueue(id),
     dispatchCodingTask: async (id) => runtime.coding.dispatch(id),

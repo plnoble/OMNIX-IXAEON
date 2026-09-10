@@ -18,6 +18,7 @@ const statusLabel: Record<CodingTask['status'], string> = {
 
 export function TasksPage({ projects }: { projects: Project[] }) {
   const [notice, setNotice] = useState('');
+  const [realDispatch, setRealDispatch] = useState(false);
   const [tasks, setTasks] = useState<CodingTask[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,6 +30,7 @@ export function TasksPage({ projects }: { projects: Project[] }) {
     try {
       const snap = await api.listCodingTasks();
       setNotice(snap.notice);
+      setRealDispatch(snap.realDispatchEnabled);
       setTasks(snap.tasks);
       setError(null);
     } catch (err) {
@@ -129,7 +131,7 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                 disabled={busy}
                 onClick={() => void act(() => api.dispatchCodingTask(t.id))}
               >
-                派发（Fake）
+                {realDispatch ? '派发（Codex）' : '派发（Fake）'}
               </Button>
             )}
             {t.status === 'pending_accept' && (

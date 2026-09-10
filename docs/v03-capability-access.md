@@ -7,23 +7,23 @@
 
 ### 首选：Codex CLI（已装，已核实）
 
-| 项 | 事实 |
-| --- | --- |
-| 位置 | `C:\Users\87953\AppData\Local\OpenAI\Codex\bin\codex.exe`（不在 PATH，需全路径调用） |
-| 版本 | codex-cli 0.130.0-alpha.5 |
-| 非交互模式 | `codex exec [OPTIONS] [PROMPT]`（已核实存在；支持 `resume` 续会话） |
-| 认证 | `~/.codex/auth.json`（用户已登录） |
-| 模型 | `~/.codex/config.toml`：gpt-6-astra，reasoning xhigh |
-| 沙箱/权限 | codex 自带 sandbox 模式（`--sandbox` 选项，待 S5 实施时核实 0.130 的具体旗标）；cwd 隔离可行 |
-| 费用 | 走用户 Codex 订阅额度（ChatGPT 计划内），IXAEON 侧无法直接计量——按「次数上限」而非金额上限 |
-| 取消 | exec 进程树可终止（子进程管理由 IXAEON 编排层负责） |
+| 项         | 事实                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| 位置       | `C:\Users\87953\AppData\Local\OpenAI\Codex\bin\codex.exe`（不在 PATH，需全路径调用）         |
+| 版本       | codex-cli 0.130.0-alpha.5                                                                    |
+| 非交互模式 | `codex exec [OPTIONS] [PROMPT]`（已核实存在；支持 `resume` 续会话）                          |
+| 认证       | `~/.codex/auth.json`（用户已登录）                                                           |
+| 模型       | `~/.codex/config.toml`：gpt-6-astra，reasoning xhigh                                         |
+| 沙箱/权限  | codex 自带 sandbox 模式（`--sandbox` 选项，待 S5 实施时核实 0.130 的具体旗标）；cwd 隔离可行 |
+| 费用       | 走用户 Codex 订阅额度（ChatGPT 计划内），IXAEON 侧无法直接计量——按「次数上限」而非金额上限   |
+| 取消       | exec 进程树可终止（子进程管理由 IXAEON 编排层负责）                                          |
 
 **S5 实施时核实（2026-09-09，codex-cli 0.130.0-alpha.5）**：
 `codex exec --help` 确认存在 `-s/--sandbox`（read-only / workspace-write /
 danger-full-access）、`-C/--cd`、`--json`、`--skip-git-repo-check`、
 `--ignore-user-config`、`-o/--output-last-message`。默认拟用
 `--sandbox workspace-write -C <隔离工作区> --ignore-user-config --skip-git-repo-check`。
-**真机派发仍待用户确认这些默认值**；当前产品走 Fake 执行器，T04 未完成。
+用户已确认这组默认。找到 `codex.exe` 时走真机 Codex；找不到则 Fake。T04 真机小任务验收仍未跑完。
 
 ### 备选（不接入，仅记录存在）
 
@@ -43,11 +43,11 @@ danger-full-access）、`-C/--cd`、`--json`、`--skip-git-repo-check`、
 
 ### 现状：无已配置的搜索服务
 
-| 方式 | 事实 |
-| --- | --- |
+| 方式                                | 事实                                                                                            |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- |
 | 公开网页/发布页/订阅源（HTTPS GET） | ✅ 可行——第一版围绕用户批准的明确来源运行（发布页、RSS/Atom、GitHub Releases 等），无需搜索服务 |
-| 搜索 API | 未配置。S4 第一版已按此落地：界面写「只检查已批准来源，不是全网搜索」。启用付费搜索需用户另选 |
-| 本机模型端点 | 与研究网络边界分离，不从研究 URL 权限访问本地端点 |
+| 搜索 API                            | 未配置。S4 第一版已按此落地：界面写「只检查已批准来源，不是全网搜索」。启用付费搜索需用户另选   |
+| 本机模型端点                        | 与研究网络边界分离，不从研究 URL 权限访问本地端点                                               |
 
 ### 网络边界（S4 实施硬约束，来自计划 §6.2）
 
