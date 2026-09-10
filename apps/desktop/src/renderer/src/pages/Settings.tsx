@@ -113,6 +113,7 @@ export function SettingsPage() {
   const [form, setForm] = useState({ modelName: '', apiBaseUrl: '', apiKey: '' });
   const [models, setModels] = useState<Array<{ id: string }> | null>(null);
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
+  const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -201,6 +202,18 @@ export function SettingsPage() {
   };
 
   // --- 导出 / 恢复（M5；票据制：目标与来源都来自原生对话框） ---
+
+  const showPairingCode = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setPairing(await api.generatePairingCode());
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const doExport = async () => {
     setBusy(true);
@@ -362,6 +375,21 @@ export function SettingsPage() {
             <span>采集后自动提交提取</span>
           </label>
         </div>
+        <div className="wizard-nav">
+          <Button
+            disabled={busy}
+            onClick={() => void showPairingCode()}
+            testId="settings-pair-code"
+          >
+            {view.config.extensionPaired ? '重新配对（显示新配对码）' : '显示配对码'}
+          </Button>
+        </div>
+        {pairing && (
+          <p className="ok-banner" data-testid="settings-pair-code-value">
+            配对码 <strong style={{ fontSize: 22, letterSpacing: 4 }}>{pairing.code}</strong>
+            （约 10 分钟内有效）。在浏览器扩展弹窗中输入。
+          </p>
+        )}
       </Card>
 
       <Card title="MCP 接入（编码 AI）" testId="settings-mcp">
