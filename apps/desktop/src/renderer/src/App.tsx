@@ -45,9 +45,36 @@ export default function App() {
     }
   }, []);
 
+  const reloadProjects = useCallback(async () => {
+    try {
+      setProjects(await api.listProjects());
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!state?.setupComplete) return;
+    if (
+      page === 'projects' ||
+      page === 'sources' ||
+      page === 'search' ||
+      page === 'ask' ||
+      page === 'inbox' ||
+      page === 'understanding' ||
+      page === 'tasks'
+    ) {
+      void reloadProjects();
+    }
+  }, [page, state?.setupComplete, reloadProjects]);
+
+  useEffect(() => {
+    if (projectId && !projects.some((p) => p.id === projectId)) setProjectId(null);
+  }, [projects, projectId]);
 
   if (error && state === null) {
     return <ErrorBanner message={error} />;
@@ -182,6 +209,7 @@ export default function App() {
 
         {page === 'projects' && (
           <ProjectsPage
+            onChanged={() => void reloadProjects()}
             onOpenSources={(id) => {
               setProjectId(id);
               setPage('sources');

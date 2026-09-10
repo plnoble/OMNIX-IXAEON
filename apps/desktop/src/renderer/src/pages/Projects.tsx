@@ -134,7 +134,13 @@ function ProjectWorkRuns({ projectId }: { projectId: string }) {
 }
 
 /** 项目页：列表 + 新建 + 目录登记 + 状态切换。 */
-export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: string) => void }) {
+export function ProjectsPage({
+  onOpenSources,
+  onChanged,
+}: {
+  onOpenSources: (projectId: string) => void;
+  onChanged?: () => void;
+}) {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -177,6 +183,7 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
       setForm({ name: '', description: '', purpose: '', currentState: '', unknowns: '' });
       setCreating(false);
       await reload();
+      onChanged?.();
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -189,6 +196,7 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
     try {
       await api.updateProjectStatus({ id: p.id, status });
       await reload();
+      onChanged?.();
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -205,6 +213,7 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
     try {
       await api.deleteProject(p.id);
       await reload();
+      onChanged?.();
     } catch (err) {
       setError(errMsg(err));
     } finally {

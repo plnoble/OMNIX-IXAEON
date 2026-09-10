@@ -79,6 +79,7 @@ export function SourcesPage({
     segments: Segment[];
     total: number;
   } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const reload = useCallback(
     async (silent = false) => {
@@ -89,6 +90,10 @@ export function SourcesPage({
           api.getSettings(),
         ]);
         setList(list);
+        setSelected((prev) => {
+          const ids = new Set(list.map((item) => item.source.id));
+          return new Set([...prev].filter((id) => ids.has(id)));
+        });
         setCaptureFlags({
           enabled: settings.config.captureEnabled,
           autoAnalyze: settings.config.autoAnalyze,
@@ -208,13 +213,61 @@ export function SourcesPage({
   };
 
   const removeSource = async (id: string) => {
+    const ok = window.confirm('删除该来源？对话片段和从它抽出的理解会删除，Vault 原文副本保留。');
+    if (!ok) return;
     setBusy(true);
     try {
       await api.deleteSource(id);
       setDetail(null);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       await reload();
     } catch (err) {
       setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleSelected = (id: string, checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = (checked: boolean) => {
+    if (!list) return;
+    setSelected(checked ? new Set(list.map((item) => item.source.id)) : new Set());
+  };
+
+  const removeSelected = async () => {
+    if (selected.size === 0) return;
+    const ok = window.confirm(
+      `删除选中的 ${selected.size} 个来源？对话片段和从它们抽出的理解会删除，Vault 原文副本保留。`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    const ids = [...selected];
+    const failed: string[] = [];
+    try {
+      for (const id of ids) {
+        try {
+          await api.deleteSource(id);
+        } catch (err) {
+          failed.push(`${id}: ${errMsg(err)}`);
+        }
+      }
+      if (detail && ids.includes(detail.source.id)) setDetail(null);
+      setSelected(new Set());
+      await reload();
+      if (failed.length > 0) setError(`部分删除失败：\n${failed.join('\n')}`);
     } finally {
       setBusy(false);
     }
@@ -250,6 +303,16 @@ export function SourcesPage({
             <Button disabled={busy} onClick={importChatgptExport} testId="sources-import-chatgpt">
               导入 ChatGPT 导出
             </Button>
+            {selected.size > 0 && (
+              <Button
+                kind="danger"
+                disabled={busy}
+                onClick={() => void removeSelected()}
+                testId="sources-delete-selected"
+              >
+                删除选中（{selected.size}）
+              </Button>
+            )}
           </>
         }
       >
@@ -266,6 +329,15 @@ export function SourcesPage({
           <table className="table" data-testid="sources-table">
             <thead>
               <tr>
+                <th className="col-check">
+                  <input
+                    type="checkbox"
+                    checked={list.length > 0 && selected.size === list.length}
+                    onChange={(e) => toggleAllVisible(e.target.checked)}
+                    aria-label="全选当前列表"
+                    data-testid="sources-select-all"
+                  />
+                </th>
                 <th>标题</th>
                 <th>所属项目</th>
                 <th>类型</th>
@@ -278,6 +350,7 @@ export function SourcesPage({
             <tbody>
               {list.map((item) => {
                 const status = analysisStatus(item, captureFlags);
+                const checked = selected.has(item.source.id);
                 return (
                   <tr
                     key={item.source.id}
@@ -285,6 +358,15 @@ export function SourcesPage({
                     className="row-click"
                     data-testid={`source-row-${item.source.id}`}
                   >
+                    <td className="col-check" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => toggleSelected(item.source.id, e.target.checked)}
+                        aria-label={`选择 ${item.source.title}`}
+                        data-testid={`source-select-${item.source.id}`}
+                      />
+                    </td>
                     <td>{item.source.title}</td>
                     <td>{item.projectName ?? '未归属'}</td>
                     <td>{sourceKindLabel(item.source.kind)}</td>

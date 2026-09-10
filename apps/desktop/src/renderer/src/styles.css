@@ -373,6 +373,12 @@ select:focus {
   background: var(--panel-2);
 }
 
+.table .col-check {
+  width: 36px;
+  padding-left: 8px;
+  padding-right: 4px;
+}
+
 /* --- 片段阅读器 --- */
 .segment-list {
   display: flex;
