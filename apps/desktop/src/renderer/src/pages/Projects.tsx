@@ -196,6 +196,22 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
     }
   };
 
+  const removeProject = async (p: Project) => {
+    const ok = window.confirm(
+      `删除项目「${p.name}」？\n\n属于该项目的理解、关系、编码任务会删除。来源会变成未归属，对话原文保留。个人记忆不动。此操作不能从列表撤销（可用备份恢复）。`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.deleteProject(p.id);
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div data-testid="page-projects">
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
@@ -294,6 +310,14 @@ export function ProjectsPage({ onOpenSources }: { onOpenSources: (projectId: str
                       恢复
                     </Button>
                   )}
+                  <Button
+                    kind="danger"
+                    disabled={busy}
+                    onClick={() => void removeProject(p)}
+                    testId={`project-delete-${p.id}`}
+                  >
+                    删除
+                  </Button>
                 </div>
               </li>
             ))}

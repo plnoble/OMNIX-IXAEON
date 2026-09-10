@@ -127,6 +127,60 @@ export class ProjectService {
     return this.get(id) as Project;
   }
 
+  /**
+   * 删除项目壳。来源改为未归属（不删对话原文）；
+   * 属于该项目的理解、关系、编码任务随外键删除。
+   * 个人条目（project_id 为空）不动。
+   */
+  delete(id: string): { sourcesUnassigned: number; itemsRemoved: number } {
+    const project = this.get(id);
+    if (!project) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在: ${id}`);
+    const sourcesUnassigned = (
+      this.db.prepare('SELECT count(*) AS c FROM sources WHERE project_id = ?').get(id) as {
+        c: number;
+      }
+    ).c;
+    const itemsRemoved = (
+      this.db.prepare('SELECT count(*) AS c FROM items WHERE project_id = ?').get(id) as {
+        c: number;
+      }
+    ).c;
+    const tx = this.db.transaction(() => {
+      // 无 ON DELETE 的外键先清掉，否则 SQLite 会拒绝删项目。
+      this.db
+        .prepare('UPDATE items SET suggested_project_id = NULL WHERE suggested_project_id = ?')
+        .run(id);
+      this.db
+        .prepare(
+          `UPDATE items SET supersedes_item_id = NULL
+            WHERE supersedes_item_id IN (SELECT id FROM items WHERE project_id = ?)`,
+        )
+        .run(id);
+      this.db
+        .prepare(
+          `DELETE FROM corrections WHERE old_item_id IN (SELECT id FROM items WHERE project_id = ?)
+             OR new_item_id IN (SELECT id FROM items WHERE project_id = ?)`,
+        )
+        .run(id, id);
+      this.db
+        .prepare(
+          `DELETE FROM project_relations WHERE (to_entity_kind = 'project' AND to_entity_id = ?)
+             OR (to_entity_kind = 'item'
+                 AND to_entity_id IN (SELECT id FROM items WHERE project_id = ?))`,
+        )
+        .run(id, id);
+      this.db.prepare(`DELETE FROM item_links WHERE kind = 'project' AND target_id = ?`).run(id);
+      this.db
+        .prepare(
+          'UPDATE research_findings SET related_project_id = NULL WHERE related_project_id = ?',
+        )
+        .run(id);
+      this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    });
+    tx();
+    return { sourcesUnassigned, itemsRemoved };
+  }
+
   /** 项目关联的来源数 / 结论数（项目卡概览用）。 */
   stats(id: string): { sources: number; items: number; workRuns: number } {
     const sources = (

@@ -284,6 +284,62 @@ describe('A07 多项目登记', () => {
     expect(scopes).not.toContain('execute');
   });
 
+  it('删除项目：来源未归属、项目理解删除、个人条目保留', () => {
+    const proj = projects.create({ name: '待删除项目', rootPath: null, description: null });
+    const other = projects.create({ name: '保留项目', rootPath: null, description: null });
+    const file = join(dir, 'owned.md');
+    writeFileSync(file, '# 属于待删项目\n内容', 'utf8');
+    const source = imports.importFile(file, {
+      projectId: proj.id,
+      permissionId: perms.grantFile(file).id,
+    }).created[0]!;
+    expect(source.project_id).toBe(proj.id);
+
+    const now = new Date().toISOString();
+    const projectItemId = 'item-on-deleted-project';
+    const personalItemId = 'item-personal-keep';
+    db.prepare(
+      `INSERT INTO items (id, project_id, scope, type, statement, state, confidence, origin, created_at, updated_at, needs_review)
+       VALUES (?, ?, 'project', 'goal', '项目目标', 'current', 1, 'user', ?, ?, 0)`,
+    ).run(projectItemId, proj.id, now, now);
+    db.prepare(
+      `INSERT INTO items (id, project_id, scope, type, statement, state, confidence, origin, created_at, updated_at, needs_review)
+       VALUES (?, NULL, 'personal', 'preference', '个人偏好', 'current', 1, 'user', ?, ?, 0)`,
+    ).run(personalItemId, now, now);
+    const supersededId = 'item-superseded-on-project';
+    const replacementId = 'item-replacement-on-project';
+    db.prepare(
+      `INSERT INTO items (id, project_id, scope, type, statement, state, confidence, origin, created_at, updated_at, needs_review)
+       VALUES (?, ?, 'project', 'goal', '旧目标', 'superseded', 1, 'user', ?, ?, 0)`,
+    ).run(supersededId, proj.id, now, now);
+    db.prepare(
+      `INSERT INTO items (id, project_id, scope, type, statement, state, confidence, origin, created_at, updated_at, supersedes_item_id, needs_review)
+       VALUES (?, ?, 'project', 'goal', '新目标', 'current', 1, 'user', ?, ?, ?, 0)`,
+    ).run(replacementId, proj.id, now, now, supersededId);
+    db.prepare(
+      `INSERT INTO corrections (id, old_item_id, user_text, new_item_id, created_at)
+       VALUES ('corr-1', ?, '改成新目标', ?, ?)`,
+    ).run(supersededId, replacementId, now);
+    db.prepare('UPDATE items SET suggested_project_id = ? WHERE id = ?').run(
+      proj.id,
+      personalItemId,
+    );
+
+    const result = projects.delete(proj.id);
+    expect(result.sourcesUnassigned).toBe(1);
+    expect(result.itemsRemoved).toBe(3);
+    expect(projects.get(proj.id)).toBeNull();
+    expect(sources.get(source.id)?.project_id).toBeNull();
+    expect(db.prepare('SELECT id FROM items WHERE id = ?').get(projectItemId)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM items WHERE id = ?').get(personalItemId)).toBeTruthy();
+    const kept = db
+      .prepare('SELECT suggested_project_id AS s FROM items WHERE id = ?')
+      .get(personalItemId) as { s: string | null };
+    expect(kept.s).toBeNull();
+    expect(projects.get(other.id)).not.toBeNull();
+    expect(() => projects.delete(proj.id)).toThrow(/不存在/);
+  });
+
   it('符号链接指向授权范围外被拒绝', () => {
     const inside = join(dir, 'inside');
     const outside = join(dir, 'outside');

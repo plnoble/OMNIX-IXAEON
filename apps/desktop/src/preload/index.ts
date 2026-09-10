@@ -23,6 +23,7 @@ const api: IxaIpcApi = {
   createProject: (input) => ipcRenderer.invoke('ixaeon:createProject', input),
   createProjects: (inputs) => ipcRenderer.invoke('ixaeon:createProjects', inputs),
   updateProjectStatus: (input) => ipcRenderer.invoke('ixaeon:updateProjectStatus', input),
+  deleteProject: (id) => ipcRenderer.invoke('ixaeon:deleteProject', id),
   pickFiles: (kind) => ipcRenderer.invoke('ixaeon:pickFiles', kind),
   pickSaveZip: (defaultName) => ipcRenderer.invoke('ixaeon:pickSaveZip', defaultName),
   pickRestoreZip: () => ipcRenderer.invoke('ixaeon:pickRestoreZip'),

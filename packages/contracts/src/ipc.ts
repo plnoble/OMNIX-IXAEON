@@ -298,6 +298,7 @@ export interface IxaIpcApi {
     id: string;
     status: 'active' | 'paused' | 'archived';
   }): Promise<Project>;
+  deleteProject(id: string): Promise<{ sourcesUnassigned: number; itemsRemoved: number }>;
   // 导入（文件选择必须经过原生对话框；渲染进程只持有一次性票据）
   pickFiles(kind: 'documents' | 'chatgptExport' | 'directory'): Promise<PickResult | null>;
   pickSaveZip(defaultName: string): Promise<PickResult | null>;
