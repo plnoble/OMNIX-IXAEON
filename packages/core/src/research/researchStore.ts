@@ -108,9 +108,6 @@ export class ResearchStore {
     const question = input.question.trim();
     const publicDescription = (input.publicDescription ?? '').trim();
     if (question.length === 0) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '研究问题不能为空');
-    if (input.sources.length === 0) {
-      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '至少批准一个 HTTPS 来源');
-    }
     if (input.relatedGoalId) {
       const goal = this.db
         .prepare(`SELECT id, origin, type FROM items WHERE id = ?`)
@@ -376,7 +373,12 @@ export class ResearchStore {
     fetchedAt: string;
     relatedGoalId: string | null;
     relatedProjectId: string | null;
+    expectedGeneration?: number;
   }): ResearchFinding | null {
+    const topic = this.getTopic(input.topicId);
+    if (input.expectedGeneration !== undefined && topic.generation !== input.expectedGeneration) {
+      return null;
+    }
     const existing = this.db
       .prepare('SELECT id FROM research_findings WHERE topic_id = ? AND content_fingerprint = ?')
       .get(input.topicId, input.fingerprint) as { id: string } | undefined;

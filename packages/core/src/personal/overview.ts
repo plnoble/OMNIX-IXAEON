@@ -1,6 +1,7 @@
 import type { CoreDatabase } from '../db/database.js';
 import type { Item, Project, ProjectRelation, ResearchFinding } from '@ixaeon/contracts';
 import { RelationService } from '../orchestration/relationStore.js';
+import { isEphemeralStatement } from '../memory/ephemeral.js';
 
 export interface PersonalOverview {
   generatedAt: string;
@@ -91,19 +92,34 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
     goals: all.filter(
       (i) =>
         i.type === 'goal' &&
-        i.origin === 'user' &&
-        (i.scope === 'personal' || i.project_id === null),
+        (i.scope === 'personal' || i.project_id === null) &&
+        (i.origin === 'user' || i.confirmation === 'confirmed') &&
+        !isEphemeralStatement(i.statement),
     ),
     constraints: all.filter(
       (i) => i.type === 'constraint' && (i.scope === 'personal' || i.project_id === null),
     ),
-    unknowns: all.filter(
-      (i) => i.needs_review || i.scope === 'unassigned' || i.confirmation === 'none',
-    ),
+    unknowns: all.filter((i) => {
+      if (i.state === 'disputed') return true;
+      if (!i.needs_review) return false;
+      // 普通未整理/未确认提取可在理解页查看，不刷成首页作业。
+      return (
+        i.type === 'decision' ||
+        i.type === 'rejected_option' ||
+        i.origin === 'work_result' ||
+        i.origin === 'user'
+      );
+    }),
     conflicts: all.filter((i) => i.state === 'disputed'),
     projects: projects.map((p) => ({
       project: p,
-      goals: all.filter((i) => i.project_id === p.id && i.type === 'goal' && i.origin === 'user'),
+      goals: all.filter(
+        (i) =>
+          i.project_id === p.id &&
+          i.type === 'goal' &&
+          (i.origin === 'user' || i.confirmation === 'confirmed') &&
+          !isEphemeralStatement(i.statement),
+      ),
       constraints: all.filter((i) => i.project_id === p.id && i.type === 'constraint'),
     })),
     relations: new RelationService(db).list({ includeStale: true }),

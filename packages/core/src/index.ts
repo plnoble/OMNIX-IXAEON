@@ -11,6 +11,9 @@ export {
   PROJECT_ISOLATION_RULE,
   codingClientMayReadItem,
   assertCodingClientMayReadItem,
+  codingClientMayReadSegment,
+  assertCodingClientMayReadSegment,
+  modelMayReadItem,
   isItemDisclosedTo,
 } from './access.js';
 export {
@@ -27,6 +30,13 @@ export { PermissionService } from './permissions.js';
 export { ProjectService } from './projects.js';
 export { SourceStore, type SourceWithStats } from './storage/sourceStore.js';
 export { SearchService, type SegmentSearchHit } from './storage/search.js';
+export {
+  createRetrievalAdapter,
+  KeywordRetrievalAdapter,
+  LanceDbRetrievalAdapter,
+  type RetrievalAdapter,
+  type RetrievalHit,
+} from './storage/retrieval.js';
 export {
   parseMarkdownDocument,
   parseTextDocument,
@@ -86,14 +96,57 @@ export {
   isBlockedResolvedAddress,
 } from './research/urlSafety.js';
 export { fetchApprovedSource, type FetchDeps } from './research/fetchApproved.js';
+export {
+  createWebSearchExecutor,
+  type WebSearchExecutor,
+  type WebSearchHit,
+  type WebSearchOutcome,
+  type WebSearchProvider,
+  type WebSearchExecutorDeps,
+} from './research/webSearch.js';
 export { parseFeed, parsePage, fingerprintText } from './research/parse.js';
 export { CodingTaskStore, approvalDigest, DEFAULT_TASK_TIMEOUT_MS } from './execution/taskStore.js';
+export { copyProjectWorkspace, type WorkspaceSnapshot } from './execution/workspaceCopy.js';
 export {
   CodingOrchestrator,
   FakeCodingExecutor,
   CodexCliExecutor,
   resolveCodexLocator,
+  DEFAULT_NOTE_VERIFY,
+  isPlaceholderVerifyCommand,
   type CodingExecutor,
   type ExecutorReport,
   type IndependentCheck,
 } from './execution/executor.js';
+export { locateHermes, hermesSpawnEnv, type HermesLocator } from './runtime/hermesLocator.js';
+export {
+  HermesRuntimeAdapter,
+  type RuntimeCapabilities,
+  type RuntimeRunInput,
+  type RuntimeEvent,
+  type HermesRunResult,
+} from './runtime/adapter.js';
+export {
+  TuiGatewaySession,
+  hermesGatewayArgs,
+  type TuiTransport,
+  type TuiSpawnOptions,
+} from './runtime/tuiGateway.js';
+export { JsonRpcStdio } from './runtime/jsonrpcStdio.js';
+export { CoreToolBroker, CORE_TOOL_NAMES, type CoreToolName } from './runtime/broker.js';
+export { AgentSession, type AgentSessionResult, type AgentStep } from './runtime/session.js';
+export { SkillCandidateStore, type SkillCandidate, type SkillStatus } from './runtime/skills.js';
+export {
+  isEphemeralStatement,
+  demoteEphemeralType,
+  questionLooksEventSpecific,
+} from './memory/ephemeral.js';
+export { sanitizePublicQuery, type SanitizedQuery } from './memory/querySanitize.js';
+export {
+  MEMORY_EVAL_SCENARIOS,
+  runDeterministicMemoryEval,
+  type MemoryEvalScenario,
+  type MemoryEvalReport,
+  type MemoryEvalCategoryResult,
+  type EvalCategory,
+} from './memory/evalScenarios.js';

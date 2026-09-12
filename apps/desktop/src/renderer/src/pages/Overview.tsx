@@ -108,8 +108,8 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       <Card title="个人视角" testId="personal-overview">
         <p className="note">
-          不要求先建项目。这里回答：你目前想做什么、不确定在哪、各项目服务哪些目标、有没有重复建设。
-          接受关系不等于接口已经联通。
+          不要求先建项目。这里回答：你目前想做什么、各项目服务哪些目标、有没有重复建设。
+          「不确定」只列冲突和需要拍板的决定，不是把每条提取当成作业。接受关系不等于接口已经联通。
         </p>
         <p className="muted" data-testid="overview-coverage">
           生成于 {data?.generatedAt.slice(0, 19).replace('T', ' ')} · 项目{' '}
@@ -127,7 +127,7 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
       <Card title="约束" testId="overview-constraints">
         <ItemList items={data?.constraints ?? []} />
       </Card>
-      <Card title="不确定 / 待核实" testId="overview-unknowns">
+      <Card title="需要你拍板" testId="overview-unknowns">
         <ItemList items={data?.unknowns ?? []} />
       </Card>
       <Card title="冲突" testId="overview-conflicts">

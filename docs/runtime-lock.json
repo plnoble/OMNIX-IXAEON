@@ -1,0 +1,75 @@
+{
+  "updatedAt": "2026-09-12",
+  "status": "verified-on-this-machine",
+  "engine": "hermes",
+  "intendedInterface": "stdio TUI gateway JSON-RPC (NDJSON)",
+  "pinned": {
+    "tag": "v2026.9.11",
+    "version": "0.21.2",
+    "commit": "939e45c91d (chore: release v0.21.2 (2026.9.11))"
+  },
+  "officialMethods": [
+    "session.create",
+    "prompt.submit",
+    "session.interrupt",
+    "session.close",
+    "approval.respond"
+  ],
+  "officialEvents": [
+    "gateway.ready",
+    "message.start",
+    "message.delta",
+    "message.interim",
+    "message.complete",
+    "tool.start",
+    "tool.complete",
+    "approval.request",
+    "error"
+  ],
+  "eventFraming": "method='event'，事件名在 params.type，负载在 params.payload，会话过滤用 params.session_id；message.complete 带 {text,status}，status=error 即回合失败",
+  "launch": {
+    "exe": "<home>\\hermes-agent\\venv\\Scripts\\python.exe（posix: venv/bin/python）",
+    "args": ["-u", "-m", "tui_gateway.entry"],
+    "cwd": "<home>\\hermes-agent（仓库根）",
+    "env": ["HERMES_HOME=<home>", "PYTHONPATH=<repo>", "PYTHONUNBUFFERED=1"],
+    "source": "ui-tui/src/gatewayClient.ts 与 scripts/probe_active_session_exclusivity.py（同仓库）"
+  },
+  "toolBridging": "已验证：Core 经 apps/mcp 以 MCP 服务器接入 Hermes（config.yaml mcp_servers.ixaeon，直连模式 IXAEON_MCP_DB_PATH）。stdio 上没有 tool.respond（Hermes 代理自跑工具），桥接即 MCP 服务器注册，Hermes 会话构建时自动发现。R16 真机探针 2026-09-13 通过：真模型调 search_context 回答引用种子目标。个人记忆的暴露边界 = 谁配置 mcp_servers 指向哪个库（进程即权限边界）；日用库接入需用户明示",
+  "provider": {
+    "configured": "用户于 2026-09-12 配置（方式 A）：provider=custom → 用户自建 OpenAI 兼容网关，model=gemini-3.7-flash-tiered",
+    "verified": "R02 真模型整回合 2026-09-13 通过（terminal+回答非空）；R16 真模型+MCP 工具桥 2026-09-13 通过"
+  },
+  "docs": "https://hermes-agent.nousresearch.com/docs/developer-guide/programmatic-integration",
+  "installMethod": "官方安装器 install.ps1 -Tag v2026.9.11 -HermesHome D:\\Software\\IXAEON\\Hermes -SkipSetup -SkipComputerUse -NonInteractive（用户 2026-09-12 批准）",
+  "installDeps": [
+    "uv 0.12.13（装入专属目录 bin/）",
+    "Python 3.11.16（uv 托管，.hermes-runtime/）",
+    "Node 22.23.2（便携，仅限专属目录 node/；本机 npm 检测失败后由安装器托管）",
+    "ripgrep 15.1.0（本机已有）",
+    "ffmpeg（winget 系统级安装——超出专属目录，已如实记录）",
+    "browser-use CLI（专属目录）",
+    "computer-use 驱动：-SkipComputerUse 跳过",
+    "随包技能 58 个同步到 <home>/skills（含 computer-use/codex/claude-code/github 等；接活前须逐个审查，尚未审查）",
+    "uv.lock 哈希校验失败后回退 PyPI 在线解析（非哈希锁定，已如实记录）",
+    "browser-tools 与 ui-tui 的 npm install 两步失败（安装器报 exit code 空）；不影响 stdio 网关"
+  ],
+  "locator": "IXAEON_HERMES_EXE 或 IXAEON_HERMES_HOME；不扫描用户 ~/.hermes（本机也不存在）",
+  "probedOnThisMachine": {
+    "hermesFound": true,
+    "hermesHome": "D:\\Software\\IXAEON\\Hermes（专属，与用户个人目录无关）",
+    "realHandshake": "r02-real-hermes-gateway.test.ts：gateway.ready→session.create 返回 session_id→session.close（2026-09-12 通过）",
+    "noProviderBehavior": "无推理凭证阶段（2026-09-12，凭证配置前）：整回合诚实失败（52s，不假成功不挂死）",
+    "codex": "C:\\Users\\87953\\AppData\\Local\\OpenAI\\Codex\\bin\\codex.exe（0.130.0-alpha.5）；t04-real-codex.test.ts 真写文件+独立验证+磁盘复核（2026-09-12 通过）",
+    "codexWindowsNotes": "0.130.0-alpha.5：--ignore-user-config 会丢用户 config.toml 的 [windows] sandbox=\"elevated\"，Windows 默认只读 → 需显式 -c windows.sandbox=\"elevated\"；elevated 沙箱下进程在 turn.completed 后不退出 → 执行器以 turn.completed 为协议终点，10s 宽限后终止进程树",
+    "mcpBridge": "r16-mcp-bridge.test.ts：mcp_servers.ixaeon（直连合成库）→ 真模型调 search_context → 回答含种子目标（2026-09-13 通过；探针后配置自动还原）",
+    "dailyDbCopy": "r15-real-daily-db-copy.test.ts：真实日用库副本 17→18 幂等、数据保全（40 sources/870 segments/75 items）、源库字节不变（2026-09-12 通过）",
+    "python": "D:\\Development\\Python\\install\\python.exe",
+    "uv": "D:\\Development\\Python\\install\\Scripts\\uv.exe"
+  },
+  "blockedOn": [
+    "受控搜索服务与凭证：真实 URL 搜索（Hermes 侧 Tool Gateway 若订阅 Nous Portal 可另获其自带搜索，属用户决策）",
+    "Gemini/Grok/Claude 三平台样本：B5 四平台导入",
+    "日用库接入 MCP 桥（需用户明示；探针只验证过合成库）"
+  ],
+  "notes": "本文件记录的是已在本机核实的锁定安装与真实探针结果；未核实时不得写 verified。安装器不改用户个人 ~/.hermes（本机不存在该目录）。"
+}

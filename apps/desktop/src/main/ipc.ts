@@ -375,6 +375,7 @@ export function registerIpc(runtime: AppRuntime): void {
 
     // --- 问答（M2） ---
     askQuestion: async (input) => runtime.ask(input.projectId, input.question),
+    cancelAsk: async () => runtime.cancelAsk(),
     getPersonalOverview: async () => runtime.personalOverview(),
     listProjectRelations: async (input) => runtime.relations.list(input),
     proposeProjectRelations: async () => runtime.proposeRelations(),
@@ -457,6 +458,8 @@ export function registerIpc(runtime: AppRuntime): void {
           autoAnalyze: config.capture.autoAnalyze,
           extensionPaired: config.extension.token !== null,
           extensionLastSyncAt: runtime.lastCaptureAt(),
+          webSearchProvider: config.webSearch?.provider ?? 'none',
+          webSearchKeyPresent: config.webSearch?.apiKeyPresent ?? false,
         },
         dataDir: runtime.state.dataDir,
         mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
@@ -465,6 +468,8 @@ export function registerIpc(runtime: AppRuntime): void {
         extensionLoadDir: runtime.extensionUnpackedDir(),
         // RF08：旧明文密钥因系统加密不可用被清除 → 提示重新输入
         apiKeyNeedsReentry: runtime.apiKeyNeedsReentry(),
+        hermesFound: runtime.hermesFound(),
+        hermesNotice: runtime.hermesNotice(),
       };
     },
     saveModelSettings: async (input) => {
@@ -483,6 +488,32 @@ export function registerIpc(runtime: AppRuntime): void {
     },
     // 设置向导/设置页「获取可用模型」：上游拉取，Key 仅本次请求内存使用
     listAvailableModels: async (input) => runtime.listAvailableModels(input),
+    // B3 受控网页搜索：保存（Key safeStorage 加密落盘）与真实测试
+    saveWebSearchSettings: async (input) => {
+      runtime.updateConfig((c) => {
+        const prev = c.webSearch ?? {
+          provider: 'none' as const,
+          apiKeyEncrypted: null,
+          apiKeyPresent: false,
+        };
+        const wipe = input.provider === 'none';
+        const newKey =
+          !wipe && input.apiKey !== undefined && input.apiKey.length > 0
+            ? { apiKeyEncrypted: encryptApiKey(input.apiKey), apiKeyPresent: true }
+            : {};
+        return {
+          ...c,
+          webSearch: {
+            ...prev,
+            provider: input.provider,
+            ...(wipe ? { apiKeyEncrypted: null, apiKeyPresent: false } : {}),
+            ...newKey,
+          },
+        };
+      });
+      return { ok: true as const };
+    },
+    testWebSearch: async (input) => runtime.testWebSearch(input),
     setCaptureEnabled: async (enabled) => {
       runtime.updateConfig((c) => ({
         ...c,

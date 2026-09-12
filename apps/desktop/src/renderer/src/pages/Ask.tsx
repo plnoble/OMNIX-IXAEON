@@ -33,6 +33,10 @@ export function AskPage({ projects }: { projects: Project[] }) {
     <div data-testid="page-ask">
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       <Card title="问答" testId="ask-card">
+        <p className="muted">
+          提问会先探 Hermes。本机未装或会话未通时，走 Core
+          有界工具循环（读记忆、拒绝未配置搜索、编码须你批准）。不会把单轮检索写成 Hermes 已接通。
+        </p>
         <div className="search-bar">
           <select
             value={projectId}
@@ -58,6 +62,17 @@ export function AskPage({ projects }: { projects: Project[] }) {
           <Button kind="primary" disabled={busy} onClick={ask} testId="ask-run">
             {busy ? '思考中…' : '提问'}
           </Button>
+          {busy && (
+            <Button
+              kind="ghost"
+              onClick={() => {
+                void api.cancelAsk();
+              }}
+              testId="ask-cancel"
+            >
+              取消
+            </Button>
+          )}
         </div>
 
         {busy && <Spinner label="检索资料并生成回答…" />}
@@ -89,11 +104,22 @@ export function AskPage({ projects }: { projects: Project[] }) {
               </div>
             )}
             <p className="muted">
-              模型 {answer.modelName} · 使用 {answer.usedChars} 字符资料
+              引擎 {answer.engine ?? 'ask'} · 模型 {answer.modelName} · 使用 {answer.usedChars}{' '}
+              字符资料
               {answer.coverage
                 ? ` · 覆盖项目 ${answer.coverage.includedProjects.join('、') || '无'} · 未分析来源 ${answer.coverage.unanalyzedSources}`
                 : ''}
             </p>
+            {(answer.steps ?? []).length > 0 && (
+              <ul className="muted" data-testid="ask-steps">
+                {answer.steps!.map((s) => (
+                  <li key={`${s.round}-${s.tool}`}>
+                    第 {s.round} 步 {s.tool}
+                    {s.ok ? '' : '（失败）'}：{s.detail.slice(0, 160)}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         {!busy && !answer && !error && (

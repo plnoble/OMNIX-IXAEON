@@ -65,7 +65,9 @@ export function InboxPage({ projects }: { projects: Project[] }) {
     <div data-testid="page-inbox">
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       <Card title="待讨论（Inbox）" testId="inbox-card">
-        <p className="note">无法确定所属项目或相互冲突的结论，需要你确认归属。</p>
+        <p className="note">
+          冲突、重要决定、编码结果仍需要你拍板。普通提取会自动形成暂定理解，可在「理解」页查看或纠正，不必把每条都当作业。
+        </p>
         {items === null ? (
           <Spinner />
         ) : items.length === 0 ? (

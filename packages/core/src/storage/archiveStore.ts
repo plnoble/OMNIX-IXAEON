@@ -57,6 +57,8 @@ const TOP_ENTRIES = new Set([
   'data/research-runs.json',
   'data/coding-tasks.json',
   'data/coding-approvals.json',
+  'data/runtime-runs.json',
+  'data/skill-candidates.json',
 ]);
 
 /**
@@ -119,6 +121,8 @@ export class ArchiveService {
       ['data/research-runs.json', this.dumpTable('research_runs')],
       ['data/coding-tasks.json', this.dumpTable('coding_tasks')],
       ['data/coding-approvals.json', this.dumpTable('coding_approvals')],
+      ['data/runtime-runs.json', this.dumpTableIfPresent('runtime_runs')],
+      ['data/skill-candidates.json', this.dumpTableIfPresent('skill_candidates')],
     ];
     for (const [name, rows] of dataFiles) {
       const payload = {
@@ -155,7 +159,7 @@ export class ArchiveService {
       `数据库：${counts.sources} 个来源 / ${counts.segments} 个片段 / ${counts.items} 条结论`,
       '',
       '内容：',
-      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权、项目关系提案、研究关注、编码任务',
+      '- data/*.json：项目、来源、片段、当前理解、依据、纠正、工作记录、权限、关联、分享授权、项目关系提案、研究关注、编码任务、运行账本、Skill 候选',
       '  （人类可读 JSON，字段命名稳定，带 formatVersion）',
       '- db.sqlite：数据库副本（完整快速恢复用）',
       '- vault/：导入原文（sha256/xx/<64位哈希> 布局，逐字保留）',
@@ -466,6 +470,19 @@ export class ArchiveService {
             )
             .run();
         }
+        if (
+          sanitize
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_runs'")
+            .get() as { name: string } | undefined
+        ) {
+          const now = new Date().toISOString();
+          sanitize
+            .prepare(
+              `UPDATE runtime_runs SET status = 'cancelled', notice = COALESCE(notice, '恢复后运行中会话取消'), finished_at = ?
+               WHERE status = 'running'`,
+            )
+            .run(now);
+        }
       } finally {
         sanitize.close();
       }
@@ -556,8 +573,23 @@ export class ArchiveService {
       research_runs: count('research_runs'),
       coding_tasks: count('coding_tasks'),
       coding_approvals: count('coding_approvals'),
+      runtime_runs: this.tableExists('runtime_runs') ? count('runtime_runs') : 0,
+      skill_candidates: this.tableExists('skill_candidates') ? count('skill_candidates') : 0,
       audit_events: count('audit_events'),
     };
+  }
+
+  private tableExists(table: string): boolean {
+    return Boolean(
+      this.db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+        .get(table) as { name: string } | undefined,
+    );
+  }
+
+  private dumpTableIfPresent(table: string): Array<Record<string, unknown>> {
+    if (!this.tableExists(table)) return [];
+    return this.dumpTable(table);
   }
 
   private dbTextChars(): number {

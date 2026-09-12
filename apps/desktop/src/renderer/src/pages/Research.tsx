@@ -81,7 +81,7 @@ export function ResearchPage({
       await api.createResearchTopic({
         question: question.trim(),
         publicDescription: publicDescription.trim(),
-        sources: [{ url: sourceUrl.trim(), kind: sourceKind }],
+        sources: sourceUrl.trim() ? [{ url: sourceUrl.trim(), kind: sourceKind }] : [],
       });
       setQuestion('');
       setPublicDescription('');
@@ -113,13 +113,12 @@ export function ResearchPage({
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       <Card title="主动研究" testId="research-notice">
         <p className="note">
-          {data?.notice ?? '当前未配置搜索服务，只检查已批准来源，不是全网搜索。'}
+          {data?.notice ??
+            '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。'}
         </p>
         <p className="muted">
-          检查成功 =
-          这个网址能打开，内容记下来了。有新标题/摘录会出现在下面「发现」；没变化就是还是上次那样。
-          发现是外部线索，不会自动变成你的目标。启用自动后大约每 24
-          小时再看一次；电脑休眠或退出期间不执行。
+          有批准网址时，「立即检查」只证明这个网址能打开并记下内容，不是搜索。
+          无网址的关注可以先记下方向，检查会明确失败，直到搜索入口获准。发现是外部线索，不会自动变成你的目标。
         </p>
       </Card>
       <Card title="新建关注">
@@ -141,11 +140,15 @@ export function ResearchPage({
             placeholder="可空。例如：关注某开源项目的 Release"
           />
         </Field>
-        <Field label="批准来源 URL（仅 HTTPS）">
+        <Field
+          label="批准来源 URL（可选）"
+          hint="只给方向也可以创建。没有搜索服务时，空来源的立即检查会失败，不会假装已搜索。"
+        >
           <input
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
             data-testid="research-url"
+            placeholder="https://… 可空"
           />
         </Field>
         <Field label="来源类型">
@@ -160,7 +163,7 @@ export function ResearchPage({
         </Field>
         <Button
           kind="primary"
-          disabled={busy}
+          disabled={busy || question.trim().length === 0}
           onClick={() => void create()}
           testId="research-create"
         >

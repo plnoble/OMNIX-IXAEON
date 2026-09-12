@@ -42,6 +42,16 @@ export const appConfigSchema = z.object({
   }),
   /** 本机 MCP / 本地 HTTP API 访问令牌 */
   localToken: z.string().nullable(),
+  /** 受控网页搜索（B3）：provider=none 时 search_web 诚实失败 */
+  webSearch: z
+    .object({
+      provider: z.enum(['none', 'brave', 'tavily']).default('none'),
+      /** Electron safeStorage 加密后的搜索 API Key（base64）。永不明文落盘。 */
+      apiKeyEncrypted: z.string().nullable().default(null),
+      /** 是否已配置 Key（UI 状态展示；未配置则 search_web 报 IXA0017） */
+      apiKeyPresent: z.boolean().default(false),
+    })
+    .default({ provider: 'none', apiKeyEncrypted: null, apiKeyPresent: false }),
 });
 export type AppConfig = z.infer<typeof appConfigSchema>;
 
@@ -64,6 +74,7 @@ export function defaultAppConfig(): AppConfig {
     },
     extension: { token: null, pairedAt: null },
     localToken: null,
+    webSearch: { provider: 'none', apiKeyEncrypted: null, apiKeyPresent: false },
   };
 }
 

@@ -2,7 +2,8 @@ import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import { ASK_SYSTEM_PROMPT } from '../extraction/prompts.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
-import { assertSourceAuthorized } from '../access.js';
+import { assertSourceAuthorized, modelMayReadItem } from '../access.js';
+import { isEphemeralStatement, questionLooksEventSpecific } from '../memory/ephemeral.js';
 
 /** 问答用的检索片段（引用编号 + 内容）。 */
 interface CitedSegment {
@@ -40,6 +41,9 @@ export interface AskResult {
   usedChars: number;
   modelName: string;
   coverage?: AskCoverage;
+  engine?: 'hermes' | 'core-bounded' | 'missing' | 'ask';
+  runId?: string;
+  steps?: Array<{ round: number; tool: string; ok: boolean; detail: string }>;
 }
 
 const MAX_CONTEXT_CHARS = 12_000;
@@ -100,7 +104,11 @@ export class AskService {
       scope: string;
       rationale: string | null;
     }>;
-    const ranked = rankItemsForQuestion(items, question).slice(0, 80);
+    const ranked = selectRelevantItems(
+      items.filter((item) => modelMayReadItem(this.db, item.id)),
+      question,
+      projectId,
+    );
 
     const cited: CitedSegment[] = [];
     // C07/A12：去重键分两层 —— 「条目身份」（item.id）与「原文依据身份」
@@ -200,6 +208,48 @@ export class AskService {
           text: seg.archived_at
             ? `[过往工作档案${seg.archive_summary ? ` · 经验：${seg.archive_summary}` : ''}] ${seg.text.slice(0, 1000)}`
             : seg.text.slice(0, 1200),
+          isUserCorrection: false,
+        });
+        if (usedChars(cited) > MAX_CONTEXT_CHARS) {
+          budgetHit = true;
+          break;
+        }
+      }
+    }
+
+    if (!budgetHit) {
+      const runs = this.db
+        .prepare(
+          `SELECT id, project_id, agent_name, task, outcome, summary, finished_at
+           FROM work_runs
+           WHERE (? IS NULL OR project_id = ?)
+           ORDER BY finished_at DESC LIMIT 8`,
+        )
+        .all(projectId, projectId) as Array<{
+        id: string;
+        project_id: string;
+        agent_name: string;
+        task: string;
+        outcome: string;
+        summary: string;
+        finished_at: string;
+      }>;
+      for (const run of runs) {
+        const blob = `${run.task} ${run.summary}`.toLowerCase();
+        const keys = extractKeywords(question).map((k) => k.replace(/"/g, '').toLowerCase());
+        const related =
+          keys.some((k) => k.length > 1 && blob.includes(k)) ||
+          /任务|失败|结果|上次|编码|验证/.test(question);
+        if (!related && keys.length > 0) continue;
+        refCounter += 1;
+        pushCited({
+          ref: `R${refCounter}`,
+          itemId: null,
+          segmentId: `work:${run.id}`,
+          sourceTitle: '工作记录',
+          role: 'work_result',
+          occurredAt: run.finished_at,
+          text: `[工作记录 · ${run.outcome}] ${run.task}\n${run.summary}`,
           isUserCorrection: false,
         });
         if (usedChars(cited) > MAX_CONTEXT_CHARS) {
@@ -401,4 +451,47 @@ function rankItemsForQuestion<T extends { statement: string; type: string; origi
     return s;
   };
   return [...items].sort((a, b) => score(b) - score(a));
+}
+
+function questionTokens(question: string): string[] {
+  const keys = extractKeywords(question).map((k) => k.replace(/"/g, '').toLowerCase());
+  const extra: string[] = [];
+  const cjk = question.match(/[\u4e00-\u9fff]+/g) ?? [];
+  for (const run of cjk) {
+    for (let i = 0; i <= run.length - 2; i++) extra.push(run.slice(i, i + 2));
+  }
+  return [...new Set([...keys, ...extra])].filter((k) => k.length > 1);
+}
+
+/** 只把相关记忆交给模型。零相关合法；不把全部个人条目当画像硬塞。 */
+export function selectRelevantItems<
+  T extends { statement: string; type: string; origin: string; confirmation: string },
+>(items: T[], question: string, projectId: string | null): T[] {
+  const ranked = rankItemsForQuestion(items, question);
+  const q = question.toLowerCase();
+  const keys = questionTokens(question);
+  const scored = ranked.map((item) => {
+    const st = item.statement.toLowerCase();
+    let s = 0;
+    if (keys.some((k) => st.includes(k))) s += 8;
+    if (item.origin === 'user') s += 2;
+    if (/目标|想做|计划/.test(q) && item.type === 'goal') s += 3;
+    if (/约束|不要|禁止/.test(q) && item.type === 'constraint') s += 3;
+    return { item, s };
+  });
+  const eventQ = questionLooksEventSpecific(question);
+  const related = scored
+    .filter((x) => x.s >= 8)
+    .map((x) => x.item)
+    .filter((i) => eventQ || !isEphemeralStatement(i.statement));
+  if (related.length > 0) return related.slice(0, 24);
+  if (/目标|想做|理解我|目前|计划/.test(q)) {
+    return ranked
+      .filter((i) => i.type === 'goal' && (i.origin === 'user' || i.confirmation === 'confirmed'))
+      .filter((i) => eventQ || !isEphemeralStatement(i.statement))
+      .slice(0, 12);
+  }
+  // 已选项目：范围本身就是过滤，回退到排序后的项目条目（纠正优先）。
+  if (projectId !== null) return ranked.slice(0, 24);
+  return [];
 }

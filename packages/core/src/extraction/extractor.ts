@@ -5,6 +5,7 @@ import { EXTRACT_PROMPT_VERSION, EXTRACT_SYSTEM_PROMPT } from './prompts.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { assertSourceAuthorized } from '../access.js';
 import { addNeedsReason } from '../storage/needsReview.js';
+import { demoteEphemeralType } from '../memory/ephemeral.js';
 
 /** 单次提取的输出 schema（计划 5.3.4：候选项目、决定、否决、待办、目标、约束）。 */
 export const extractionOutputSchema = z.object({
@@ -289,8 +290,7 @@ export class Extractor {
       `DELETE FROM items
        WHERE extracted_from_source_id = ? AND origin = 'ai' AND state = 'current'
          AND confirmation = 'none'
-         -- G5 后续：人工单独分配过项目的条目（manual_project=1）不被重提删除
-         -- —— 用户对它做过归属决定，等价于人工操作，保护语义与确认/不采纳一致
+         -- 人工单独分配过项目或标过范围（manual_project=1）不被重提删除
          AND manual_project = 0`,
     );
 
@@ -342,11 +342,12 @@ export class Extractor {
         ) {
           needsReview = 1;
         }
+        const storedType = demoteEphemeralType(row.type, row.statement);
         insertItem.run(
           itemId,
           projectId,
           projectId ? 'project' : 'unassigned',
-          row.type,
+          storedType,
           row.statement,
           row.rationale,
           row.confidence,

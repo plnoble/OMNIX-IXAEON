@@ -13,6 +13,8 @@ export class FakeProvider implements ModelProvider {
   readonly textCalls: Array<{ system: string; user: string }> = [];
   private structuredQueue: unknown[] = [];
   private textQueue: string[] = [];
+  /** 测试钩子：每次结构化调用前执行（可取消会话）。 */
+  beforeStructured: (() => void) | null = null;
 
   constructor(modelName = 'fake-model-v1') {
     this.modelName = modelName;
@@ -34,6 +36,7 @@ export class FakeProvider implements ModelProvider {
     user: string;
     schema: z.ZodType<T>;
   }): Promise<T> {
+    this.beforeStructured?.();
     this.structuredCalls.push({ system: input.system, user: input.user });
     if (this.structuredQueue.length === 0) {
       throw new ModelError('FakeProvider 队列为空（测试未提供响应）', false);

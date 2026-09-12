@@ -1,5 +1,5 @@
 import { app, safeStorage } from 'electron';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
@@ -17,6 +17,9 @@ import {
   FakeCodingExecutor,
   CodexCliExecutor,
   resolveCodexLocator,
+  HermesRuntimeAdapter,
+  AgentSession,
+  CoreToolBroker,
   OpenAIResponsesProvider,
   listUpstreamModels,
   ImportService,
@@ -35,9 +38,11 @@ import {
   resolveDataDir,
   saveConfig,
   setDataDirChoice,
+  createWebSearchExecutor,
   type AskResult,
   type CoreDatabase,
   type ModelProvider,
+  type WebSearchExecutor,
 } from '@ixaeon/core';
 import {
   ErrorCodes,
@@ -86,6 +91,8 @@ export class AppRuntime {
   private extensionLoadDir: string | null = null;
   private modelCallCount = 0;
   private researchTimer: NodeJS.Timeout | null = null;
+  private currentAsk: AgentSession | null = null;
+  private currentAskRunId: string | null = null;
 
   private constructor(deps: {
     dataDir: string;
@@ -549,6 +556,56 @@ export class AppRuntime {
   }
 
   /**
+   * 受控网页搜索执行器（B3）。未配置/未保存 Key/解密失败 → null（search_web 诚实失败）。
+   */
+  getWebSearchExecutor(): WebSearchExecutor | null {
+    const ws = this.config.webSearch;
+    if (!ws || ws.provider === 'none' || !ws.apiKeyPresent) return null;
+    const encrypted = ws.apiKeyEncrypted;
+    if (!encrypted) return null;
+    const apiKey = decryptApiKey(encrypted);
+    if (!apiKey) {
+      this.logger.warn('搜索 API Key 解密失败（可能迁移自其他机器）', {});
+      return null;
+    }
+    try {
+      return createWebSearchExecutor(ws.provider, apiKey);
+    } catch (err) {
+      this.logger.warn('搜索执行器创建失败', { error: String(err) });
+      return null;
+    }
+  }
+
+  /** 设置页「测试搜索」：真实查询一次，结果只回标题/URL/摘要，不落库。 */
+  async testWebSearch(input: { query: string; apiKey?: string }): Promise<{
+    provider: 'brave' | 'tavily';
+    hits: Array<{ title: string; url: string; snippet: string }>;
+  }> {
+    const query = input.query.trim();
+    if (!query) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '测试搜索需要查询词');
+    }
+    const provider = this.config.webSearch?.provider ?? 'none';
+    if (provider === 'none') {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请先选择搜索服务并保存 Key');
+    }
+    let apiKey = input.apiKey?.trim() ?? '';
+    if (!apiKey) {
+      const decrypted = this.getWebSearchExecutor();
+      if (!decrypted) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          '已保存的 Key 不可用：请重新输入（Key 不回显）',
+        );
+      }
+      const outcome = await decrypted.search(query, 3);
+      return { provider: outcome.provider, hits: outcome.hits };
+    }
+    const outcome = await createWebSearchExecutor(provider, apiKey).search(query, 3);
+    return { provider: outcome.provider, hits: outcome.hits };
+  }
+
+  /**
    * 拉取上游可用模型列表（设置向导/设置页「获取可用模型」）。
    * Key 只在本次请求内存中使用，不落盘。
    */
@@ -573,7 +630,7 @@ export class AppRuntime {
     }
   }
 
-  /** 问答（Ask 页）。模型未配置时明确报错。 */
+  /** 问答：先探 Hermes，未接通则走 Core 有界工具循环。不是单轮检索冒充 Agent。 */
   async ask(projectId: string | null, question: string): Promise<AskResult> {
     const provider = this.getProvider();
     if (!provider) {
@@ -582,8 +639,34 @@ export class AppRuntime {
         'IXA0010 模型未配置：请在设置中填写 OpenAI API Key 后使用问答',
       );
     }
-    const asker = new AskService(this.db, provider);
-    return asker.ask(projectId, question);
+    const broker = new CoreToolBroker(
+      this.db,
+      this.items,
+      this.search,
+      this.coding,
+      this.projects,
+      desktopResearchFetchDeps(),
+      this.getWebSearchExecutor() ?? undefined,
+    );
+    const session = new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider);
+    const runId = randomUUID();
+    this.currentAsk = session;
+    this.currentAskRunId = runId;
+    try {
+      return await session.run({ goal: question, projectId, runId });
+    } finally {
+      if (this.currentAskRunId === runId) {
+        this.currentAsk = null;
+        this.currentAskRunId = null;
+      }
+    }
+  }
+
+  cancelAsk(): { cancelled: boolean; runId: string | null } {
+    const runId = this.currentAskRunId;
+    if (!this.currentAsk || !runId) return { cancelled: false, runId: null };
+    this.currentAsk.cancel(runId);
+    return { cancelled: true, runId };
   }
 
   personalOverview() {
@@ -604,7 +687,8 @@ export class AppRuntime {
     return {
       mode: 'approved-sources-only' as const,
       searchConfigured: false as const,
-      notice: '当前未配置搜索服务，只检查已批准来源，不是全网搜索。',
+      notice:
+        '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。',
       topics,
     };
   }
@@ -977,6 +1061,18 @@ export class AppRuntime {
   /** 最近一次扩展同步时间（弹窗状态显示）。 */
   codingExecutorName(): string {
     return this.coding.executorName;
+  }
+
+  hermesFound(): boolean {
+    return new HermesRuntimeAdapter().probe().locator.found;
+  }
+
+  hermesNotice(): string {
+    const caps = new HermesRuntimeAdapter().probe();
+    if (caps.locator.found) {
+      return `已找到 Hermes：${caps.locator.exe}。stdio 会话探针尚未通过，问答走 Core 有界工具循环，不是完整 Hermes。`;
+    }
+    return `Hermes 未安装：${caps.locator.reason}`;
   }
 
   extensionUnpackedDir(): string | null {

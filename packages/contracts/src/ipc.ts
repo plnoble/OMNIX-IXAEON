@@ -233,6 +233,18 @@ export const askAnswerSchema = z.object({
       budgetLimited: z.boolean(),
     })
     .optional(),
+  engine: z.enum(['hermes', 'core-bounded', 'missing', 'ask']).optional(),
+  runId: z.string().optional(),
+  steps: z
+    .array(
+      z.object({
+        round: z.number().int(),
+        tool: z.string(),
+        ok: z.boolean(),
+        detail: z.string(),
+      }),
+    )
+    .optional(),
 });
 export type AskAnswer = z.infer<typeof askAnswerSchema>;
 
@@ -262,6 +274,9 @@ export const settingsViewSchema = z.object({
     autoAnalyze: z.boolean(),
     extensionPaired: z.boolean(),
     extensionLastSyncAt: z.string().nullable(),
+    /** 受控网页搜索（B3）：provider 与 Key 状态（Key 永不回传渲染进程） */
+    webSearchProvider: z.enum(['none', 'brave', 'tavily']).default('none'),
+    webSearchKeyPresent: z.boolean().default(false),
   }),
   dataDir: z.string(),
   mcp: z.object({
@@ -277,6 +292,8 @@ export const settingsViewSchema = z.object({
   extensionLoadDir: z.string().nullable().default(null),
   /** RF08：旧明文密钥因系统加密不可用被清除，需要用户重新输入 */
   apiKeyNeedsReentry: z.boolean().default(false),
+  hermesFound: z.boolean().default(false),
+  hermesNotice: z.string().default(''),
 });
 export type SettingsView = z.infer<typeof settingsViewSchema>;
 
@@ -425,6 +442,7 @@ export interface IxaIpcApi {
   }): Promise<Array<Correction & { oldItem: Item; newItem: Item }>>;
   // 问答
   askQuestion(input: AskQuestionInput): Promise<AskAnswer>;
+  cancelAsk(): Promise<{ cancelled: boolean; runId: string | null }>;
   getPersonalOverview(): Promise<{
     generatedAt: string;
     goals: Item[];
@@ -523,6 +541,19 @@ export interface IxaIpcApi {
     apiBaseUrl?: string;
     apiKey?: string;
   }): Promise<{ ok: true }>;
+  /** 保存网页搜索设置（B3）。Key 用 safeStorage 加密落盘，留空表示保持不变。 */
+  saveWebSearchSettings(input: {
+    provider: 'none' | 'brave' | 'tavily';
+    apiKey?: string;
+  }): Promise<{ ok: true }>;
+  /**
+   * 真实搜索连通性测试（设置页「测试搜索」）：用已保存（或本次输入）的 Key
+   * 发一次真实查询。消耗 1 次额度；结果只回标题/URL，不落库。
+   */
+  testWebSearch(input: { query: string; apiKey?: string }): Promise<{
+    provider: 'brave' | 'tavily';
+    hits: Array<{ title: string; url: string; snippet: string }>;
+  }>;
   /**
    * 从上游拉取可用模型列表（GET {apiBaseUrl}/models，Bearer 鉴权）。
    * 地址为空时用官方默认。失败抛 IXA0011（含上游错误信息）。

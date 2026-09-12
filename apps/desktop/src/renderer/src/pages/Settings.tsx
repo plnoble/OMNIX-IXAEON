@@ -114,6 +114,14 @@ export function SettingsPage() {
   const [models, setModels] = useState<Array<{ id: string }> | null>(null);
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [searchForm, setSearchForm] = useState<{
+    provider: 'none' | 'brave' | 'tavily';
+    apiKey: string;
+  }>({ provider: 'none', apiKey: '' });
+  const [searchTest, setSearchTest] = useState<{
+    busy: boolean;
+    result: string | null;
+  }>({ busy: false, result: null });
 
   const reload = useCallback(async () => {
     try {
@@ -123,6 +131,10 @@ export function SettingsPage() {
       setForm({
         modelName: v.config.modelName,
         apiBaseUrl: v.config.apiBaseUrl,
+        apiKey: '',
+      });
+      setSearchForm({
+        provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
       });
     } catch (err) {
@@ -174,6 +186,47 @@ export function SettingsPage() {
       setError(errMsg(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const saveWebSearch = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.saveWebSearchSettings({
+        provider: searchForm.provider,
+        apiKey: searchForm.apiKey.trim() || undefined,
+      });
+      setNotice('搜索设置已保存');
+      setSearchTest({ busy: false, result: null });
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testWebSearch = async () => {
+    setSearchTest({ busy: true, result: null });
+    setError(null);
+    try {
+      const result = await api.testWebSearch({
+        query: '今天上海天气 公开信息',
+        apiKey: searchForm.apiKey.trim() || undefined,
+      });
+      const first = result.hits[0];
+      setSearchTest({
+        busy: false,
+        result:
+          result.hits.length === 0
+            ? `${result.provider} 连通成功，但该查询无结果（Key 有效）`
+            : `${result.provider} 连通成功：${result.hits.length} 条结果，如「${first?.title?.slice(0, 40) ?? ''}」`,
+      });
+    } catch (err) {
+      setSearchTest({ busy: false, result: null });
+      setError(errMsg(err));
     }
   };
 
@@ -282,6 +335,16 @@ export function SettingsPage() {
 
       <UpdateCard />
 
+      <Card title="Agent 运行时（Hermes）" testId="settings-hermes">
+        <p className={view.hermesFound ? 'note' : 'warn'} data-testid="settings-hermes-notice">
+          {view.hermesNotice || '尚未探测 Hermes。'}
+        </p>
+        <p className="muted">
+          不偷偷安装。需要锁定版本、专属目录和你的批准后，才接 stdio
+          会话。当前问答仍是单轮检索，不是完整工具循环。
+        </p>
+      </Card>
+
       <Card title="模型接入" testId="settings-model">
         {/* RF08：旧明文密钥被清除时明确提示重新输入（可理解、可恢复，不静默） */}
         {view.apiKeyNeedsReentry && !view.config.apiKeyPresent && (
@@ -340,6 +403,70 @@ export function SettingsPage() {
             保存
           </Button>
         </div>
+      </Card>
+
+      <Card title="网页搜索（研究用）" testId="settings-websearch">
+        <p className="muted">
+          给 B3 研究提供真实 URL 搜索。查询发出前会本地脱敏（邮箱/路径/密钥）；
+          不配置时 search_web 诚实失败，不伪造结果。Key 用系统加密保存，不回显。
+        </p>
+        <Field label="搜索服务">
+          <select
+            value={searchForm.provider}
+            onChange={(e) => {
+              setSearchForm({
+                ...searchForm,
+                provider: e.target.value as 'none' | 'brave' | 'tavily',
+              });
+              setSearchTest({ busy: false, result: null });
+            }}
+            data-testid="settings-websearch-provider"
+          >
+            <option value="none">不配置（诚实失败）</option>
+            <option value="brave">Brave Search API</option>
+            <option value="tavily">Tavily API</option>
+          </select>
+        </Field>
+        {searchForm.provider !== 'none' && (
+          <Field
+            label="API Key"
+            hint={
+              view.config.webSearchKeyPresent ? '已保存（不回显）' : '未配置'
+            }
+          >
+            <input
+              type="password"
+              value={searchForm.apiKey}
+              placeholder="留空保持不变"
+              onChange={(e) => setSearchForm({ ...searchForm, apiKey: e.target.value })}
+              data-testid="settings-websearch-key"
+            />
+          </Field>
+        )}
+        <div className="wizard-nav">
+          {searchForm.provider !== 'none' && (
+            <Button
+              disabled={searchTest.busy}
+              onClick={() => void testWebSearch()}
+              testId="settings-websearch-test"
+            >
+              {searchTest.busy ? '测试中…' : '测试搜索（真实查询一次）'}
+            </Button>
+          )}
+          <Button
+            kind="primary"
+            disabled={busy}
+            onClick={saveWebSearch}
+            testId="settings-websearch-save"
+          >
+            保存
+          </Button>
+        </div>
+        {searchTest.result && (
+          <p className="ok-banner" data-testid="settings-websearch-test-result">
+            {searchTest.result}
+          </p>
+        )}
       </Card>
 
       <Card title="网页采集（ChatGPT 扩展）" testId="settings-capture">

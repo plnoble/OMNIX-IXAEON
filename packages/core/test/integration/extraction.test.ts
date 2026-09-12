@@ -231,6 +231,38 @@ describe('M2 提取（FakeProvider）', () => {
     expect(projItems.every((i) => i.needs_review)).toBe(true);
   });
 
+  it('一次性要求即使模型写成 goal 也降为 open_loop', async () => {
+    const project = projects.create({ name: '一次性项目', rootPath: null, description: null });
+    const docFile = join(dir, 'ephemeral.md');
+    writeFileSync(docFile, '# 会议\n这次会议用红色主题，仅本次。', 'utf8');
+    const result = imports.importFile(docFile, {
+      projectId: project.id,
+      permissionId: permissions.grantFile(docFile).id,
+    });
+    const source = result.created[0]!;
+    const fake = new FakeProvider();
+    const payload = {
+      items: [
+        {
+          type: 'goal' as const,
+          statement: '这次会议用红色主题，仅本次',
+          rationale: null,
+          confidence: 0.8,
+          segment_ref: 'S1',
+          project_hint: null,
+          excerpt: '这次会议用红色主题，仅本次',
+        },
+      ],
+    };
+    fake.enqueueStructured(payload);
+    fake.enqueueStructured(payload);
+    await new Extractor(db, fake).extractSource(source.id);
+    const stored = items
+      .list({ projectId: project.id })
+      .find((i) => i.statement.includes('红色主题'));
+    expect(stored?.type).toBe('open_loop');
+  });
+
   it('重新提取：旧 AI 结论被清理，纠正过的历史保留', async () => {
     const project = projects.create({
       name: '重提项目',

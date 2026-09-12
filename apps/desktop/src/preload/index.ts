@@ -63,6 +63,7 @@ const api: IxaIpcApi = {
   createManualItem: (input) => ipcRenderer.invoke('ixaeon:createManualItem', input),
   listCorrections: (input) => ipcRenderer.invoke('ixaeon:listCorrections', input),
   askQuestion: (input) => ipcRenderer.invoke('ixaeon:askQuestion', input),
+  cancelAsk: () => ipcRenderer.invoke('ixaeon:cancelAsk'),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
   listProjectRelations: (input) => ipcRenderer.invoke('ixaeon:listProjectRelations', input),
   proposeProjectRelations: () => ipcRenderer.invoke('ixaeon:proposeProjectRelations'),
@@ -87,6 +88,9 @@ const api: IxaIpcApi = {
   listWorkRuns: (input) => ipcRenderer.invoke('ixaeon:listWorkRuns', input),
   getSettings: () => ipcRenderer.invoke('ixaeon:getSettings'),
   saveModelSettings: (input) => ipcRenderer.invoke('ixaeon:saveModelSettings', input),
+  saveWebSearchSettings: (input) =>
+    ipcRenderer.invoke('ixaeon:saveWebSearchSettings', input),
+  testWebSearch: (input) => ipcRenderer.invoke('ixaeon:testWebSearch', input),
   listAvailableModels: (input) => ipcRenderer.invoke('ixaeon:listAvailableModels', input),
   setCaptureEnabled: (enabled) => ipcRenderer.invoke('ixaeon:setCaptureEnabled', enabled),
   setAutoAnalyze: (enabled) => ipcRenderer.invoke('ixaeon:setAutoAnalyze', enabled),

@@ -48,7 +48,8 @@ export function parsePage(html: string, url: string): ParsedEntry {
   const title = decode(
     tag(html, 'title') ?? attr(html, 'meta', 'content', /property=["']og:title["']/i) ?? url,
   ).slice(0, 300);
-  const excerpt = stripTags(html).slice(0, 800);
+  const body = stripTags(html).slice(0, 100_000);
+  const excerpt = body.slice(0, 800);
   const published = parseDate(
     attr(html, 'meta', 'content', /property=["']article:published_time["']/i) ??
       attr(html, 'time', 'datetime'),
@@ -58,7 +59,8 @@ export function parsePage(html: string, url: string): ParsedEntry {
     url,
     excerpt,
     claimedPublishedAt: published,
-    fingerprint: fingerprintText(`${title}\n${excerpt}`),
+    // 指纹用受限正文，不跟展示摘要绑死；长导航前缀后的版本变化必须能检出。
+    fingerprint: fingerprintText(`${title}\n${body}`),
   };
 }
 

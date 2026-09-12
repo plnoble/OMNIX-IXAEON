@@ -366,8 +366,10 @@ export class ItemService {
       // personal / unassigned 解除项目所有者；project 保留已有 project_id。
       const projectId = scope === 'project' ? item.project_id : null;
       this.db
-        .prepare('UPDATE items SET scope = ?, project_id = ?, updated_at = ? WHERE id = ?')
-        .run(scope, projectId, new Date().toISOString(), itemId);
+        .prepare(
+          'UPDATE items SET scope = ?, project_id = ?, manual_project = CASE WHEN ? = 1 THEN 1 ELSE manual_project END, updated_at = ? WHERE id = ?',
+        )
+        .run(scope, projectId, scope === 'personal' ? 1 : 0, new Date().toISOString(), itemId);
       syncDerivedNeedsReasons(this.db, itemId);
     });
     tx();

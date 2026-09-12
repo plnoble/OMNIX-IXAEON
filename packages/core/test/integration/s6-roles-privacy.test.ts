@@ -215,6 +215,8 @@ describe('A12 恢复不复用执行批准、不自动联网', () => {
     expect(existsSync(zipPath)).toBe(true);
     const zip = await JSZip.loadAsync(readFileSync(zipPath));
     expect(zip.file('data/coding-tasks.json')).toBeTruthy();
+    expect(zip.file('data/runtime-runs.json')).toBeTruthy();
+    expect(zip.file('data/skill-candidates.json')).toBeTruthy();
 
     await archive.restoreData(zipPath);
     db = openDatabase(join(dir, 'ixaeon.db'));

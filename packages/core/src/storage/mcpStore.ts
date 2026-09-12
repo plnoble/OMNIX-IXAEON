@@ -12,7 +12,11 @@ import type {
   SearchResult,
 } from '@ixaeon/contracts';
 import { recordAudit } from '../audit.js';
-import { assertSourceAuthorized, assertCodingClientMayReadItem } from '../access.js';
+import {
+  assertSourceAuthorized,
+  assertCodingClientMayReadItem,
+  assertCodingClientMayReadSegment,
+} from '../access.js';
 
 /**
  * MCP 工具逻辑（计划 6.x）。
@@ -522,6 +526,7 @@ export class McpService {
     if (seg) {
       // 权限检查：来源的读取授权必须仍有效（计划 6.3）
       assertSourceAuthorized(this.db, seg.source_id);
+      assertCodingClientMayReadSegment(this.db, seg.id);
       const before = this.db
         .prepare('SELECT text FROM segments WHERE source_id = ? AND sequence = ?')
         .get(seg.source_id, seg.sequence - 1) as { text: string } | undefined;

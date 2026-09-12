@@ -12,7 +12,9 @@
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
     "@ixaeon/contracts": "workspace:*",
+    "@ixaeon/core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "better-sqlite3": "^13.0.3",
     "zod": "^4.5.4"
   },
   "devDependencies": {

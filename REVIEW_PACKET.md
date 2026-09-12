@@ -876,6 +876,60 @@ pnpm package:windows   # 先构建 apps/mcp（打包资源），再 desktop，�
 - 安装包：`IXAEON-Setup-0.2.6.exe` 122,909,794 字节
 - SHA-256：`D5BB542B0AF6BA68160CDC4A7C732B5511E9135F4863D6AD18BB512CF57E5156`
 
+## 29. V0.3 重整开发规划与阅读入口（2026-09-11）
+
+用户要求重新思考更成熟的方案，历史讨论可改变，但不能遗忘目标或静默缩小范围。本批为文档交付，不是功能修复、V0.3 验收或新版本发布。
+
+- 基线：`a9e6eb7` / `0.2.6` / 最新迁移 17；保留此前未提交研究文档、独立审核测试及失败结果。
+- 新增 [重整开发计划 2.0](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_v0.3_重整开发计划_个人Agent内核与Hermes接入.md)：B0–B5，自有 Core、首选 Hermes 适配器、自动情境记忆、真实搜索、Codex 执行、经验与候选改进；R01–R15 行为验收。
+- 新增 [架构决策记录](D:/Agent/Project/OMNIX-IXAEON析衍/docs/IXAEON_架构决策记录.md)：理由、代价、改选条件和旧欠项去向。
+- 更新 AGENTS/README 当前入口；长期路线追加新修订，旧 V0.3 计划只加历史标记；旧能力/验收清单加时效与新计划提示，历史正文/失败证据保留。
+- OpenAI 官方文档用于核对 Codex 非交互事件入口；Hermes/LanceDB 官方资料用于界定接入与记忆/索引边界。只读研究不等于本机集成验证。
+
+## 30. B0 止损（2026-09-12）
+
+按重整计划开工。未改日用库、未发版、未安装 Hermes。
+
+代码：执行器失败不再被 `process.exit(0)` 放行；验证跑完全部命令；改动对批准范围；项目快照复制真实目录；问答/MCP 个人资料需分享；取消覆盖晚到结果；IPv6 映射回环拦截；页面指纹不截 800 字；暂停后不入库发现；抓取超时覆盖读正文。独立审核测试 20/20 通过。
+
+Hermes 适配器与工具桥接已落骨架：本机未找到引擎，`start` 抛 NOT_FOUND。缺口见 `docs/b0-gap-report.md`。B1–B5 未完成，不能写全部验收通过。
+
+## 31. B2–B4 代码边界（2026-09-12）
+
+在 B1 引擎缺口之外继续无依赖工作：问答按问题筛选记忆；研究可只记方向，无搜索则检查失败；失败编码写入 `work_runs`。自动化见 `b2-b4-memory-research.test.ts`。真 Hermes / 真搜索 / 真项目 / 四平台 / 安装仍未做。
+
+## 32. 桌面问答接 Core 循环；Skill 候选；迁移 18（2026-09-12）
+
+Ask 入口先探 Hermes；未接通则走 Core 有界工具循环并记 `runtime_runs`。`search_web` 未配置失败；`dispatch_coding_task` 须桌面批准。失败编码自动提案 Skill，无对照/无收益不能批准；已批准进入下次派发背景。合成库 17→18 幂等。未改日用库、未发版、未装 Hermes。不是全部验收通过。
+
+## 33. 一次性记忆、导出新表、会话取消（2026-09-12）
+
+一次性会议要求不升长期目标。导出含 `runtime-runs.json` / `skill-candidates.json`。Agent 会话可取消。仍缺真 Hermes、真搜索、四平台样本与安装器。
+
+## 34. TUI gateway 协议适配（2026-09-12）
+
+按官方 TUI gateway JSON-RPC 接线：`session.create` / `prompt.submit` / `session.interrupt`。协议替身测试通过；本机未装 Hermes，不把替身写成 B1 验收。Ask 可取消。未改日用库、未发版。
+
+## 35. 检索降级、查询脱敏、可追溯工作区（2026-09-12）
+
+无嵌入则关键词降级，不是 LanceDB 验收。search_web 先本地脱敏再因未配置失败。项目副本带内容哈希，空目录不能冒充快照。仍缺真 Hermes、真搜索、四平台样本与安装器。
+
+## 36. 记忆评测起始集与 R13 引擎独立（2026-09-12）
+
+60 场景确定性子集全通过（六类×10），已知词法限制如实记录；模型门槛未跑。停引擎后 Core 问答/导出/纠正链仍可用（合成验证）。仍缺真 Hermes、真搜索、四平台样本与安装器。
+
+## 37. 用户批准后的真机验证（2026-09-12 晚）
+
+用户一次批准范围：锁定版 Hermes 官方安装到专属目录、Codex 隔离文件探针、日用库副本迁移。**真机证据**：① 安装 v2026.9.11（commit 939e45c91d）于 D:\Software\IXAEON\Hermes，依赖与偏差（uv.lock 回退 PyPI、ffmpeg winget、58 随包技能、两处 npm 失败）全部记录于 runtime-lock.json；② R02 真 stdio 网关握手通过（gateway.ready→session.create→session.close），无 provider 时诚实失败不挂死；③ T04 真 codex 写文件+独立验证+磁盘复核通过——顺带修复执行器通道文件越界误判、Windows elevated 沙箱只读、turn.completed 后进程不退出三个真缺陷（每日「只读模式」假证据根因即此）；④ R15 真实日用库副本 17→18 幂等迁移、数据保全、源库零写入。**仍缺**：推理 provider 凭证（真模型回答/MCP 工具桥）、搜索服务、四平台样本、安装器。未发版。
+
+## 38. B1 闭环：真模型回合 + MCP 工具桥（2026-09-13）
+
+用户自配 provider（custom → 自建 OpenAI 兼容网关）后，本日全部真机通过：**R02 真模型整回合**（prompt.submit→message.complete→terminal，回答非空）；**R16 Core↔Hermes MCP 工具桥**（mcp_servers.ixaeon 直连合成库→真模型调 search_context→回答引用种子目标；断言含真 tool_request 事件；探针后 Hermes 配置自动还原）。支撑改动：apps/mcp 双后端（HTTP 转发保持日用权限边界；IXAEON_MCP_DB_PATH 直连模式进程即权限边界）、网关 approval.request 白名单应答（未授权明确 deny，不挂死）、修 mcp add 贪婪 --args 与 EOF 崩两个坑（已记录）。**边界如实**：日用库接入 MCP 桥需用户明示；B3 真实搜索服务仍缺；B5 四平台样本仍缺。未发版。
+
+## 39. B3 受控搜索接线（2026-09-13 续）
+
+用户提供方向：Brave/Tavily 二选一，key 经设置页输入。**已实现**：搜索执行器（双 provider、诚实失败、注入式 fetch 测试 5/5）、broker `search_web` 接线（脱敏→配置才外发→回传命中+脱敏标记）、设置页「网页搜索」卡片（provider 选择、Key safeStorage 加密、真实测试按钮）、安全扫描出口白名单显式扩展（api.search.brave.com / api.tavily.com，注释说明为用户配置的受控出口）。**未做/待验证**：真机探针（b3-real-search.test.ts 已就位，等 Key 存好后跑）；研究检查循环接 search_web（searchUsed/发现落库）。**口径变更**：四平台样本不再向用户索取（用户只有 ChatGPT）——B5 导入器按公开格式实现+合成验证，真实数据随用随填；导入器未实现。未发版。
+
 ---
 
 ## 附录：打包环境网络说明

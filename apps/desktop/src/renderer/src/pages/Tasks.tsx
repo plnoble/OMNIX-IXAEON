@@ -104,7 +104,13 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                       .split(',')
                       .map((s) => s.trim())
                       .filter(Boolean),
-                    allowedCommands: [['node', '-e', 'process.exit(0)']],
+                    allowedCommands: [
+                      [
+                        'node',
+                        '-e',
+                        "const fs=require('fs');const p=require('path').join('note.txt');if(!fs.existsSync(p))process.exit(2);if(!String(fs.readFileSync(p,'utf8')).trim())process.exit(3);",
+                      ],
+                    ],
                   }),
                 )
               }
@@ -154,8 +160,13 @@ export function TasksPage({ projects }: { projects: Project[] }) {
             {['queued', 'running', 'waiting_approval', 'draft'].includes(t.status) && (
               <Button
                 kind="ghost"
-                disabled={busy}
-                onClick={() => void act(() => api.cancelCodingTask(t.id))}
+                disabled={false}
+                onClick={() => {
+                  void api.cancelCodingTask(t.id).then(
+                    () => reload(),
+                    (err) => setError(errMsg(err)),
+                  );
+                }}
               >
                 取消
               </Button>

@@ -71,8 +71,14 @@ function isBlockedV6(ip: string): boolean {
     return true;
   }
   if (n.startsWith('ff')) return true;
-  // IPv4-mapped
+  // IPv4-mapped：点分或十六进制（::ffff:7f00:1 = 127.0.0.1）
   const mapped = n.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (mapped) return isBlockedV4(mapped[1]!);
+  const hexMapped = n.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hexMapped) {
+    const hi = Number.parseInt(hexMapped[1]!, 16);
+    const lo = Number.parseInt(hexMapped[2]!, 16);
+    return isBlockedV4(`${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`);
+  }
   return false;
 }

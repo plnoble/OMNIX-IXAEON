@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import {
   ErrorCodes,
   IxaError,
@@ -11,6 +11,7 @@ import {
 import type { CoreDatabase } from '../db/database.js';
 import { assertInside, isPathInside, normalizeLocalPath } from '../paths.js';
 import { codingClientMayReadItem } from '../access.js';
+import { copyProjectWorkspace } from './workspaceCopy.js';
 
 export const DEFAULT_TASK_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -242,15 +243,50 @@ export class CodingTaskStore {
   }
 
   prepareWorkspace(taskId: string, dataDir: string, now = new Date().toISOString()): CodingTask {
-    this.get(taskId);
+    const task = this.get(taskId);
     const ws = resolve(join(dataDir, 'workspaces', taskId));
     mkdirSync(ws, { recursive: true });
+    const project = this.db
+      .prepare('SELECT root_path FROM projects WHERE id = ?')
+      .get(task.project_id) as { root_path: string | null } | undefined;
+    const root = project?.root_path?.trim() || null;
+    let snapshotRef = `empty:${taskId}`;
+    if (root) {
+      const snap = copyProjectWorkspace(root, ws);
+      snapshotRef = snap.snapshotRef;
+    }
     this.db
       .prepare(
         `UPDATE coding_tasks SET workspace_path = ?, snapshot_ref = ?, status = 'waiting_approval', updated_at = ? WHERE id = ?`,
       )
-      .run(ws, `workspace:${taskId}`, now, taskId);
+      .run(ws, snapshotRef, now, taskId);
     return this.get(taskId);
+  }
+
+  /** 工作区内实际文件相对路径（不含目录）。 */
+  listWorkspaceFiles(workspace: string): string[] {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const abs = join(dir, ent.name);
+        if (ent.isDirectory()) walk(abs);
+        else out.push(relative(workspace, abs).replaceAll('\\', '/'));
+      }
+    };
+    if (existsSync(workspace)) walk(workspace);
+    return out;
+  }
+
+  assertChangedPathsInScope(task: CodingTask, changed: string[]): void {
+    const scope = (JSON.parse(task.scope_json) as string[]).map((s) => s.replaceAll('\\', '/'));
+    for (const rel of changed) {
+      const n = rel.replaceAll('\\', '/');
+      this.assertPathInWorkspace(task, join(task.workspace_path!, n));
+      const allowed = scope.some((s) => n === s || n.startsWith(`${s}/`));
+      if (!allowed) {
+        throw new IxaError(ErrorCodes.PATH_ESCAPE, `改动超出批准范围：${n}`);
+      }
+    }
   }
 
   approve(input: {

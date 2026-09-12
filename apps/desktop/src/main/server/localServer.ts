@@ -24,8 +24,7 @@ import {
   type PairResponse,
 } from '@ixaeon/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-
-const APP_VERSION = '0.2.3';
+import { version as APP_VERSION } from '../../../package.json';
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 1024 * 1024; // 扩展单次提交上限 1MB
 const CAPTURE_DOMAIN = 'chatgpt.com';

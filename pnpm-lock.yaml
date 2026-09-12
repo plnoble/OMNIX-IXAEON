@@ -111,9 +111,15 @@ importers:
       '@ixaeon/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@ixaeon/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.5.4)
+      better-sqlite3:
+        specifier: ^13.0.3
+        version: 13.0.3
       zod:
         specifier: ^4.5.4
         version: 4.5.4

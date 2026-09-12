@@ -577,6 +577,43 @@ ALTER TABLE sources ADD COLUMN archive_summary TEXT;
 CREATE INDEX IF NOT EXISTS idx_sources_archived ON sources(archived_at);
 `,
   },
+  {
+    id: 18,
+    name: 'runtime-runs-and-skill-candidates',
+    sql: `
+-- B1 运行账本：Hermes 或 Core 有界循环的事件。收到事件不等于完成。
+CREATE TABLE runtime_runs (
+  id TEXT PRIMARY KEY,
+  goal TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  engine TEXT NOT NULL CHECK (engine IN ('hermes', 'core-bounded', 'missing')),
+  status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'cancelled', 'blocked')),
+  events_json TEXT NOT NULL DEFAULT '[]',
+  notice TEXT,
+  created_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_runtime_runs_created ON runtime_runs(created_at);
+
+-- B4 经验→Skill 候选。批准前不得当能力升级；无对照结果不得标 approved。
+CREATE TABLE skill_candidates (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  problem TEXT NOT NULL,
+  method TEXT NOT NULL,
+  eval_case TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('proposed', 'evaluated', 'approved', 'rejected', 'retired')),
+  eval_before TEXT,
+  eval_after TEXT,
+  benefit TEXT,
+  created_from_work_run_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_candidates_project ON skill_candidates(project_id, status);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

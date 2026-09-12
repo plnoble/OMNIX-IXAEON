@@ -13,10 +13,12 @@ asarUnpack:
 extraResources:
   # MCP STDIO 服务（修复 P1-3）：随安装包携带，位于 resources/mcp/index.mjs。
   # 运行用 Electron 自身（ELECTRON_RUN_AS_NODE=1），无需全局 Node.js。
+  # 只带 index（HTTP 转发入口）：direct.mjs 依赖仓库 node_modules（原生模块），不属于安装包。
   - from: ../mcp/dist
     to: mcp
     filter:
       - '**/*'
+      - '!direct.mjs'
       - '!**/*.map'
   # ChatGPT 采集扩展：安装后复制到 userData/extension，Chrome 加载已解压。
   - from: ../extension/dist

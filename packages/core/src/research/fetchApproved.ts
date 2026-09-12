@@ -35,59 +35,64 @@ export async function fetchApprovedSource(
     await assertResolvedPublic(current.hostname, dnsLookup);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), RESEARCH_TIMEOUT_MS);
-    let res: Response;
     try {
-      res = await doFetch(current.toString(), {
-        method: 'GET',
-        redirect: 'manual',
-        signal: controller.signal,
-        headers: {
-          Accept:
-            'text/html, application/xhtml+xml, application/xml, application/rss+xml, text/xml, text/plain;q=0.8',
-          'User-Agent': 'IXAEON-research/0.3 (approved-source-check; no-cookies)',
-        },
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new IxaError(ErrorCodes.BAD_ORIGIN, `抓取失败：${msg}`);
+      let res: Response;
+      try {
+        res = await doFetch(current.toString(), {
+          method: 'GET',
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: {
+            Accept:
+              'text/html, application/xhtml+xml, application/xml, application/rss+xml, text/xml, text/plain;q=0.8',
+            'User-Agent': 'IXAEON-research/0.3 (approved-source-check; no-cookies)',
+          },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new IxaError(ErrorCodes.BAD_ORIGIN, `抓取失败：${msg}`);
+      }
+
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location');
+        if (!loc) throw new IxaError(ErrorCodes.BAD_ORIGIN, '重定向缺少 Location');
+        if (hop === RESEARCH_MAX_REDIRECTS) {
+          throw new IxaError(ErrorCodes.BAD_ORIGIN, `重定向超过 ${RESEARCH_MAX_REDIRECTS} 次`);
+        }
+        current = assertPublicHttpsUrl(new URL(loc, current).toString());
+        continue;
+      }
+
+      if (res.status === 401 || res.status === 403) {
+        throw new IxaError(
+          ErrorCodes.PERMISSION_DENIED,
+          `来源需要登录或禁止访问（HTTP ${res.status}），不绕过`,
+        );
+      }
+      if (res.status >= 400) {
+        throw new IxaError(ErrorCodes.BAD_ORIGIN, `来源返回 HTTP ${res.status}`);
+      }
+
+      const contentType = (res.headers.get('content-type') ?? 'text/plain').toLowerCase();
+      if (!isAllowedType(contentType)) {
+        throw new IxaError(ErrorCodes.UNSUPPORTED_FORMAT, `拒绝的内容类型：${contentType}`);
+      }
+      try {
+        const body = await readBodyLimited(res, RESEARCH_MAX_BYTES, controller.signal);
+        return {
+          finalUrl: current.toString(),
+          status: res.status,
+          contentType,
+          body,
+        };
+      } catch (err) {
+        if (err instanceof IxaError) throw err;
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new IxaError(ErrorCodes.BAD_ORIGIN, `读取正文失败：${msg}`);
+      }
     } finally {
       clearTimeout(timer);
     }
-
-    if (res.status >= 300 && res.status < 400) {
-      const loc = res.headers.get('location');
-      if (!loc) throw new IxaError(ErrorCodes.BAD_ORIGIN, '重定向缺少 Location');
-      if (hop === RESEARCH_MAX_REDIRECTS) {
-        throw new IxaError(ErrorCodes.BAD_ORIGIN, `重定向超过 ${RESEARCH_MAX_REDIRECTS} 次`);
-      }
-      current = assertPublicHttpsUrl(new URL(loc, current).toString());
-      continue;
-    }
-
-    if (res.status === 401 || res.status === 403) {
-      throw new IxaError(
-        ErrorCodes.PERMISSION_DENIED,
-        `来源需要登录或禁止访问（HTTP ${res.status}），不绕过`,
-      );
-    }
-    if (res.status >= 400) {
-      throw new IxaError(ErrorCodes.BAD_ORIGIN, `来源返回 HTTP ${res.status}`);
-    }
-
-    const contentType = (res.headers.get('content-type') ?? 'text/plain').toLowerCase();
-    if (!isAllowedType(contentType)) {
-      throw new IxaError(ErrorCodes.UNSUPPORTED_FORMAT, `拒绝的内容类型：${contentType}`);
-    }
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > RESEARCH_MAX_BYTES) {
-      throw new IxaError(ErrorCodes.PAYLOAD_TOO_LARGE, `响应超过 ${RESEARCH_MAX_BYTES} 字节`);
-    }
-    return {
-      finalUrl: current.toString(),
-      status: res.status,
-      contentType,
-      body: buf.toString('utf8'),
-    };
   }
   throw new IxaError(ErrorCodes.BAD_ORIGIN, '重定向循环');
 }
@@ -114,6 +119,37 @@ async function assertResolvedPublic(
       throw new IxaError(ErrorCodes.BAD_ORIGIN, `DNS 解析到受限地址 ${rec.address}（${hostname}）`);
     }
   }
+}
+
+async function readBodyLimited(
+  res: Response,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<string> {
+  if (typeof res.arrayBuffer === 'function') {
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > maxBytes) {
+      throw new IxaError(ErrorCodes.PAYLOAD_TOO_LARGE, `响应超过 ${maxBytes} 字节`);
+    }
+    return buf.toString('utf8');
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return '';
+  const chunks: Buffer[] = [];
+  let total = 0;
+  while (true) {
+    if (signal.aborted) throw new IxaError(ErrorCodes.JOB_CANCELLED, '抓取超时或已取消');
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = Buffer.from(value);
+    total += chunk.length;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new IxaError(ErrorCodes.PAYLOAD_TOO_LARGE, `响应超过 ${maxBytes} 字节`);
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 function isAllowedType(contentType: string): boolean {

@@ -221,6 +221,10 @@ describe('M5 安全：无外联（除模型 API 外）', () => {
               host.startsWith('127.0.0.1') ||
               host.startsWith('localhost') ||
               host.startsWith('api.openai.com') ||
+              // B3 受控网页搜索：用户在设置页配置 Key 后才启用的唯二出口，
+              // 查询经 sanitizePublicQuery 脱敏（未配置时 search_web 诚实失败）。
+              host.startsWith('api.search.brave.com') ||
+              host.startsWith('api.tavily.com') ||
               host.startsWith('evil.example'); // 注入样本字符串（仅资料文本，非请求目标）
             if (!allow) offenders.push(`${abs}: ${url}`);
           }

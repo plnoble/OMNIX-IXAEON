@@ -105,6 +105,50 @@ export function codingClientMayReadItem(db: CoreDatabase, itemId: string): boole
   return isItemDisclosedTo(db, itemId, 'coding_client');
 }
 
+/** 模型外发：project 默认可发；personal/unassigned 需有效 model 分享。 */
+export function modelMayReadItem(db: CoreDatabase, itemId: string): boolean {
+  const scope = itemScope(db, itemId);
+  if (scope === null) return false;
+  if (scope === 'project') return true;
+  const row = db.prepare('SELECT origin, type, rationale FROM items WHERE id = ?').get(itemId) as
+    { origin: string; type: string; rationale: string | null } | undefined;
+  // 归档短经验：过往工作仍可被问答引用，不是未分享的个人隐私条目。
+  if (
+    row?.origin === 'ai' &&
+    row.type === 'project_summary' &&
+    (row.rationale ?? '').includes('归档经验摘要')
+  ) {
+    return true;
+  }
+  return isItemDisclosedTo(db, itemId, 'model');
+}
+
+/** 片段若支撑个人/未整理条目，编码客户端须有对应分享。 */
+export function codingClientMayReadSegment(db: CoreDatabase, segmentId: string): boolean {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT i.id AS item_id
+       FROM items i
+       LEFT JOIN item_evidence e ON e.item_id = i.id
+       JOIN segments s ON s.id = ?
+       WHERE e.segment_id = ? OR i.extracted_from_source_id = s.source_id`,
+    )
+    .all(segmentId, segmentId) as Array<{ item_id: string }>;
+  for (const row of rows) {
+    if (!codingClientMayReadItem(db, row.item_id)) return false;
+  }
+  return true;
+}
+
+export function assertCodingClientMayReadSegment(db: CoreDatabase, segmentId: string): void {
+  if (!codingClientMayReadSegment(db, segmentId)) {
+    throw new IxaError(
+      ErrorCodes.SCOPE_DENIED,
+      '该原文属于个人或未整理资料，未获准分享给编码客户端',
+    );
+  }
+}
+
 /** 断言编码客户端可读该条目，否则 SCOPE_DENIED。 */
 export function assertCodingClientMayReadItem(db: CoreDatabase, itemId: string): void {
   if (!codingClientMayReadItem(db, itemId)) {

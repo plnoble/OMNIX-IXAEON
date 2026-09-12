@@ -118,6 +118,7 @@ export class ResearchChecker {
               fetchedAt: now,
               relatedGoalId: topic.related_goal_id,
               relatedProjectId: topic.related_project_id,
+              expectedGeneration: generation,
             });
             if (inserted) {
               anyNew = true;
