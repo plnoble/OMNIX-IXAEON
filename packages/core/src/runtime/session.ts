@@ -79,9 +79,14 @@ export class AgentSession {
 
     if (caps.locator.found) {
       try {
+        // 记忆路由约定（2026-09-13 用户实测发现：模型默认用 Hermes 自带 memory
+        // 工具，用户日程落进 Hermes 记忆库而不是 IXAEON Core——违背「Hermes
+        // 可替换、Core 资料独立保存」）。派发目标附带本约定，引导写入 Core；
+        // 运行记录仍保存用户原始问题。
+        const dispatchedGoal = `${goal}\n\n（IXAEON 约定：凡需要记住用户告诉你的内容，请调用 record_observation 工具写入 IXAEON 记忆，不要使用你自带的 memory 工具。）`;
         const hermes = await this.adapter.start({
           runId,
-          goal,
+          goal: dispatchedGoal,
           contextRef: input.projectId ?? 'personal',
           allowedTools: [...CORE_TOOL_NAMES],
           permissionVersion: '1',
@@ -108,7 +113,7 @@ export class AgentSession {
               : 'Hermes 会话失败，未假装完成。';
         this.insertRun(runId, goal, input.projectId, 'hermes', status, steps, notice, now);
         return {
-          ...this.asAsk(hermes.answer || notice, notice, 'hermes'),
+          ...this.asAsk(hermes.answer || notice, notice, hermes.modelName ?? 'hermes'),
           engine: 'hermes',
           runId,
           steps,

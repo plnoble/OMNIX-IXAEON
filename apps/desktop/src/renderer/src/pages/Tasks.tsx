@@ -16,6 +16,32 @@ const statusLabel: Record<CodingTask['status'], string> = {
   unknown: '状态不明',
 };
 
+/** 独立验证命令默认值（与既有 note.txt 检查一致；创建草案不改字段=原行为）。 */
+const DEFAULT_VERIFY =
+  `node -e "const fs=require('fs');const p=require('path').join('note.txt');` +
+  `if(!fs.existsSync(p))process.exit(2);if(!String(fs.readFileSync(p,'utf8')).trim())process.exit(3);"`;
+
+/** 引号感知的命令行拆分：双引号内的空格不切分（如 node -e "代码 含空格"）。 */
+export function splitCommandLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQuote = false;
+  for (const ch of line.trim()) {
+    if (ch === '"') {
+      inQuote = !inQuote;
+      continue;
+    }
+    if (ch === ' ' && !inQuote) {
+      if (cur) out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 export function TasksPage({ projects }: { projects: Project[] }) {
   const [notice, setNotice] = useState('');
   const [realDispatch, setRealDispatch] = useState(false);
@@ -25,6 +51,7 @@ export function TasksPage({ projects }: { projects: Project[] }) {
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
   const [goal, setGoal] = useState('');
   const [scope, setScope] = useState('note.txt');
+  const [verify, setVerify] = useState(DEFAULT_VERIFY);
 
   const reload = useCallback(async () => {
     try {
@@ -92,6 +119,17 @@ export function TasksPage({ projects }: { projects: Project[] }) {
             <Field label="可修改范围（相对工作区，逗号分隔）">
               <input value={scope} onChange={(e) => setScope(e.target.value)} />
             </Field>
+            <Field label="独立验证命令（工作区内运行；node 命令自动加权限沙箱）">
+              <input
+                value={verify}
+                onChange={(e) => setVerify(e.target.value)}
+                data-testid="task-verify"
+              />
+            </Field>
+            <p className="muted">
+              验证在权限沙箱内运行：文件读写限制在工作区，且不能启动子进程——`node --test` / `npm
+              test` 会被拒绝，请用 `node 文件名` 进程内直跑（node:test 兼容）。
+            </p>
             <Button
               kind="primary"
               disabled={busy || !projectId}
@@ -104,13 +142,7 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                       .split(',')
                       .map((s) => s.trim())
                       .filter(Boolean),
-                    allowedCommands: [
-                      [
-                        'node',
-                        '-e',
-                        "const fs=require('fs');const p=require('path').join('note.txt');if(!fs.existsSync(p))process.exit(2);if(!String(fs.readFileSync(p,'utf8')).trim())process.exit(3);",
-                      ],
-                    ],
+                    allowedCommands: [splitCommandLine(verify)],
                   }),
                 )
               }

@@ -355,3 +355,12 @@ B3 剩余（下一批）：研究检查循环接 search_web（searchUsed 标志�
 1. **B2 三轮真实模型评测完成**（180 场景，10.3 分钟，用户网关）。第一版评分器问句回声伪影（模型正确否定边界复述问句词被误判侵入）→ 问句回声规则 + 离线重评分（`memory-eval-rescore.test.ts`，原始口径与修正口径并列落盘）。修正后：相关召回 1.0/1.0/1.0（≥0.9 过）、无关不侵入 1.0/1.0/1.0（≥0.95 过）、**临时不升格 0.9/0.9/1.0 未达 ≥0.95**——e9 问句预设红色主题、模型答「没有其他」语义成立但未复述关键词，2/3 轮复现；不调期望掩盖，待问句中性化重测。真发现：pm4 三轮一致把「私人目标」答成项目目标（个人/项目范围混淆）；词法评分低估语义召回（n3 等），原始回答全量落盘供人工复核。
 2. **B4 真实项目受控副本×真 Codex 通过**（`b4-real-project-codex.test.ts` 2/2）：真 Codex 写 scripts/redact-for-log.mjs+测试，独立验证（--permission 加固）通过、diff 在范围内、接受入 work_runs、Skill 候选对照链完整（evaluated 不自行 approved）。第一个真发现：`node --test` 在独立验证加固下被 ERR_ACCESS_DENIED(ChildProcess) 挡掉（Node 权限模型禁 spawn 子进程），产品正确地不把执行器自报当通过；验证命令规格修正为进程内 node:test（v2）。第一个真 Codex 派发（v1，--test 版）作为真实失败记录保留。
 3. 本批全量回归 + 审计套件 + tsc 见提交记录；评测/B4 探针保持 env 门控默认跳过，不进常规 CI。
+
+
+## 2026-09-13（续五）· 用户验证反馈三项落地：版本号显示、真实模型名、任务页验证命令开放；记忆路由约定
+用户实跑问话验证（真 Hermes 回合成功）并给三条反馈：
+1. **版本号不直观**：AppState.version 本就存在但从未展示 → 应用头部标题旁显示 `v{version}`（`app-version` testid + CSS）。
+2. **UI 只显示「模型 hermes」**：session.info 事件带真实模型/提供商（gemini-3.7-flash-tiered / custom:newapi）但被当 unhandled 丢弃 → TuiGatewaySession 捕获 session.info，HermesRunResult 增 modelName/providerName，Ask 结果 modelName 用真实值（未上报回退 'hermes'）。
+3. **记忆路由真发现**：轨迹第 14 步 Hermes 自跑自带 memory 工具，用户日程落进 Hermes 记忆库而非 IXAEON Core（违背「Hermes 可替换、Core 资料独立保存」）。本轮落地**派发约定**：问话目标附带「写记忆请用 record_observation，不要用自带 memory」；运行记录仍存用户原话。**待用户拍板的方向**（范围较大不擅动）：问话后把问答对落库为来源+跑提取候选（Core 独立保存的完整路径，每问一次提取调用）。
+4. **任务页验证命令开放**：原硬编码 note.txt 占位检查 → 可编辑字段（引号感知拆分 splitCommandLine，默认值=原行为已验证 argv 逐字一致），附沙箱提示（node --permission 禁子进程：node --test/npm 被拒，用进程内 node 直跑）。为用户真人编码任务试验铺路。
+回归：全项目 254 过+10 跳过；审计 20/20；tsc 0 错。

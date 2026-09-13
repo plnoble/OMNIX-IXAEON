@@ -111,6 +111,11 @@ export default function App() {
       <header className="app-header">
         <h1>
           IXAEON <span className="cn">析衍</span>
+          {state ? (
+            <span className="version" data-testid="app-version">
+              v{state.version}
+            </span>
+          ) : null}
         </h1>
         <p className="tagline">本地个人内核：理解你、统筹项目、在授权边界内行动 · OMNIX</p>
         <nav className="nav" data-testid="main-nav">

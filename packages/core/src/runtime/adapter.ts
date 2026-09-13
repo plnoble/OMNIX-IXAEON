@@ -52,6 +52,10 @@ export interface HermesRunResult {
   events: RuntimeEvent[];
   answer: string;
   status: 'terminal' | 'cancelled' | 'failed';
+  /** session.info 上报的真实模型名（未上报时 null）。 */
+  modelName: string | null;
+  /** session.info 上报的真实提供商（未上报时 null）。 */
+  providerName: string | null;
 }
 
 /**

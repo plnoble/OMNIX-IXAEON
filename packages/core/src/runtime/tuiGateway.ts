@@ -41,6 +41,9 @@ export class TuiGatewaySession {
   private finished: ((status: 'terminal' | 'cancelled' | 'failed') => void) | null = null;
   private status: 'running' | 'terminal' | 'cancelled' | 'failed' = 'running';
   private answerParts: string[] = [];
+  /** session.info 上报的真实模型/提供商（用户 2026-09-13 实测轨迹里带出）。 */
+  private modelName: string | null = null;
+  private providerName: string | null = null;
 
   constructor(
     private readonly transport: TuiTransport,
@@ -90,6 +93,8 @@ export class TuiGatewaySession {
     events: RuntimeEvent[];
     answer: string;
     status: 'terminal' | 'cancelled' | 'failed';
+    modelName: string | null;
+    providerName: string | null;
   }> {
     try {
       const created = (await this.transport.rpc.request('session.create', { cols: 80 })) as {
@@ -123,9 +128,17 @@ export class TuiGatewaySession {
     events: RuntimeEvent[];
     answer: string;
     status: 'terminal' | 'cancelled' | 'failed';
+    modelName: string | null;
+    providerName: string | null;
   } {
     const status = this.status === 'running' ? 'failed' : this.status;
-    return { events: this.events, answer: this.answerParts.join(''), status };
+    return {
+      events: this.events,
+      answer: this.answerParts.join(''),
+      status,
+      modelName: this.modelName,
+      providerName: this.providerName,
+    };
   }
 
   interrupt(): void {
@@ -182,6 +195,17 @@ export class TuiGatewaySession {
     switch (event) {
       case 'gateway.ready':
         this.push('text', { phase: 'gateway.ready' });
+        break;
+      case 'session.info':
+        // 真实模型/提供商在此上报（如 gemini-3.7-flash-tiered / custom:newapi）。
+        this.modelName = typeof p.model === 'string' && p.model ? p.model : this.modelName;
+        this.providerName =
+          typeof p.provider === 'string' && p.provider ? p.provider : this.providerName;
+        this.push('text', {
+          phase: 'session.info',
+          model: this.modelName,
+          provider: this.providerName,
+        });
         break;
       case 'message.start':
         this.push('text', { phase: 'message.start' });

@@ -812,3 +812,11 @@ textarea {
   border-radius: 8px;
   padding: 8px 10px;
 }
+
+.app-header .version {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  margin-left: 10px;
+  vertical-align: middle;
+}
