@@ -958,3 +958,17 @@ Ask 入口先探 Hermes；未接通则走 Core 有界工具循环并记 `runtime
 **B4 真实项目受控副本×真 Codex**（`b4-real-project-codex.test.ts` 2/2，IXAEON_REAL_CODEX=1）：以本仓库为真实项目，真 Codex 写 scripts/redact-for-log.mjs+测试；**独立验证（--permission 加固）通过、diff 在范围内、接受入 work_runs**。第一个真发现：`node --test` 在独立验证加固下被 ERR_ACCESS_DENIED(ChildProcess) 挡掉（Node 权限模型禁 spawn），产品正确地不把执行器自报当通过——验证命令规格修正为进程内 node:test（v2）；v1 派发作为真实失败记录保留。Skill 候选对照链：真实失败（turn.completed 挂起）→候选（回合制监督）→对照证据→evaluated，批准权留用户。**边界如实**：探针内 accept 为合成库模拟，应用内真实接受流程留用户；两探针 env 门控默认跳过。
 
 分层证据：B5=合成 8/8+全量 230 过；B2=真实三轮全量（头两门槛过、临时门槛未达如实）；B4=真机 2/2（执行/独立验证/范围/账本）。
+
+## 43. 0.2.8 发版（2026-09-13）
+
+用户指示「发版」。版本 0.2.7 → 0.2.8（apps/desktop/package.json）。
+
+**范围**：版本号头部显示、真实模型名（session.info 捕获）、任务验证命令可编辑、问答落 Core（迁移 20 ask_session + 提取入队 + ask.ixaeon.local 可撤销授权）、B5 三平台导入器、研究循环接受控搜索、MCP 双入口修复、Codex 执行器三修复、记忆路由约定。不含 0.3.0 正式范围。
+
+**产物**：IXAEON-Setup-0.2.8.exe（117.3 MB）
+SHA-256：5C96488F1C3FE7CEF9632D5803BE411816F4E3513EFFBF93E78738440719C832
+latest.yml（electron-updater github provider）随 Release 上传；blockmap 供差量更新。
+
+**预检**：tsc 0 错误；integration 234 通过+10 跳过（47 文件）；审计 20/20；R15 真实日用库副本 19→20 幂等保全、源库字节不变。
+
+**发布记录**：commit + tag v0.2.8 + GitHub Release（gh release create，附 exe/latest.yml/blockmap 与发布说明）。
