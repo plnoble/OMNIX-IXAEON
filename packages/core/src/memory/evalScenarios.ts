@@ -599,7 +599,8 @@ export const MEMORY_EVAL_SCENARIOS: MemoryEvalScenario[] = [
   },
 ];
 
-function seedCorpus(db: CoreDatabase): {
+/** 播种评测语料（真实模型评测与确定性评测共用，保证两态同源）。 */
+export function seedCorpus(db: CoreDatabase): {
   statementByKey: Map<string, string>;
   projectIds: Record<'A' | 'B' | 'C', string>;
 } {
@@ -652,8 +653,11 @@ function seedCorpus(db: CoreDatabase): {
   return { statementByKey, projectIds };
 }
 
-/** 与 AskService 相同的候选查询 + 模型可见性过滤。 */
-function loadModelVisibleItems(
+/**
+ * 与 AskService 相同的候选查询 + 模型可见性过滤。
+ * （真实模型评测也用这一条路径——导出以便评测两态同源，不允许评测另写近似实现）
+ */
+export function loadModelVisibleItems(
   db: CoreDatabase,
   projectId: string | null,
 ): Array<{ id: string; statement: string; type: string; origin: string; confirmation: string }> {

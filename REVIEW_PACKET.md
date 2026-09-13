@@ -947,3 +947,14 @@ Ask 入口先探 Hermes；未接通则走 Core 有界工具循环并记 `runtime
 研究循环接线（合成验证 `b3-research-loop.test.ts` 8/8）：搜索结果=候选 URL 非发现（findings.source_id 非空外键是制度约束：批准后才是来源）；手动检查才搜、定时轮次不耗额度；搜索失败不毁批准来源轮次、零来源+搜索失败如实失败；出门说法缺省不外发；查询过 sanitizePublicQuery；候选过滤非 HTTPS/重复/回环。执行器惰性注入（改配置无需重启）。Research 页候选+批准按钮；searchConfigured 硬编码 false 改真实状态；checkNow 审计 research.checked_now。契约：CheckResult 增 searchCandidates/searchError，mode 联合类型。
 
 分层证据：mock 执行器 5/5（`b3-websearch.test.ts`）+ 研究循环合成 8/8 + 生产路径用户确认。未完成：真实 Tavily×研究循环（用户应用内跑一次）、paid_budget_mode 接搜索次数、B5 导入器、记忆模型门槛。本批改动不在 0.2.7（发版先于本批），下版携带。
+
+
+## 42. B5 三平台导入器 + B2 三轮真实评测 + B4 真实项目探针（2026-09-13 续三/四）
+
+**B5 三平台导入器**（`b5-platform-importers.test.ts` 8/8）：按用户口径（四平台真实样本不再索取，公开格式实现+合成验证，真实数据随用随填）实现 Claude conversations.json（线性、文本块、附件披露）、Grok prod-grok-backend.json（DAG+BSON 时间+角色归一）、Gemini MyActivity.json（活动日志重建+双变体+截断如实标注）；文件名+结构双探测、512MB 上限、跨格式不误吞、端到端授权/幂等/撤销拒绝/坏格式诚实失败。迁移 19 重建 sources 扩 provider 枚举——第一版列清单与真实结构不符（漏 4 列、漏 work_result、索引名错），按迁移 1-17 真实演化修正后 17→19 升级测试同步更新（18 列全保留+四索引重建+外键关停对齐迁移 16 做法）。
+
+**B2 三轮真实模型评测**（`memory-eval-real.test.ts`，180 场景全跑，原始回答全量落盘 docs/memory-eval-2026-09-13/）：第一版评测工具自写 SQL 漏披露过滤+字段失真→如实废弃重写为与确定性评测同源（seedCorpus/loadModelVisibleItems/selectRelevantItems 导出共用）。第一版评分器问句回声伪影（模型正确否定边界时复述问句词被误判侵入）→ 问句回声规则 + 离线重评分（`memory-eval-rescore.test.ts`，两口径并列不覆盖）。**修正后：相关召回 1.0/1.0/1.0（≥0.9 过）、无关不侵入 1.0/1.0/1.0（≥0.95 过）、临时不升格 0.9/0.9/1.0 未达 ≥0.95**（e9 问句预设+词法严格复合，2/3 轮复现；不调期望掩盖，待问句中性化重测）。真发现：pm4 三轮一致把「私人目标」答成项目目标（范围混淆）；词法评分低估语义召回（n3 等，留人工复核）。
+
+**B4 真实项目受控副本×真 Codex**（`b4-real-project-codex.test.ts` 2/2，IXAEON_REAL_CODEX=1）：以本仓库为真实项目，真 Codex 写 scripts/redact-for-log.mjs+测试；**独立验证（--permission 加固）通过、diff 在范围内、接受入 work_runs**。第一个真发现：`node --test` 在独立验证加固下被 ERR_ACCESS_DENIED(ChildProcess) 挡掉（Node 权限模型禁 spawn），产品正确地不把执行器自报当通过——验证命令规格修正为进程内 node:test（v2）；v1 派发作为真实失败记录保留。Skill 候选对照链：真实失败（turn.completed 挂起）→候选（回合制监督）→对照证据→evaluated，批准权留用户。**边界如实**：探针内 accept 为合成库模拟，应用内真实接受流程留用户；两探针 env 门控默认跳过。
+
+分层证据：B5=合成 8/8+全量 230 过；B2=真实三轮全量（头两门槛过、临时门槛未达如实）；B4=真机 2/2（执行/独立验证/范围/账本）。

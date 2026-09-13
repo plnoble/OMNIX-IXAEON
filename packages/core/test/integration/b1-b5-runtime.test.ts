@@ -200,8 +200,8 @@ describe('B4 Skill 候选：提案≠升级', () => {
   });
 });
 
-describe('B5 合成旧库升级到 18', () => {
-  it('迁移 17 副本升级到 18 且幂等，新表存在，旧归档列仍在', () => {
+describe('B5 合成旧库升级到 19', () => {
+  it('迁移 17 副本升级到 19 且幂等，新表存在，旧归档列仍在，provider 枚举扩展', () => {
     const oldDir = mkdtempSync(join(tmpdir(), 'ixaeon-m17-'));
     const oldDbPath = join(oldDir, 'old.db');
     const old = openDatabase(oldDbPath);
@@ -218,14 +218,42 @@ describe('B5 合成旧库升级到 18', () => {
 
     const upgraded = openDatabase(oldDbPath);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(18);
+    expect(currentMigrationVersion(upgraded)).toBe(19);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(18);
+    expect(currentMigrationVersion(upgraded)).toBe(19);
     const cols = (
       upgraded.prepare('PRAGMA table_info(sources)').all() as Array<{ name: string }>
     ).map((c) => c.name);
     expect(cols).toContain('archived_at');
     expect(cols).toContain('archive_summary');
+    // 19 重建后全部既有列仍在
+    for (const c of [
+      'account_namespace',
+      'content_revision',
+      'analyzed_revision',
+      'analyzed_at',
+      'metadata_json',
+    ]) {
+      expect(cols).toContain(c);
+    }
+    // provider CHECK 扩展生效：三平台值可写入
+    const permId =
+      (upgraded
+        .prepare(
+          `INSERT INTO permissions (id, scope_type, locator, mode, status, granted_at, revoked_at)
+           VALUES ('p19', 'file', '/tmp/x.json', 'once', 'active', '2026-09-13T00:00:00.000Z', NULL)`,
+        )
+        .run(),
+      'p19');
+    void permId;
+    upgraded
+      .prepare(
+        `INSERT INTO sources (id, kind, provider, account_namespace, external_id, title,
+         content_hash, raw_path, captured_at, imported_at, permission_id, metadata_json)
+         VALUES ('s19', 'conversation', 'claude_export', 'local', 'x1', 't',
+         '${'a'.repeat(64)}', 'r', NULL, '2026-09-13T00:00:00.000Z', 'p19', '{}')`,
+      )
+      .run();
     const tables = (
       upgraded.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
         name: string;

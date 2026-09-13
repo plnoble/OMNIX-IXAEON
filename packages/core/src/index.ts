@@ -49,6 +49,14 @@ export {
   type ParsedSource,
 } from './import/parsers.js';
 export { readProjectSnapshot, MAX_FILE_BYTES } from './import/projectSnapshot.js';
+export {
+  parseClaudeConversations,
+  parseGrokConversations,
+  parseGeminiActivity,
+  looksLikeClaudeExport,
+  looksLikeGrokExport,
+  looksLikeGeminiExport,
+} from './import/platformParsers.js';
 export { ImportService, MAX_IMPORT_BYTES, type ImportFileResult } from './import/importService.js';
 export { JobQueue, type JobHandler, type JobContext } from './jobs/jobQueue.js';
 export { ModelError, type ModelProvider } from './extraction/model/provider.js';

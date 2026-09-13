@@ -1,0 +1,45 @@
+{
+  "round": 3,
+  "overallCorrected": "52/60",
+  "categories": [
+    {
+      "category": "relevant_recall",
+      "passed": 10,
+      "total": 10
+    },
+    {
+      "category": "unrelated_topic",
+      "passed": 10,
+      "total": 10
+    },
+    {
+      "category": "ephemeral",
+      "passed": 10,
+      "total": 10
+    },
+    {
+      "category": "negation_correction",
+      "passed": 6,
+      "total": 10
+    },
+    {
+      "category": "cross_project",
+      "passed": 8,
+      "total": 10
+    },
+    {
+      "category": "permission",
+      "passed": 8,
+      "total": 10
+    }
+  ],
+  "recallRate": 1,
+  "nonIntrusionRate": 1,
+  "ephemeralNonPromotionRate": 1,
+  "changedScenarios": [
+    "r4",
+    "pm1",
+    "pm2",
+    "pm8"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "generatedAt": "2026-09-13T03:50:12.038Z",
+  "engine": "Hermes v2026.9.11（锁定安装，专属目录）",
+  "provider": "custom → 用户自建 OpenAI 兼容网关（用户 2026-09-12 配置）",
+  "corpus": "合成语料（seedCorpus，与确定性评测同源）",
+  "retrieval": "loadModelVisibleItems + selectRelevantItems（与 AskService 同路径）",
+  "sessionMode": "每场景独立会话（与产品 ask 一问一会话一致）",
+  "knownNoise": "Hermes 引擎自身系统上下文/技能示例可能进入回答；按语料关键词评分，原始回答全量落盘",
+  "thresholds": {
+    "recall": 0.9,
+    "nonIntrusion": 0.95,
+    "ephemeralNonPromotion": 0.95
+  }
+}

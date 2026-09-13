@@ -337,3 +337,21 @@ B3 剩余（下一批）：研究检查循环接 search_web（searchUsed 标志�
 5. 全量回归 222 通过+7 环境门跳过；审计套件 20/20；tsc 0 错。
 
 仍未做（如实）：真实 Tavily×研究循环（用户应用内「立即检查」带出门说法主题跑一次即闭合）；付费预算（paid_budget_mode）未接搜索次数；B5 导入器未实现；记忆评测模型门槛未跑。发版不含本批研究循环改动（发版在其之前）——下个版本带。
+
+
+## 2026-09-13（续三）· B5 三平台导入器落地；评测与 B4 真机探针开跑
+
+1. **B5 三平台导入器**（`packages/core/src/import/platformParsers.ts` + `importService.ts` 接线 + 迁移 19，`b5-platform-importers.test.ts` 8/8，全量 230 通过+7 环境跳过）：
+   - Claude `conversations.json`：顶层数组、`chat_messages` 线性（无 DAG）；content 块只取 `type:'text'`，thinking/tool_use/tool_result 计入 `non_text_blocks`；attachments 的 extracted_content 以「[附件 name]」追加；files 以「[文件 name（内容未随导出提供）」占位披露。
+   - Grok `prod-grok-backend.json`：`parent_response_id` 重建 DAG 边（`dag_edges`/`is_active_branch`）；BSON `{"$date":{"$numberLong":ms}}` 时间归一；sender 大小写/模型名归一（非 human=assistant）。
+   - Gemini `MyActivity.json`（Takeout 活动日志非对话存档，如实标注）：按 titleUrl `/app/c/<id>` 分组、按 time 排序重建；变体 A details[{name:'Request'|'Response'}] 与变体 B userInteractions 可同文件混存；响应截断/缺失在 metadata 明示（`truncated_responses`/`missing assistant_response`），标题取首条用户消息。
+   - 接线：文件名+结构双重探测（`conversations.json`/`prod-grok-backend.json`/`myactivity.json` + looksLike* 结构嗅探），512MB 上限，跨格式不误吞（ChatGPT 样本不被新嗅探吞掉）；端到端授权导入+幂等+撤销拒绝+坏格式诚实失败。
+   - 迁移 19：sources 重建扩 provider CHECK（+claude/gemini/grok_export）。第一版列清单与真实结构不符（漏 content_revision/analyzed_*/archived_* 列、漏 work_result kind、索引名错）——已按迁移 1+10+11+13+15+17 的真实演化修正：18 列全保留、kind 含 work_result、四索引按原样重建（idx_sources_dedup(provider,account_namespace,external_id,content_hash) 等）、外键关停后重建（对齐迁移 16 做法）。17→19 升级测试更新并断言新 provider 值可写入。
+2. **B2 记忆评测真实模型三轮开跑**（IXAEON_REAL_HERMES=1，用户网关，后台进行中）：第一版评测工具自写 SQL **漏掉 modelMayReadItem 披露过滤+字段映射失真**，导致未披露条目（p3/p4）入料、材料缺料——如实废弃作废数据、修为与确定性评测完全同源（seedCorpus/loadModelVisibleItems/selectRelevantItems 从 evalScenarios 导出共用），每场景独立会话（与产品 ask 一问一会话一致）、每场景即时落盘、三轮全量 60×3。原始回答全量落盘 docs/memory-eval-2026-09-13/。
+3. **B4 真实项目探针第一个真发现**：真 Codex 在本仓库受控副本写 scripts/redact-for-log.mjs+test 成功、自报测试通过，但**独立验证如实失败**——defaultCheck 的 --permission 加固（fs 限制在副本）下 Node 23.4+ 权限模型默认禁止 spawn 子进程，`node --test` 被 ERR_ACCESS_DENIED(ChildProcess) 挡掉（同机 scratch 实证：--permission 下 `node --test x` exit 1、`node x` 进程内直跑 exit 0）。产品行为正确（不把执行器自报当通过）；修正任务规格为进程内 node:test 验证命令（v2 dispatch_key）重跑。教训入 Skill 候选链：验证命令规格必须与独立验证加固兼容。
+
+
+## 2026-09-13（续四）· B2 三轮真实评测结果；B4 真机通过；全批回归
+1. **B2 三轮真实模型评测完成**（180 场景，10.3 分钟，用户网关）。第一版评分器问句回声伪影（模型正确否定边界复述问句词被误判侵入）→ 问句回声规则 + 离线重评分（`memory-eval-rescore.test.ts`，原始口径与修正口径并列落盘）。修正后：相关召回 1.0/1.0/1.0（≥0.9 过）、无关不侵入 1.0/1.0/1.0（≥0.95 过）、**临时不升格 0.9/0.9/1.0 未达 ≥0.95**——e9 问句预设红色主题、模型答「没有其他」语义成立但未复述关键词，2/3 轮复现；不调期望掩盖，待问句中性化重测。真发现：pm4 三轮一致把「私人目标」答成项目目标（个人/项目范围混淆）；词法评分低估语义召回（n3 等），原始回答全量落盘供人工复核。
+2. **B4 真实项目受控副本×真 Codex 通过**（`b4-real-project-codex.test.ts` 2/2）：真 Codex 写 scripts/redact-for-log.mjs+测试，独立验证（--permission 加固）通过、diff 在范围内、接受入 work_runs、Skill 候选对照链完整（evaluated 不自行 approved）。第一个真发现：`node --test` 在独立验证加固下被 ERR_ACCESS_DENIED(ChildProcess) 挡掉（Node 权限模型禁 spawn 子进程），产品正确地不把执行器自报当通过；验证命令规格修正为进程内 node:test（v2）。第一个真 Codex 派发（v1，--test 版）作为真实失败记录保留。
+3. 本批全量回归 + 审计套件 + tsc 见提交记录；评测/B4 探针保持 env 门控默认跳过，不进常规 CI。

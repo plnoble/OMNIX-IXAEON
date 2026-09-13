@@ -1,0 +1,39 @@
+{
+  "round": 1,
+  "overall": "47/60",
+  "categories": [
+    {
+      "category": "relevant_recall",
+      "passed": 9,
+      "total": 10
+    },
+    {
+      "category": "unrelated_topic",
+      "passed": 10,
+      "total": 10
+    },
+    {
+      "category": "ephemeral",
+      "passed": 9,
+      "total": 10
+    },
+    {
+      "category": "negation_correction",
+      "passed": 6,
+      "total": 10
+    },
+    {
+      "category": "cross_project",
+      "passed": 8,
+      "total": 10
+    },
+    {
+      "category": "permission",
+      "passed": 5,
+      "total": 10
+    }
+  ],
+  "recallRate": 0.9,
+  "nonIntrusionRate": 1,
+  "ephemeralNonPromotionRate": 0.9
+}

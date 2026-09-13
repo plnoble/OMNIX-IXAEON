@@ -38,6 +38,9 @@ export const sourceKindSchema = z.enum([
 export const sourceProviderSchema = z.enum([
   'chatgpt_export',
   'chatgpt_web',
+  'claude_export',
+  'gemini_export',
+  'grok_export',
   'local_file',
   'project',
   'coding_agent',

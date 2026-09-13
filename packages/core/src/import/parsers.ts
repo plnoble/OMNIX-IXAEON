@@ -18,7 +18,13 @@ export interface ParsedSegment {
 
 export interface ParsedSource {
   kind: 'conversation' | 'document' | 'project_snapshot';
-  provider: 'chatgpt_export' | 'local_file' | 'project';
+  provider:
+    | 'chatgpt_export'
+    | 'claude_export'
+    | 'gemini_export'
+    | 'grok_export'
+    | 'local_file'
+    | 'project';
   /** 用户自命名的本地账户命名空间；默认 local。不读取密码/Cookie。 */
   accountNamespace: string;
   externalId: string;

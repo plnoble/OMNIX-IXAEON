@@ -16,6 +16,14 @@ import {
   tryParseChatgptConversations,
   type ParsedSource,
 } from './parsers.js';
+import {
+  looksLikeClaudeExport,
+  looksLikeGeminiExport,
+  looksLikeGrokExport,
+  parseClaudeConversations,
+  parseGeminiActivity,
+  parseGrokConversations,
+} from './platformParsers.js';
 import { readProjectSnapshot } from './projectSnapshot.js';
 import { recordAudit } from '../audit.js';
 
@@ -28,9 +36,24 @@ export const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
  */
 export const MAX_CHATGPT_EXPORT_BYTES = 512 * 1024 * 1024;
 
-/** conversations.json（ChatGPT 官方导出文件名）走大文件上限。 */
+/** Claude conversations.json 同为全量历史导出，走大文件上限。 */
+export const MAX_CLAUDE_EXPORT_BYTES = 512 * 1024 * 1024;
+
+/** Grok prod-grok-backend.json 含全部对话与任务/媒体元数据，走大文件上限。 */
+export const MAX_GROK_EXPORT_BYTES = 512 * 1024 * 1024;
+
+/** Gemini Takeout MyActivity.json 单文件全量活动日志。 */
+export const MAX_GEMINI_EXPORT_BYTES = 512 * 1024 * 1024;
+
+/** 全量历史导出文件名（B5 三平台 + ChatGPT）走大文件上限。 */
+const LARGE_EXPORT_FILENAMES = new Set([
+  'conversations.json', // ChatGPT / Claude 同名，内容嗅探区分
+  'prod-grok-backend.json', // Grok
+  'myactivity.json', // Gemini Takeout（路径任意，按文件名匹配）
+]);
+
 const isChatgptExportFile = (absPath: string): boolean =>
-  basename(absPath).toLowerCase() === 'conversations.json';
+  LARGE_EXPORT_FILENAMES.has(basename(absPath).toLowerCase());
 
 export interface ImportFileResult {
   /** 新导入的来源 */
@@ -135,7 +158,7 @@ export class ImportService {
     const created: Source[] = [];
     const deduplicated: Source[] = [];
 
-    // conversations.json：一个文件包含多场对话
+    // conversations.json：一个文件包含多场对话（ChatGPT；Claude 官方导出同名）
     const convs = tryParseChatgptConversations(content, {
       accountNamespace: opts.accountNamespace,
     });
@@ -152,6 +175,31 @@ export class ImportService {
       recordAudit(this.db, 'import.chatgpt_export', {
         file: name,
         conversations: convs.length,
+        created: created.length,
+        deduplicated: deduplicated.length,
+      });
+      return { created, deduplicated, pendingExtraction: created };
+    }
+
+    // B5 三平台：先 JSON.parse 做内容嗅探（Claude 同名 conversations.json 靠内容区分）
+    const platformParsed = this.tryParsePlatformExport(
+      content,
+      name,
+      opts.accountNamespace ?? undefined,
+    );
+    if (platformParsed) {
+      for (const parsed of platformParsed.parsed) {
+        const result = this.insertParsed(parsed, {
+          permissionId: permission.id,
+          projectId: opts.projectId,
+          rawPath: Vault.relativePathFor(fileHash),
+        });
+        if (result.created) created.push(result.source);
+        else deduplicated.push(result.source);
+      }
+      recordAudit(this.db, `import.${platformParsed.platform}_export`, {
+        file: name,
+        conversations: platformParsed.parsed.length,
         created: created.length,
         deduplicated: deduplicated.length,
       });
@@ -184,6 +232,52 @@ export class ImportService {
       deduplicated: deduplicated.length,
     });
     return { created, deduplicated, pendingExtraction: created };
+  }
+
+  /**
+   * B5 三平台导出内容嗅探与解析（Claude/Grok/Gemini）。
+   * 判定顺序：Claude（chat_messages 数组）→ Grok（conversation+responses 包装）
+   * → Gemini（titleUrl+details/userInteractions）。
+   * 嗅探失败返回 null，调用方回落普通文档/JSON 路径——不误伤普通 JSON。
+   */
+  private tryParsePlatformExport(
+    content: string,
+    name: string,
+    accountNamespace?: string,
+  ): { platform: 'claude' | 'grok' | 'gemini'; parsed: ParsedSource[] } | null {
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(content);
+    } catch {
+      return null;
+    }
+    if (looksLikeClaudeExport(parsedJson)) {
+      return {
+        platform: 'claude',
+        parsed: parseClaudeConversations(parsedJson as unknown[], { accountNamespace }),
+      };
+    }
+    if (looksLikeGrokExport(parsedJson)) {
+      const arr = Array.isArray(parsedJson)
+        ? parsedJson
+        : ((parsedJson as { conversations?: unknown[] }).conversations ?? []);
+      return { platform: 'grok', parsed: parseGrokConversations(arr, { accountNamespace }) };
+    }
+    if (looksLikeGeminiExport(parsedJson)) {
+      return {
+        platform: 'gemini',
+        parsed: parseGeminiActivity(parsedJson as unknown[], { accountNamespace }),
+      };
+    }
+    // 只对已知导出文件名报错（用户明确选了导出文件但格式不对），普通 JSON 静默回落
+    const lower = name.toLowerCase();
+    if (lower === 'prod-grok-backend.json' || lower === 'myactivity.json') {
+      throw new IxaError(
+        ErrorCodes.PARSE_FAILED,
+        `${name} 看起来不是有效的平台导出文件（内容嗅探未命中已知结构）`,
+      );
+    }
+    return null;
   }
 
   /**

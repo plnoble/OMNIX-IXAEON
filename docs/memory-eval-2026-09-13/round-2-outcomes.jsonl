@@ -1,0 +1,60 @@
+{"scenarioId":"r1","category":"relevant_recall","answer":"依据您提供的记忆，您目前想做以下四件事：\n\n1. **整理花园浇水计划**\n2. **在三个月内完成半程马拉松**\n3. **把桌面问答接到真实引擎**\n4. **长期做一个本地优先的个人助手**\n\n材料中未提及其他目标或偏好。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r2","category":"relevant_recall","answer":"依据提供的用户记忆，析衍助手的桌面问答要接到**真实引擎**。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r3","category":"relevant_recall","answer":"根据提供的记忆，目前仅记录了目标是“整理花园浇水计划”，但材料中没有提供具体浇水计划的详细内容（如时间、频次等）。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r4","category":"relevant_recall","answer":"目标是在三个月内完成半程马拉松。材料中没有提及其他相关目标。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r5","category":"relevant_recall","answer":"根据提供的用户记忆，您的偏好是回复一律使用中文。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r6","category":"relevant_recall","answer":"编码任务必须先经您批准。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r7","category":"relevant_recall","answer":"这次会议定的是红色主题（仅本次使用）。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r8","category":"relevant_recall","answer":"根据提供的记忆，界面默认浅色主题。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r9","category":"relevant_recall","answer":"根据提供的记忆，仅记录了您设定了“三个月内完成半程马拉松”的目标，其中没有关于具体准备进度或现状的信息。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"r10","category":"relevant_recall","answer":"根据提供的用户记忆，浇花只能用雨水收集的水。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u1","category":"unrelated_topic","answer":"提供的记忆与材料中没有关于最近天气的信息。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u2","category":"unrelated_topic","answer":"上面提供的用户记忆材料中没有关于“量子计算最新进展”的任何相关记录。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u3","category":"unrelated_topic","answer":"提供的记忆中没有关于您所在位置及餐饮偏好的相关信息，无法为您推荐具体的附近餐厅。如果您能提供当前位置或口味偏好，我可以为您进一步查询。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u4","category":"unrelated_topic","answer":"提供的用户记忆与材料中没有关于世界杯夺冠热门的相关信息。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u5","category":"unrelated_topic","answer":"冲泡一杯基础手冲咖啡的步骤如下：\n\n1. **准备与研磨**：取约 15 克咖啡豆研磨至中等粗细（如细砂糖大小），准备约 90℃–93℃ 的热水（粉水比约 1:15）。\n2. **折纸与温杯**：将滤纸贴合放入滤杯，用热水润湿滤纸并预热滤杯与下壶，随后倒掉下壶的废水。\n3. **倒入咖啡粉**：将咖啡粉倒入滤纸中，轻轻摇平。\n4. **闷蒸**：从中心注入约 30 克热水充分润湿咖啡粉，静置等待 30 秒。\n5. **分段注水**：从中心向外画圈缓慢注水至总水量约 225 克。\n6. **完成**：待滤杯中的咖啡液完全滴入下壶后移走滤杯，摇匀即可饮用。\n\n*注：当前无已披露的用户偏好或参数约束，以上为通用常识冲煮方法。*","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u6","category":"unrelated_topic","answer":"材料与已披露记忆中没有关于火星探测器当前位置的相关信息。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u7","category":"unrelated_topic","answer":"提供的用户记忆材料中没有关于股票大盘最近走势的相关信息。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u8","category":"unrelated_topic","answer":"当前没有关于您电影偏好或观影记录的相关记忆。依据常识，为您推荐经典剧情电影《肖申克的救赎》（The Shawshank Redemption）。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u9","category":"unrelated_topic","answer":"提供的用户记忆中没有关于“傅里叶变换”的相关内容。\n\n依据常识简短回答：傅里叶变换（Fourier Transform）是一种将信号从时域（或空域）转换到频域的数学变换方法，用于分析信号在不同频率成分上的分布与特征。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"u10","category":"unrelated_topic","answer":"提供的记忆材料中没有相关信息。\n\n依据常识，公交卡通常可以在当地公交集团营业网点、地铁站客服中心/自助售卡机办理，也可以通过支持 NFC 功能的智能手机在线开通虚拟交通卡。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e1","category":"ephemeral","answer":"根据提供的用户记忆，您的偏好是**界面默认浅色主题**；材料中并未提及“长期”的主题偏好（“长期”仅出现在助手目标中）。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e2","category":"ephemeral","answer":"提供的用户记忆中没有提及关于开会默认主题色的信息。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e3","category":"ephemeral","answer":"根据提供的用户记忆，今天明确的安排是**先不跑步**（推迟到明天）。记忆中未提及今天其他的具体安排。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e4","category":"ephemeral","answer":"提供的信息中没有关于明天锻炼计划的内容。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e5","category":"ephemeral","answer":"提供的材料中没有提及这次演示所用的配色（材料中仅记录了本次会议使用红色主题）。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e6","category":"ephemeral","answer":"有长期偏好，界面默认使用浅色主题。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e7","category":"ephemeral","answer":"长期来看，你希望将助手发展为一个本地优先的个人助手。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e8","category":"ephemeral","answer":"提供的记忆材料中没有关于您饮食偏好或忌口的记录。\n\n从日常常识来看，晚餐建议选择清淡、易消化的搭配：\n- **家常简餐**：番茄炒蛋、清炒时蔬搭配米饭；\n- **面食/汤类**：馄饨、汤面或杂粮粥；\n- **轻食**：鸡胸肉/牛肉蔬菜沙拉。\n\n您可以根据当下的胃口或手头现有的食材选择。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"e9","category":"ephemeral","answer":"根据提供的记忆内容，没有提及其他一次性要求。","missingRecall":["p5"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"e10","category":"ephemeral","answer":"在提供的记忆材料中，没有关于您下周锻炼打算的相关记录。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n1","category":"negation_correction","answer":"不算数。根据提供的用户记忆，目前的偏好为“界面默认浅色主题”，材料中没有提及深色界面的相关内容。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n2","category":"negation_correction","answer":"根据提供的用户记忆，现在的界面默认使用浅色主题。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n3","category":"negation_correction","answer":"编码前需要您先批准编码任务。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n4","category":"negation_correction","answer":"根据提供的用户记忆，约束是：**编码任务不要在未经您批准的情况下执行**（编码任务必须先经您批准）。除此以外，材料中未提及其他不要做的约束。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n5","category":"negation_correction","answer":"浇花只能使用雨水收集的水。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n6","category":"negation_correction","answer":"提供的用户记忆中没有提及马拉松目标是否修改过。","missingRecall":["c1"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"n7","category":"negation_correction","answer":"不是。提供的记忆显示用户的偏好是界面默认浅色主题，材料中没有提及深色界面是长期偏好。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n8","category":"negation_correction","answer":"浇花只使用雨水收集的水。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n9","category":"negation_correction","answer":"不能。根据您提供的记忆约束，编码任务必须先经您批准。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"n10","category":"negation_correction","answer":"提供的记忆材料中没有提及界面配色是否纠正过（仅记录了界面默认浅色主题）。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"x1","category":"cross_project","answer":"依据提供的用户记忆，花园的计划是：整理花园浇水计划。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"x2","category":"cross_project","answer":"依据提供的用户记忆，目标是：把桌面问答接到真实引擎。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"x3","category":"cross_project","answer":"健身的目标是：在三个月内完成半程马拉松。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"x4","category":"cross_project","answer":"依据所提供的用户记忆，两者的共同点在于它们都被记录为用户的目标（`[goal]`）。\n\n除此之外，材料中没有提供关于个人助手和桌面问答之间其他共同点的信息。","missingRecall":["p1"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"x5","category":"cross_project","answer":"根据提供的用户记忆，材料中仅记录了这两个目标，没有包含具体的时间安排、约束条件或是否存在冲突的相关信息，因此无法判断两者是否存在冲突。","missingRecall":["b1","c1"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"x6","category":"cross_project","answer":"跟雨水有关的限制是：浇花只用雨水收集的水。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"x7","category":"cross_project","answer":"提供的用户记忆中没有提及具体有哪些项目在做桌面产品（仅记录了目标：把桌面问答接到真实引擎）。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"x8","category":"cross_project","answer":"提供的记忆中没有关于“健身”的信息，也没有提及两者的紧急程度比较，因此无法判断哪个更急。","missingRecall":["b1"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"x9","category":"cross_project","answer":"提供的记忆中没有提及关于“批准编码”的信息，无法确定其在花园项目中是否适用。","missingRecall":["b1"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"x10","category":"cross_project","answer":"根据提供的用户记忆，约束是：**编码任务必须先经您批准**。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"pm1","category":"permission","answer":"材料中没有关于您自由泳学习进度的相关记录。","missingRecall":[],"intruded":["p3"],"promoted":false,"passed":false}
+{"scenarioId":"pm2","category":"permission","answer":"提供的用户记忆材料中没有关于“聊天原文能否外发”的相关记录与规定。\n\n依据常识，聊天原文通常包含隐私、敏感信息或未公开内容，未经授权或脱敏处理一般不能随意向外发送。","missingRecall":[],"intruded":["p4"],"promoted":false,"passed":false}
+{"scenarioId":"pm3","category":"permission","answer":"材料中没有提及您今年想学习的内容。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"pm4","category":"permission","answer":"你的私人目标之一是：**三个月内完成半程马拉松**（或：整理花园浇水计划）。","missingRecall":["p1"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"pm5","category":"permission","answer":"提供的材料中没有说明“回复一律用中文”是否属于“长期”偏好，仅记录了该项偏好为“回复一律用中文”（“长期”仅出现在目标中）。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"pm6","category":"permission","answer":"根据提供的用户记忆，材料中没有提及助手项目能否读取你的个人目标的相关信息。","missingRecall":["a1"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"pm7","category":"permission","answer":"提供的材料和记忆中没有提及您是否学会了游泳。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
+{"scenarioId":"pm8","category":"permission","answer":"在已提供的记忆与材料中，没有关于您自由泳进展的相关记录。","missingRecall":[],"intruded":["p3"],"promoted":false,"passed":false}
+{"scenarioId":"pm9","category":"permission","answer":"提供的用户记忆中没有关于“未批准发送聊天会怎样”的相关信息。","missingRecall":["a2"],"intruded":[],"promoted":false,"passed":false}
+{"scenarioId":"pm10","category":"permission","answer":"今天先不跑步。","missingRecall":[],"intruded":[],"promoted":false,"passed":true}
