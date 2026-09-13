@@ -387,7 +387,18 @@ export function registerIpc(runtime: AppRuntime): void {
       runtime.research.store.setEnabled(input.id, input.enabled),
     setResearchTopicPaused: async (input) =>
       runtime.research.store.setPaused(input.id, input.paused),
-    checkResearchTopicNow: async (id) => runtime.research.checkNow(id),
+    checkResearchTopicNow: async (id) => {
+      const result = await runtime.research.checkNow(id);
+      // 候选 URL 是本轮响应的一部分（临时的）；审计只记元信息，不落库候选本身
+      recordAudit(runtime.db, 'research.checked_now', {
+        topicId: id,
+        runId: result.run.id,
+        searchUsed: result.searchUsed,
+        candidates: result.searchCandidates.length,
+        findingsNew: result.findings.length,
+      });
+      return result;
+    },
     addResearchSource: async (input) => {
       const source = runtime.research.store.addSource(input.topicId, {
         url: input.url,

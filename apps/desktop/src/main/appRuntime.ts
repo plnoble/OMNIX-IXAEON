@@ -151,7 +151,13 @@ export class AppRuntime {
     const imports = new ImportService(db, vault, permissions, sources);
     const items = new ItemService(db);
     const relations = new RelationService(db);
-    const research = new ResearchChecker(db, systemClock, desktopResearchFetchDeps());
+    // 搜索执行器惰性解析：构造时配置未必就绪，闭包经 runtimeRef 在检查时取当前值
+    const research = new ResearchChecker(
+      db,
+      systemClock,
+      desktopResearchFetchDeps(),
+      () => runtimeRef.current?.getWebSearchExecutor() ?? undefined,
+    );
     const coding = new CodingOrchestrator(db, createCodingExecutor(), resolved.dataDir);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
@@ -684,11 +690,14 @@ export class AppRuntime {
       findings: this.research.store.listFindings(t.id),
       runs: this.research.store.listRuns(t.id),
     }));
+    const searchConfigured = this.research.searchAvailable;
     return {
-      mode: 'approved-sources-only' as const,
-      searchConfigured: false as const,
-      notice:
-        '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。',
+      mode: (searchConfigured ? 'approved-sources-plus-search' : 'approved-sources-only') as
+        'approved-sources-only' | 'approved-sources-plus-search',
+      searchConfigured,
+      notice: searchConfigured
+        ? '已配置搜索服务：手动检查会给写了公开描述的主题做一次受控搜索，返回候选网址（不是发现；你批准后才会被读取）。定时轮次仍只读批准来源，不消耗搜索额度。'
+        : '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。可在设置页「网页搜索」配置。',
       topics,
     };
   }
@@ -840,7 +849,13 @@ export class AppRuntime {
     const imports = new ImportService(db, vault, permissions, sources);
     const items = new ItemService(db);
     const relations = new RelationService(db);
-    const research = new ResearchChecker(db, systemClock, desktopResearchFetchDeps());
+    // 搜索执行器惰性解析：恢复路径直接用当前实例
+    const research = new ResearchChecker(
+      db,
+      systemClock,
+      desktopResearchFetchDeps(),
+      () => this.getWebSearchExecutor() ?? undefined,
+    );
     const coding = new CodingOrchestrator(db, createCodingExecutor(), this.dataDir);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;

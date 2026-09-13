@@ -936,6 +936,14 @@ Ask 入口先探 Hermes；未接通则走 Core 有界工具循环并记 `runtime
 
 同前版（Electron 镜像 / NSIS 手动缓存方案），干净网络环境无需以上步骤。
 
-## 40. 0.2.7 ������2026-09-13��
+## 40. 0.2.7 ������2026-09-13��
 
-�û�ָʾ�����㷢�桹����Χ��B0-B5 ���ڳɹ���������/��ģ�ͻغ�/MCP ������/�ܿ���������/Codex �޸�����**���� 0.3.0**������ǰ�޸�����������ϣ�MCP ��װ����ڱ�����ԭ��ģ�鲻����װ����˫����ع���R16 ����ͨ������HERMES_HOME ��װ���������ݣ�����������Ӧ�ÿɷ����û���ר�� Hermes ��װ����������electron-builder NSIS��better-sqlite3 �� Electron ABI �رࣨpostinstall�����ʲ���IXAEON-Setup-0.2.7.exe��117.3 MB��+ blockmap + latest.yml��SHA-256 9B1C96D575C1BB3973CD37772998309A3EEEA7693AD8D8639DB841E0C6B65875��������ȫ�����ÿ� 17��18 Ǩ��������ʵ�⸱����֤��config.json ���� webSearch �������ݡ��ύ bdba5fa����ǩ v0.2.7�������Ͳ����� https://github.com/plnoble/OMNIX-IXAEON/releases/tag/v0.2.7��δ�����䣨B3 �о�ѭ����B5 ������/��װ������
+�û�ָʾ�����㷢�桹����Χ��B0-B5 ���ڳɹ���������/��ģ�ͻغ�/MCP ������/�ܿ���������/Codex �޸�����**���� 0.3.0**������ǰ�޸�����������ϣ�MCP ��װ����ڱ�����ԭ��ģ�鲻����װ����˫����ع���R16 ����ͨ������HERMES_HOME ��װ���������ݣ�����������Ӧ�ÿɷ����û���ר�� Hermes ��װ����������electron-builder NSIS��better-sqlite3 �� Electron ABI �رࣨpostinstall�����ʲ���IXAEON-Setup-0.2.7.exe��117.3 MB��+ blockmap + latest.yml��SHA-256 9B1C96D575C1BB3973CD37772998309A3EEEA7693AD8D8639DB841E0C6B65875��������ȫ�����ÿ� 17��18 Ǩ��������ʵ�⸱����֤��config.json ���� webSearch �������ݡ��ύ bdba5fa����ǩ v0.2.7�������Ͳ����� https://github.com/plnoble/OMNIX-IXAEON/releases/tag/v0.2.7��δ�����䣨B3 �о�ѭ����B5 ������/��װ������
+
+## 41. B3 研究检查循环接受控搜索（2026-09-13 续二）
+
+用户在 0.2.7 设置页配置 Tavily 并通过「测试搜索」（生产路径：safeStorage 解密→执行器→真实外发→命中；我核实 config 仅 provider=tavily+Key 加密落盘，不读密钥明文）。b3-real-search 探针 env 版不执行：Key 不出应用进程是安全边界，明文进测试进程违背之；真实验证口径=生产路径+用户确认。
+
+研究循环接线（合成验证 `b3-research-loop.test.ts` 8/8）：搜索结果=候选 URL 非发现（findings.source_id 非空外键是制度约束：批准后才是来源）；手动检查才搜、定时轮次不耗额度；搜索失败不毁批准来源轮次、零来源+搜索失败如实失败；出门说法缺省不外发；查询过 sanitizePublicQuery；候选过滤非 HTTPS/重复/回环。执行器惰性注入（改配置无需重启）。Research 页候选+批准按钮；searchConfigured 硬编码 false 改真实状态；checkNow 审计 research.checked_now。契约：CheckResult 增 searchCandidates/searchError，mode 联合类型。
+
+分层证据：mock 执行器 5/5（`b3-websearch.test.ts`）+ 研究循环合成 8/8 + 生产路径用户确认。未完成：真实 Tavily×研究循环（用户应用内跑一次）、paid_budget_mode 接搜索次数、B5 导入器、记忆模型门槛。本批改动不在 0.2.7（发版先于本批），下版携带。

@@ -2,9 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 
+interface CheckOutcome {
+  searchUsed: boolean;
+  searchError: string | null;
+  searchCandidates: Array<{ title: string; url: string; snippet: string }>;
+}
+
 interface Snapshot {
-  mode: 'approved-sources-only';
-  searchConfigured: false;
+  mode: 'approved-sources-only' | 'approved-sources-plus-search';
+  searchConfigured: boolean;
   notice: string;
   topics: Array<{
     id: string;
@@ -56,6 +62,8 @@ export function ResearchPage({
   const [sourceKind, setSourceKind] = useState<'page' | 'feed'>('page');
   const [extraUrl, setExtraUrl] = useState<Record<string, string>>({});
   const [draftProjectId, setDraftProjectId] = useState(projects[0]?.id ?? '');
+  /** 最近一次手动检查的搜索候选（按主题 id 存；临时展示，不落库） */
+  const [lastCheck, setLastCheck] = useState<Record<string, CheckOutcome>>({});
 
   const reload = useCallback(async () => {
     try {
@@ -117,8 +125,11 @@ export function ResearchPage({
             '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。'}
         </p>
         <p className="muted">
-          有批准网址时，「立即检查」只证明这个网址能打开并记下内容，不是搜索。
-          无网址的关注可以先记下方向，检查会明确失败，直到搜索入口获准。发现是外部线索，不会自动变成你的目标。
+          有批准网址时，「立即检查」只证明这个网址能打开并记下内容。
+          {data?.searchConfigured
+            ? ' 配置了搜索服务后：写了「出门说法」的关注，手动检查会再做一次受控搜索（查询本地脱敏后外发），返回候选网址。候选不是发现——你批准后才会被读取。定时轮次仍只读批准来源，不消耗搜索额度。'
+            : ' 无网址的关注可以先记下方向，检查会明确失败，直到在设置页配置搜索入口。'}{' '}
+          发现是外部线索，不会自动变成你的目标。
         </p>
       </Card>
       <Card title="新建关注">
@@ -130,8 +141,8 @@ export function ResearchPage({
           />
         </Field>
         <Field
-          label="出门说法（选填）"
-          hint="现在检查网页不会带上这句话。只有以后要对外说明「我在盯什么」时才用。不写也行。"
+          label="出门说法（搜索用）"
+          hint="配置搜索服务后，手动检查会把这句话（本地脱敏后）发给搜索服务找候选来源；不写就不搜。问题本身不会外发。"
         >
           <input
             value={publicDescription}
@@ -142,7 +153,7 @@ export function ResearchPage({
         </Field>
         <Field
           label="批准来源 URL（可选）"
-          hint="只给方向也可以创建。没有搜索服务时，空来源的立即检查会失败，不会假装已搜索。"
+          hint="只给方向也可以创建。没配搜索、也没写出门说法时，空来源的立即检查会失败，不会假装已搜索。"
         >
           <input
             value={sourceUrl}
@@ -203,7 +214,12 @@ export function ResearchPage({
             <Button
               kind="primary"
               disabled={busy}
-              onClick={() => void act(() => api.checkResearchTopicNow(t.id))}
+              onClick={() =>
+                void act(async () => {
+                  const outcome = (await api.checkResearchTopicNow(t.id)) as CheckOutcome;
+                  setLastCheck((prev) => ({ ...prev, [t.id]: outcome }));
+                })
+              }
             >
               立即检查
             </Button>
@@ -217,6 +233,61 @@ export function ResearchPage({
               </li>
             ))}
           </ul>
+          {lastCheck[t.id] && (
+            <div data-testid={`research-search-${t.id}`}>
+              {lastCheck[t.id]!.searchUsed ? (
+                lastCheck[t.id]!.searchError ? (
+                  <p className="warn">
+                    搜索失败（不影响批准来源检查）：{lastCheck[t.id]!.searchError}
+                  </p>
+                ) : lastCheck[t.id]!.searchCandidates.length > 0 ? (
+                  <>
+                    <h4>搜索候选（不是发现；你批准后才会被读取）</h4>
+                    <ul>
+                      {lastCheck[t.id]!.searchCandidates.map((c) => (
+                        <li key={c.url}>
+                          <a href={c.url} target="_blank" rel="noreferrer">
+                            {c.title}
+                          </a>
+                          <div className="muted">{c.snippet}</div>
+                          <Button
+                            disabled={busy}
+                            onClick={() =>
+                              void act(async () => {
+                                await api.addResearchSource({
+                                  topicId: t.id,
+                                  url: c.url,
+                                  kind: 'page',
+                                });
+                                setLastCheck((prev) => ({
+                                  ...prev,
+                                  [t.id]: {
+                                    ...prev[t.id]!,
+                                    searchCandidates: prev[t.id]!.searchCandidates.filter(
+                                      (x) => x.url !== c.url,
+                                    ),
+                                  },
+                                }));
+                              })
+                            }
+                            testId={`research-approve-${t.id}`}
+                          >
+                            批准为来源
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="muted">已搜索，本轮没有新候选。</p>
+                )
+              ) : t.public_description ? (
+                <p className="muted">本轮未搜索（定时轮次不搜；或查询脱敏后为空）。</p>
+              ) : (
+                <p className="muted">未写「出门说法」，搜索不会外发这个问题。</p>
+              )}
+            </div>
+          )}
           <div className="field-row">
             <input
               value={extraUrl[t.id] ?? ''}

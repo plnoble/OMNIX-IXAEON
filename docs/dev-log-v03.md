@@ -327,3 +327,13 @@ B1 至此具备完整证据链：真握手、真模型回答、真工具桥。�
 5. **B5 口径**：四平台导入器按公开导出格式实现 + 合成数据验证；真实数据（Gemini/Grok/Claude）用户日后自填，不再作为验收前置。导入器本身尚未实现（下一批）。
 
 B3 剩余（下一批）：研究检查循环接 search_web（searchUsed 标志与发现落库）、真机探针执行、Research 页 searchConfigured 展示。
+
+## 2026-09-13（续二）· 0.2.7 发版；Tavily 生产路径连通；研究循环接搜索
+
+1. **0.2.7 发版**（用户指示「那你发版」）：范围=B0-B5 中期成果，明示不是 0.3.0。发布前修掉两个发版阻断——(a) MCP 打包崩溃：better-sqlite3 external 后安装包 resources/mcp 无 node_modules、顶层 import 必崩；重构双入口（index.mjs=HTTP 转发入安装包，1KB，无原生依赖；direct.mjs=仓库/验证直连，extraResources 排除），R16 复跑通过；(b) Hermes 定位器只认 IXAEON_HERMES_HOME，升级后找不到用户安装器装的 Hermes；兼容 HERMES_HOME（校验专属目录布局、排除个人 ~/.hermes）。健康检查版本号改读 package.json（旧 0.2.3 陈旧报告）。提交 bdba5fa、标签 v0.2.7、已推送；https://github.com/plnoble/OMNIX-IXAEON/releases/tag/v0.2.7，安装包 117.3MB，SHA-256 9B1C96D575C1BB3973CD37772998309A3EEEA7693AD8D8639DB841E0C6B65875。REVIEW_PACKET §40。
+2. **用户配置 Tavily 并通过「测试搜索」**：生产路径真实验证（safeStorage 解密→执行器→真实外发→命中）。我核实 config：provider=tavily、Key 加密落盘（未读密钥本身——安全边界）。b3-real-search 探针 env 版不跑：Key 不出应用，明文进测试进程违背该边界；真实验证以生产路径+用户确认为准（分层证据：mock 5/5 + 合成循环 8/8 + 生产路径连通）。
+3. **研究检查循环接搜索**（`b3-research-loop.test.ts` 合成 8/8）：手动检查对写了「出门说法」的主题做受控搜索；候选 URL 不是发现——用户批准后才成为来源（搜索→批准→抓取，findings.source_id 外键即此约束的制度化）；零来源+出门说法可先搜候选；定时轮次不搜（额度只在用户在场时消耗）；搜索失败不毁批准来源轮次、零来源+搜索失败如实记失败；出门说法缺省不外发；查询再过 sanitizePublicQuery；候选过滤非 HTTPS/重复/本机地址。CheckResult 增 searchCandidates/searchError；searchUsed 从硬编码 false 变真实布尔；执行器惰性注入（保存 Key 无需重启）。
+4. **Research 页**：候选展示+「批准为来源」按钮；出门说法标签改「搜索用」；notice 文案按 searchConfigured 切换；listResearchTopics.searchConfigured 由硬编码 false 改真实状态；手动检查审计记录（research.checked_now：searchUsed/候选数/新发现）。
+5. 全量回归 222 通过+7 环境门跳过；审计套件 20/20；tsc 0 错。
+
+仍未做（如实）：真实 Tavily×研究循环（用户应用内「立即检查」带出门说法主题跑一次即闭合）；付费预算（paid_budget_mode）未接搜索次数；B5 导入器未实现；记忆评测模型门槛未跑。发版不含本批研究循环改动（发版在其之前）——下个版本带。

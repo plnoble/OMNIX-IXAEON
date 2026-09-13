@@ -473,8 +473,8 @@ export interface IxaIpcApi {
   rejectProjectRelation(id: string): Promise<ProjectRelation>;
   acceptProjectRelation(id: string): Promise<ProjectRelation>;
   listResearchTopics(): Promise<{
-    mode: 'approved-sources-only';
-    searchConfigured: false;
+    mode: 'approved-sources-only' | 'approved-sources-plus-search';
+    searchConfigured: boolean;
     notice: string;
     topics: Array<
       ResearchTopic & {
@@ -496,8 +496,12 @@ export interface IxaIpcApi {
   checkResearchTopicNow(id: string): Promise<{
     run: ResearchRun;
     findings: ResearchFinding[];
-    mode: 'approved-sources-only';
-    searchUsed: false;
+    mode: 'approved-sources-only' | 'approved-sources-plus-search';
+    searchUsed: boolean;
+    /** 本轮搜索候选 URL（仅手动检查返回；不是发现，批准后才成为来源） */
+    searchCandidates: Array<{ title: string; url: string; snippet: string }>;
+    /** 搜索失败不毁掉批准来源轮次，如实带回 */
+    searchError: string | null;
   }>;
   addResearchSource(input: {
     topicId: string;
