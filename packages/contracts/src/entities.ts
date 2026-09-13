@@ -44,6 +44,7 @@ export const sourceProviderSchema = z.enum([
   'local_file',
   'project',
   'coding_agent',
+  'ask_session',
 ]);
 
 export const sourceSchema = z.object({

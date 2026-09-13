@@ -651,6 +651,44 @@ CREATE INDEX idx_sources_project ON sources(project_id);
 CREATE INDEX idx_sources_archived ON sources(archived_at);
 `,
   },
+  {
+    id: 20,
+    name: 'source-provider-ask-session',
+    sql: `
+-- 用户指示（2026-09-13）：所有问答内容都进 Core。
+-- 新增 provider 'ask_session'：桌面问答（Hermes/Core 循环）的问答对落库为
+-- 来源，走既有提取管线生成理解候选。同迁移 19 的重建方式（列不变，
+-- 仅扩 provider CHECK；外键关停防 DROP 悬挂引用）。
+CREATE TABLE sources_new (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('conversation', 'document', 'project_snapshot', 'work_result')),
+  provider TEXT NOT NULL CHECK (provider IN ('chatgpt_export', 'chatgpt_web', 'claude_export', 'gemini_export', 'grok_export', 'local_file', 'project', 'coding_agent', 'ask_session')),
+  account_namespace TEXT NOT NULL DEFAULT 'local',
+  external_id TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  raw_path TEXT NOT NULL,
+  captured_at TEXT,
+  imported_at TEXT NOT NULL,
+  permission_id TEXT NOT NULL REFERENCES permissions(id),
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  content_revision INTEGER NOT NULL DEFAULT 0,
+  analyzed_revision INTEGER NOT NULL DEFAULT 0,
+  analyzed_at TEXT,
+  archived_at TEXT,
+  archive_summary TEXT
+);
+INSERT INTO sources_new (id, kind, provider, account_namespace, external_id, title, content_hash, raw_path, captured_at, imported_at, permission_id, project_id, metadata_json, content_revision, analyzed_revision, analyzed_at, archived_at, archive_summary)
+  SELECT id, kind, provider, account_namespace, external_id, title, content_hash, raw_path, captured_at, imported_at, permission_id, project_id, metadata_json, content_revision, analyzed_revision, analyzed_at, archived_at, archive_summary FROM sources;
+DROP TABLE sources;
+ALTER TABLE sources_new RENAME TO sources;
+CREATE UNIQUE INDEX idx_sources_dedup ON sources(provider, account_namespace, external_id, content_hash);
+CREATE INDEX idx_sources_permission ON sources(permission_id);
+CREATE INDEX idx_sources_project ON sources(project_id);
+CREATE INDEX idx_sources_archived ON sources(archived_at);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
@@ -678,9 +716,9 @@ export function migrate(db: CoreDatabase, upTo?: number): void {
         new Date().toISOString(),
       );
     };
-    if (m.id === 16 || m.id === 19) {
+    if (m.id === 16 || m.id === 19 || m.id === 20) {
       // 重建 sources/items 时必须先关闭外键（SQLite 事务内改 PRAGMA 无效）。
-      // 19 重建 sources：segments/audit 引用旧表名，关闭外键避免 DROP 悬挂引用。
+      // 19/20 重建 sources：segments/audit 引用旧表名，关闭外键避免 DROP 悬挂引用。
       db.pragma('foreign_keys = OFF');
       try {
         db.exec('BEGIN');

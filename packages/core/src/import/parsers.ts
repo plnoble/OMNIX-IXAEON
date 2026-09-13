@@ -24,7 +24,8 @@ export interface ParsedSource {
     | 'gemini_export'
     | 'grok_export'
     | 'local_file'
-    | 'project';
+    | 'project'
+    | 'ask_session';
   /** 用户自命名的本地账户命名空间；默认 local。不读取密码/Cookie。 */
   accountNamespace: string;
   externalId: string;

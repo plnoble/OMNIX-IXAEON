@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
 import { normalize } from 'node:path';
 import type { CoreDatabase } from '../db/database.js';
@@ -427,6 +428,91 @@ export class ImportService {
       rawPath: opts.rawPath,
     });
     return { created: true, source };
+  }
+
+  /**
+   * 问答对落 Core（用户 2026-09-13 指示：所有问答内容都进 Core）。
+   *
+   * 桌面问答（Hermes 会话或 Core 有界循环）每次回答后，把问答对存为
+   * ask_session 来源（幂等：runId+内容哈希），走既有提取管线生成理解
+   * 候选（提案→用户确认）。授权：调用方传入问答面授权（ask.ixaeon.local
+   * 域授权）；用户在授权列表撤销后，该来源的提取/读取即被拒绝——
+   * 与其他来源同一套边界，不开特例。
+   */
+  captureAsk(input: {
+    question: string;
+    answer: string;
+    runId: string;
+    engine: 'hermes' | 'core-bounded';
+    model: string | null;
+    projectId: string | null;
+    permissionId: string;
+  }): { created: boolean; source: Source } {
+    const question = input.question.trim();
+    const answer = input.answer.trim();
+    if (!question || !answer) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '问答内容为空，不落库');
+    }
+    const perm = this.permissions.get(input.permissionId);
+    if (!perm || perm.status !== 'active') {
+      throw new IxaError(ErrorCodes.PERMISSION_REVOKED, '问答授权不可用，拒绝落库');
+    }
+    const now = new Date().toISOString();
+    const text = `用户：${question}\n\nIXAEON 助手：${answer}`;
+    const contentHash = createHash('sha256').update(text, 'utf8').digest('hex');
+    const stored = this.vault.store(text);
+    // raw_path 约定：vault 相对路径（sha256/xx/hash），与其他导入来源一致
+    const rawPath = Vault.relativePathFor(stored.hash);
+    const parsed: ParsedSource = {
+      kind: 'conversation',
+      provider: 'ask_session',
+      accountNamespace: 'local',
+      externalId: input.runId,
+      title: question.slice(0, 80),
+      contentHash,
+      capturedAt: now,
+      importMethod: 'live_capture',
+      segments: [
+        {
+          sequence: 0,
+          role: 'user',
+          externalNodeId: null,
+          externalParentId: null,
+          isActiveBranch: true,
+          occurredAt: now,
+          text: question,
+          metadata: {},
+        },
+        {
+          sequence: 1,
+          role: 'assistant',
+          externalNodeId: null,
+          externalParentId: null,
+          isActiveBranch: true,
+          occurredAt: now,
+          text: answer,
+          metadata: {},
+        },
+      ],
+      metadata: {
+        via: 'ask',
+        engine: input.engine,
+        model: input.model,
+      },
+    };
+    const result = this.insertParsed(parsed, {
+      permissionId: input.permissionId,
+      projectId: input.projectId,
+      rawPath,
+    });
+    recordAudit(this.db, 'ask.captured_to_core', {
+      sourceId: result.source.id,
+      runId: input.runId,
+      created: result.created,
+      engine: input.engine,
+      projectId: input.projectId,
+    });
+    return result;
   }
 }
 

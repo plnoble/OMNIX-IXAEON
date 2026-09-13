@@ -659,7 +659,32 @@ export class AppRuntime {
     this.currentAsk = session;
     this.currentAskRunId = runId;
     try {
-      return await session.run({ goal: question, projectId, runId });
+      const result = await session.run({ goal: question, projectId, runId });
+      // 用户指示（2026-09-13）：所有问答内容都进 Core。
+      // 有实际回答时把问答对存为 ask_session 来源并入队提取（走既有
+      // 「提案→用户确认」管线）；存档/提取失败不吞掉回答，如实附注。
+      if (result.answer.trim().length > 0 && result.engine !== 'missing') {
+        try {
+          const askPerm = this.permissions.grantDomain('ask.ixaeon.local');
+          const captured = this.imports.captureAsk({
+            question,
+            answer: result.answer,
+            runId,
+            engine: result.engine,
+            model: result.modelName,
+            projectId,
+            permissionId: askPerm.id,
+          });
+          this.enqueueExtract(captured.source.id, false);
+          result.notice = `${result.notice}；问答已存入 IXAEON 记忆（理解候选将在「待讨论」等你确认）。`;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.warn('问答落 Core 失败', { runId, error: message });
+          recordAudit(this.db, 'ask.capture_failed', { runId, error: message.slice(0, 300) });
+          result.notice = `${result.notice}；注意：问答存档失败（${message.slice(0, 120)}）。`;
+        }
+      }
+      return result;
     } finally {
       if (this.currentAskRunId === runId) {
         this.currentAsk = null;
