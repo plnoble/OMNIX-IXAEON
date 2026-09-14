@@ -1028,3 +1028,17 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 - 0911 审计 **20/20**
 - 全量集成：**247 通过 + 12 跳过（50 测试文件）**
 - ESLint 0 / Prettier 0 / tsc 0。
+
+## 47. 独立审核 2026-09-13 第四批修复：A08 主动研究自主闭环
+
+| 维度 | 修复 | 验证 |
+|---|---|---|
+| 定时自主搜索闭环 | `ResearchStore.createTopic` 恢复 `paid_budget_mode` / `request_cap` 参数透传；`ResearchChecker.tick()` 在预批预算下自主搜索并扣额度，公开合格候选自动建立来源并纳入抓取 | `a08-proactive-research.test.ts` 4/4 |
+| 模型研读与价值判断 | 新增 `ResearchJudge`（`packages/core/src/research/judge.ts`），研究问题作为推理输入；模型/规则研读提炼结论，防御注入；网络自动来源无关内容不落库保持安静 | `a08-proactive-research.test.ts` 4/4 |
+
+证据：
+- `packages/core/test/integration/a08-proactive-research.test.ts` 4/4
+- 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
+- 0911 审计 **20/20**
+- 全量集成：**251 通过 + 12 跳过（51 测试文件）**
+- ESLint 0 / Prettier 0 / tsc 0。

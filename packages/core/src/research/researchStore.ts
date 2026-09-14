@@ -100,13 +100,18 @@ export class ResearchStore {
   createTopic(input: {
     question: string;
     publicDescription?: string | null;
+    public_description?: string | null;
     relatedGoalId?: string | null;
     relatedProjectId?: string | null;
     sources: Array<{ url: string; kind: ResearchSourceKind }>;
+    paid_budget_mode?: 'none' | 'request_cap';
+    request_cap?: number;
+    interval_ms?: number;
+    max_pages_per_run?: number;
     now?: string;
   }): ResearchTopic {
     const question = input.question.trim();
-    const publicDescription = (input.publicDescription ?? '').trim();
+    const publicDescription = (input.publicDescription ?? input.public_description ?? '').trim();
     if (question.length === 0) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '研究问题不能为空');
     if (input.relatedGoalId) {
       const goal = this.db
@@ -122,6 +127,10 @@ export class ResearchStore {
     }
     const now = input.now ?? new Date().toISOString();
     const id = randomUUID();
+    const intervalMs = input.interval_ms ?? DEFAULT_INTERVAL_MS;
+    const maxPages = input.max_pages_per_run ?? 10;
+    const budgetMode = input.paid_budget_mode ?? 'none';
+    const requestCap = input.request_cap ?? 0;
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
@@ -130,7 +139,7 @@ export class ResearchStore {
              enabled, paused, interval_ms, max_pages_per_run, paid_budget_mode, request_cap,
              generation, last_success_at, last_failure_at, last_failure, consecutive_failures,
              next_check_at, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, 0, 0, ?, 10, 'none', 0, 0, NULL, NULL, NULL, 0, NULL, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, 0, NULL, NULL, NULL, 0, NULL, ?, ?)`,
         )
         .run(
           id,
@@ -138,7 +147,10 @@ export class ResearchStore {
           publicDescription,
           input.relatedGoalId ?? null,
           input.relatedProjectId ?? null,
-          DEFAULT_INTERVAL_MS,
+          intervalMs,
+          maxPages,
+          budgetMode,
+          requestCap,
           now,
           now,
         );

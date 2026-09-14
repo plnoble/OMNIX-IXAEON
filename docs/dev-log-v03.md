@@ -457,4 +457,31 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 
 **未完成（下批，按审核顺序）**：A08 主动研读判断；A09 Skill 证据绑定不可改写+真实入口版本批准；A03 设置页开关接线。
 
+## 2026-09-13（续十二）· 独立审核 A08 主动研究闭环（定时tick搜索/自动建来源/模型研读与价值判断）
+
+按 A08 要求完成：
+
+**1. 预批预算定时自主闭环（无人值守研究）**：
+- `ResearchStore.createTopic` 修复：完整支持 `paid_budget_mode`、`request_cap`、`interval_ms` 等预算参数透传，不再硬编码 `'none', 0`。
+- `ResearchChecker.tick()`：定时到期轮次在预批预算（`paid_budget_mode='request_cap'` 且 `request_cap>0`）下自主触发外发搜索并扣减 1 个额度。
+- **自动来源建立与抓取**：定时轮次搜索返回的公开合格 URL（`assertPublicHttpsUrl` 通过且安全校验合格）自动在当前关注下登记为来源并拉取页面，实现「批准领域与预算内自动建立来源」闭环。
+
+**2. 模型研读、价值判断与安静原则（`ResearchJudge`）**：
+- 新增 `packages/core/src/research/judge.ts`：将研究问题（`question`）作为推理核心输入；
+- 有模型配置时走结构化模型研读，无模型时走规则语义研读兜底；
+- 对内容进行针对性价值判断与核心发现摘要提炼，过滤无关内容及提示词注入；
+- **安静原则**：搜索自动发现的条目仅在研读判定为实质相关（`relevant: true`）且有增量时才落库 `finding`；若无新价值或无关内容，保持安静（0 findings，无打扰通知）。
+
+**3. 自动化集成验证**：
+- 新增 `packages/core/test/integration/a08-proactive-research.test.ts`（4/4 通过）：
+  - 模型研读提炼价值结论与摘要
+  - 无关内容与提示词注入判定不相关（保持安静）
+  - 定时 tick 预批预算闭环：自主搜索 → 自动建来源 → 拉取并研读落库 finding
+  - 安静原则：无关网络结果不落库 finding、不发通知
+- 全量集成：**42 passed | 9 skipped（共 251 passed）**
+- 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`，不覆盖 final-budget-checked）
+- 0911 审计 **20/20**；ESLint 0 / Prettier 0 / tsc 0。
+
+**未完成（下批，按审核顺序）**：A09 Skill 证据绑定不可改写+真实入口版本批准；A03 设置页开关接线。
+
 ## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）

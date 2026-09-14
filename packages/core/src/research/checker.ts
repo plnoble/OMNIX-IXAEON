@@ -7,6 +7,8 @@ import { ResearchStore } from './researchStore.js';
 import { assertPublicHttpsUrl } from './urlSafety.js';
 import { sanitizePublicQuery } from '../memory/querySanitize.js';
 import type { WebSearchExecutor, WebSearchHit } from './webSearch.js';
+import type { ModelProvider } from '../extraction/model/provider.js';
+import { ResearchJudge } from './judge.js';
 
 export interface Clock {
   now(): Date;
@@ -44,6 +46,7 @@ export interface CheckResult {
 export class ResearchChecker {
   readonly store: ResearchStore;
   private running = false;
+  private readonly judge: ResearchJudge;
 
   constructor(
     private readonly db: CoreDatabase,
@@ -51,8 +54,10 @@ export class ResearchChecker {
     private readonly fetchDeps: FetchDeps = {},
     /** 惰性提供：每次检查时重新解析当前配置（保存 Key 后无需重启） */
     private readonly webSearchProvider?: () => WebSearchExecutor | undefined,
+    modelProvider?: ModelProvider | null,
   ) {
     this.store = new ResearchStore(db);
+    this.judge = new ResearchJudge(modelProvider);
   }
 
   createTopic(input: Parameters<ResearchStore['createTopic']>[0]): ResearchTopic {
@@ -147,6 +152,7 @@ export class ResearchChecker {
     let searchCandidates: SearchCandidate[] = [];
     let searchError: string | null = null;
     let searchUsed = false;
+    const autoSourceIds = new Set<string>();
     const sources = this.store.listSources(topic.id);
     try {
       if (sources.length === 0 && !(wantSearch && topic.public_description.trim().length > 0)) {
@@ -168,8 +174,29 @@ export class ResearchChecker {
             )
             .run(now, topic.id);
         }
+
+        // A08（审核 2026-09-13）：定时自主轮次（opts.scheduled）下，
+        // 搜索候选在已批准公开领域内自动建立来源记录并纳入本轮研读（无人值守闭环）。
+        // 手动检查（checkNow）时用户在场，保留候选列表供用户审阅。
+        if (opts.scheduled) {
+          for (const candidate of searchCandidates) {
+            try {
+              const added = this.store.addSource(
+                topic.id,
+                { url: candidate.url, kind: 'page' },
+                now,
+              );
+              autoSourceIds.add(added.id);
+            } catch {
+              /* 已存在或冲突不阻塞 */
+            }
+          }
+        }
       }
-      for (const src of sources) {
+
+      // 重新读取包含新增自动来源的完整来源列表
+      const allSources = this.store.listSources(topic.id);
+      for (const src of allSources) {
         if (pages >= topic.max_pages_per_run) break;
         if (this.store.getTopic(topic.id).generation !== generation) {
           throw new IxaError(ErrorCodes.JOB_CANCELLED, '关注已暂停/撤权，晚到结果作废');
@@ -195,12 +222,31 @@ export class ResearchChecker {
             } catch {
               continue;
             }
+
+            // A08：调用模型/规则研读器研读与判断价值
+            const judgment = await this.judge.judge(topic, {
+              title: entry.title,
+              url: entryUrl,
+              excerpt: entry.excerpt,
+            });
+
+            // 搜索自动建的来源：不相关或无信息增量的不落库，保持安静；
+            // 用户已批准的显式来源：用户本身指定监控该源更新，即使泛化内容也予以记录
+            const isAutoSource = autoSourceIds.has(src.id);
+            if (isAutoSource && !judgment.relevant) {
+              continue;
+            }
+
+            const excerptContent = judgment.relevant
+              ? `${judgment.summary}\n\n【价值分析】${judgment.valueAnalysis}`
+              : entry.excerpt;
+
             const inserted = this.store.insertFinding({
               topicId: topic.id,
               sourceId: src.id,
               title: entry.title,
               url: entryUrl,
-              excerpt: entry.excerpt,
+              excerpt: excerptContent,
               fingerprint: entry.fingerprint,
               claimedPublishedAt: entry.claimedPublishedAt,
               fetchedAt: now,

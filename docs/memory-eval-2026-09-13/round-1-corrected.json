@@ -1,10 +1,10 @@
 {
   "round": 1,
-  "overallCorrected": "51/60",
+  "overallCorrected": "49/60",
   "categories": [
     {
       "category": "relevant_recall",
-      "passed": 10,
+      "passed": 9,
       "total": 10
     },
     {
@@ -14,7 +14,7 @@
     },
     {
       "category": "ephemeral",
-      "passed": 9,
+      "passed": 8,
       "total": 10
     },
     {
@@ -33,11 +33,13 @@
       "total": 10
     }
   ],
-  "recallRate": 1,
+  "recallRate": 0.9,
   "nonIntrusionRate": 1,
-  "ephemeralNonPromotionRate": 0.9,
+  "ephemeralNonPromotionRate": 0.8,
   "changedScenarios": [
     "r4",
+    "r10",
+    "e5",
     "pm1",
     "pm2",
     "pm8"

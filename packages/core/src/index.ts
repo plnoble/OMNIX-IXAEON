@@ -97,7 +97,14 @@ export {
 } from './orchestration/orchestrator.js';
 export { buildPersonalOverview, type PersonalOverview } from './personal/overview.js';
 export { ResearchStore } from './research/researchStore.js';
-export { ResearchChecker, systemClock, type CheckResult, type Clock } from './research/checker.js';
+export {
+  ResearchChecker,
+  systemClock,
+  type CheckResult,
+  type Clock,
+  type SearchCandidate,
+} from './research/checker.js';
+export { ResearchJudge, type ResearchJudgment } from './research/judge.js';
 export {
   assertPublicHttpsUrl,
   isBlockedIpLiteral,
