@@ -16,6 +16,8 @@ import {
   searchContextInputSchema,
   getSourceExcerptInputSchema,
   recordWorkResultInputSchema,
+  recordObservationInputSchema,
+  getEvidenceInputSchema,
   type AppConfig,
   type CaptureBatch,
   type CaptureBatchResponse,
@@ -353,6 +355,48 @@ export class LocalServer {
           }
           const mcp = new McpService(this.deps.db);
           return reply.send(mcp.recordWorkResult(parsed.data));
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    // A06（审核 2026-09-13）：记忆桥接工具——Hermes 经 MCP 调用，
+    // 结果由协议真正回交引擎（不再只记本地事件）。
+    app.post('/api/mcp/record-observation', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = recordObservationInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `record_observation 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const mcp = new McpService(this.deps.db);
+          return reply.send(mcp.recordObservation(parsed.data));
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    app.post('/api/mcp/get-evidence', {
+      config: { bodyLimit: 16 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = getEvidenceInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `get_evidence 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const mcp = new McpService(this.deps.db);
+          return reply.send(mcp.getEvidence(parsed.data.item_id));
         } catch (err) {
           return this.sendError(reply, err);
         }

@@ -238,6 +238,12 @@ export class AppRuntime {
     runtime.coding.store.markUnknownRunning();
     runtime.sweepPendingAnalysis();
     runtime.startResearchScheduler();
+    // A06：上一进程遗留的 running 运行账本行没有执行者——按崩解标
+    // failed（不冒充仍在运行）。与任务队列的孤儿恢复同一口径。
+    const orphanRuns = AgentSession.recoverOrphanedRuns(runtime.db);
+    if (orphanRuns > 0) {
+      logger.info('已收尾上一进程遗留的运行账本', { count: orphanRuns });
+    }
     try {
       const ext = syncBundledExtension();
       runtime.extensionLoadDir = ext.loadUnpackedDir;
@@ -710,7 +716,15 @@ export class AppRuntime {
       desktopResearchFetchDeps(),
       this.getWebSearchExecutor() ?? undefined,
     );
-    const session = new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider);
+    // A06：同一桌面对话复用 AgentSession（进而复用引擎侧 Hermes 会话——
+    // 「那我刚才说的呢」依靠同会话背景）。取消/异常时丢弃会话，下一问重建。
+    const session =
+      this.currentAsk ??
+      new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider, {
+        // A06：record_observation/get_evidence 已由 ixaeon MCP 服务注册给
+        // Hermes（结果经协议回交），网关侧不再本地执行，防双写。
+        mcpBridgedTools: ['record_observation', 'get_evidence'],
+      });
     const runId = randomUUID();
     this.currentAsk = session;
     this.currentAskRunId = runId;
@@ -750,7 +764,8 @@ export class AppRuntime {
       return result;
     } finally {
       if (this.currentAskRunId === runId) {
-        this.currentAsk = null;
+        // A06：正常终态保留会话引用供复用；由下一次 ask 前置检查
+        //（复用是引擎侧同 session_id 的连续性，不是执行状态残留）。
         this.currentAskRunId = null;
       }
     }

@@ -16,6 +16,7 @@ import {
   assertSourceAuthorized,
   assertCodingClientMayReadItem,
   assertCodingClientMayReadSegment,
+  modelMayReadItem,
 } from '../access.js';
 
 /**
@@ -833,5 +834,75 @@ export class McpService {
     });
 
     return { work_run_id: id, deduplicated: false, open_loop_candidates: candidates };
+  }
+
+  /**
+   * A06（审核 2026-09-13）：记忆写入工具暴露给引擎（Hermes 经 MCP 桥接，
+   * 结果由 MCP 协议真正回交）。与 CoreToolBroker.record_observation 同一
+   * 语义：写入待讨论候选（open_loop），不自动成为用户决定。
+   * 仅限 project 绑定——个人视角的写入走桌面问答入口（有完整存档链）。
+   */
+  recordObservation(input: { project_ref: string; statement: string; rationale?: string | null }): {
+    item_id: string;
+    note: string;
+  } {
+    const statement = input.statement.trim();
+    if (!statement) throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'statement 不能为空');
+    if (statement.length > 2000) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'statement 超长（>2000 字符）');
+    }
+    const project = this.resolveProject(input.project_ref);
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO items (id, project_id, scope, type, statement, state, confidence,
+           origin, rationale, created_at, updated_at, needs_review, needs_reasons)
+         VALUES (?, ?, 'project', 'open_loop', ?, 'current', 0.5, 'work_result', ?, ?, ?, 1, 'unconfirmed')`,
+      )
+      .run(
+        id,
+        project.id,
+        statement,
+        input.rationale ?? 'runtime observation; not a user goal',
+        now,
+        now,
+      );
+    recordAudit(this.db, 'mcp.record_observation', { itemId: id, projectId: project.id });
+    return { item_id: id, note: '已写入 IXAEON 记忆候选（待讨论），不是用户决定' };
+  }
+
+  /**
+   * A06：证据读取工具（引擎侧可核验结论原文）。受众边界与
+   * CoreToolBroker.get_evidence 一致：model 分享缺失即拒绝。
+   */
+  getEvidence(itemId: string): {
+    item_id: string;
+    statement: string;
+    origin: string;
+    type: string;
+  } {
+    const row = this.db
+      .prepare(
+        'SELECT id, statement, origin, type, extracted_from_source_id FROM items WHERE id = ?',
+      )
+      .get(itemId) as
+      | {
+          id: string;
+          statement: string;
+          origin: string;
+          type: string;
+          extracted_from_source_id: string | null;
+        }
+      | undefined;
+    if (!row) throw new IxaError(ErrorCodes.NOT_FOUND, `条目不存在: ${itemId}`);
+    if (!modelMayReadItem(this.db, itemId)) {
+      throw new IxaError(ErrorCodes.SCOPE_DENIED, '该条目未获准外发给模型');
+    }
+    if (row.extracted_from_source_id) {
+      assertSourceAuthorized(this.db, row.extracted_from_source_id);
+    }
+    recordAudit(this.db, 'mcp.get_evidence', { itemId });
+    return { item_id: row.id, statement: row.statement, origin: row.origin, type: row.type };
   }
 }

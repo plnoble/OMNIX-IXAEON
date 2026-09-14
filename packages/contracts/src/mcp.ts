@@ -162,6 +162,34 @@ export const recordWorkResultOutputSchema = z.object({
 });
 export type RecordWorkResultOutput = z.infer<typeof recordWorkResultOutputSchema>;
 
+// --- record_observation / get_evidence（A06：引擎记忆桥接，2026-09-13 审核）---
+
+export const recordObservationInputSchema = z.object({
+  project_ref: z.string().min(1).max(500),
+  statement: z.string().min(1).max(2000),
+  rationale: z.string().max(1000).optional(),
+});
+export type RecordObservationInput = z.infer<typeof recordObservationInputSchema>;
+
+export const recordObservationOutputSchema = z.object({
+  item_id: z.string(),
+  note: z.string(),
+});
+export type RecordObservationOutput = z.infer<typeof recordObservationOutputSchema>;
+
+export const getEvidenceInputSchema = z.object({
+  item_id: refId,
+});
+export type GetEvidenceInput = z.infer<typeof getEvidenceInputSchema>;
+
+export const getEvidenceOutputSchema = z.object({
+  item_id: refId,
+  statement: z.string(),
+  origin: z.string(),
+  type: z.string(),
+});
+export type GetEvidenceOutput = z.infer<typeof getEvidenceOutputSchema>;
+
 /** MCP 服务器初始化说明（6.5 节使用规则）。 */
 export const MCP_SERVER_INSTRUCTIONS = `你是与本机 IXAEON（析衍）项目记忆系统协作的编码 AI。IXAEON 保存用户授权的项目资料、决定与工作历史。
 

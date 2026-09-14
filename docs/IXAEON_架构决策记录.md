@@ -107,6 +107,31 @@ V0.3 最终仍含四平台各一种实际历史格式、ChatGPT 可见增量、�
 
 每批报告实现、自动化、真实环境、用户接受、未完成五类事实。通过辅助函数测试不证明实际路径接通；验收目标不能在失败后被改成更容易通过的措辞。
 
+## ADR-11：Core 统一管理 Hermes 发动机（工具结果回交引擎 / 会话身份 / 运行账本）
+
+日期：2026-09-13。触发事实：2026-09-13 独立审核 A06——桌面 Hermes 接入把「找到 exe + 能对话」当作统一 Core 管理，但工具结果只记本地事件、未作为响应回交引擎；每次 Ask 都是无背景新会话；运行账本事后落库；兜底循环无 ADR。
+
+原决定：本地 broker 在 gateway 的 tool.start 通知里执行 Core 工具，结果 push 进本地事件流；每次 Ask 新建 session；运行记录只在回合结束后插一条。
+
+悬而未决的现实边界：
+1. 「把工具结果作为响应回交引擎」的正确通道是 MCP——Hermes 走 stdio JSON-RPC 的 TUI gateway 协议没有工具响应方法（官方方法只有 session.create / prompt.submit / session.interrupt / session.close / approval.respond）。
+2. TUI gateway 协议不携带 permissionVersion / contextRef / budget 配置字段，这些是 Core 侧约定，不能声称「引擎读到」了它们。
+
+新决定（已实现并验证，真机 Hermes 未在本批跑完整任务，见验收）：
+- 工具服务统一走 MCP：apps/mcp 新增 record_observation / get_evidence 工具，注册给 Hermes 后由 MCP 协议把结果真正回交引擎；本地 gateway 桥接保留为「未注册 MCP 的引擎」的后备，并通过 mcpBridgedTools 白名单将该类工具的 tool.start 通知改为本地不执行（skip reason = mcp_bridged_not_local），杜绝同一动作在 Hermes 与 Core 各执行一次的双写。
+- 会话身份：同一 AgentSession 实例复用 Hermes 引擎会话（session.create 只做一次，后续回合 prompt.submit 进同一 session_id），「那我刚才说的呢」由引擎侧会话历史回答。桌面端复用 AgentSession 实例；取消/异常时丢弃复用。
+- 运行账本持续化：回合开始时先插 running 行，引擎回合期间每个事件经 onEvent 实时追加 events_json（断电前的实际动作留在库里）；启动阶段把上一进程遗留的 running 行按崩解标 failed，不冒充仍在运行。
+- contextRef 转化：派发前先用 get_project_context 取 Core 项目上下文，随目标一起交给引擎，取代「传了不用的一句配置」。
+- 自研兜底循环（无 Hermes 时的 core-bounded）职责与切换条件如下，写死为产品契约：仅当「Hermes 未装」或「可执行文件在但 stdio 会话未探针通过」时启用；切换必须如实附注（不假装是完整 Hermes）；Hermes 会话失败落 Core 循环是同一 run 的第二次尝试，复用同 runId 账本行 upsert（保留 Hermes 失败痕迹），不二次插行；兜底循环有 MAX_ROUNDS 上限且通过 Core 工具受权限/受众边界约束。它永远是降级，不是等同 Hermes。
+
+备选：**把 per-run 的 Core 工具执行做成协议级响应**——被否决，因为锁定版本 v2026.9.11 的 TUI gateway 协议没有该能力，硬造协议字段是「修沟通电缆不如换交通工具」，会破坏可替换引擎的边界。
+
+用户影响：记忆写入/证据核验经 MCP 回交，Hermes 侧能读到结果；连续提问保留上下文；崩溃前的动作留痕。数据/权限边界不变：record_observation/get_evidence 仍走 model 受众边界（MCP 桥接后是 coding_client 视角写 open_loop，不自动成为用户决定）。
+
+验收变化：新增 `packages/core/test/integration/a06-core-unified.test.ts`（4 用例：账本实时落库 / running 行先插 + 终态收尾 / 孤儿行回收 / MCP 桥接防双执行），全部经协议替身（PassThrough）验证；真机 Hermes 完整任务跑通（从桌面同一入口、真工具结果回交）仍是 A06 的未完成部分，按 A07 后续补真实引擎回归，不冒充完成。
+
+回退办法：删除 mcpBridgedTools 声明并回退到「本地桥接始终执行」即可回到旧行为；账本先插行由 recoverOrphanedRuns 覆盖休眠安全。决策状态：当前推荐 + 实现并验证（自动化替身通过；真机待 A07）。
+
 ## 决策更新格式
 
 新增记录或给已有编号追加修订，不抹掉旧理由。填写：日期、触发事实、原决定、备选、推荐、用户影响、数据/权限/费用变化、验收变化、回退办法、决策状态/批准依据。

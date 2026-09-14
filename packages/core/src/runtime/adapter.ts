@@ -56,6 +56,8 @@ export interface HermesRunResult {
   modelName: string | null;
   /** session.info 上报的真实提供商（未上报时 null）。 */
   providerName: string | null;
+  /** 本回合使用的引擎会话 id（A06：同 AgentSession 实例复用）。 */
+  sessionId: string | null;
 }
 
 /**
@@ -95,7 +97,13 @@ export class HermesRuntimeAdapter {
     };
   }
 
-  async start(input: RuntimeRunInput): Promise<HermesRunResult> {
+  async start(
+    input: RuntimeRunInput,
+    /** A06：复用既有引擎会话（同 AgentSession 实例的后续回合）。 */
+    resumeSessionId?: string | null,
+    /** A06：已由 MCP 桥接执行的工具（防 tool.start 双执行）。 */
+    mcpBridgedTools?: string[],
+  ): Promise<HermesRunResult> {
     const caps = this.probe();
     if (!caps.locator.found || !caps.locator.exe) {
       throw new IxaError(
@@ -111,7 +119,12 @@ export class HermesRuntimeAdapter {
     const transport = this.transportFactory
       ? this.transportFactory(caps.locator.exe, args, opts)
       : TuiGatewaySession.spawnProcess(caps.locator.exe, args, opts);
-    const session = new TuiGatewaySession(transport, input, this.broker);
+    const session = new TuiGatewaySession(transport, input, this.broker, {
+      resumeSessionId: resumeSessionId ?? null,
+      // A06：每个事件实时回调（账本持续化由调用方注入）
+      onEvent: (event) => this.eventSink?.(event),
+      mcpBridgedTools: mcpBridgedTools ?? [],
+    });
     this.live.set(input.runId, session);
     try {
       const result = await session.run();
@@ -121,6 +134,12 @@ export class HermesRuntimeAdapter {
       this.live.delete(input.runId);
     }
   }
+
+  /** A06：运行事件实时观察器（账本落库等）。 */
+  setEventSink(sink: ((event: RuntimeEvent) => void) | null): void {
+    this.eventSink = sink;
+  }
+  private eventSink: ((event: RuntimeEvent) => void) | null = null;
 
   async cancel(runId: string): Promise<void> {
     this.live.get(runId)?.interrupt();

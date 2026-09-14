@@ -113,6 +113,25 @@ export const getSourceExcerptShape = {
     .describe('最大字符数（默认 2000，最大 5000）'),
 };
 
+// A06（审核 2026-09-13）：引擎记忆桥接工具。
+export const recordObservationShape = {
+  project_ref: z.string().min(1).max(500).describe('项目名称、ID 或根路径'),
+  statement: z
+    .string()
+    .min(1)
+    .max(2000)
+    .describe('要记住的内容（写入待讨论候选，不自动成为用户决定）'),
+  rationale: z.string().max(1000).optional().describe('可选：来源说明'),
+};
+
+export const getEvidenceShape = {
+  item_id: z
+    .string()
+    .min(1)
+    .max(100)
+    .describe('条目 ID（来自 search_context / prepare_task 的 ref）'),
+};
+
 export const recordWorkResultShape = {
   client_ref: z
     .string()
@@ -197,6 +216,40 @@ export function registerTools(
     async (args) => {
       try {
         const result = await call('/api/mcp/get-source-excerpt', args);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: errMessage(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'record_observation',
+    {
+      description:
+        '把需要记住的内容写入 IXAEON 记忆（待讨论候选，需用户确认；不自动成为用户决定）。' +
+        '需要记住用户告诉你的内容时用这个工具，不要用引擎自带的记忆——IXAEON 的记忆独立保存，引擎可替换。',
+      inputSchema: recordObservationShape,
+    },
+    async (args) => {
+      try {
+        const result = await call('/api/mcp/record-observation', args);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: errMessage(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'get_evidence',
+    {
+      description: '用条目 ID 核对 IXAEON 记忆结论的原文与来源。未获准外发的条目会被拒绝。',
+      inputSchema: getEvidenceShape,
+    },
+    async (args) => {
+      try {
+        const result = await call('/api/mcp/get-evidence', args);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       } catch (err) {
         return { content: [{ type: 'text', text: errMessage(err) }], isError: true };

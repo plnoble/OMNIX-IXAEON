@@ -42,16 +42,41 @@ const SYSTEM = [
 /**
  * 桌面问答的产品路径：先探 Hermes；未装则用已配置模型 + Core 工具。
  * 不把单轮 AskService 冒充 Agent 循环，也不把缺引擎写成成功。
+ *
+ * A06（审核 2026-09-13）：
+ * - 运行账本先插 running 行、事件实时落库（断电前的实际动作留在库里，
+ *   不再「结束后才插」）；启动时孤儿 running 行按上一进程崩解标 failed。
+ * - 同一 AgentSession 实例的 Hermes 回合复用引擎会话（session.create 只做
+ *   一次，后续 prompt.submit 进同一 session_id）——「那我刚才说的呢」
+ *   依靠同会话背景获得保证，不再每次 Ask 都是无记忆的新会话。
+ * - 派发前先取项目上下文（get_project_context），把 Core 记忆随目标一起
+ *   交给引擎——contextRef 不再是只传不用的一句配置。
  */
 export class AgentSession {
   private cancelled = new Set<string>();
+  /** Hermes 会话复用（A06）：同实例二次 run 复用引擎侧会话。 */
+  private hermesSessionId: string | null = null;
+  /**
+   * A06：已由 MCP 桥接执行的工具（结果经 MCP 协议回交引擎）。
+   * 桌面把 ixaeon MCP 服务注册给 Hermes 后，这些工具的 tool.start
+   * 通知不再本地执行，防同一动作双执行。
+   */
+  private mcpBridgedTools: string[] = [];
 
   constructor(
     private readonly db: CoreDatabase,
     private readonly adapter: HermesRuntimeAdapter,
     private readonly broker: CoreToolBroker,
     private readonly provider: ModelProvider | null,
-  ) {}
+    opts: { mcpBridgedTools?: string[] } = {},
+  ) {
+    if (opts.mcpBridgedTools) this.mcpBridgedTools = opts.mcpBridgedTools;
+  }
+
+  /** A06：声明哪些工具已由 MCP 桥接执行（桌面启动时按实际注册情况设置）。 */
+  setMcpBridgedTools(tools: string[]): void {
+    this.mcpBridgedTools = tools;
+  }
 
   cancel(runId: string): void {
     this.cancelled.add(runId);
@@ -78,21 +103,60 @@ export class AgentSession {
     const caps = this.adapter.probe();
 
     if (caps.locator.found) {
+      // A06：账本先插 running 行——引擎回合期间的每个事件实时落库，
+      // 断电/崩溃前的实际动作留在 runtime_runs 里，不再「结束后才插」。
+      this.insertRun(
+        runId,
+        goal,
+        input.projectId,
+        'hermes',
+        'running',
+        [],
+        'Hermes 回合进行中',
+        now,
+      );
+      this.wireEventLedger(runId);
       try {
+        // A06：contextRef 转化——派发前先取 Core 记忆的项目上下文
+        //（目的/当前决定/获准背景），随目标一起交给引擎，而不是传了不用。
+        let contextBlock = '';
+        if (input.projectId) {
+          try {
+            const ctx = await this.broker.invoke(
+              'get_project_context',
+              { projectId: input.projectId },
+              {
+                audience: 'model',
+                runId,
+                projectId: input.projectId,
+              },
+            );
+            contextBlock = `\n\n（IXAEON 项目上下文：${JSON.stringify(ctx).slice(0, 1500)}）`;
+          } catch {
+            /* 上下文取不到时照常派发，不编造 */
+          }
+        }
         // 记忆路由约定（2026-09-13 用户实测发现：模型默认用 Hermes 自带 memory
         // 工具，用户日程落进 Hermes 记忆库而不是 IXAEON Core——违背「Hermes
         // 可替换、Core 资料独立保存」）。派发目标附带本约定，引导写入 Core；
         // 运行记录仍保存用户原始问题。
-        const dispatchedGoal = `${goal}\n\n（IXAEON 约定：凡需要记住用户告诉你的内容，请调用 record_observation 工具写入 IXAEON 记忆，不要使用你自带的 memory 工具。）`;
-        const hermes = await this.adapter.start({
-          runId,
-          goal: dispatchedGoal,
-          contextRef: input.projectId ?? 'personal',
-          allowedTools: [...CORE_TOOL_NAMES],
-          permissionVersion: '1',
-          budget: { maxToolCalls: MAX_ROUNDS, timeoutMs: 120_000 },
-          idempotencyKey: runId,
-        });
+        const dispatchedGoal = `${goal}${contextBlock}\n\n（IXAEON 约定：凡需要记住用户告诉你的内容，请调用 record_observation 工具写入 IXAEON 记忆，不要使用你自带的 memory 工具。）`;
+        const hermes = await this.adapter.start(
+          {
+            runId,
+            goal: dispatchedGoal,
+            contextRef: input.projectId ?? 'personal',
+            allowedTools: [...CORE_TOOL_NAMES],
+            permissionVersion: '1',
+            budget: { maxToolCalls: MAX_ROUNDS, timeoutMs: 120_000 },
+            idempotencyKey: runId,
+          },
+          // A06：同实例复用引擎会话（「那我刚才说的呢」靠同会话背景）
+          this.hermesSessionId,
+          // A06：MCP 桥接工具防双执行
+          this.mcpBridgedTools,
+        );
+        if (hermes.sessionId) this.hermesSessionId = hermes.sessionId;
         const steps: AgentStep[] = hermes.events.map((ev, i) => ({
           round: i + 1,
           tool: ev.kind,
@@ -111,14 +175,28 @@ export class AgentSession {
             : hermes.status === 'cancelled'
               ? '用户取消 Hermes 会话'
               : 'Hermes 会话失败，未假装完成。';
-        this.insertRun(runId, goal, input.projectId, 'hermes', status, steps, notice, now);
+        this.finish(runId, goal, input.projectId, 'hermes', status, steps, notice, now);
+        this.unwireEventLedger();
         return {
           ...this.asAsk(hermes.answer || notice, notice, hermes.modelName ?? 'hermes'),
           engine: 'hermes',
           runId,
           steps,
         };
-      } catch {
+      } catch (err) {
+        // A06：失败也落账本（原始 Hermes 错误如实保留，不吞成静默降级）。
+        const detail = err instanceof Error ? err.message : String(err);
+        this.finish(
+          runId,
+          goal,
+          input.projectId,
+          'hermes',
+          'failed',
+          [],
+          `Hermes 回合异常：${detail.slice(0, 300)}`,
+          now,
+        );
+        this.unwireEventLedger();
         /* 可执行文件在、会话未通：落到 Core 循环，不假装 Hermes 已完成。 */
       }
     }
@@ -127,7 +205,20 @@ export class AgentSession {
       const notice = caps.locator.found
         ? 'Hermes 会话探针未通过，且模型未配置，不能假装 Agent 已接通。'
         : `Hermes 未安装：${caps.locator.reason} 模型也未配置，问答无法进入工具循环。`;
-      this.insertRun(runId, goal, input.projectId, 'missing', 'blocked', [], notice, now);
+      // A06：同 run 可能已有 hermes 预插行（先失败、又无模型兜底）——
+      // upsert 收尾为 blocked，不二次 INSERT。
+      const row = this.db
+        .prepare('SELECT id, events_json FROM runtime_runs WHERE id = ?')
+        .get(runId) as { id: string; events_json: string } | undefined;
+      if (row) {
+        this.db
+          .prepare(
+            `UPDATE runtime_runs SET status = 'blocked', notice = ?, finished_at = ? WHERE id = ?`,
+          )
+          .run(notice, new Date().toISOString(), runId);
+      } else {
+        this.insertRun(runId, goal, input.projectId, 'missing', 'blocked', [], notice, now);
+      }
       throw new IxaError(ErrorCodes.MODEL_NOT_CONFIGURED, notice);
     }
 
@@ -137,7 +228,22 @@ export class AgentSession {
       : `Hermes 未安装，本轮走 Core 有界工具循环（不是 Hermes）。${caps.locator.reason}`;
     const steps: AgentStep[] = [];
     let transcript = `用户问题：${goal}\n项目：${input.projectId ?? '个人视角'}\n${notice}`;
-    this.insertRun(runId, goal, input.projectId, engine, 'running', steps, notice, now);
+    // A06：hermes 失败落 Core 循环 = 同一 run 的第二次尝试——已预插的
+    // running 行 upsert 复用（保留 hermes 失败痕迹于 notice/events），不二次 INSERT。
+    const existing = this.db
+      .prepare('SELECT id, events_json FROM runtime_runs WHERE id = ?')
+      .get(runId) as { id: string; events_json: string } | undefined;
+    if (existing) {
+      const priorSteps = JSON.parse(existing.events_json) as AgentStep[];
+      this.db
+        .prepare(
+          `UPDATE runtime_runs SET engine = ?, status = 'running', events_json = ?, notice = ? WHERE id = ?`,
+        )
+        .run(engine, JSON.stringify(priorSteps), notice, runId);
+      steps.push(...priorSteps);
+    } else {
+      this.insertRun(runId, goal, input.projectId, engine, 'running', steps, notice, now);
+    }
 
     for (let round = 1; round <= MAX_ROUNDS; round++) {
       if (this.cancelled.has(runId)) {
@@ -251,6 +357,38 @@ export class AgentSession {
     };
   }
 
+  /**
+   * A06：运行事件实时落账本（事件到达即写库，断电前的动作留在
+   * runtime_runs.events_json）。失败不中断回合（网关侧兜底记录）。
+   */
+  private wireEventLedger(runId: string): void {
+    this.adapter.setEventSink((event) => {
+      try {
+        const row = this.db
+          .prepare('SELECT events_json FROM runtime_runs WHERE id = ?')
+          .get(runId) as { events_json: string } | undefined;
+        if (!row) return;
+        const steps = JSON.parse(row.events_json) as AgentStep[];
+        steps.push({
+          round: event.seq,
+          tool: event.kind,
+          ok: event.kind !== 'failed',
+          detail: JSON.stringify(event.payload).slice(0, 400),
+        });
+        this.db
+          .prepare('UPDATE runtime_runs SET events_json = ? WHERE id = ?')
+          .run(JSON.stringify(steps), runId);
+      } catch {
+        /* 账本写失败不中断引擎回合；网关侧已记录 ledgerWriteError */
+      }
+    });
+  }
+
+  /** A06：回合结束后解除观察器（下次 run 重新接）。 */
+  private unwireEventLedger(): void {
+    this.adapter.setEventSink(null);
+  }
+
   private insertRun(
     id: string,
     goal: string,
@@ -267,6 +405,28 @@ export class AgentSession {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(id, goal, projectId, engine, status, JSON.stringify(steps), notice, now, now);
+  }
+
+  /**
+   * A06：启动孤儿回收——上一进程遗留的 running 行没有执行者，
+   * 按崩解标 failed（不冒充仍在运行）。由桌面启动阶段调用一次。
+   */
+  static recoverOrphanedRuns(db: CoreDatabase): number {
+    const rows = db
+      .prepare("SELECT id, notice FROM runtime_runs WHERE status = 'running'")
+      .all() as Array<{ id: string; notice: string | null }>;
+    let recovered = 0;
+    for (const row of rows) {
+      db.prepare(
+        `UPDATE runtime_runs SET status = 'failed', notice = ?, finished_at = ? WHERE id = ? AND status = 'running'`,
+      ).run(
+        `上一进程中断（${(row.notice ?? '').slice(0, 120)}）；孤儿运行按崩解收尾，不冒充完成`,
+        new Date().toISOString(),
+        row.id,
+      );
+      recovered += 1;
+    }
+    return recovered;
   }
 
   private finish(

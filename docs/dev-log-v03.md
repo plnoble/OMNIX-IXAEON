@@ -392,3 +392,23 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 结果：restructure-20260913 **15/15**（13 反例转绿+2 对照保持），已另存 results-restructure-20260913-fixed.json（不覆盖 final-budget-checked）；integration 234 通过+10 跳过；unit 23；0911 审计 20/20；lint/prettier/tsc 全 0。
 
 **未完成（下批，按审核顺序）**：A06 Core 工具服务统一/MCP 新工具注册/会话历史/运行账本持续化（含自研兜底 ADR）；A07 生产/评测共用选材服务+评分器更多反例；A08 主动研读判断（本轮只接通预算化 tick 搜索）；A09 Skill 证据绑定不可改写+真实入口版本批准；A03 设置页开关接线；verify 完整跑通记录。
+
+## 2026-09-13（续九）· 独立审核 A06 Core 统一管理发动机（工具回交/会话身份/运行账本）
+
+按 A06 要求把「桌面 Hermes 接入」从「找到 exe + 能对话」推进到 Core 统一管理：
+
+**1. 工具结果经协议回交引擎（MCP 补齐）**：apps/mcp 新增 record_observation（记忆写入，写 open_loop 待讨论候选，不自动成用户决定）与 get_evidence（证据核验，model 受众边界——分享缺失即拒）；desktop localServer 加 /api/mcp/record-observation、/get-evidence 两条端点（本地 token 认证）；contracts 增对应输入输出 schema。Hermes 经 ixaeon MCP 服务调用后，结果由 MCP 协议真正回交引擎，不再只记本地事件。
+
+**2. 防双执行**：TuiGatewaySession 增加 mcpBridgedTools——已由 MCP 桥接执行的工具，其 tool.start 通知改为本地不执行（skip reason=mcp_bridged_not_local），杜绝同一动作在 Hermes 与 Core 各做一次；本地桥接保留为「未注册 MCP 的引擎」的后备。桌面 ask() 构造 AgentSession 时声明 ['record_observation','get_evidence']。
+
+**3. 会话身份/历史（「那我刚才说的呢」）**：AgentSession 复用引擎会话——session.create 只做一次，后续回合 prompt.submit 进同一 session_id；adapter.start 接受 resumeSessionId，TuiGatewaySession 恢复与快照返回 sessionId；桌面 ask() 复用 AgentSession 实例（取消/异常丢弃复用）。派发前先用 get_project_context 取 Core 项目上下文随目标一起给引擎（contextRef 不再传了不用）。
+
+**4. 运行账本持续化**：回合开始时先插 running 行；引擎期间每个事件经 onEvent 实时追加 events_json（断电前的动作留在库里，不再结束后才插）；终态 finish 收尾；Hermes 失败落 Core 循环=同 run 第二次尝试，同 runId 账本 upsert（保留 Hermes 失败痕迹，修复预插行后二次 INSERT 的 UNIQUE 缺陷）；AgentSession.recoverOrphanedRuns 在桌面启动阶段把上一进程遗留 running 行按崩解标 failed（与任务队列孤儿回收同口径）。
+
+**5. ADR-11**：工具结果回交的正确通道是 MCP（TUI gateway 协议无工具响应方法——官方仅 5 方法 10 事件）；协议不携带 permissionVersion/contextRef/budget 字段，Core 侧强制并如实说明；自研 core-bounded 兜底循环的启用条件/切换附注/降级定位写死为产品契约。
+
+验证：新增 `packages/core/test/integration/a06-core-unified.test.ts` 4 用例（账本实时落库 / running 行先插+终态收尾 / 孤儿行回收 / MCP 桥接防双执行）——协议替身（PassThrough）下全绿；integration 238 通过+10 跳过（原 234+新增 4）；0913 审计 15/15、0911 审计 20/20；lint/prettier/tsc 全 0。
+
+**未完成（下批）**：A06 真机 Hermes 单一入口完整任务回归（从桌面同一入口、真工具结果回交，当前为替身验证，未冒充真机通过）；A07 共用选材服务+评分器反例；A08 主动研读判断；A09 Skill 证据绑定+真实入口版本批准；A03 设置页开关接线。
+
+## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）

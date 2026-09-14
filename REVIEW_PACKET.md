@@ -993,3 +993,19 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 环境修正（预存失败，非产品缺陷）：用户级 HERMES_HOME 使「未装/停引擎」测试失效——4 个测试文件清空定位变量并恢复（与审核 §2 的处理一致），基线与修复批同一失败集已验证。
 
 未完成（审核顺序）：A06 统一工具服务/会话/账本（P1 阶段阻断，含 ADR）；A07 共用选材+评分反例扩展；A08 主动研读；A09 证据绑定+真实入口；A03 设置页开关接线。
+
+## 45. 独立审核 2026-09-13 第二批修复：A06 Core 统一管理发动机
+
+审核基线同上。A06「统一工具服务 / 会话历史 / 运行账本持续化 / 自研兜底 ADR」一批完成：
+
+| 维度 | 修复 | 验证 |
+|---|---|---|
+| 工具结果回交引擎 | apps/mcp 补 record_observation / get_evidence（MCP 协议真正回交结果；desktop 两条端点+contracts schema） | 替身网关 4/4 之一 |
+| 防双执行 | TuiGatewaySession.mcpBridgedTools——已 MCP 桥接的工具 tool.start 本地不执行（reason=mcp_bridged_not_local） | a06 测试：桥接后 0 写入 |
+| 会话身份/历史 | AgentSession 复用引擎会话（session.create 一次，后续 prompt.submit 同 session_id）；desktop ask() 复用实例；contextRef 经 get_project_context 注入 | a06 测试：先插 running 行+同会话 |
+| 运行账本持续化 | 先插 running 行 + 每个事件 onEvent 实时追加 events_json + 终态 finish；Hermes 失败落 Core=同 run upsert 不二次插；启动 recoverOrphanedRuns 崩解回收 | a06 测试：running 行先插/终态收尾/孤儿回收 |
+| 自研兜底 ADR | ADR-11：MCP 是工具回交唯一通道；协议不携带 permissionVersion/contextRef/budget（Core 侧强制如实说明）；core-bounded 兜底启用条件/切换附注/降级定位写死 | 文档 |
+
+证据：`packages/core/test/integration/a06-core-unified.test.ts` 4/4（协议替身）；integration 238 通过+10 跳过（原 234+新增 4）；0913 审计 15/15、0911 审计 20/20；lint/prettier/tsc 全 0。
+
+诚实边界：A06 真机 Hermes 单一入口完整任务回归（从桌面同一入口、真工具结果经 MCP 回交）仍为未完成——本批全部经协议替身（PassThrough）验证，未冒充真机通过；划入 A07 后续补真实引擎回归。

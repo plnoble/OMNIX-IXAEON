@@ -52,7 +52,19 @@ export class TuiGatewaySession {
     private readonly transport: TuiTransport,
     private readonly input: RuntimeRunInput,
     private readonly broker?: CoreToolBroker,
+    private readonly opts: {
+      /** A06：复用既有引擎会话（同 AgentSession 实例的后续回合）。 */
+      resumeSessionId?: string | null;
+      /** A06：每个事件实时回调（账本持续化由调用方注入）。 */
+      onEvent?: (event: RuntimeEvent) => void;
+      /**
+       * A06：已由 MCP 桥接执行的工具名（结果经 MCP 协议回交引擎）。
+       * 这些工具的 tool.start 通知不再本地执行，防同一动作双执行。
+       */
+      mcpBridgedTools?: string[];
+    } = {},
   ) {
+    if (opts.resumeSessionId) this.sessionId = opts.resumeSessionId;
     transport.rpc.on('notification', (method: string, params: unknown) => {
       void this.onNotification(method, params);
     });
@@ -115,13 +127,19 @@ export class TuiGatewaySession {
     status: 'terminal' | 'cancelled' | 'failed';
     modelName: string | null;
     providerName: string | null;
+    sessionId: string | null;
   }> {
     try {
-      const created = (await this.transport.rpc.request('session.create', { cols: 80 })) as {
-        session_id?: string;
-      } | null;
-      this.sessionId = created?.session_id ?? this.input.runId;
-      this.push('text', { phase: 'session.create', sessionId: this.sessionId });
+      // A06：复用会话时不重复 session.create——直接向既有会话提交回合。
+      if (this.sessionId) {
+        this.push('text', { phase: 'session.resume', sessionId: this.sessionId });
+      } else {
+        const created = (await this.transport.rpc.request('session.create', {
+          cols: 80,
+        })) as { session_id?: string } | null;
+        this.sessionId = created?.session_id ?? this.input.runId;
+        this.push('text', { phase: 'session.create', sessionId: this.sessionId });
+      }
       if (this.status !== 'running') {
         return this.snapshot();
       }
@@ -150,6 +168,7 @@ export class TuiGatewaySession {
     status: 'terminal' | 'cancelled' | 'failed';
     modelName: string | null;
     providerName: string | null;
+    sessionId: string | null;
   } {
     const status = this.status === 'running' ? 'failed' : this.status;
     return {
@@ -158,6 +177,7 @@ export class TuiGatewaySession {
       status,
       modelName: this.modelName,
       providerName: this.providerName,
+      sessionId: this.sessionId,
     };
   }
 
@@ -268,6 +288,9 @@ export class TuiGatewaySession {
         else if (this.executedCalls.has(callId)) skipReason = 'duplicate_call';
         else if (this.toolSideEffects >= this.input.budget.maxToolCalls)
           skipReason = 'over_tool_call_budget';
+        // A06：已由 MCP 桥接执行的工具（结果经协议回交引擎）不再在
+        // tool.start 本地重复执行——同一动作不允许 Hermes 与 Core 各做一次。
+        else if (this.opts.mcpBridgedTools?.includes(name)) skipReason = 'mcp_bridged_not_local';
         if (this.broker && skipReason === null) {
           // 只把 Core 白名单工具接到本地 broker；其余由 Hermes 自行执行。
           if (CORE_TOOL_SET.has(name)) {
@@ -344,14 +367,30 @@ export class TuiGatewaySession {
 
   private push(kind: RuntimeEvent['kind'], payload: Record<string, unknown>): void {
     this.seq += 1;
-    this.events.push({
+    const event: RuntimeEvent = {
       runId: this.input.runId,
       eventId: randomUUID(),
       seq: this.seq,
       timestamp: new Date().toISOString(),
       kind,
       payload,
-    });
+    };
+    this.events.push(event);
+    // A06：事件实时外送（账本持续化等）；观察器异常不中断回合，
+    // 但如实记录到本地事件流，不静默吞掉。
+    try {
+      this.opts.onEvent?.(event);
+    } catch (err) {
+      this.events.push({
+        runId: this.input.runId,
+        eventId: randomUUID(),
+        seq: this.seq + 1,
+        timestamp: new Date().toISOString(),
+        kind: 'text',
+        payload: { ledgerWriteError: err instanceof Error ? err.message : String(err) },
+      });
+      this.seq += 1;
+    }
   }
 }
 
