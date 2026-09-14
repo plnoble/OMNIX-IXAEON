@@ -693,9 +693,22 @@ export class AppRuntime {
     const rows = this.db
       .prepare("SELECT id FROM permissions WHERE locator='ask.ixaeon.local' AND status='active'")
       .all() as Array<{ id: string }>;
-    for (const row of rows) {
-      this.permissions.revoke(row.id);
-      recordAudit(this.db, 'ask.capture_disabled', { permissionId: row.id });
+    if (rows.length === 0) {
+      // 尚无记录（初次提问前用户即关闭）：显式写入已撤销记录，固化停用决定
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      this.db
+        .prepare(
+          `INSERT INTO permissions (id, scope_type, locator, mode, status, granted_at, revoked_at)
+           VALUES (?, 'domain', 'ask.ixaeon.local', 'continuous', 'revoked', ?, ?)`,
+        )
+        .run(id, now, now);
+      recordAudit(this.db, 'ask.capture_disabled', { permissionId: id });
+    } else {
+      for (const row of rows) {
+        this.permissions.revoke(row.id);
+        recordAudit(this.db, 'ask.capture_disabled', { permissionId: row.id });
+      }
     }
     return 'revoked';
   }

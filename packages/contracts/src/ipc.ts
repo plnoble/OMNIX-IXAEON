@@ -279,6 +279,8 @@ export const settingsViewSchema = z.object({
     webSearchKeyPresent: z.boolean().default(false),
   }),
   dataDir: z.string(),
+  /** A03（审核 2026-09-13）：桌面问答存档授权状态（enabled / revoked） */
+  askCaptureStatus: z.enum(['enabled', 'revoked']).default('enabled'),
   mcp: z.object({
     serverName: z.string(),
     command: z.string(),
@@ -568,6 +570,10 @@ export interface IxaIpcApi {
   }): Promise<{ models: Array<{ id: string }> }>;
   setCaptureEnabled(enabled: boolean): Promise<{ ok: true }>;
   setAutoAnalyze(enabled: boolean): Promise<{ ok: true }>;
+  /** A03：桌面问答存档显式启用/恢复入口（记录审计） */
+  enableAskCapture(): Promise<{ status: 'enabled' }>;
+  /** A03：桌面问答存档显式停用/撤销入口（撤销授权，后续提问不自动恢复） */
+  disableAskCapture(): Promise<{ status: 'revoked' }>;
   generatePairingCode(): Promise<{ code: string; expiresAt: string }>;
   getExtensionStatus(): Promise<{
     paired: boolean;

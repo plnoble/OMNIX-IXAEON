@@ -473,6 +473,7 @@ export function registerIpc(runtime: AppRuntime): void {
           webSearchKeyPresent: config.webSearch?.apiKeyPresent ?? false,
         },
         dataDir: runtime.state.dataDir,
+        askCaptureStatus: runtime.askCaptureStatus(),
         mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
         encryptionNotice:
           '应用未实现全库加密：数据库与原文保存在本地文件中，建议开启 Windows BitLocker。',
@@ -542,6 +543,14 @@ export function registerIpc(runtime: AppRuntime): void {
       // 修复 M0.2：重新开启自动分析后，补齐窗口期间积累的待分析内容
       if (enabled) runtime.sweepPendingAnalysis();
       return { ok: true as const };
+    },
+    enableAskCapture: async () => {
+      const status = runtime.enableAskCapture();
+      return { status };
+    },
+    disableAskCapture: async () => {
+      const status = runtime.disableAskCapture();
+      return { status };
     },
     generatePairingCode: async () => runtime.localServer.generatePairingCode(),
     getExtensionStatus: async () => {

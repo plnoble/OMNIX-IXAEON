@@ -520,6 +520,37 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 - 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
 - 0911 审计 **20/20**；ESLint 0 / Prettier 0 / tsc 0。
 
-**未完成（下批，按审核顺序）**：A03 设置页 enableAskCapture/disableAskCapture UI/IPC 接线。
+**未完成（下批，按审核顺序）**：已完成全部审核残余项（A01–A10 全部闭环）。
+
+## 2026-09-13（续十四）· 独立审核 A03 问答存档独立状态与设置页显式开关控制
+
+按 A03 独立审核要求完成桌面问答存档（Ask Capture）的独立状态与 UI/IPC 闭环：
+
+**1. 契约与接口扩展（Contracts / Preload / Main IPC）**：
+- `packages/contracts/src/ipc.ts`：
+  - `settingsViewSchema` 扩展 `askCaptureStatus: z.enum(['enabled', 'revoked']).default('enabled')`；
+  - `IxaIpcApi` 增加 `enableAskCapture(): Promise<{ status: 'enabled' }>` 和 `disableAskCapture(): Promise<{ status: 'revoked' }>`；
+- `apps/desktop/src/preload/index.ts`：通过 `contextBridge` 暴露 `enableAskCapture` 与 `disableAskCapture`；
+- `apps/desktop/src/main/ipc.ts`：`getSettings` 返回 `askCaptureStatus`，注册 `enableAskCapture` / `disableAskCapture` 处理器并记录审计日志；
+- `apps/desktop/src/main/appRuntime.ts`：加固 `disableAskCapture`——库中尚无记录时（初次提问前用户即关闭），显式插入一条已撤销记录（`status='revoked'`），固化用户的停用选择，防止空记录导致状态回退为 enabled。
+
+**2. 桌面设置页 UI 闭环**：
+- `apps/desktop/src/renderer/src/pages/Settings.tsx`：
+  - 新增「桌面问答存档（Ask Capture）」设置卡片；
+  - 明确展示当前存档授权状态（已启用 / 已撤销）；
+  - 提供独立开关（勾选框），直接调用 `api.enableAskCapture()` 或 `api.disableAskCapture()`，并实时刷新状态；
+  - 文案清晰告知：撤销后重启与后续提问均保持停用，普通提问不会隐式重建授权；如需恢复必须在设置页显式重新开启。
+
+**3. 自动化集成验证**：
+- 新增 `apps/desktop/test/integration/a03-ask-capture.test.ts`（2/2 通过）：
+  - 初始状态 enabled；disableAskCapture 显式撤销并记录审计；
+  - 撤销后提问不自动重新授权（保持 revoked），不新增问答来源；
+  - enableAskCapture 显式恢复并记录审计。
+- 全量集成：**44 passed | 9 skipped（共 257 passed）**
+- 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
+- 0911 审计 **20/20**
+- ESLint 0 / Prettier 0 / tsc 0。
+
+**未完成**：无。A01–A10 独立审核所有批次工作已全部闭环。
 
 ## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）

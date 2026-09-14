@@ -1057,3 +1057,18 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 - 0911 审计 **20/20**
 - 全量集成：**255 通过 + 12 跳过（52 测试文件）**
 - ESLint 0 / Prettier 0 / tsc 0。
+
+## 49. 独立审核 2026-09-13 第六批修复：A03 问答存档独立状态与设置页显式开关控制
+
+| 维度 | 修复 | 验证 |
+|---|---|---|
+| 契约与 IPC 暴露 | `settingsViewSchema` 扩展 `askCaptureStatus`；`IxaIpcApi` 增加 `enableAskCapture` 与 `disableAskCapture`；Preload / Main IPC 完整打通并记录审计日志 | `a03-ask-capture.test.ts` 2/2 |
+| 初次停用状态固化 | `disableAskCapture` 在库中尚无记录时插入一条 `status='revoked'` 记录，彻底防止首次未提问前关闭被误判为 enabled | `a03-ask-capture.test.ts` 2/2 |
+| 设置页 UI 闭环 | `Settings.tsx` 新增「桌面问答存档（Ask Capture）」卡片，展示当前状态与独立开关，用户主动操作即刻生效，重启与再提问均保持停用 | 前端组件与页面构建正常 |
+
+证据：
+- `apps/desktop/test/integration/a03-ask-capture.test.ts` 2/2
+- 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
+- 0911 审计 **20/20**
+- 全量集成：**257 通过 + 12 跳过（53 测试文件）**
+- ESLint 0 / Prettier 0 / tsc 0。

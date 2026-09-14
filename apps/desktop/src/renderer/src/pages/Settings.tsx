@@ -254,6 +254,22 @@ export function SettingsPage() {
     }
   };
 
+  const toggleAskCapture = async (enable: boolean) => {
+    setBusy(true);
+    try {
+      if (enable) {
+        await api.enableAskCapture();
+      } else {
+        await api.disableAskCapture();
+      }
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // --- 导出 / 恢复（M5；票据制：目标与来源都来自原生对话框） ---
 
   const showPairingCode = async () => {
@@ -529,6 +545,30 @@ export function SettingsPage() {
             （约 10 分钟内有效）。在浏览器扩展弹窗中输入。
           </p>
         )}
+      </Card>
+
+      <Card title="桌面问答存档（Ask Capture）" testId="settings-ask-capture">
+        <p className="note">
+          {view.askCaptureStatus === 'enabled'
+            ? '问答存档已启用：桌面问答对会自动记入 Core 来源库，并生成理解候选。'
+            : '问答存档已撤销：桌面提问不再保存为问答来源，停止生成新的理解候选。'}
+        </p>
+        <p className="muted">
+          A03（独立审核 2026-09-13）：撤销问答存档后，重启与后续提问均保持停用状态，
+          普通提问不会隐式重新授权。若需重新存档，请点击下方开关显式恢复。
+        </p>
+        <div className="field-row">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={view.askCaptureStatus === 'enabled'}
+              disabled={busy}
+              onChange={(e) => void toggleAskCapture(e.target.checked)}
+              data-testid="settings-ask-capture-toggle"
+            />
+            <span>启用桌面问答自动存档与理解提取</span>
+          </label>
+        </div>
       </Card>
 
       <Card title="MCP 接入（编码 AI）" testId="settings-mcp">
