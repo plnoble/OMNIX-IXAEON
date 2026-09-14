@@ -896,9 +896,9 @@ export class McpService {
         }
       | undefined;
     if (!row) throw new IxaError(ErrorCodes.NOT_FOUND, `条目不存在: ${itemId}`);
-    if (!modelMayReadItem(this.db, itemId)) {
-      throw new IxaError(ErrorCodes.SCOPE_DENIED, '该条目未获准外发给模型');
-    }
+    // D01（审核 2026-09-14）：通用 MCP 客户端是编码客户端（coding_client），
+    // 绝不能仅凭 model 分享就开放个人资料；必须获得 coding_client 授权。
+    assertCodingClientMayReadItem(this.db, itemId);
     if (row.extracted_from_source_id) {
       assertSourceAuthorized(this.db, row.extracted_from_source_id);
     }

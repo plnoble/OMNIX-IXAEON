@@ -54,7 +54,7 @@ export class ResearchChecker {
     private readonly fetchDeps: FetchDeps = {},
     /** 惰性提供：每次检查时重新解析当前配置（保存 Key 后无需重启） */
     private readonly webSearchProvider?: () => WebSearchExecutor | undefined,
-    modelProvider?: ModelProvider | null,
+    modelProvider?: ModelProvider | null | (() => ModelProvider | null | undefined),
   ) {
     this.store = new ResearchStore(db);
     this.judge = new ResearchJudge(modelProvider);
@@ -175,10 +175,15 @@ export class ResearchChecker {
             .run(now, topic.id);
         }
 
-        // A08（审核 2026-09-13）：定时自主轮次（opts.scheduled）下，
+        // A08 / D06（审核 2026-09-14）：定时自主轮次（opts.scheduled）下，
         // 搜索候选在已批准公开领域内自动建立来源记录并纳入本轮研读（无人值守闭环）。
-        // 手动检查（checkNow）时用户在场，保留候选列表供用户审阅。
+        // 关键防御（C07）：在执行副作用前必须检查 generation 与 paused 状态；
+        // 若搜索期间已被暂停/撤权，晚到候选绝不登记到数据库 sources 中。
         if (opts.scheduled) {
+          const currentTopic = this.store.getTopic(topic.id);
+          if (currentTopic.generation !== generation || currentTopic.paused || !currentTopic.enabled) {
+            throw new IxaError(ErrorCodes.JOB_CANCELLED, '关注已暂停/撤权，晚到搜索结果作废');
+          }
           for (const candidate of searchCandidates) {
             try {
               const added = this.store.addSource(
@@ -186,6 +191,9 @@ export class ResearchChecker {
                 { url: candidate.url, kind: 'page' },
                 now,
               );
+              this.db
+                .prepare("UPDATE research_sources SET last_error = 'auto_discovered' WHERE id = ?")
+                .run(added.id);
               autoSourceIds.add(added.id);
             } catch {
               /* 已存在或冲突不阻塞 */
@@ -208,6 +216,17 @@ export class ResearchChecker {
             src.kind === 'feed'
               ? parseFeed(fetched.body, fetched.finalUrl)
               : [parsePage(fetched.body, fetched.finalUrl)];
+
+          // 页面指纹未变：自上次检查以来毫无新变化，不重复研读与通知
+          if (
+            src.kind === 'page' &&
+            src.last_fingerprint &&
+            entries[0] &&
+            src.last_fingerprint === entries[0].fingerprint
+          ) {
+            continue;
+          }
+
           let anyNew = false;
           for (const entry of entries) {
             if (INJECTION_HINT.test(entry.excerpt) || INJECTION_HINT.test(entry.title)) {
@@ -230,9 +249,11 @@ export class ResearchChecker {
               excerpt: entry.excerpt,
             });
 
-            // 搜索自动建的来源：不相关或无信息增量的不落库，保持安静；
-            // 用户已批准的显式来源：用户本身指定监控该源更新，即使泛化内容也予以记录
-            const isAutoSource = autoSourceIds.has(src.id);
+            // D06（审核 2026-09-14）：自动搜索发现的候选来源，若研读判定不相关，
+            // 无论第 1 轮还是跨周期第 2 轮（last_error 持久化标记）都必须保持安静，绝不生成 finding。
+            // 用户显式批准监控的来源，用户指定监控其更新，即使泛化内容也予以记录。
+            const isAutoSource =
+              autoSourceIds.has(src.id) || src.last_error === 'auto_discovered';
             if (isAutoSource && !judgment.relevant) {
               continue;
             }

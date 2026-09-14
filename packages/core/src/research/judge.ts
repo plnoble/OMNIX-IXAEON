@@ -23,15 +23,31 @@ const INJECTION_HINT =
 /** 简单分词与关键词提取。 */
 function extractTokens(text: string): string[] {
   const cjk = text.match(/[\u4e00-\u9fff]{2,4}/g) ?? [];
-  const ascii = text.match(/[A-Za-z0-9_]{3,}/g) ?? [];
-  return [...cjk, ...ascii].map((t) => t.toLowerCase());
+  const ascii = text.match(/[A-Za-z0-9_]{2,}/g) ?? [];
+  const list = [...cjk, ...ascii].map((t) => t.toLowerCase());
+  // 常见监控场景中英文映射
+  if (/版本|新版|发布/.test(text)) list.push('release', 'version', 'v1');
+  if (/更新|动态/.test(text)) list.push('update', 'feed');
+  return list;
 }
 
 /**
  * 研读器：有模型时用模型推理研读，无模型时用严格规则研读兜底。
  */
 export class ResearchJudge {
-  constructor(private readonly provider?: ModelProvider | null) {}
+  constructor(
+    private readonly provider?:
+      | ModelProvider
+      | null
+      | (() => ModelProvider | null | undefined),
+  ) {}
+
+  private get activeProvider(): ModelProvider | null {
+    if (typeof this.provider === 'function') {
+      return this.provider() ?? null;
+    }
+    return this.provider ?? null;
+  }
 
   async judge(
     topic: ResearchTopic,
@@ -50,7 +66,8 @@ export class ResearchJudge {
     }
 
     // 1. 若配置了模型提供商，走模型推理研读
-    if (this.provider) {
+    const prov = this.activeProvider;
+    if (prov) {
       try {
         const system =
           '你是一个严谨的研究助理。请根据研究主题与研究问题，研读网络资料并做出结构化价值判断。输出有效 JSON。';
@@ -69,7 +86,7 @@ ${entry.excerpt.slice(0, 1500)}
   "valueAnalysis": "该发现对目标的参考价值",
   "confidence": 0.0-1.0
 }`;
-        const res = await this.provider.chatText({ system, user });
+        const res = await prov.chatText({ system, user });
         const jsonMatch = res.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]) as Partial<ResearchJudgment>;

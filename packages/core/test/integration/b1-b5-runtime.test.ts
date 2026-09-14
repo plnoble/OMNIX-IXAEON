@@ -194,9 +194,15 @@ describe('B4 Skill 候选：提案≠升级', () => {
       task: '写 note 前先检查路径',
       summary: '上次因缺文件失败',
     });
-    skills.evaluate(useful.id, {
-      evalBefore: '缺文件即失败且无提示',
-      evalAfter: '缺文件时明确列出缺失路径',
+    skills.evaluateWithEvidence(useful.id, {
+      evidence: {
+        exitCodeBefore: 1,
+        exitCodeAfter: 0,
+        outputBefore: '缺文件即失败且无提示',
+        outputAfter: '缺文件时明确列出缺失路径',
+        verifiedAt: new Date().toISOString(),
+        command: ['check'],
+      },
       benefit: '同类任务能提前发现缺文件',
     });
     expect(skills.approve(useful.id).status).toBe('approved');

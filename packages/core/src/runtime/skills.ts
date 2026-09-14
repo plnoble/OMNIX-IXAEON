@@ -103,10 +103,13 @@ export class SkillCandidateStore {
     const trimmed = method.trim();
     if (!trimmed) throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'Skill 方法不能为空');
     const now = new Date().toISOString();
+    // D07（审核 2026-09-14）：修改执行方法后，旧版本的执行证据立即作废，版本递增
     this.db
       .prepare(
         `UPDATE skill_candidates
-         SET method = ?, version = version + 1, status = 'proposed', updated_at = ?
+         SET method = ?, version = version + 1, status = 'proposed',
+             eval_evidence_json = NULL, eval_before = NULL, eval_after = NULL, benefit = NULL,
+             updated_at = ?
          WHERE id = ?`,
       )
       .run(trimmed, now, id);
@@ -161,10 +164,12 @@ export class SkillCandidateStore {
     input: { evalBefore: string; evalAfter: string; benefit: string | null },
   ): SkillCandidate {
     const now = new Date().toISOString();
+    // D07（审核 2026-09-14）：纯文本评测不生成客观执行证据（置为 NULL）
     this.db
       .prepare(
         `UPDATE skill_candidates
-         SET status = 'evaluated', eval_before = ?, eval_after = ?, benefit = ?, version = version + 1, updated_at = ?
+         SET status = 'evaluated', eval_before = ?, eval_after = ?, benefit = ?,
+             eval_evidence_json = NULL, version = version + 1, updated_at = ?
          WHERE id = ? AND status IN ('proposed', 'evaluated')`,
       )
       .run(input.evalBefore, input.evalAfter, input.benefit, now, id);
@@ -195,6 +200,14 @@ export class SkillCandidateStore {
     }
     if (!row.benefit || /无收益|无改进|相同|没有差异/.test(row.benefit)) {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '无收益的候选保持未采用');
+    }
+    // D07（审核 2026-09-14）：批准 Skill 必须具备可追溯的客观执行证据（eval_evidence_json）。
+    // 纯文本 evalBefore/evalAfter 只是主观描述，不能作为能力升级批准的依据。
+    if (!row.eval_evidence_json) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '缺少客观执行验证证据（eval_evidence_json 为空），纯文本描述不能作为批准依据',
+      );
     }
     const now = new Date().toISOString();
     this.db

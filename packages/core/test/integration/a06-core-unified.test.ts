@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -167,6 +167,23 @@ describe('A06 Core 统一管理发动机（协议替身）', () => {
         },
       }) as TuiTransport;
     const adapter = new HermesRuntimeAdapter(broker, factory as never);
+    vi.spyOn(adapter, 'probe').mockReturnValue({
+      locator: {
+        found: true,
+        exe: 'hermes-synthetic.exe',
+        cwd: null,
+        home: null,
+        reason: 'synthetic probe for hermes protocol test',
+      },
+      engine: 'hermes',
+      session: true,
+      stop: true,
+      toolAllowlist: true,
+      usage: true,
+      resume: true,
+      streaming: true,
+      probedAt: new Date().toISOString(),
+    });
     const session = new AgentSession(db, adapter, broker, new FakeProvider('a06'), {
       mcpBridgedTools: [],
     });

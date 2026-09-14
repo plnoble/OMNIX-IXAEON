@@ -369,7 +369,11 @@ export function registerIpc(runtime: AppRuntime): void {
         expiresAt: input.expiresAt ?? null,
         note: input.note ?? null,
       }),
-    revokeItemDisclosure: async (grantId) => runtime.items.revokeDisclosure(grantId),
+    revokeItemDisclosure: async (grantId) => {
+      const res = runtime.items.revokeDisclosure(grantId);
+      runtime.invalidateContext();
+      return res;
+    },
     createManualItem: async (input) => runtime.items.createManual(input),
     listCorrections: async (input) => runtime.items.listCorrections(input.projectId),
 
@@ -387,6 +391,11 @@ export function registerIpc(runtime: AppRuntime): void {
       runtime.research.store.setEnabled(input.id, input.enabled),
     setResearchTopicPaused: async (input) =>
       runtime.research.store.setPaused(input.id, input.paused),
+    setResearchBudget: async (input) =>
+      runtime.research.store.setBudget(input.id, {
+        paidBudgetMode: input.paidBudgetMode,
+        requestCap: input.requestCap,
+      }),
     checkResearchTopicNow: async (id) => {
       const result = await runtime.research.checkNow(id);
       // 候选 URL 是本轮响应的一部分（临时的）；审计只记元信息，不落库候选本身
@@ -577,7 +586,9 @@ export function registerIpc(runtime: AppRuntime): void {
     },
     restoreData: async (input) => {
       // 恢复必须持有预览凭证：绕过预览直接恢复一律拒绝（修复 P1-7.9）
-      return runtime.restoreData(input.previewToken);
+      const res = await runtime.restoreData(input.previewToken);
+      runtime.invalidateContext();
+      return res;
     },
     openLogsFolder: async () => {
       await shell.openPath(join(runtime.state.dataDir, 'logs'));
@@ -595,6 +606,14 @@ export function registerIpc(runtime: AppRuntime): void {
     },
     retireSkillCandidate: async (input) => {
       runtime.retireSkillCandidate(input.id);
+      return { ok: true as const };
+    },
+    proposeSkillCandidate: async (input) => {
+      const created = runtime.proposeSkillCandidate(input);
+      return { id: created.id };
+    },
+    evaluateSkillWithEvidence: async (input) => {
+      runtime.evaluateSkillWithEvidence(input);
       return { ok: true as const };
     },
   };

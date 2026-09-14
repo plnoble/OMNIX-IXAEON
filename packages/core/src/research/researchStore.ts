@@ -242,6 +242,11 @@ export class ResearchStore {
     ).map(toSource);
   }
 
+  /** D06（审核 2026-09-14）：移除来源（如自动发现但研读证实完全无关的候选）。 */
+  removeSource(sourceId: string): void {
+    this.db.prepare('DELETE FROM research_sources WHERE id = ?').run(sourceId);
+  }
+
   listFindings(topicId?: string): ResearchFinding[] {
     const rows = topicId
       ? (this.db
@@ -280,6 +285,23 @@ export class ResearchStore {
         `UPDATE research_topics SET paused = ?, next_check_at = ?, generation = generation + 1, updated_at = ? WHERE id = ?`,
       )
       .run(paused ? 1 : 0, paused ? null : topic.enabled ? now : null, now, id);
+    return this.getTopic(id);
+  }
+
+  /** D04（审核 2026-09-14）：设置/补充自动研究预批预算（面向无人值守自动搜索）。 */
+  setBudget(
+    id: string,
+    input: { paidBudgetMode: 'none' | 'request_cap'; requestCap: number },
+    now = new Date().toISOString(),
+  ): ResearchTopic {
+    this.getTopic(id);
+    this.db
+      .prepare(
+        `UPDATE research_topics
+         SET paid_budget_mode = ?, request_cap = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(input.paidBudgetMode, Math.max(0, input.requestCap), now, id);
     return this.getTopic(id);
   }
 

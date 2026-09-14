@@ -73,6 +73,7 @@ const api: IxaIpcApi = {
   createResearchTopic: (input) => ipcRenderer.invoke('ixaeon:createResearchTopic', input),
   setResearchTopicEnabled: (input) => ipcRenderer.invoke('ixaeon:setResearchTopicEnabled', input),
   setResearchTopicPaused: (input) => ipcRenderer.invoke('ixaeon:setResearchTopicPaused', input),
+  setResearchBudget: (input) => ipcRenderer.invoke('ixaeon:setResearchBudget', input),
   checkResearchTopicNow: (id) => ipcRenderer.invoke('ixaeon:checkResearchTopicNow', id),
   addResearchSource: (input) => ipcRenderer.invoke('ixaeon:addResearchSource', input),
   setResearchFindingAction: (input) => ipcRenderer.invoke('ixaeon:setResearchFindingAction', input),
@@ -105,6 +106,9 @@ const api: IxaIpcApi = {
   listSkillCandidates: (projectId) => ipcRenderer.invoke('ixaeon:listSkillCandidates', projectId),
   approveSkillCandidate: (input) => ipcRenderer.invoke('ixaeon:approveSkillCandidate', input),
   retireSkillCandidate: (input) => ipcRenderer.invoke('ixaeon:retireSkillCandidate', input),
+  proposeSkillCandidate: (input) => ipcRenderer.invoke('ixaeon:proposeSkillCandidate', input),
+  evaluateSkillWithEvidence: (input) =>
+    ipcRenderer.invoke('ixaeon:evaluateSkillWithEvidence', input),
 };
 
 /** 更新能力（独立于 IxaIpcApi：仅生产构建存在，开发运行为 no-op）。 */

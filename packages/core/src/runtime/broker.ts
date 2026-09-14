@@ -2,7 +2,12 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { type ItemService } from '../storage/itemStore.js';
 import { type SearchService } from '../storage/search.js';
-import { assertSourceAuthorized, modelMayReadItem, modelMayReadSegment } from '../access.js';
+import {
+  assertSourceAuthorized,
+  modelMayReadItem,
+  modelMayReadSegment,
+  assertCodingClientMayReadItem,
+} from '../access.js';
 import { type CodingOrchestrator } from '../execution/executor.js';
 import { type ProjectService } from '../projects.js';
 import { fetchApprovedSource, type FetchDeps } from '../research/fetchApproved.js';
@@ -88,8 +93,12 @@ export class CoreToolBroker {
       case 'get_evidence': {
         const itemId = String(args.itemId ?? '');
         const item = this.items.get(itemId);
-        if (ctx.audience === 'model' && !modelMayReadItem(this.db, itemId)) {
-          throw new IxaError(ErrorCodes.SCOPE_DENIED, '该条目未获准外发给模型');
+        if (ctx.audience === 'model') {
+          if (!modelMayReadItem(this.db, itemId)) {
+            throw new IxaError(ErrorCodes.SCOPE_DENIED, '该条目未获准外发给模型');
+          }
+        } else {
+          assertCodingClientMayReadItem(this.db, itemId);
         }
         if (item.extracted_from_source_id) {
           assertSourceAuthorized(this.db, item.extracted_from_source_id);

@@ -158,6 +158,7 @@ export class AppRuntime {
       systemClock,
       desktopResearchFetchDeps(),
       () => runtimeRef.current?.getWebSearchExecutor() ?? undefined,
+      () => runtimeRef.current?.getProvider() ?? null,
     );
     const coding = new CodingOrchestrator(db, createCodingExecutor(), resolved.dataDir);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
@@ -688,6 +689,13 @@ export class AppRuntime {
     return 'enabled';
   }
 
+  invalidateContext(contextRef?: string): void {
+    if (this.currentAsk) {
+      this.currentAsk.invalidateContext(contextRef);
+      this.currentAsk = null;
+    }
+  }
+
   /** 显式停用入口（设置页）：撤销问答存档授权；已存记录保留但不新增。 */
   disableAskCapture(): 'revoked' {
     const rows = this.db
@@ -710,6 +718,7 @@ export class AppRuntime {
         recordAudit(this.db, 'ask.capture_disabled', { permissionId: row.id });
       }
     }
+    this.invalidateContext();
     return 'revoked';
   }
 
@@ -817,7 +826,7 @@ export class AppRuntime {
         'approved-sources-only' | 'approved-sources-plus-search',
       searchConfigured,
       notice: searchConfigured
-        ? '已配置搜索服务：手动检查会给写了公开描述的主题做一次受控搜索，返回候选网址（不是发现；你批准后才会被读取）。定时轮次仍只读批准来源，不消耗搜索额度。'
+        ? '已配置搜索服务：手动检查会根据出门说法受控搜索返回候选；在预批预算内（无人值守），定时检查会自动根据公开描述搜索候选并由模型研读评估价值，无需逐个批准网址。未设预算或额度用尽时，定时只检查已有来源。'
         : '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。可在设置页「网页搜索」配置。',
       topics,
     };
@@ -976,6 +985,7 @@ export class AppRuntime {
       systemClock,
       desktopResearchFetchDeps(),
       () => this.getWebSearchExecutor() ?? undefined,
+      () => this.getProvider(),
     );
     const coding = new CodingOrchestrator(db, createCodingExecutor(), this.dataDir);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
@@ -1238,6 +1248,37 @@ export class AppRuntime {
   retireSkillCandidate(id: string) {
     const skills = new SkillCandidateStore(this.db);
     return skills.retire(id);
+  }
+
+  proposeSkillCandidate(input: {
+    projectId: string | null;
+    workRunId?: string | null;
+    task: string;
+    summary: string;
+  }) {
+    const skills = new SkillCandidateStore(this.db);
+    return skills.proposeFromFailure(input);
+  }
+
+  evaluateSkillWithEvidence(input: {
+    id: string;
+    method?: string;
+    evidence: {
+      exitCodeBefore: number;
+      exitCodeAfter: number;
+      outputBefore: string;
+      outputAfter: string;
+      verifiedAt: string;
+      command: string[];
+    };
+    benefit: string;
+  }) {
+    const skills = new SkillCandidateStore(this.db);
+    return skills.evaluateWithEvidence(input.id, {
+      method: input.method,
+      evidence: input.evidence,
+      benefit: input.benefit,
+    });
   }
 }
 

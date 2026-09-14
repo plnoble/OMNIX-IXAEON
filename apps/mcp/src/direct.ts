@@ -6,6 +6,7 @@ import {
   type PrepareTaskInput,
   type RecordWorkResultInput,
   type SearchContextInput,
+  type RecordObservationInput,
 } from '@ixaeon/contracts';
 import { registerTools } from './shared.js';
 
@@ -29,6 +30,12 @@ async function callDirect<T>(mcp: McpService, path: string, body: unknown): Prom
       const args = body as { ref: string; max_chars: number };
       return mcp.getSourceExcerpt(args.ref, args.max_chars) as T;
     }
+    case '/api/mcp/get-evidence': {
+      const args = body as { item_id: string };
+      return mcp.getEvidence(args.item_id) as T;
+    }
+    case '/api/mcp/record-observation':
+      return mcp.recordObservation(body as RecordObservationInput) as T;
     case '/api/mcp/record-work-result':
       return mcp.recordWorkResult(body as RecordWorkResultInput) as T;
     default:

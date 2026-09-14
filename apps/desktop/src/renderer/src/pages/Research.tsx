@@ -18,6 +18,8 @@ interface Snapshot {
     public_description: string;
     enabled: boolean;
     paused: boolean;
+    paid_budget_mode?: string;
+    request_cap?: number;
     last_success_at: string | null;
     last_failure_at: string | null;
     last_failure: string | null;
@@ -60,6 +62,8 @@ export function ResearchPage({
   const [publicDescription, setPublicDescription] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceKind, setSourceKind] = useState<'page' | 'feed'>('page');
+  const [paidBudgetMode, setPaidBudgetMode] = useState<'none' | 'request_cap'>('request_cap');
+  const [requestCap, setRequestCap] = useState(5);
   const [extraUrl, setExtraUrl] = useState<Record<string, string>>({});
   const [draftProjectId, setDraftProjectId] = useState(projects[0]?.id ?? '');
   /** 最近一次手动检查的搜索候选（按主题 id 存；临时展示，不落库） */
@@ -90,6 +94,8 @@ export function ResearchPage({
         question: question.trim(),
         publicDescription: publicDescription.trim(),
         sources: sourceUrl.trim() ? [{ url: sourceUrl.trim(), kind: sourceKind }] : [],
+        paidBudgetMode,
+        requestCap: paidBudgetMode === 'request_cap' ? requestCap : 0,
       });
       setQuestion('');
       setPublicDescription('');
@@ -172,6 +178,32 @@ export function ResearchPage({
             <option value="feed">RSS / Atom</option>
           </select>
         </Field>
+        <Field
+          label="定时自主研究预算"
+          hint="预批额度内定时轮次会自动搜索候选并由模型研读（无人值守）；不设预算时定时只研读已有来源。"
+        >
+          <div className="field-row">
+            <select
+              value={paidBudgetMode}
+              onChange={(e) => setPaidBudgetMode(e.target.value as 'none' | 'request_cap')}
+              data-testid="research-budget-mode"
+            >
+              <option value="request_cap">预批搜索次数上限（无人值守自主搜索）</option>
+              <option value="none">不预批搜索（仅研读已有来源）</option>
+            </select>
+            {paidBudgetMode === 'request_cap' && (
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={requestCap}
+                onChange={(e) => setRequestCap(Number(e.target.value) || 1)}
+                style={{ width: 100 }}
+                data-testid="research-request-cap"
+              />
+            )}
+          </div>
+        </Field>
         <Button
           kind="primary"
           disabled={busy || question.trim().length === 0}
@@ -186,6 +218,9 @@ export function ResearchPage({
           {t.public_description ? <p className="muted">出门说法：{t.public_description}</p> : null}
           <p className="muted">
             {t.enabled ? '已启用自动检查' : '自动检查关闭'} · {t.paused ? '已暂停' : '未暂停'}
+            {' · '}
+            自主搜索预算：
+            {t.paid_budget_mode === 'request_cap' ? `剩余 ${t.request_cap ?? 0} 次` : '未设预批预算'}
           </p>
           <p className="muted">
             上次成功 {t.last_success_at ?? '无'} · 上次失败 {t.last_failure_at ?? '无'}
@@ -210,6 +245,20 @@ export function ResearchPage({
               }
             >
               {t.paused ? '恢复' : '暂停'}
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void act(() =>
+                  api.setResearchBudget({
+                    id: t.id,
+                    paidBudgetMode: 'request_cap',
+                    requestCap: (t.request_cap ?? 0) + 5,
+                  }),
+                )
+              }
+            >
+              +5 次搜索预算
             </Button>
             <Button
               kind="primary"

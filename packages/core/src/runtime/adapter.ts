@@ -122,18 +122,21 @@ export class HermesRuntimeAdapter {
       cwd: caps.locator.cwd,
       env: hermesSpawnEnv(caps.locator),
     };
-    // A06：同 contextRef 的长驻会话优先复用（同一进程内续 session_id）；
-    // 已死亡/被取消的扔掉重建。resumeSessionId 仅在有活进程时作为跨进程提示。
+    // A06 / D02（审核 2026-09-14）：同 contextRef 的长驻会话若存活且权限版本一致，优先复用。
+    // 当权限版本变化时（撤权/纠正），旧会话上下文已过时，必须失效销毁并开新会话，防止泄漏。
     const resident = this.resident.get(input.contextRef);
     let session: TuiGatewaySession;
-    if (resident && !resident.isDead) {
+    if (resident && !resident.isDead && resident.permissionVersion === input.permissionVersion) {
       session = resident;
       // 复用长驻进程内已有 session_id；调用方传来的 resumeSessionId 与之一致。
       session.setInput(input);
       session.configureEventSink((event) => this.eventSink?.(event));
       session.setMcpBridgedTools(mcpBridgedTools ?? []);
     } else {
-      this.resident.delete(input.contextRef);
+      if (resident) {
+        resident.dispose();
+        this.resident.delete(input.contextRef);
+      }
       const transport = this.transportFactory
         ? this.transportFactory(caps.locator.exe, args, opts)
         : TuiGatewaySession.spawnProcess(caps.locator.exe, args, opts);
@@ -166,6 +169,19 @@ export class HermesRuntimeAdapter {
     for (const s of this.resident.values()) s.dispose();
     this.resident.clear();
     this.live.clear();
+  }
+
+  /** D02（审核 2026-09-14）：显式失效特定 contextRef 或全部长驻会话（撤权/敏感纠正/恢复时调用）。 */
+  invalidateContext(contextRef?: string): void {
+    if (contextRef) {
+      const resident = this.resident.get(contextRef);
+      if (resident) {
+        resident.dispose();
+        this.resident.delete(contextRef);
+      }
+    } else {
+      this.disposeAll();
+    }
   }
 
   /** A06：运行事件实时观察器（账本落库等）。 */

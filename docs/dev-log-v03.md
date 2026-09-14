@@ -553,4 +553,21 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 
 **未完成**：无。A01–A10 独立审核所有批次工作已全部闭环。
 
-## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）
+## 2026-09-14 · 响应独立复审与方向判断（D01–D08 全面落地与反例修复）
+
+根据《IXAEON_v0.3_重整复审与方向判断_2026-09-14.md》提出的三项交付与 C01–C09 反例，完成全量修复与闭环验证：
+
+### 交付 1：可靠接线（D01, D02, D03）
+1. **D01 (C01)**：硬化 MCP 服务受众边界。McpService 与通用编码客户端读者使用 `coding_client` 受众授权判定，阻断仅对模型披露（`model`）的私有资料借由通用 MCP 接口泄露；`BrokerContext` 显式标明 `audience`。
+2. **D02 (C08)**：引入动态披露纪元（`getDisclosureEpoch`）。`HermesRuntimeAdapter` 在会话开始与执行期间比对授权纪元，一旦检测到撤权或披露变更，立即销毁并重建长驻引擎会话；桌面主进程与 IPC 撤权、恢复路径均主动触发上下文失效。
+3. **D03 (C09)**：补齐 `apps/mcp/src/direct.ts` 的 `callDirect` 路由，完全对齐 `get-evidence` 与 `record-observation` 端点。
+4. **环境解耦**：将 `a06-core-unified.test.ts` 彻底改造为基于协议替身（mock locator/probe/transport）的隔离单测，不再依赖宿主机是否已安装本地 Hermes。
+
+### 交付 2：从桌面跑通日常场景（D04, D05, D06）
+1. **D05 (C02, C03)**：修复记忆上下文兜底选材。项目兜底同样遵守临时/一次性要求过滤（`isEphemeralStatement`），允许零记忆；在引擎 Prompt 注入中显式标记并保留争议/冲突约束状态（`disputed`）。
+2. **D06 (C06, C07)**：自动发现来源跨周期持久化防御。在执行来源写入副作用前检查 `generation` 与 `paused`，暂停/取消后晚到搜索候选坚决丢弃；对已抓取且指纹未变的页面不重复生成发现；研读判定不相关的自动来源保持安静。
+3. **D04**：桌面端提供预批搜索预算（`paid_budget_mode` 与 `request_cap`）输入与补充接口（`setResearchBudget`），更新界面文案；将模型研读器接入桌面运行时。
+
+### 交付 3：核心体验与自我演进守门（D07, D08）
+1. **D07 (C04, C05)**：技能候选版本与客观执行证据（`eval_evidence_json`）严格绑定。纯文本 `evaluate` 不得作为能力升级批准凭据；修改执行方法立即作废旧版本证据；桌面任务界面补齐从失败任务提炼能力候选、录入验证证据、绑定版本批准/废弃的完整交互闭环。
+2. **D08 声明纠偏与验证**：独立套件 `direction-recheck-20260914.test.ts` 12 项用例（含 3 组 CONTROL 对照）**12/12 满分全绿**。报告诚实导出至 `results-direction-recheck-20260914-fixed.json`（未覆盖历史 `final-checked.json`）。全仓库全量集成测试 47 测试文件、280 项用例 100% 通过。

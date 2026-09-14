@@ -492,9 +492,20 @@ export interface IxaIpcApi {
     relatedGoalId?: string | null;
     relatedProjectId?: string | null;
     sources: Array<{ url: string; kind: 'page' | 'feed' }>;
+    /** D04：无人值守预批搜索预算模式（默认 none） */
+    paidBudgetMode?: 'none' | 'request_cap';
+    /** D04：预批搜索调用次数上限 */
+    requestCap?: number;
+    intervalMs?: number;
   }): Promise<ResearchTopic>;
   setResearchTopicEnabled(input: { id: string; enabled: boolean }): Promise<ResearchTopic>;
   setResearchTopicPaused(input: { id: string; paused: boolean }): Promise<ResearchTopic>;
+  /** D04：为研究主题设置/补充预批搜索预算 */
+  setResearchBudget(input: {
+    id: string;
+    paidBudgetMode: 'none' | 'request_cap';
+    requestCap: number;
+  }): Promise<ResearchTopic>;
   checkResearchTopicNow(id: string): Promise<{
     run: ResearchRun;
     findings: ResearchFinding[];
@@ -608,6 +619,25 @@ export interface IxaIpcApi {
   >;
   approveSkillCandidate(input: { id: string; version?: number }): Promise<{ ok: true }>;
   retireSkillCandidate(input: { id: string }): Promise<{ ok: true }>;
+  proposeSkillCandidate(input: {
+    projectId: string | null;
+    workRunId?: string | null;
+    task: string;
+    summary: string;
+  }): Promise<{ id: string }>;
+  evaluateSkillWithEvidence(input: {
+    id: string;
+    method?: string;
+    evidence: {
+      exitCodeBefore: number;
+      exitCodeAfter: number;
+      outputBefore: string;
+      outputAfter: string;
+      verifiedAt: string;
+      command: string[];
+    };
+    benefit: string;
+  }): Promise<{ ok: true }>;
 }
 
 /** 更新状态（electron-updater 推送与手动查询共用形状）。 */

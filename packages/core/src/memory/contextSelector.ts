@@ -67,6 +67,7 @@ export class ContextSelector {
     id: string;
     statement: string;
     type: string;
+    state: string;
     origin: string;
     confirmation: string;
   }> {
@@ -88,6 +89,7 @@ export class ContextSelector {
       id: string;
       statement: string;
       type: string;
+      state: string;
       origin: string;
       confirmation: string;
     }>;
@@ -137,6 +139,7 @@ export class ContextSelector {
         id: x.item.id,
         statement: x.item.statement,
         type: x.item.type,
+        state: x.item.state,
         origin: x.item.origin,
         confirmation: x.item.confirmation,
         score: x.score,
@@ -155,6 +158,7 @@ export class ContextSelector {
           id: x.item.id,
           statement: x.item.statement,
           type: x.item.type,
+          state: x.item.state,
           origin: x.item.origin,
           confirmation: x.item.confirmation,
           score: x.score,
@@ -162,21 +166,28 @@ export class ContextSelector {
     }
 
     if (selected.length === 0 && projectId !== null) {
-      selected = scored.slice(0, maxItems).map((x) => ({
-        id: x.item.id,
-        statement: x.item.statement,
-        type: x.item.type,
-        origin: x.item.origin,
-        confirmation: x.item.confirmation,
-        score: x.score,
-      }));
+      // D05（审核 2026-09-14）：项目兜底同样必须过滤临时/一次性要求，允许零记忆。
+      selected = scored
+        .filter((x) => x.score >= 4 || x.item.type === 'goal')
+        .filter((x) => eventQ || !isEphemeralStatement(x.item.statement))
+        .slice(0, maxItems)
+        .map((x) => ({
+          id: x.item.id,
+          statement: x.item.statement,
+          type: x.item.type,
+          state: x.item.state,
+          origin: x.item.origin,
+          confirmation: x.item.confirmation,
+          score: x.score,
+        }));
     } else {
       selected = selected.slice(0, maxItems);
     }
 
     const promptLines = selected.map((item) => {
       const originTag = item.origin === 'user' ? '用户指定' : '系统推断';
-      return `- [${item.type} · ${originTag}] ${item.statement}`;
+      const stateTag = item.state === 'disputed' ? ' · disputed/争议未定' : '';
+      return `- [${item.type} · ${originTag}${stateTag}] ${item.statement}`;
     });
 
     const promptBlock =

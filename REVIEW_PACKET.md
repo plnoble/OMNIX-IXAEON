@@ -1072,3 +1072,19 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 - 0911 审计 **20/20**
 - 全量集成：**257 通过 + 12 跳过（53 测试文件）**
 - ESLint 0 / Prettier 0 / tsc 0。
+
+## 50. 独立审核 2026-09-14 复审与方向纠偏：D01–D08 交付与 C01–C09 全绿
+
+对照《IXAEON_v0.3_重整复审与方向判断_2026-09-14.md》提出的 3 项交付要求与独立复审套件：
+
+| 交付编号 | 对应反例 | 修复与核心改进 | 验证结果 |
+|---|---|---|---|
+| **交付 1：可靠接线** | C01, C08, C09 | 1. **D01 (C01)**：硬化 MCP 服务受众边界。McpService 与编码客户端读者强制使用 `coding_client` 受众判定，严防 `model` 独占披露泄露。<br>2. **D02 (C08)**：引入动态披露纪元（`getDisclosureEpoch`），引擎适配器检测到撤权或授权版本变动即刻销毁并重建长驻会话。<br>3. **D03 (C09)**：补齐 `apps/mcp/src/direct.ts` 的 `callDirect` 路由，完全实现 `get-evidence` / `record-observation` 端点。<br>4. **环境解耦**：改造 `a06-core-unified.test.ts` 摆脱真实 Hermes 安装依赖。 | `direction-recheck-20260914.test.ts` C01, C08, C09 全绿；`a06-core-unified.test.ts` 4/4 绿 |
+| **交付 2：桌面日常场景** | C02, C03, C06, C07 | 1. **D05 (C02, C03)**：项目兜底选材严格遵守临时要求过滤，允许零记忆；模型 Prompt 注入显式包含争议/冲突标记（`disputed`）。<br>2. **D06 (C06, C07)**：自动发现候选来源持久化标识与副作用前置校验；暂停/取消后晚到搜索候选坚决作废；已检查且指纹未变页面不重复生成发现。<br>3. **D04**：桌面端提供预批搜索预算（`paid_budget_mode` 与 `request_cap`）输入与补充接口，界面文案纠偏，接入模型研读器。 | `direction-recheck-20260914.test.ts` C02, C03, C06, C07 全绿；`s4-research` 8/8 绿；`b3-research` 8/8 绿 |
+| **交付 3：核心体验守门** | C04, C05 | 1. **D07 (C04, C05)**：技能版本与客观执行证据强绑定；纯文本 `evaluate` 不生成证据且 `approve` 坚决拒收；修改方法立即废弃旧证据；桌面任务界面补齐从失败任务提炼候选、录入证据、版本绑定批准的闭环。<br>2. **D08 诚实声明**：独立套件保存至 `results-direction-recheck-20260914-fixed.json`，未覆盖历史文件。 | `direction-recheck-20260914.test.ts` 12/12 满分通过；全量集成测试 47 文件、280 项 100% 通过；`tsc --noEmit` 0 报错 |
+
+证据：
+- `apps/desktop/test/review/direction-recheck-20260914.test.ts` **12/12 满分全绿**（含 3 组 CONTROL 严格对照）
+- `results-direction-recheck-20260914-fixed.json`：`numPassedTests: 12, numFailedTests: 0, success: true`
+- 全量测试：`47 passed / 280 passed / 0 failed`
+- 类型检查：`node node_modules/typescript/bin/tsc --noEmit` 零报错通过。

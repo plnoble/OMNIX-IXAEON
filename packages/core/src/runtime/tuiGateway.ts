@@ -106,6 +106,10 @@ export class TuiGatewaySession {
     return this.dead;
   }
 
+  get permissionVersion(): string {
+    return this.currentInput.permissionVersion;
+  }
+
   static spawnProcess(exe: string, args: string[], opts: TuiSpawnOptions = {}): TuiTransport {
     const env: NodeJS.ProcessEnv = { ...process.env };
     if (opts.env) Object.assign(env, opts.env);

@@ -3,6 +3,24 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { MemoryScope } from '@ixaeon/contracts';
 
 /**
+ * D02（审核 2026-09-14）：计算当前权限与披露的纪元版本号（Epoch）。
+ * 任何权限授权/撤销、条目披露授权/撤销都会改变此版本。
+ */
+export function getDisclosureEpoch(db: CoreDatabase): string {
+  const p = db
+    .prepare(
+      "SELECT COUNT(*) AS c, COALESCE(MAX(granted_at), '') AS t FROM permissions WHERE status='active'",
+    )
+    .get() as { c: number; t: string };
+  const d = db
+    .prepare(
+      "SELECT COUNT(*) AS c, COALESCE(MAX(granted_at), '') AS t FROM disclosure_grants WHERE revoked_at IS NULL",
+    )
+    .get() as { c: number; t: string };
+  return `${p.c}:${p.t}|${d.c}:${d.t}`;
+}
+
+/**
  * 撤销授权后的统一读取边界。
  *
  * 规则（修复 P1-5）：一个来源的授权被撤销后，所有读取入口行为一致——

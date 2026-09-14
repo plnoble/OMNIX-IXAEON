@@ -5,6 +5,7 @@ import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import type { AskResult } from '../storage/askStore.js';
 import { ContextSelector } from '../memory/contextSelector.js';
+import { getDisclosureEpoch } from '../access.js';
 import { type HermesRuntimeAdapter } from './adapter.js';
 import { CORE_TOOL_NAMES, type CoreToolBroker, type CoreToolName } from './broker.js';
 
@@ -92,6 +93,11 @@ export class AgentSession {
       .run('用户取消', new Date().toISOString(), runId);
   }
 
+  /** D02（审核 2026-09-14）：权限或披露变更时使长驻引擎上下文失效。 */
+  invalidateContext(contextRef?: string): void {
+    this.adapter.invalidateContext(contextRef);
+  }
+
   async run(input: {
     goal: string;
     projectId: string | null;
@@ -158,7 +164,7 @@ export class AgentSession {
             goal: dispatchedGoal,
             contextRef: input.projectId ?? 'personal',
             allowedTools: [...CORE_TOOL_NAMES],
-            permissionVersion: '1',
+            permissionVersion: getDisclosureEpoch(this.db),
             budget: { maxToolCalls: MAX_ROUNDS, timeoutMs: 120_000 },
             idempotencyKey: runId,
           },
