@@ -577,6 +577,17 @@ export function registerIpc(runtime: AppRuntime): void {
 
     // --- 审计 ---
     listAuditEvents: async (limit) => listAuditEvents(runtime.db, limit),
+
+    // --- Skill 候选（A09：真实入口版本批准与生效） ---
+    listSkillCandidates: async (projectId) => runtime.listSkillCandidates(projectId),
+    approveSkillCandidate: async (input) => {
+      runtime.approveSkillCandidate(input.id, input.version);
+      return { ok: true as const };
+    },
+    retireSkillCandidate: async (input) => {
+      runtime.retireSkillCandidate(input.id);
+      return { ok: true as const };
+    },
   };
 
   // 注册（统一错误序列化：渲染进程收到 "IXAxxxx 消息" 形式）

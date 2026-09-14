@@ -581,6 +581,27 @@ export interface IxaIpcApi {
   openLogsFolder(): Promise<{ ok: true }>;
   // 审计（设置页“最近操作”）
   listAuditEvents(limit: number): Promise<AuditEvent[]>;
+  // Skill 候选（A09：证据不可改写 + 真实入口版本批准）
+  listSkillCandidates(projectId?: string | null): Promise<
+    Array<{
+      id: string;
+      project_id: string | null;
+      title: string;
+      problem: string;
+      method: string;
+      status: string;
+      version: number;
+      eval_before: string | null;
+      eval_after: string | null;
+      benefit: string | null;
+      eval_evidence_json: string | null;
+      approved_version: number | null;
+      created_at: string;
+      updated_at: string;
+    }>
+  >;
+  approveSkillCandidate(input: { id: string; version?: number }): Promise<{ ok: true }>;
+  retireSkillCandidate(input: { id: string }): Promise<{ ok: true }>;
 }
 
 /** 更新状态（electron-updater 推送与手动查询共用形状）。 */

@@ -689,6 +689,16 @@ CREATE INDEX idx_sources_project ON sources(project_id);
 CREATE INDEX idx_sources_archived ON sources(archived_at);
 `,
   },
+  {
+    id: 21,
+    name: 'skill-candidates-immutable-evidence',
+    sql: `
+-- A09（审核 2026-09-13）：Skill 候选证据绑定不可由候选改写 + 具体版本批准。
+ALTER TABLE skill_candidates ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE skill_candidates ADD COLUMN eval_evidence_json TEXT;
+ALTER TABLE skill_candidates ADD COLUMN approved_version INTEGER;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

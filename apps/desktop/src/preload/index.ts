@@ -100,6 +100,9 @@ const api: IxaIpcApi = {
   restoreData: (input) => ipcRenderer.invoke('ixaeon:restoreData', input),
   openLogsFolder: () => ipcRenderer.invoke('ixaeon:openLogsFolder'),
   listAuditEvents: (limit) => ipcRenderer.invoke('ixaeon:listAuditEvents', limit),
+  listSkillCandidates: (projectId) => ipcRenderer.invoke('ixaeon:listSkillCandidates', projectId),
+  approveSkillCandidate: (input) => ipcRenderer.invoke('ixaeon:approveSkillCandidate', input),
+  retireSkillCandidate: (input) => ipcRenderer.invoke('ixaeon:retireSkillCandidate', input),
 };
 
 /** 更新能力（独立于 IxaIpcApi：仅生产构建存在，开发运行为 no-op）。 */

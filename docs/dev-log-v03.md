@@ -484,4 +484,42 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 
 **未完成（下批，按审核顺序）**：A09 Skill 证据绑定不可改写+真实入口版本批准；A03 设置页开关接线。
 
+## 2026-09-13（续十三）· 独立审核 A09 Skill 经验成长（证据绑定不可改写 + 真实入口版本批准）
+
+按 A09 要求完成：
+
+**1. 数据库迁移 21（不可改写客观证据 + 具体版本号）**：
+- 新增迁移 21 `skill-candidates-immutable-evidence`：
+  - `version INTEGER NOT NULL DEFAULT 1`
+  - `eval_evidence_json TEXT`（不可由候选改写的客观评测记录）
+  - `approved_version INTEGER`（用户批准的具体版本）
+
+**2. 核心领域逻辑硬化（`SkillCandidateStore`）**：
+- 新增 `updateMethod(id, method)`：候选方法支持传入具体改进定义，修改递增 `version`；
+- 新增 `evaluateWithEvidence(id, { method, evidence, benefit })`：
+  - 强制检验客观证据：基线（before）必须是失败案例（`exitCodeBefore !== 0`），改进后（after）必须成功通过（`exitCodeAfter === 0`），杜绝在原本成功的案例上伪造改进；
+  - 结构化记录 `eval_evidence_json`，并自增 `version`；
+- 增强 `approve(id, options?: { version?: number })`：
+  - 必须有结构化证据与有效前后对照（拦截 S01 反例与空对照）；
+  - 若指定版本，必须与当前 `version` 严格一致（拦截过时版本批准，抛出 `CONFLICT`）；
+  - 记录 `approved_version`。
+- `retire(id)`：支持撤销已批准的技能（状态变为 `retired`，从项目上下文中移除，不再注入）。
+
+**3. 桌面真实入口接线（Contracts / Preload / Main IPC）**：
+- `packages/contracts/src/ipc.ts`：声明 `listSkillCandidates`、`approveSkillCandidate`、`retireSkillCandidate`；
+- `apps/desktop/src/preload/index.ts`：通过 `contextBridge` 暴露 IPC 调用；
+- `apps/desktop/src/main/appRuntime.ts` 与 `apps/desktop/src/main/ipc.ts`：实现并注册三条真实 IPC 路由。
+
+**4. 自动化集成验证**：
+- 新增 `packages/core/test/integration/a09-skill-growth.test.ts`（4/4 通过）：
+  - 失败任务自动提案候选（版本 1，proposed）
+  - 方法编辑递增版本号
+  - S01 防御：空证据、伪造成功、无收益拒绝批准
+  - 客观评测证据绑定、具体版本批准、项目上下文检出与撤回生效
+- 全量集成：**43 passed | 9 skipped（共 255 passed）**
+- 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
+- 0911 审计 **20/20**；ESLint 0 / Prettier 0 / tsc 0。
+
+**未完成（下批，按审核顺序）**：A03 设置页 enableAskCapture/disableAskCapture UI/IPC 接线。
+
 ## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）

@@ -1042,3 +1042,18 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 - 0911 审计 **20/20**
 - 全量集成：**251 通过 + 12 跳过（51 测试文件）**
 - ESLint 0 / Prettier 0 / tsc 0。
+
+## 48. 独立审核 2026-09-13 第五批修复：A09 Skill 经验成长（证据绑定不可改写 + 真实入口版本批准）
+
+| 维度 | 修复 | 验证 |
+|---|---|---|
+| 不可改写客观证据 | 迁移 21 增加 `version`、`eval_evidence_json`、`approved_version`；`evaluateWithEvidence` 强制检验前置失败+后置通过，存入不可由候选改写的真实执行事实 | `a09-skill-growth.test.ts` 4/4 |
+| 方法生成与编辑 | 新增 `updateMethod(id, method)` 支持具体改进方法定义，修改自动重置为 proposed 并递增版本 | `a09-skill-growth.test.ts` 4/4 |
+| 真实入口版本批准 | Contracts / Preload / Main IPC 接通 `listSkillCandidates` / `approveSkillCandidate` / `retireSkillCandidate`；版本一致性校验（过时版本批准拒收，抛 `CONFLICT`）；批准后检出，撤回后移除 | `a09-skill-growth.test.ts` 4/4 |
+
+证据：
+- `packages/core/test/integration/a09-skill-growth.test.ts` 4/4
+- 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
+- 0911 审计 **20/20**
+- 全量集成：**255 通过 + 12 跳过（52 测试文件）**
+- ESLint 0 / Prettier 0 / tsc 0。

@@ -18,6 +18,7 @@ import {
   resolveCodexLocator,
   HermesRuntimeAdapter,
   AgentSession,
+  SkillCandidateStore,
   CoreToolBroker,
   OpenAIResponsesProvider,
   listUpstreamModels,
@@ -1208,6 +1209,22 @@ export class AppRuntime {
       )
       .get() as { t: string } | undefined;
     return row?.t ?? null;
+  }
+
+  // Skill 候选（A09：真实入口版本批准与生效）
+  listSkillCandidates(projectId?: string | null) {
+    const skills = new SkillCandidateStore(this.db);
+    return skills.list(projectId);
+  }
+
+  approveSkillCandidate(id: string, version?: number) {
+    const skills = new SkillCandidateStore(this.db);
+    return skills.approve(id, version !== undefined ? { version } : undefined);
+  }
+
+  retireSkillCandidate(id: string) {
+    const skills = new SkillCandidateStore(this.db);
+    return skills.retire(id);
   }
 }
 

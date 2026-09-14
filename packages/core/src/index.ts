@@ -150,7 +150,12 @@ export {
 export { JsonRpcStdio } from './runtime/jsonrpcStdio.js';
 export { CoreToolBroker, CORE_TOOL_NAMES, type CoreToolName } from './runtime/broker.js';
 export { AgentSession, type AgentSessionResult, type AgentStep } from './runtime/session.js';
-export { SkillCandidateStore, type SkillCandidate, type SkillStatus } from './runtime/skills.js';
+export {
+  SkillCandidateStore,
+  type SkillCandidate,
+  type SkillStatus,
+  type SkillEvalEvidence,
+} from './runtime/skills.js';
 export {
   isEphemeralStatement,
   demoteEphemeralType,
