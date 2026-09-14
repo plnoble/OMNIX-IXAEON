@@ -429,4 +429,32 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 
 **未完成（下批，按审核顺序）**：A07 生产/评测共用选材+评分器反例；A08 主动研读；A09 Skill 证据绑定+真实入口；A03 设置页开关接线。
 
+## 2026-09-13（续十一）· 独立审核 A07 生产/评测共用选材服务 + 评分器反例扩充
+
+按 A07 要求完成：
+
+**1. 生产与评测共用上下文选材服务 `ContextSelector`**：
+- 新增 `packages/core/src/memory/contextSelector.ts`，抽离统一的候选加载与语义关联度排序逻辑。
+- 遵循受众过滤（model 视角下严格执行 `modelMayReadItem` / `modelMayReadSegment`）、用户纠正优先（origin === 'user' 加权）、问句意图加权（目标/约束/冲突识别）、一次性事件过滤（ephemeral 语句隔离）与预算截断。
+- **生产接线**：`session.ts` 在向 Hermes 派发目标前调用 `ContextSelector.selectForQuestion`，精选记忆注入派发提示（使生产环境的自动记忆选材与评测完全同源）。
+- **评测接线**：`evalScenarios.ts`（确定性评测）直接调用 `ContextSelector`。
+- 新增测试：`packages/core/test/integration/a07-context-selector.test.ts`（4/4 通过）。
+
+**2. 评分器硬化与反例扩充**：
+- `memory-eval-rescore.test.ts` 扩充 5 类反例：
+  - `Q01` 空回答 → 必答全缺失（已转绿）
+  - `Q02` 报错/异常回答（含 IxaError / API error / ECONNREFUSED 等）→ 标记 `rejectReason: 'execution_error'`，直接未通过
+  - `Q03` 照抄问句（回答与问句完全一致无额外答案实体）→ 标记 `rejectReason: 'verbatim_echo'`，记缺失
+  - `Q04` 否认事实（回答明确说「没有/未提及」但期望召回该事实）→ 标记 `rejectReason: 'denied_fact'`，不因回声去词误判通过
+  - `Q05` 正常正确召回 → 正常通过
+
+验证：
+- `packages/core/test/integration/a07-context-selector.test.ts` 4/4 通过
+- `packages/core/test/integration/memory-eval-rescore.test.ts` 6/6 通过
+- 全量集成：**41 passed | 9 skipped（共 247 passed）**
+- 0913 审计 **15/15**（Q01 保持绿，fixed 另存为 `results-restructure-20260913-fixed.json`，不覆盖 final-budget-checked）
+- 0911 审计 **20/20**；ESLint 0 / Prettier 0 / tsc 0。
+
+**未完成（下批，按审核顺序）**：A08 主动研读判断；A09 Skill 证据绑定不可改写+真实入口版本批准；A03 设置页开关接线。
+
 ## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）

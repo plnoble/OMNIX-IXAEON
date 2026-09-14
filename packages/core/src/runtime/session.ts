@@ -4,6 +4,7 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import type { AskResult } from '../storage/askStore.js';
+import { ContextSelector } from '../memory/contextSelector.js';
 import { type HermesRuntimeAdapter } from './adapter.js';
 import { CORE_TOOL_NAMES, type CoreToolBroker, type CoreToolName } from './broker.js';
 
@@ -117,10 +118,20 @@ export class AgentSession {
       );
       this.wireEventLedger(runId);
       try {
-        // A06：contextRef 转化——派发前先取 Core 记忆的项目上下文
-        //（目的/当前决定/获准背景），随目标一起交给引擎，而不是传了不用。
+        // A07（审核 2026-09-13）：生产与评测共用 ContextSelector 服务——
+        // 针对问句在模型获准边界内精选最相关记忆注入引擎，取代粗粒度字段拼装。
         let contextBlock = '';
-        if (input.projectId) {
+        try {
+          const selector = new ContextSelector(this.db);
+          const selection = selector.selectForQuestion(goal, input.projectId, {
+            audience: 'model',
+            maxItems: 8,
+          });
+          contextBlock = selection.promptBlock;
+        } catch {
+          /* 选材降级，不编造 */
+        }
+        if (input.projectId && !contextBlock) {
           try {
             const ctx = await this.broker.invoke(
               'get_project_context',

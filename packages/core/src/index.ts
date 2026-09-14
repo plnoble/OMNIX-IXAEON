@@ -151,6 +151,11 @@ export {
 } from './memory/ephemeral.js';
 export { sanitizePublicQuery, type SanitizedQuery } from './memory/querySanitize.js';
 export {
+  ContextSelector,
+  type SelectedMemoryItem,
+  type ContextSelectionResult,
+} from './memory/contextSelector.js';
+export {
   MEMORY_EVAL_SCENARIOS,
   runDeterministicMemoryEval,
   type MemoryEvalScenario,

@@ -1013,3 +1013,18 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 - 全量集成：默认 238 通过+12 跳过；真机模式 240 通过+10 跳过。0913 审计 15/15、0911 审计 20/20；lint/prettier/tsc 全 0。
 
 诚实边界：真机回归已由 `a06-real-hermes-direct.test.ts` 直接在真 Hermes 上跑通（长驻会话/会话历史/账本持续化真实生效）；桌面 UI 层的端到端录屏/手工验收留给用户日常使用体验。未完成项继续按 A07–A09 推进。
+
+## 46. 独立审核 2026-09-13 第三批修复：A07 生产/评测共用选材 + 评分器反例扩充
+
+| 维度 | 修复 | 验证 |
+|---|---|---|
+| 共用选材服务 | 新增 `ContextSelector`（`packages/core/src/memory/contextSelector.ts`），受众/状态/关联系数/纠正优先/一次性过滤统一；生产 `session.ts` 派发前调用注入 prompt；评测 `evalScenarios.ts` 直接调用 | `a07-context-selector.test.ts` 4/4 |
+| 评分器反例扩充 | `rescore` 扩充 5 类反例（Q01 空回答必答缺失、Q02 异常报错直接未通过、Q03 照抄问句记缺失、Q04 否认事实不因回声去词误判、Q05 正常召回通过） | `memory-eval-rescore.test.ts` 6/6 |
+
+证据：
+- `packages/core/test/integration/a07-context-selector.test.ts` 4/4
+- `packages/core/test/integration/memory-eval-rescore.test.ts` 6/6
+- 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`，不覆盖 final-budget-checked）
+- 0911 审计 **20/20**
+- 全量集成：**247 通过 + 12 跳过（50 测试文件）**
+- ESLint 0 / Prettier 0 / tsc 0。

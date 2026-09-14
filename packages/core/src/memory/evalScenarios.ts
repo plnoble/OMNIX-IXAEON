@@ -2,7 +2,7 @@ import type { CoreDatabase } from '../db/database.js';
 import { ProjectService } from '../projects.js';
 import { ItemService } from '../storage/itemStore.js';
 import { modelMayReadItem } from '../access.js';
-import { selectRelevantItems } from '../storage/askStore.js';
+import { ContextSelector } from './contextSelector.js';
 
 /**
  * 计划 §9.1 记忆质量评测的起始门槛（B0 固定，B2 扩展）。
@@ -708,9 +708,13 @@ export function runDeterministicMemoryEval(db: CoreDatabase): MemoryEvalReport {
       scenario.perspective !== null
         ? (projectIds[scenario.perspective as 'A' | 'B' | 'C'] ?? null)
         : null;
-    const visible = loadModelVisibleItems(db, projectId);
-    const selected = selectRelevantItems(visible, scenario.question, projectId);
-    const selectedStatements = new Set(selected.map((s) => s.statement));
+    // A07：评测直接调用与生产同源的 ContextSelector 服务
+    const selector = new ContextSelector(db);
+    const selection = selector.selectForQuestion(scenario.question, projectId, {
+      audience: 'model',
+      maxItems: 24,
+    });
+    const selectedStatements = new Set(selection.items.map((s) => s.statement));
     const missing = scenario.expectRecallKeys
       .map((k) => statementByKey.get(k) ?? k)
       .filter((stmt) => !selectedStatements.has(stmt));

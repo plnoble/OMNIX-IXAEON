@@ -60,16 +60,71 @@ function evidenceKeys(
   return out;
 }
 
-function rescore(
-  scenario: MemoryEvalScenario,
-  answer: string,
-): { missingRecall: string[]; intruded: string[] } {
-  // Q01（审核 2026-09-13）：空回答什么都没召回——必答事实全部记缺失，
-  // 不得因为问句回声规则把唯一评分词删掉后误判为「通过」。
-  // （不可评分 ≠ 通过；无回答就是无证据。）
-  if (answer.trim().length === 0) {
+interface RescoreResult {
+  missingRecall: string[];
+  intruded: string[];
+  unscoreable?: boolean;
+  rejectReason?: string;
+}
+
+const ERROR_PATTERNS = [
+  /IxaError/i,
+  /API error/i,
+  /ECONNREFUSED/i,
+  /SERVER_UNAVAILABLE/i,
+  /模型未配置/i,
+  /网络超时/i,
+];
+
+const NEGATION_PATTERNS = [
+  /没有.*约束/i,
+  /没有任何.*要求/i,
+  /无要求/i,
+  /没有提到/i,
+  /未提及/i,
+  /没有相关信息/i,
+  /不存在.*约束/i,
+];
+
+function rescore(scenario: MemoryEvalScenario, answer: string): RescoreResult {
+  const trimmed = answer.trim();
+
+  // Q01：空回答 → 必答全缺失
+  if (trimmed.length === 0) {
     return { missingRecall: [...scenario.expectRecallKeys], intruded: [] };
   }
+
+  // A07 反例 1：报错/异常回答 → 直接判定未通过，不进入关键词匹配
+  if (ERROR_PATTERNS.some((p) => p.test(trimmed))) {
+    return {
+      missingRecall: [...scenario.expectRecallKeys],
+      intruded: [],
+      rejectReason: 'execution_error',
+    };
+  }
+
+  // A07 反例 2：照抄问句（回答与问句完全一致，无额外答案内容）
+  if (trimmed === scenario.question.trim()) {
+    return {
+      missingRecall: [...scenario.expectRecallKeys],
+      intruded: [],
+      rejectReason: 'verbatim_echo',
+    };
+  }
+
+  // A07 反例 3：否认事实（回答明确说「没有/未提及」，但期望召回该事实）
+  const deniesFact =
+    scenario.expectRecallKeys.length > 0 &&
+    NEGATION_PATTERNS.some((p) => p.test(trimmed)) &&
+    trimmed.length < 40;
+  if (deniesFact) {
+    return {
+      missingRecall: [...scenario.expectRecallKeys],
+      intruded: [],
+      rejectReason: 'denied_fact',
+    };
+  }
+
   const missingRecall = evidenceKeys(scenario, scenario.expectRecallKeys)
     .filter(({ kws }) => !kws.some((kw) => answer.includes(kw)))
     .map(({ key }) => key);
@@ -160,5 +215,46 @@ describe('B2 三轮评测离线重评分（问句回声规则；不发模型请�
       const correctedCount = Number(String(round.overallCorrected).split('/')[0]);
       expect(correctedCount).toBeGreaterThanOrEqual(rawPassedCount);
     }
+  });
+
+  describe('A07 评分器反例扩充（不可评分/异常/否认/照抄）', () => {
+    const mockScenario: MemoryEvalScenario = {
+      id: 'r6',
+      category: 'relevant_recall',
+      question: '编码任务的约束是什么？',
+      perspective: 'A',
+      expectRecallKeys: ['a2'],
+      expectSilentKeys: ['p3'],
+    };
+
+    it('Q01 空回答：必答全缺失', () => {
+      const res = rescore(mockScenario, '');
+      expect(res.missingRecall).toEqual(['a2']);
+      expect(res.intruded).toEqual([]);
+    });
+
+    it('Q02 报错/异常回答：直接标记未通过', () => {
+      const res = rescore(mockScenario, 'IxaError: MODEL_NOT_CONFIGURED 模型未配置');
+      expect(res.missingRecall).toEqual(['a2']);
+      expect(res.rejectReason).toBe('execution_error');
+    });
+
+    it('Q03 照抄问句：记为缺失', () => {
+      const res = rescore(mockScenario, '编码任务的约束是什么？');
+      expect(res.missingRecall).toEqual(['a2']);
+      expect(res.rejectReason).toBe('verbatim_echo');
+    });
+
+    it('Q04 否认事实：回答「没有约束」不因去词误判通过', () => {
+      const res = rescore(mockScenario, '项目中没有任何约束和要求。');
+      expect(res.missingRecall).toEqual(['a2']);
+      expect(res.rejectReason).toBe('denied_fact');
+    });
+
+    it('正常正确召回：命中关键词正常通过', () => {
+      const res = rescore(mockScenario, '当前项目中编码任务需要经过用户显式批准。');
+      expect(res.missingRecall).toEqual([]);
+      expect(res.intruded).toEqual([]);
+    });
   });
 });
