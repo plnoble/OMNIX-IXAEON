@@ -2,11 +2,12 @@ import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -362,6 +363,7 @@ export class CodingOrchestrator {
     private readonly runCheck: (
       argv: string[],
       cwd: string,
+      signal?: AbortSignal,
     ) => Promise<IndependentCheck> = defaultCheck,
   ) {
     this.store = new CodingTaskStore(db);
@@ -484,7 +486,32 @@ export class CodingOrchestrator {
         executorReportJson: JSON.stringify(merged),
         testsModified,
       });
-      return this.verify(taskId, generation);
+      // A05：验证前后都要核范围——执行阶段后的工作区指纹作为验证前基线，
+      // 验证程序自己引入的改动同样不得越出批准范围。
+      const preVerify = hashWorkspace(workspace);
+      const verified = await this.verify(taskId, generation);
+      if (verified.status === 'pending_accept') {
+        const postVerify = hashWorkspace(workspace);
+        const verifyChanged = diffWorkspace(preVerify, postVerify).filter(
+          (p) => p !== EXECUTOR_CHANNEL_FILE,
+        );
+        if (verifyChanged.length > 0) {
+          try {
+            this.store.assertChangedPathsInScope(this.store.get(taskId), verifyChanged);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const failed = this.store.setStatus(taskId, 'failed', {
+              verifyStatus: 'failed',
+              verifyExitCode: verified.verify_exit_code,
+              verifyOutput: verified.verify_output,
+              error: `验证程序改动越出批准范围：${msg}`,
+            });
+            this.recordWorkRun(failed, 'failed');
+            return failed;
+          }
+        }
+      }
+      return verified;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const status = this.store.get(taskId).status === 'cancelled' ? 'cancelled' : 'failed';
@@ -520,7 +547,8 @@ export class CodingOrchestrator {
         });
       }
       this.store.assertCommandAllowed(task, cmd);
-      const result = await this.runCheck(cmd, task.workspace_path!);
+      // A04：取消信号接入验证进程（用户取消 → 杀验证进程树，不留孤儿）
+      const result = await this.runCheck(cmd, task.workspace_path!, this.currentAbort?.signal);
       if (this.store.get(taskId).generation !== gen) {
         return this.store.setStatus(taskId, 'cancelled', {
           error: '取消后的晚到验证不覆盖取消',
@@ -634,7 +662,11 @@ export class CodingOrchestrator {
   }
 }
 
-async function defaultCheck(argv: string[], cwd: string): Promise<IndependentCheck> {
+async function defaultCheck(
+  argv: string[],
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<IndependentCheck> {
   if (isPlaceholderVerifyCommand(argv)) {
     return {
       argv,
@@ -645,19 +677,55 @@ async function defaultCheck(argv: string[], cwd: string): Promise<IndependentChe
   }
   try {
     const exe = argv[0]!;
-    const rest = argv.slice(1);
-    const restricted =
-      (exe === process.execPath || /node(\.exe)?$/i.test(exe)) && !rest.includes('--permission');
-    const finalArgv = restricted
-      ? ['--permission', `--allow-fs-read=${cwd}`, `--allow-fs-write=${cwd}`, ...rest]
-      : rest;
-    const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, new AbortController().signal, {});
-    return {
-      argv,
-      exitCode: raw.exitCode,
-      output: `${raw.stdout}\n${raw.stderr}`.trim(),
-      ran: true,
-    };
+    // A04（审核 2026-09-13）：验证命令必须经过统一沙箱——
+    // 1. 只支持 Node（进程内 node:test 已实测）；其他可执行程序（npm、
+    //    python、任意 exe）尚未接入统一沙箱，明确不裸跑（ran=false 如实说明），
+    //    不靠教用户换命令绕开保护。
+    const isNode = exe === process.execPath || /node(\.exe)?$/i.test(exe);
+    if (!isNode) {
+      return {
+        argv,
+        exitCode: null,
+        output:
+          `验证命令的可执行程序不在支持范围（${exe}）。` +
+          '统一沙箱目前只支持 node（进程内测试）；其他程序不裸跑，不算验证。',
+        ran: false,
+      };
+    }
+    // 2. 权限参数统一由产品注入：剥离命令自带的 --permission / --allow-fs-*，
+    //    强制工作区读写边界（自带的更宽参数不生效——验证器不能自己扩权）。
+    const rest: string[] = [];
+    for (let i = 1; i < argv.length; i++) {
+      const a = argv[i]!;
+      if (a === '--permission') continue;
+      if (a.startsWith('--allow-fs-read=') || a.startsWith('--allow-fs-write=')) continue;
+      if (a === '--allow-fs-read' || a === '--allow-fs-write') {
+        i += 1; // 跳过其值参
+        continue;
+      }
+      rest.push(a);
+    }
+    const finalArgv = [
+      '--permission',
+      `--allow-fs-read=${cwd}`,
+      `--allow-fs-write=${cwd}`,
+      ...rest,
+    ];
+    // 3. 取消信号接入正在运行的验证程序（用户取消 → 杀进程树）。
+    const abort = new AbortController();
+    const onOuterAbort = () => abort.abort();
+    signal?.addEventListener('abort', onOuterAbort, { once: true });
+    try {
+      const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {});
+      return {
+        argv,
+        exitCode: raw.exitCode,
+        output: `${raw.stdout}\n${raw.stderr}`.trim(),
+        ran: true,
+      };
+    } finally {
+      signal?.removeEventListener('abort', onOuterAbort);
+    }
   } catch (err) {
     return {
       argv,
@@ -678,7 +746,13 @@ function hashWorkspace(root: string): Map<string, string> {
     if (!existsSync(dir)) return;
     for (const name of readdirSync(dir)) {
       const abs = join(dir, name);
-      const st = statSync(abs);
+      const st = lstatSync(abs);
+      if (st.isSymbolicLink()) {
+        // A05：符号链接按「链接存在性 + 指向」记指纹（增删改都能被发现）
+        const rel = relative(root, abs).replaceAll('\\', '/');
+        map.set(rel, `link:${readlinkSync(abs)}`);
+        continue;
+      }
       if (st.isDirectory()) walk(abs);
       else {
         const rel = relative(root, abs).replaceAll('\\', '/');
@@ -690,10 +764,18 @@ function hashWorkspace(root: string): Map<string, string> {
   return map;
 }
 
+/**
+ * A05（审核 2026-09-13）：三方对比——新增、修改、**删除**都要算改动。
+ * 旧实现只遍历 after 表，删除的文件（在 before 不在 after）根本不会出现，
+ * 执行器删掉批准范围外的文件也能蒙混过关。这里补齐。
+ */
 function diffWorkspace(before: Map<string, string>, after: Map<string, string>): string[] {
   const changed: string[] = [];
   for (const [path, hash] of after) {
-    if (before.get(path) !== hash) changed.push(path);
+    if (before.get(path) !== hash) changed.push(path); // 新增或内容变化
+  }
+  for (const path of before.keys()) {
+    if (!after.has(path)) changed.push(path); // 被删除
   }
   return changed;
 }

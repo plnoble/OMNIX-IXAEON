@@ -57,7 +57,8 @@ async function httpJson(
   try {
     res = await fetchFn(url, { ...init, signal: controller.signal });
   } catch (err) {
-    const reason = err instanceof Error && err.name === 'AbortError' ? `超时（${timer}ms）` : String(err);
+    const reason =
+      err instanceof Error && err.name === 'AbortError' ? `超时（${timer}ms）` : String(err);
     throw new IxaError(
       ErrorCodes.SERVER_UNAVAILABLE,
       `搜索服务不可达（${reason}）。查询未发出或未完成，不伪造结果。`,
@@ -193,5 +194,8 @@ export function createWebSearchExecutor(
       search: (query, limit = 5) => tavilySearch(apiKey, query, limit, deps),
     };
   }
-  throw new IxaError(ErrorCodes.VALIDATION_FAILED, `未知搜索 provider：${provider satisfies never}`);
+  throw new IxaError(
+    ErrorCodes.VALIDATION_FAILED,
+    `未知搜索 provider：${provider satisfies never}`,
+  );
 }

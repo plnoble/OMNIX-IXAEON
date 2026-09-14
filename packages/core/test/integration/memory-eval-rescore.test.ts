@@ -64,6 +64,12 @@ function rescore(
   scenario: MemoryEvalScenario,
   answer: string,
 ): { missingRecall: string[]; intruded: string[] } {
+  // Q01（审核 2026-09-13）：空回答什么都没召回——必答事实全部记缺失，
+  // 不得因为问句回声规则把唯一评分词删掉后误判为「通过」。
+  // （不可评分 ≠ 通过；无回答就是无证据。）
+  if (answer.trim().length === 0) {
+    return { missingRecall: [...scenario.expectRecallKeys], intruded: [] };
+  }
   const missingRecall = evidenceKeys(scenario, scenario.expectRecallKeys)
     .filter(({ kws }) => !kws.some((kw) => answer.includes(kw)))
     .map(({ key }) => key);

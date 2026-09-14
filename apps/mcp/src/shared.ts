@@ -1,8 +1,8 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { type McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { ErrorCodes, IxaError, MCP_SERVER_INSTRUCTIONS } from '@ixaeon/contracts';
+import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 
 /**
  * 两个入口共享的部分：schema、桌面端 HTTP 转发、工具注册。

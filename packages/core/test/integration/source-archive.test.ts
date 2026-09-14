@@ -9,7 +9,6 @@ import {
   Vault,
   PermissionService,
   SourceStore,
-  ProjectService,
   ImportService,
   ItemService,
   Extractor,

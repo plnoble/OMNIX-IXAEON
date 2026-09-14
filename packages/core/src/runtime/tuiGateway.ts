@@ -1,7 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { delimiter } from 'node:path';
-import { PassThrough } from 'node:stream';
+import { type PassThrough } from 'node:stream';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { JsonRpcStdio } from './jsonrpcStdio.js';
 import type { RuntimeEvent, RuntimeRunInput } from './adapter.js';
@@ -44,6 +43,10 @@ export class TuiGatewaySession {
   /** session.info 上报的真实模型/提供商（用户 2026-09-13 实测轨迹里带出）。 */
   private modelName: string | null = null;
   private providerName: string | null = null;
+  /** A01：已执行的 tool 调用幂等集（callId 去重，重复通知不重复产生副作用）。 */
+  private executedCalls = new Set<string>();
+  /** A01：实际产生 Core 副作用的工具调用次数（受 budget.maxToolCalls 约束）。 */
+  private toolSideEffects = 0;
 
   constructor(
     private readonly transport: TuiTransport,
@@ -71,6 +74,23 @@ export class TuiGatewaySession {
     return {
       rpc,
       kill() {
+        // A01：取消要停止子进程树（Hermes 可能再起子工具进程），
+        // 不能只关 stdio 留孤儿进程。Windows 用 taskkill /T；失败回退 kill。
+        if (child.pid) {
+          if (process.platform === 'win32') {
+            spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+              windowsHide: true,
+              stdio: 'ignore',
+              shell: false,
+            });
+          } else {
+            try {
+              process.kill(-child.pid, 'SIGTERM');
+            } catch {
+              child.kill('SIGTERM');
+            }
+          }
+        }
         child.kill();
         rpc.close();
       },
@@ -236,18 +256,37 @@ export class TuiGatewaySession {
         const callId = String(p.tool_id ?? p.call_id ?? randomUUID());
         const args = (p.args ?? {}) as Record<string, unknown>;
         this.push('tool_request', { name, callId, args });
-        // 只把 Core 白名单工具接到本地 broker；其余由 Hermes 自行执行。
-        if (this.broker && CORE_TOOL_SET.has(name)) {
-          try {
-            const result = await this.broker.invoke(name as CoreToolName, args, {
-              audience: 'model',
-              runId: this.input.runId,
-            });
-            this.push('tool_result', { name, callId, ok: true, result });
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            this.push('tool_result', { name, callId, ok: false, error: message });
+        // A01：本地桥接执行的四道边界，全部满足才产生 Core 副作用——
+        // 1. 会话仍在运行（终态/取消后的晚到通知不写入）；
+        // 2. 工具名精确命中本轮 allowedTools 白名单（协议字段精确匹配，
+        //    不做子串/文本匹配——description/command 文本不提供批准权）；
+        // 3. callId 幂等（同一调用重复通知不重复执行）；
+        // 4. 次数预算（实际副作用次数 ≤ budget.maxToolCalls）。
+        let skipReason: string | null = null;
+        if (this.status !== 'running') skipReason = 'session_not_running';
+        else if (!this.input.allowedTools.includes(name)) skipReason = 'tool_not_in_allowed_tools';
+        else if (this.executedCalls.has(callId)) skipReason = 'duplicate_call';
+        else if (this.toolSideEffects >= this.input.budget.maxToolCalls)
+          skipReason = 'over_tool_call_budget';
+        if (this.broker && skipReason === null) {
+          // 只把 Core 白名单工具接到本地 broker；其余由 Hermes 自行执行。
+          if (CORE_TOOL_SET.has(name)) {
+            this.executedCalls.add(callId);
+            this.toolSideEffects += 1;
+            try {
+              const result = await this.broker.invoke(name as CoreToolName, args, {
+                audience: 'model',
+                runId: this.input.runId,
+              });
+              this.push('tool_result', { name, callId, ok: true, result });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              this.push('tool_result', { name, callId, ok: false, error: message });
+            }
           }
+        } else if (skipReason !== null) {
+          // 如实记录拒绝原因（不吞掉事件，方便审计回看）。
+          this.push('tool_result', { name, callId, ok: false, skipped: true, reason: skipReason });
         }
         break;
       }
@@ -256,15 +295,18 @@ export class TuiGatewaySession {
         break;
       case 'approval.request': {
         // 危险命令/执行类审批（负载含 request_id/command/description/choices）。
-        // 策略：负载文本命中会话 allowedTools 白名单的自动放行一次（choice=once），
-        // 否则明确拒绝——不放行未授权操作，也不让回合挂死等超时。
+        // A01：审批只认可信协议字段 tool_name 与本轮 allowedTools 的**精确匹配**。
+        // 命令文本/描述里出现白名单工具名（如 "echo search_memory"）不提供批准权。
+        // 未命中白名单 → 明确拒绝（choice=deny），不放行未授权操作，
+        // 也不让回合挂死等超时。
         this.push('needs_approval', p);
         const requestId = String(p.request_id ?? '');
         if (!requestId || !this.sessionId) break;
-        const hay = [p.description, p.command, p.tool_name, p.name, p.tool]
-          .map((v) => (typeof v === 'string' ? v : ''))
-          .join(' ');
-        const allowed = this.input.allowedTools.some((t) => t.length > 0 && hay.includes(t));
+        const toolName = typeof p.tool_name === 'string' ? p.tool_name : '';
+        const allowed =
+          toolName.length > 0 &&
+          this.input.allowedTools.includes(toolName) &&
+          this.status === 'running';
         const choice = allowed ? 'once' : 'deny';
         try {
           await this.transport.rpc.request('approval.respond', {

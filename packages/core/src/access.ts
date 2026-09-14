@@ -158,3 +158,34 @@ export function assertCodingClientMayReadItem(db: CoreDatabase, itemId: string):
     );
   }
 }
+
+/**
+ * A02（审核 2026-09-13）：模型外发的原文（片段）受众边界。
+ *
+ * 规则（与 modelMayReadItem 同一套范围语义，作用在原文上）：
+ * 1. 来源未绑定项目（个人/未整理原文）→ 一律不给模型。不能依靠「是否已
+ *    提取成个人卡片」决定隐私——尚未提取的原文同样必须挡住。
+ * 2. 来源绑定了项目 → 项目上下文默认可发；但若该片段支撑的条目里有模型
+ *    不可读的（如从项目来源提取出的 personal 条目），原文同样不放行——
+ *    一个片段关联多种范围时按最严的算。
+ * （来源授权撤销的过滤已在 SearchService.filterAuthorized 统一完成。）
+ */
+export function modelMayReadSegment(db: CoreDatabase, segmentId: string): boolean {
+  const seg = db
+    .prepare(
+      'SELECT s.project_id AS project_id FROM segments sg JOIN sources s ON s.id = sg.source_id WHERE sg.id = ?',
+    )
+    .get(segmentId) as { project_id: string | null } | undefined;
+  if (!seg) return false;
+  if (seg.project_id === null) return false;
+  const linked = db
+    .prepare(
+      `SELECT DISTINCT i.id AS item_id
+       FROM items i
+       LEFT JOIN item_evidence e ON e.item_id = i.id
+       WHERE e.segment_id = ? OR i.extracted_from_source_id =
+         (SELECT source_id FROM segments WHERE id = ?)`,
+    )
+    .all(segmentId, segmentId) as Array<{ item_id: string }>;
+  return linked.every((row) => modelMayReadItem(db, row.item_id));
+}

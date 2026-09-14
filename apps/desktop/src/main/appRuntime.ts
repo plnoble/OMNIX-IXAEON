@@ -4,7 +4,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   ArchiveService,
-  AskService,
   Extractor,
   FakeProvider,
   ItemService,
@@ -50,6 +49,7 @@ import {
   LOCAL_HTTP_PORT,
   type AppConfig,
   type ExportResult,
+  type Permission,
   type Project,
   type RestorePreview,
   type SetupInput,
@@ -595,7 +595,7 @@ export class AppRuntime {
     if (provider === 'none') {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请先选择搜索服务并保存 Key');
     }
-    let apiKey = input.apiKey?.trim() ?? '';
+    const apiKey = input.apiKey?.trim() ?? '';
     if (!apiKey) {
       const decrypted = this.getWebSearchExecutor();
       if (!decrypted) {
@@ -637,6 +637,62 @@ export class AppRuntime {
   }
 
   /** 问答：先探 Hermes，未接通则走 Core 有界工具循环。不是单轮检索冒充 Agent。 */
+  /**
+   * A03（审核 2026-09-13）：问答存档的授权状态机。
+   * - 从无 ask.ixaeon.local 授权行 → 首次建档（用户 2026-09-13「所有问答
+   *   都进 Core」的常设指示，建档本身记审计）。
+   * - 存在 revoked 行且无 active 行 → 用户已撤销：返回 null，普通提问
+   *   不隐式重建授权、不存档（重启/再问都保持停用）。
+   * - 存在 active 行（含撤销后经显式入口恢复的新行）→ 正常存档。
+   */
+  private ensureAskCapturePermission(): Permission | null {
+    const rows = this.db
+      .prepare("SELECT * FROM permissions WHERE locator='ask.ixaeon.local' ORDER BY granted_at")
+      .all() as Permission[];
+    if (rows.length === 0) {
+      const created = this.permissions.grantDomain('ask.ixaeon.local');
+      recordAudit(this.db, 'ask.capture_first_grant', { permissionId: created.id });
+      return created;
+    }
+    const active = rows.find((p) => p.status === 'active');
+    return active ?? null;
+  }
+
+  /** 问答存档当前状态（设置页显示）：enabled / revoked。 */
+  askCaptureStatus(): 'enabled' | 'revoked' {
+    const rows = this.db
+      .prepare(
+        "SELECT status FROM permissions WHERE locator='ask.ixaeon.local' ORDER BY granted_at",
+      )
+      .all() as Array<{ status: string }>;
+    if (rows.length === 0) return 'enabled';
+    return rows.some((r) => r.status === 'active') ? 'enabled' : 'revoked';
+  }
+
+  /** 显式恢复入口（设置页）：撤销后重新开启问答存档；记录审计。 */
+  enableAskCapture(): 'enabled' {
+    const current = this.ensureAskCapturePermission();
+    if (!current) {
+      const created = this.permissions.grantDomain('ask.ixaeon.local');
+      recordAudit(this.db, 'ask.capture_enabled', { permissionId: created.id });
+    } else {
+      recordAudit(this.db, 'ask.capture_enabled', { permissionId: current.id });
+    }
+    return 'enabled';
+  }
+
+  /** 显式停用入口（设置页）：撤销问答存档授权；已存记录保留但不新增。 */
+  disableAskCapture(): 'revoked' {
+    const rows = this.db
+      .prepare("SELECT id FROM permissions WHERE locator='ask.ixaeon.local' AND status='active'")
+      .all() as Array<{ id: string }>;
+    for (const row of rows) {
+      this.permissions.revoke(row.id);
+      recordAudit(this.db, 'ask.capture_disabled', { permissionId: row.id });
+    }
+    return 'revoked';
+  }
+
   async ask(projectId: string | null, question: string): Promise<AskResult> {
     const provider = this.getProvider();
     if (!provider) {
@@ -661,27 +717,34 @@ export class AppRuntime {
     try {
       const result = await session.run({ goal: question, projectId, runId });
       // 用户指示（2026-09-13）：所有问答内容都进 Core。
+      // A03（审核 2026-09-13）：问答存档挂独立的启用/撤销状态——
+      // 用户在授权列表撤销过 ask.ixaeon.local 后，普通提问**不再隐式重建授权**，
+      // 重启/再次提问都保持停用；恢复需要走显式入口（设置页 enableAskCapture）。
       // 有实际回答时把问答对存为 ask_session 来源并入队提取（走既有
       // 「提案→用户确认」管线）；存档/提取失败不吞掉回答，如实附注。
       if (result.answer.trim().length > 0 && result.engine !== 'missing') {
-        try {
-          const askPerm = this.permissions.grantDomain('ask.ixaeon.local');
-          const captured = this.imports.captureAsk({
-            question,
-            answer: result.answer,
-            runId,
-            engine: result.engine,
-            model: result.modelName,
-            projectId,
-            permissionId: askPerm.id,
-          });
-          this.enqueueExtract(captured.source.id, false);
-          result.notice = `${result.notice}；问答已存入 IXAEON 记忆（理解候选将在「待讨论」等你确认）。`;
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          this.logger.warn('问答落 Core 失败', { runId, error: message });
-          recordAudit(this.db, 'ask.capture_failed', { runId, error: message.slice(0, 300) });
-          result.notice = `${result.notice}；注意：问答存档失败（${message.slice(0, 120)}）。`;
+        const askPerm = this.ensureAskCapturePermission();
+        if (askPerm) {
+          try {
+            const captured = this.imports.captureAsk({
+              question,
+              answer: result.answer,
+              runId,
+              engine: result.engine,
+              model: result.modelName,
+              projectId,
+              permissionId: askPerm.id,
+            });
+            this.enqueueExtract(captured.source.id, false);
+            result.notice = `${result.notice}；问答已存入 IXAEON 记忆（理解候选将在「待讨论」等你确认）。`;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.warn('问答落 Core 失败', { runId, error: message });
+            recordAudit(this.db, 'ask.capture_failed', { runId, error: message.slice(0, 300) });
+            result.notice = `${result.notice}；注意：问答存档失败（${message.slice(0, 120)}）。`;
+          }
+        } else {
+          result.notice = `${result.notice}；问答存档已停用（授权曾被撤销）。如需恢复请在设置中开启「问答存档」。`;
         }
       }
       return result;

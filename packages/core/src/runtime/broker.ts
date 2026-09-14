@@ -1,10 +1,10 @@
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
-import { ItemService } from '../storage/itemStore.js';
-import { SearchService } from '../storage/search.js';
-import { assertSourceAuthorized, modelMayReadItem } from '../access.js';
-import { CodingOrchestrator } from '../execution/executor.js';
-import { ProjectService } from '../projects.js';
+import { type ItemService } from '../storage/itemStore.js';
+import { type SearchService } from '../storage/search.js';
+import { assertSourceAuthorized, modelMayReadItem, modelMayReadSegment } from '../access.js';
+import { type CodingOrchestrator } from '../execution/executor.js';
+import { type ProjectService } from '../projects.js';
 import { fetchApprovedSource, type FetchDeps } from '../research/fetchApproved.js';
 import type { WebSearchExecutor } from '../research/webSearch.js';
 import { SkillCandidateStore } from './skills.js';
@@ -58,6 +58,13 @@ export class CoreToolBroker {
         const projectId =
           typeof args.projectId === 'string' ? args.projectId : (ctx.projectId ?? null);
         const retrieved = createRetrievalAdapter(this.db).lookup(q, { projectId, limit: 8 });
+        // A02（审核 2026-09-13）：受众边界统一到原文——items 过滤了，
+        // segments（原文摘录）必须同样过滤。「卡片锁了，卡片背后的原文没锁」
+        // 是同一条检索结果的两个泄漏面。
+        const segments =
+          ctx.audience === 'model'
+            ? retrieved.segments.filter((h) => modelMayReadSegment(this.db, h.segmentId))
+            : retrieved.segments;
         const items = retrieved.items.filter(
           (item) => ctx.audience !== 'model' || modelMayReadItem(this.db, item.ref),
         );
@@ -65,7 +72,7 @@ export class CoreToolBroker {
           backend: retrieved.backend,
           degraded: retrieved.degraded,
           notice: retrieved.notice,
-          segments: retrieved.segments.map((h) => ({
+          segments: segments.map((h) => ({
             segmentId: h.segmentId,
             title: h.sourceTitle,
             excerpt: h.excerpt,

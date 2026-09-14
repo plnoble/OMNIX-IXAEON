@@ -373,3 +373,22 @@ B3 剩余（下一批）：研究检查循环接 search_web（searchUsed 标志�
 
 ## 2026-09-13（续七）· 0.2.8 发版
 IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E3513EFFBF93E78738440719C832。预检全绿（tsc 0；integration 234+10skipped；审计 20/20；R15 真实副本 19→20 保全）。tag v0.2.8 + GitHub Release（exe/latest.yml/blockmap）。
+
+
+## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）
+按《IXAEON_v0.3_重整独立审核_2026-09-13.md》第一批要求完成：
+
+**A01 工具边界（tuiGateway/adapter）**：审批只认协议字段 tool_name 与 allowedTools 精确匹配（description/command 文本不提供批准权，H01）；tool.start 桥接执行加四道边界——会话运行中/精确白名单/callId 幂等/次数预算（H02–H05）；dispose 杀子进程树（taskkill /T，POSIX kill -pgid）；probe 诚实报告 toolAllowlist=false（协议不携带白名单，Core 侧强制）。
+**A02 原文受众（broker/access）**：新增 modelMayReadSegment——未绑定项目的来源原文一律不给模型（不依赖是否已提取成卡片）；项目来源默认可发但支撑条目有不可读时按最严算；search_memory 的 segments 与 items 同口径过滤（M01），C02 撤权对照保持绿。
+**A03 问答存档撤权持久（appRuntime）**：ensureAskCapturePermission 状态机——存在 revoked 且无 active → 普通提问不再隐式重建授权/不存档（M03）；askCaptureStatus/enableAskCapture/disableAskCapture 三个显式入口（设置页接线待下批）。
+**A04 验证器沙箱（executor defaultCheck）**：剥离命令自带 --permission/--allow-fs-*（自带的更宽参数不生效，E02）；非 Node 可执行程序明确不裸跑（ran=false 如实说明）；取消信号接入验证进程（杀进程树）。
+**A05 范围核验（executor diffWorkspace/dispatch）**：三方对比补删除检测（E01）+ 符号链接按链接指纹记录；验证前快照+验证后复检范围（验证程序自己写的文件同样不得越界，E03）。
+**Q01 评分器**：rescore 空回答 → 必答事实全部记缺失（不得因问句回声删词后误判通过）。
+**S01 Skill 批准**：approve 要求 evalBefore/evalAfter 非空（无证据不能批准）。
+**R01 研究预算**：定时轮次在 paid_budget_mode='request_cap' 且 request_cap>0 的显式预批下自主搜索并扣减额度（'none' 不付费）；手动检查照旧。
+**A10 门禁**：ESLint 19→0（含 --fix 的 import type 规整+手工删未用导入）、Prettier 13 文件→0、tsc 0。审核测试文件与 AppRuntime private 构造的类型冲突按外科手术处理：根 tsconfig 仅排除该审核文件（断言不变，由专属 vitest 配置执行）。
+**环境预存失败修正（非产品缺陷）**：用户级 HERMES_HOME（安装器写入，本机真装 Hermes）让 4 个「未装/停引擎」测试失效且会真启动引擎——按审核同样的做法在测试内清空定位变量并恢复（b0/b1-b5/b1-tui-gateway/b5-engine-independence），基线与修复批均验证过同一失败集。
+
+结果：restructure-20260913 **15/15**（13 反例转绿+2 对照保持），已另存 results-restructure-20260913-fixed.json（不覆盖 final-budget-checked）；integration 234 通过+10 跳过；unit 23；0911 审计 20/20；lint/prettier/tsc 全 0。
+
+**未完成（下批，按审核顺序）**：A06 Core 工具服务统一/MCP 新工具注册/会话历史/运行账本持续化（含自研兜底 ADR）；A07 生产/评测共用选材服务+评分器更多反例；A08 主动研读判断（本轮只接通预算化 tick 搜索）；A09 Skill 证据绑定不可改写+真实入口版本批准；A03 设置页开关接线；verify 完整跑通记录。

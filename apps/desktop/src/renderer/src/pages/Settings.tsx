@@ -407,8 +407,8 @@ export function SettingsPage() {
 
       <Card title="网页搜索（研究用）" testId="settings-websearch">
         <p className="muted">
-          给 B3 研究提供真实 URL 搜索。查询发出前会本地脱敏（邮箱/路径/密钥）；
-          不配置时 search_web 诚实失败，不伪造结果。Key 用系统加密保存，不回显。
+          给 B3 研究提供真实 URL 搜索。查询发出前会本地脱敏（邮箱/路径/密钥）； 不配置时 search_web
+          诚实失败，不伪造结果。Key 用系统加密保存，不回显。
         </p>
         <Field label="搜索服务">
           <select
@@ -430,9 +430,7 @@ export function SettingsPage() {
         {searchForm.provider !== 'none' && (
           <Field
             label="API Key"
-            hint={
-              view.config.webSearchKeyPresent ? '已保存（不回显）' : '未配置'
-            }
+            hint={view.config.webSearchKeyPresent ? '已保存（不回显）' : '未配置'}
           >
             <input
               type="password"

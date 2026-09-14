@@ -26,17 +26,31 @@ import {
 let dir: string;
 let db: CoreDatabase;
 
+// 「停引擎」必须构造确定状态：清空全部定位变量（本机真装 Hermes 时
+// 安装器写入用户级的 HERMES_HOME 存在，会让离线测试意外启动真引擎；
+// 与 2026-09-13 独立审核的处理一致）。
+const previousExe = process.env.IXAEON_HERMES_EXE;
+const previousHome = process.env.IXAEON_HERMES_HOME;
+const previousInstallerHome = process.env.HERMES_HOME;
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'ixaeon-r13-'));
   db = openDatabase(join(dir, 'ixaeon.db'));
   migrate(db);
   delete process.env.IXAEON_HERMES_EXE;
   delete process.env.IXAEON_HERMES_HOME;
+  delete process.env.HERMES_HOME;
 });
 
 afterEach(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
+  if (previousExe === undefined) delete process.env.IXAEON_HERMES_EXE;
+  else process.env.IXAEON_HERMES_EXE = previousExe;
+  if (previousHome === undefined) delete process.env.IXAEON_HERMES_HOME;
+  else process.env.IXAEON_HERMES_HOME = previousHome;
+  if (previousInstallerHome === undefined) delete process.env.HERMES_HOME;
+  else process.env.HERMES_HOME = previousInstallerHome;
 });
 
 describe('R13 不绑引擎（合成验证，非本机 Hermes）', () => {

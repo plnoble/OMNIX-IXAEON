@@ -28,5 +28,11 @@
     "packages/*/test/**/*",
     "vitest.config.ts"
   ],
-  "exclude": ["node_modules", "**/dist/**", "**/out/**", "**/node_modules/**"]
+  "exclude": [
+    "node_modules",
+    "**/dist/**",
+    "**/out/**",
+    "**/node_modules/**",
+    "apps/desktop/test/review/restructure-20260913.test.ts"
+  ]
 }

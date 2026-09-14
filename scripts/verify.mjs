@@ -109,6 +109,18 @@ results.push(
   ]),
 );
 
+// A10（审核 2026-09-13）：本轮重整反例套件纳入默认门禁（15 项：
+// A01 工具边界 H01–H05 / A02 原文受众 M01 / A03 撤权持久 M03 /
+// A04 验证器沙箱 E02 / A05 范围核验 E01 E03 / Q01 S01 R01 + 对照 C01 C02）。
+results.push(
+  run('review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.restructure-20260913.config.ts',
+  ]),
+);
+
 results.push(
   run('review-project-audit（全项目审核 15 项，修复 C01-C13 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),

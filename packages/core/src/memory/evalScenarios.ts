@@ -627,7 +627,7 @@ export function seedCorpus(db: CoreDatabase): {
   }
   for (const [proj, list] of Object.entries(CORPUS.projects)) {
     for (const it of list) {
-      const item = items.createManual({
+      items.createManual({
         projectId: projectIds[proj as 'A' | 'B' | 'C']!,
         type: it.type,
         statement: it.statement,

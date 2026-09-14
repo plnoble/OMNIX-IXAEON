@@ -138,8 +138,12 @@ export class ResearchChecker {
     const findings: ResearchFinding[] = [];
     let pages = 0;
     let error: string | null = null;
-    // 搜索只在手动检查做（用户在场看候选；定时轮次不偷偷消耗额度）
-    const wantSearch = !opts.scheduled && this.resolveWebSearch() !== undefined;
+    // A08（审核 2026-09-13）：手动检查用户在场，照旧可搜；
+    // 定时轮次只在**显式预批的搜索预算**（paid_budget_mode='request_cap' 且
+    // request_cap>0）下自主搜索，'none' 不擅自付费。每次定时搜索消耗 1 个额度。
+    const searchConfigured = this.resolveWebSearch() !== undefined;
+    const budgetAllows = topic.paid_budget_mode === 'request_cap' && (topic.request_cap ?? 0) > 0;
+    const wantSearch = searchConfigured && (!opts.scheduled || budgetAllows);
     let searchCandidates: SearchCandidate[] = [];
     let searchError: string | null = null;
     let searchUsed = false;
@@ -156,6 +160,14 @@ export class ResearchChecker {
         searchCandidates = searched.candidates;
         searchError = searched.error;
         searchUsed = searched.attempted;
+        // 定时轮次消耗预批额度；手动轮次用户在场不扣（预算面向无人值守）
+        if (searchUsed && opts.scheduled) {
+          this.db
+            .prepare(
+              'UPDATE research_topics SET request_cap = MAX(0, request_cap - 1), updated_at = ? WHERE id = ?',
+            )
+            .run(now, topic.id);
+        }
       }
       for (const src of sources) {
         if (pages >= topic.max_pages_per_run) break;

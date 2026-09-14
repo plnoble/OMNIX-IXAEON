@@ -77,10 +77,15 @@ export class HermesRuntimeAdapter {
   probe(): RuntimeCapabilities {
     const locator = locateHermes();
     const ok = locator.found;
+    // A01（审核 2026-09-13）：能力必须区分「协议已核实支持」与「Core 侧自行兜底」。
+    // session/stop/streaming 是锁定安装 v2026.9.11 上核实过的协议方法；
+    // toolAllowlist 诚实报告为 false——TUI gateway 协议本身不携带工具白名单，
+    // 白名单由 Core 在 tool 边界强制执行（见 TuiGatewaySession），
+    // 不能因找到 python.exe 就声称引擎侧已有该能力。
     return {
       session: ok,
       stop: ok,
-      toolAllowlist: ok,
+      toolAllowlist: false,
       usage: false,
       resume: false,
       streaming: ok,

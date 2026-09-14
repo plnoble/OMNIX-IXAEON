@@ -110,6 +110,14 @@ export class SkillCandidateStore {
         '没有对照评测结果，不能批准 Skill（不能把提案直接当能力升级）',
       );
     }
+    // S01（审核 2026-09-13）：空的前后对照不构成证据——
+    // 只写一句 benefit='improved' 不能算「经过验证的方法成长」。
+    if (!row.eval_before?.trim() || !row.eval_after?.trim()) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '缺少前后对照证据（evalBefore/evalAfter 为空），无证据不能批准 Skill',
+      );
+    }
     if (!row.benefit || /无收益|无改进|相同|没有差异/.test(row.benefit)) {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '无收益的候选保持未采用');
     }

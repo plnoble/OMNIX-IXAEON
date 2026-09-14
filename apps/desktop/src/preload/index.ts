@@ -88,8 +88,7 @@ const api: IxaIpcApi = {
   listWorkRuns: (input) => ipcRenderer.invoke('ixaeon:listWorkRuns', input),
   getSettings: () => ipcRenderer.invoke('ixaeon:getSettings'),
   saveModelSettings: (input) => ipcRenderer.invoke('ixaeon:saveModelSettings', input),
-  saveWebSearchSettings: (input) =>
-    ipcRenderer.invoke('ixaeon:saveWebSearchSettings', input),
+  saveWebSearchSettings: (input) => ipcRenderer.invoke('ixaeon:saveWebSearchSettings', input),
   testWebSearch: (input) => ipcRenderer.invoke('ixaeon:testWebSearch', input),
   listAvailableModels: (input) => ipcRenderer.invoke('ixaeon:listAvailableModels', input),
   setCaptureEnabled: (enabled) => ipcRenderer.invoke('ixaeon:setCaptureEnabled', enabled),

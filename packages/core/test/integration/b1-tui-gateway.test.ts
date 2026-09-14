@@ -11,11 +11,20 @@ import {
   type TuiTransport,
 } from '../../src/index.js';
 
+// 「未装」测试必须构造确定状态：清空全部定位变量（含安装器写入用户级的
+// HERMES_HOME——本机真装 Hermes 时它存在，不能让离线测试意外启动真引擎；
+// 与 2026-09-13 独立审核的处理一致）。
 const previousExe = process.env.IXAEON_HERMES_EXE;
+const previousHome = process.env.IXAEON_HERMES_HOME;
+const previousInstallerHome = process.env.HERMES_HOME;
 
 afterEach(() => {
   if (previousExe === undefined) delete process.env.IXAEON_HERMES_EXE;
   else process.env.IXAEON_HERMES_EXE = previousExe;
+  if (previousHome === undefined) delete process.env.IXAEON_HERMES_HOME;
+  else process.env.IXAEON_HERMES_HOME = previousHome;
+  if (previousInstallerHome === undefined) delete process.env.HERMES_HOME;
+  else process.env.HERMES_HOME = previousInstallerHome;
 });
 
 function stubTransport(): { hostIn: PassThrough; hostOut: PassThrough; transport: TuiTransport } {
@@ -146,6 +155,7 @@ describe('B1 TUI gateway JSON-RPC（协议替身，不是本机 Hermes）', () =
   it('未装时 start 仍抛 NOT_FOUND，不把协议代码当已接通', async () => {
     delete process.env.IXAEON_HERMES_EXE;
     delete process.env.IXAEON_HERMES_HOME;
+    delete process.env.HERMES_HOME;
     const adapter = new HermesRuntimeAdapter();
     const caps = adapter.probe();
     expect(caps.engine).toBe('missing');

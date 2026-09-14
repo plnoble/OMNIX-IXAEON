@@ -64,8 +64,7 @@ export class LanceDbRetrievalAdapter implements RetrievalAdapter {
       ...fallback,
       backend: 'lancedb',
       degraded: true,
-      notice:
-        'LanceDB 路径已声明但本机嵌入未获准，不静默下载模型。本轮仍用关键词，语义对比未跑。',
+      notice: 'LanceDB 路径已声明但本机嵌入未获准，不静默下载模型。本轮仍用关键词，语义对比未跑。',
     };
   }
 }

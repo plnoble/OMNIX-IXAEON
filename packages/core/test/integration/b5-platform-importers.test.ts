@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -337,7 +337,6 @@ describe('B5 三平台导入器（合成验证）', () => {
     const permission = permissions.grantFile(grantFile);
 
     // 写入合成 Claude 导出（官方同名 conversations.json）
-    const { writeFileSync } = require('node:fs') as typeof import('node:fs');
     writeFileSync(grantFile, JSON.stringify(CLAUDE_EXPORT), 'utf8');
 
     const r1 = service.importFile(grantFile, {
@@ -410,7 +409,6 @@ describe('B5 三平台导入器（合成验证）', () => {
     const sources = new SourceStore(db);
     const service = new ImportService(db, vault, permissions, sources);
 
-    const { writeFileSync } = require('node:fs') as typeof import('node:fs');
     const bad = join(dir, 'prod-grok-backend.json');
     writeFileSync(bad, '{"foo": "不是导出格式"}', 'utf8');
     const perm = permissions.grantFile(bad);

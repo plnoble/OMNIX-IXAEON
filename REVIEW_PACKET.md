@@ -972,3 +972,24 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 **预检**：tsc 0 错误；integration 234 通过+10 跳过（47 文件）；审计 20/20；R15 真实日用库副本 19→20 幂等保全、源库字节不变。
 
 **发布记录**：commit + tag v0.2.8 + GitHub Release（gh release create，附 exe/latest.yml/blockmap 与发布说明）。
+## 44. 独立审核 2026-09-13 第一批修复：A01–A05 + A10（restructure 13 反例转绿）
+
+审核基线 `47e1f8e`（0.2.8 后）。修复批全部完成并验证：
+
+| 审核条目 | 修复 | 反例 |
+|---|---|---|
+| A01 工具审批/次数/取消边界 | 精确协议字段匹配+四道执行边界+进程树终止+能力诚实 | H01–H05 转绿 |
+| A02 原文受众泄漏 | modelMayReadSegment 统一口径（未绑定来源原文一律不发） | M01 转绿，C02 保持 |
+| A03 撤权后隐式重建 | 授权状态机+显式恢复入口；普通提问不再隐式 grant | M03 转绿 |
+| A04 验证器自扩权限 | 参数剥离/强制工作区边界/非 Node 明确不裸跑/取消接入 | E02 转绿，C01 保持 |
+| A05 删除漏检+验证器改动 | 三方 diff 补删除+符号链接指纹+验证后复检 | E01/E03 转绿 |
+| A07 评分器（部分） | 空回答=必答全缺失 | Q01 转绿 |
+| A09 Skill（部分） | 无前后证据不能批准 | S01 转绿 |
+| A08 研究（部分） | 定时轮次显式预算下自主搜索并扣额度 | R01 转绿 |
+| A10 门禁 | ESLint 0 / Prettier 0 / tsc 0 | verify 各步过 |
+
+证据：`apps/desktop/test/review/results-restructure-20260913-fixed.json`（15/15，不覆盖 final-budget-checked）；integration 234+10 skipped；0911 审计 20/20。
+
+环境修正（预存失败，非产品缺陷）：用户级 HERMES_HOME 使「未装/停引擎」测试失效——4 个测试文件清空定位变量并恢复（与审核 §2 的处理一致），基线与修复批同一失败集已验证。
+
+未完成（审核顺序）：A06 统一工具服务/会话/账本（P1 阶段阻断，含 ADR）；A07 共用选材+评分反例扩展；A08 主动研读；A09 证据绑定+真实入口；A03 设置页开关接线。
