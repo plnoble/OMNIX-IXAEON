@@ -66,6 +66,12 @@ export interface HermesRunResult {
  */
 export class HermesRuntimeAdapter {
   private live = new Map<string, TuiGatewaySession>();
+  /**
+   * A06：长驻 gateway 会话——同一引擎进程内复用 session_id 才有效
+   *（session 是进程内的，不能每次 spawn 新进程再拿旧 session_id 去续问）。
+   * 键为 contextRef（个人/项目），值为活着的 TuiGatewaySession。
+   */
+  private resident = new Map<string, TuiGatewaySession>();
 
   constructor(
     private readonly broker?: CoreToolBroker,
@@ -89,7 +95,7 @@ export class HermesRuntimeAdapter {
       stop: ok,
       toolAllowlist: false,
       usage: false,
-      resume: false,
+      resume: true,
       streaming: ok,
       probedAt: new Date().toISOString(),
       engine: ok ? 'hermes' : 'missing',
@@ -116,23 +122,50 @@ export class HermesRuntimeAdapter {
       cwd: caps.locator.cwd,
       env: hermesSpawnEnv(caps.locator),
     };
-    const transport = this.transportFactory
-      ? this.transportFactory(caps.locator.exe, args, opts)
-      : TuiGatewaySession.spawnProcess(caps.locator.exe, args, opts);
-    const session = new TuiGatewaySession(transport, input, this.broker, {
-      resumeSessionId: resumeSessionId ?? null,
-      // A06：每个事件实时回调（账本持续化由调用方注入）
-      onEvent: (event) => this.eventSink?.(event),
-      mcpBridgedTools: mcpBridgedTools ?? [],
-    });
+    // A06：同 contextRef 的长驻会话优先复用（同一进程内续 session_id）；
+    // 已死亡/被取消的扔掉重建。resumeSessionId 仅在有活进程时作为跨进程提示。
+    const resident = this.resident.get(input.contextRef);
+    let session: TuiGatewaySession;
+    if (resident && !resident.isDead) {
+      session = resident;
+      // 复用长驻进程内已有 session_id；调用方传来的 resumeSessionId 与之一致。
+      session.setInput(input);
+      session.configureEventSink((event) => this.eventSink?.(event));
+      session.setMcpBridgedTools(mcpBridgedTools ?? []);
+    } else {
+      this.resident.delete(input.contextRef);
+      const transport = this.transportFactory
+        ? this.transportFactory(caps.locator.exe, args, opts)
+        : TuiGatewaySession.spawnProcess(caps.locator.exe, args, opts);
+      session = new TuiGatewaySession(transport, input, this.broker, {
+        // 新进程：只能从 session.create 开始（旧 session_id 不属于新进程）
+        resumeSessionId: null,
+        onEvent: (event) => this.eventSink?.(event),
+        mcpBridgedTools: mcpBridgedTools ?? [],
+      });
+    }
     this.live.set(input.runId, session);
+    this.resident.set(input.contextRef, session);
     try {
       const result = await session.run();
+      if (session.isDead) {
+        // 进程死了（错误/中断）——长驻会话作废，下次重建。
+        this.resident.delete(input.contextRef);
+      }
       return result;
+    } catch (err) {
+      this.resident.delete(input.contextRef);
+      throw err;
     } finally {
-      session.dispose();
       this.live.delete(input.runId);
     }
+  }
+
+  /** A06：清理所有长驻会话（应用退出时）。 */
+  disposeAll(): void {
+    for (const s of this.resident.values()) s.dispose();
+    this.resident.clear();
+    this.live.clear();
   }
 
   /** A06：运行事件实时观察器（账本落库等）。 */

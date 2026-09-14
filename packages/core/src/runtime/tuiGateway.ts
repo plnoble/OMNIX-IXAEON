@@ -47,12 +47,16 @@ export class TuiGatewaySession {
   private executedCalls = new Set<string>();
   /** A01：实际产生 Core 副作用的工具调用次数（受 budget.maxToolCalls 约束）。 */
   private toolSideEffects = 0;
+  private currentInput: RuntimeRunInput;
+  private currentEventSink: ((event: RuntimeEvent) => void) | null = null;
+  private currentMcpBridged: string[] = [];
+  private dead = false;
 
   constructor(
     private readonly transport: TuiTransport,
-    private readonly input: RuntimeRunInput,
+    input: RuntimeRunInput,
     private readonly broker?: CoreToolBroker,
-    private readonly opts: {
+    opts: {
       /** A06：复用既有引擎会话（同 AgentSession 实例的后续回合）。 */
       resumeSessionId?: string | null;
       /** A06：每个事件实时回调（账本持续化由调用方注入）。 */
@@ -64,13 +68,42 @@ export class TuiGatewaySession {
       mcpBridgedTools?: string[];
     } = {},
   ) {
+    this.currentInput = input;
+    if (opts.onEvent) this.currentEventSink = opts.onEvent;
+    if (opts.mcpBridgedTools) this.currentMcpBridged = opts.mcpBridgedTools;
     if (opts.resumeSessionId) this.sessionId = opts.resumeSessionId;
     transport.rpc.on('notification', (method: string, params: unknown) => {
       void this.onNotification(method, params);
     });
     transport.rpc.on('close', () => {
+      this.dead = true;
       if (this.status === 'running') this.end('failed');
     });
+  }
+
+  /** A06：长驻会话在复用前更新当前回合的输入参数（runId/goal/budget 等）。 */
+  setInput(input: RuntimeRunInput): void {
+    this.currentInput = input;
+    // 重置回合级状态（保留长驻进程与 sessionId，重置单回合回答与幂等集）
+    this.answerParts = [];
+    this.events = [];
+    this.seq = 0;
+    this.status = 'running';
+    this.executedCalls.clear();
+    this.toolSideEffects = 0;
+  }
+
+  configureEventSink(sink: ((event: RuntimeEvent) => void) | null): void {
+    this.currentEventSink = sink;
+  }
+
+  setMcpBridgedTools(tools: string[]): void {
+    this.currentMcpBridged = tools;
+  }
+
+  /** 长驻进程是否已死亡（报错/关闭）。 */
+  get isDead(): boolean {
+    return this.dead;
   }
 
   static spawnProcess(exe: string, args: string[], opts: TuiSpawnOptions = {}): TuiTransport {
@@ -137,7 +170,7 @@ export class TuiGatewaySession {
         const created = (await this.transport.rpc.request('session.create', {
           cols: 80,
         })) as { session_id?: string } | null;
-        this.sessionId = created?.session_id ?? this.input.runId;
+        this.sessionId = created?.session_id ?? this.currentInput.runId;
         this.push('text', { phase: 'session.create', sessionId: this.sessionId });
       }
       if (this.status !== 'running') {
@@ -145,12 +178,12 @@ export class TuiGatewaySession {
       }
       await this.transport.rpc.request('prompt.submit', {
         session_id: this.sessionId,
-        text: this.input.goal,
+        text: this.currentInput.goal,
       });
       if (this.status !== 'running') {
         return this.snapshot();
       }
-      await this.waitTerminal(this.input.budget.timeoutMs);
+      await this.waitTerminal(this.currentInput.budget.timeoutMs);
       return this.snapshot();
     } catch (err) {
       if (this.status === 'cancelled') {
@@ -284,13 +317,14 @@ export class TuiGatewaySession {
         // 4. 次数预算（实际副作用次数 ≤ budget.maxToolCalls）。
         let skipReason: string | null = null;
         if (this.status !== 'running') skipReason = 'session_not_running';
-        else if (!this.input.allowedTools.includes(name)) skipReason = 'tool_not_in_allowed_tools';
+        else if (!this.currentInput.allowedTools.includes(name))
+          skipReason = 'tool_not_in_allowed_tools';
         else if (this.executedCalls.has(callId)) skipReason = 'duplicate_call';
-        else if (this.toolSideEffects >= this.input.budget.maxToolCalls)
+        else if (this.toolSideEffects >= this.currentInput.budget.maxToolCalls)
           skipReason = 'over_tool_call_budget';
         // A06：已由 MCP 桥接执行的工具（结果经协议回交引擎）不再在
         // tool.start 本地重复执行——同一动作不允许 Hermes 与 Core 各做一次。
-        else if (this.opts.mcpBridgedTools?.includes(name)) skipReason = 'mcp_bridged_not_local';
+        else if (this.currentMcpBridged.includes(name)) skipReason = 'mcp_bridged_not_local';
         if (this.broker && skipReason === null) {
           // 只把 Core 白名单工具接到本地 broker；其余由 Hermes 自行执行。
           if (CORE_TOOL_SET.has(name)) {
@@ -299,7 +333,7 @@ export class TuiGatewaySession {
             try {
               const result = await this.broker.invoke(name as CoreToolName, args, {
                 audience: 'model',
-                runId: this.input.runId,
+                runId: this.currentInput.runId,
               });
               this.push('tool_result', { name, callId, ok: true, result });
             } catch (err) {
@@ -328,7 +362,7 @@ export class TuiGatewaySession {
         const toolName = typeof p.tool_name === 'string' ? p.tool_name : '';
         const allowed =
           toolName.length > 0 &&
-          this.input.allowedTools.includes(toolName) &&
+          this.currentInput.allowedTools.includes(toolName) &&
           this.status === 'running';
         const choice = allowed ? 'once' : 'deny';
         try {
@@ -368,7 +402,7 @@ export class TuiGatewaySession {
   private push(kind: RuntimeEvent['kind'], payload: Record<string, unknown>): void {
     this.seq += 1;
     const event: RuntimeEvent = {
-      runId: this.input.runId,
+      runId: this.currentInput.runId,
       eventId: randomUUID(),
       seq: this.seq,
       timestamp: new Date().toISOString(),
@@ -379,10 +413,10 @@ export class TuiGatewaySession {
     // A06：事件实时外送（账本持续化等）；观察器异常不中断回合，
     // 但如实记录到本地事件流，不静默吞掉。
     try {
-      this.opts.onEvent?.(event);
+      this.currentEventSink?.(event);
     } catch (err) {
       this.events.push({
-        runId: this.input.runId,
+        runId: this.currentInput.runId,
         eventId: randomUUID(),
         seq: this.seq + 1,
         timestamp: new Date().toISOString(),

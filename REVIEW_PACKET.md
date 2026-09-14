@@ -1005,7 +1005,11 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 | 会话身份/历史 | AgentSession 复用引擎会话（session.create 一次，后续 prompt.submit 同 session_id）；desktop ask() 复用实例；contextRef 经 get_project_context 注入 | a06 测试：先插 running 行+同会话 |
 | 运行账本持续化 | 先插 running 行 + 每个事件 onEvent 实时追加 events_json + 终态 finish；Hermes 失败落 Core=同 run upsert 不二次插；启动 recoverOrphanedRuns 崩解回收 | a06 测试：running 行先插/终态收尾/孤儿回收 |
 | 自研兜底 ADR | ADR-11：MCP 是工具回交唯一通道；协议不携带 permissionVersion/contextRef/budget（Core 侧强制如实说明）；core-bounded 兜底启用条件/切换附注/降级定位写死 | 文档 |
+| 长驻会话（续十） | HermesRuntimeAdapter 长驻池（同 contextRef 同进程续 session_id）；ask() 放宽未配 key 检查（Hermes 自备模型不被挡） | a06-real-hermes-direct 2/2 |
 
-证据：`packages/core/test/integration/a06-core-unified.test.ts` 4/4（协议替身）；integration 238 通过+10 跳过（原 234+新增 4）；0913 审计 15/15、0911 审计 20/20；lint/prettier/tsc 全 0。
+证据：
+- 替身自动化：`packages/core/test/integration/a06-core-unified.test.ts` 4/4
+- 真机直接回归：`packages/core/test/integration/a06-real-hermes-direct.test.ts` 2/2（`IXAEON_REAL_HERMES=1`：真 Hermes `gemini-3.7-flash-tiered`，首问回答/续问会话记忆/账本先插 running 行真实捕获）
+- 全量集成：默认 238 通过+12 跳过；真机模式 240 通过+10 跳过。0913 审计 15/15、0911 审计 20/20；lint/prettier/tsc 全 0。
 
-诚实边界：A06 真机 Hermes 单一入口完整任务回归（从桌面同一入口、真工具结果经 MCP 回交）仍为未完成——本批全部经协议替身（PassThrough）验证，未冒充真机通过；划入 A07 后续补真实引擎回归。
+诚实边界：真机回归已由 `a06-real-hermes-direct.test.ts` 直接在真 Hermes 上跑通（长驻会话/会话历史/账本持续化真实生效）；桌面 UI 层的端到端录屏/手工验收留给用户日常使用体验。未完成项继续按 A07–A09 推进。

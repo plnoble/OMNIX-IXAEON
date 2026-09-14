@@ -409,6 +409,24 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 
 验证：新增 `packages/core/test/integration/a06-core-unified.test.ts` 4 用例（账本实时落库 / running 行先插+终态收尾 / 孤儿行回收 / MCP 桥接防双执行）——协议替身（PassThrough）下全绿；integration 238 通过+10 跳过（原 234+新增 4）；0913 审计 15/15、0911 审计 20/20；lint/prettier/tsc 全 0。
 
-**未完成（下批）**：A06 真机 Hermes 单一入口完整任务回归（从桌面同一入口、真工具结果回交，当前为替身验证，未冒充真机通过）；A07 共用选材服务+评分器反例；A08 主动研读判断；A09 Skill 证据绑定+真实入口版本批准；A03 设置页开关接线。
+**未完成（下批）**：A07 共用选材服务+评分器反例；A08 主动研读判断；A09 Skill 证据绑定+真实入口版本批准；A03 设置页开关接线。
+
+## 2026-09-13（续十）· A06 真机 Hermes 接入硬验证（长驻会话/会话历史/账本先插）
+
+按用户要求完成 A06 真机冒烟，拿到真机端到端接入证据：
+
+**1. 架构发现与修复（长驻会话）**：
+- 真机实测发现旧实现只复用了 `session_id` 字符串，但每次 `start()` 重新 spawn 新进程，新进程内无该会话 → 会话探针失败。
+- 修复：`HermesRuntimeAdapter` 实现长驻会话池（`resident` Map），同 `contextRef` 的调用在同进程内续 session_id；`TuiGatewaySession` 增加 `setInput` / `isDead`；进程死亡/中断才作废重建。
+- `appRuntime.ask()` 放宽前置检查：`hermesAvailable` 时即使未配 OpenAI key 亦放行（Hermes 引擎自备模型，不再被 IXAEON 本地模型未配置挡住）。
+
+**2. 真机验证（`a06-real-hermes-direct.test.ts` 2/2，`IXAEON_REAL_HERMES=1`）**：
+- 真 Hermes 单轮对话：`session.create` → `prompt.submit` → `message.complete`，真实回答返回 `IXAEON_REAL_VERIFIED`，真实模型名 `gemini-3.7-flash-tiered`，真实用时 34s。
+- 会话历史（「那我刚才说的呢」）：同 adapter 实例第二问「我上一句让你回答了什么？」，Hermes 凭自身会话历史准确回答出 `IXAEON_REAL_VERIFIED`（`sessionId` 严格一致）。
+- 账本先插 + 实时性：回合进行中轮询确定性捕获到 `status === 'running'`；回合结束终态收尾为 `succeeded`，`events_json` 含实际事件。
+
+证据分层：默认集成 238 通过+12 跳过（无外部依赖）；`IXAEON_REAL_HERMES=1` 下 240 通过+10 跳过。0913 审计 15/15、0911 审计 20/20；lint/prettier/tsc 全 0。
+
+**未完成（下批，按审核顺序）**：A07 生产/评测共用选材+评分器反例；A08 主动研读；A09 Skill 证据绑定+真实入口；A03 设置页开关接线。
 
 ## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）

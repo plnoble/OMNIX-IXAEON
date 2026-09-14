@@ -700,11 +700,15 @@ export class AppRuntime {
   }
 
   async ask(projectId: string | null, question: string): Promise<AskResult> {
+    // A06（审核 2026-09-13）：Hermes 引擎不依赖 IXAEON 的模型配置（那是
+    // core-bounded 兜底循环用的）。真 Hermes 可用时即使未配 key 也要放行——
+    // 否则「装了引擎却用不上」。两者都没有才如实拒绝。
     const provider = this.getProvider();
-    if (!provider) {
+    const hermesAvailable = this.hermesFound();
+    if (!provider && !hermesAvailable) {
       throw new IxaError(
         ErrorCodes.MODEL_NOT_CONFIGURED,
-        'IXA0010 模型未配置：请在设置中填写 OpenAI API Key 后使用问答',
+        'IXA0010 模型未配置：请在设置中填写 OpenAI API Key，或安装 Hermes 引擎后使用问答',
       );
     }
     const broker = new CoreToolBroker(
