@@ -494,3 +494,36 @@ export const researchRunSchema = z.object({
   lease_until: isoDateTimeSchema.nullable(),
 });
 export type ResearchRun = z.infer<typeof researchRunSchema>;
+
+// ---------------------------------------------------------------------------
+// skill_candidates：技能候选与自演进
+// ---------------------------------------------------------------------------
+
+export const skillStatusSchema = z.enum([
+  'proposed',
+  'evaluated',
+  'approved',
+  'rejected',
+  'retired',
+]);
+export type SkillStatus = z.infer<typeof skillStatusSchema>;
+
+export const skillCandidateSchema = z.object({
+  id: uuidSchema,
+  project_id: uuidSchema.nullable(),
+  title: z.string().min(1),
+  problem: z.string(),
+  method: z.string(),
+  eval_case: z.string(),
+  status: skillStatusSchema,
+  eval_before: z.string().nullable(),
+  eval_after: z.string().nullable(),
+  benefit: z.string().nullable(),
+  version: z.number().int().positive(),
+  eval_evidence_json: z.string().nullable(),
+  approved_version: z.number().int().positive().nullable(),
+  created_from_work_run_id: z.string().nullable(),
+  created_at: isoDateTimeSchema,
+  updated_at: isoDateTimeSchema,
+});
+export type SkillCandidate = z.infer<typeof skillCandidateSchema>;

@@ -1172,3 +1172,21 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 - 独立二次复审回归测试：**12/12 满分全绿**（`direction-round2-93ecaed.test.ts`）
 - 静态门禁：TypeScript 0 错误 / ESLint 0 错误 / Prettier 0 告警
 - 真实环境通过：本地沙箱与渲染增强闭环验证通过；线上实际抓取依赖用户在设置页配置有效 TinyFish Key。
+
+## 55. 吸收开源设计：vermes 网关守护与 Mobius 自演进失败聚类（2026-09-15）
+
+吸收 [donghzs/vermes](https://github.com/donghzs/vermes) 与 [nutshellai-tech/mobius](https://github.com/nutshellai-tech/mobius) 的优秀工程经验：
+
+| 模块                | 改进落地                                                                                                                                                                                    | 验证结果                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **vermes 网关守护** | `tuiGateway.ts` 新增 `onUnexpectedExit` 机制与 stderr 尾部缓存，底层异常即刻拒绝挂起并报错（含退出码与 stderr）；增加 60 秒无响应探针（watchdog），杜绝进程挂死                             | `vermes-mobius-enhancements.test.ts` 毫秒级快速报错，通过 |
+| **Mobius 自演进**   | `skills.ts` 新增 `autoEvolveFromFailurePatterns`，聚合多条相似失败（任务特征+退出码）自动反思提炼候选；`created_from_work_run_id` 支持全组排除幂等；依然严格遵循 S2-02 受控沙箱验证才可批准 | `vermes-mobius-enhancements.test.ts` 聚类与幂等通过       |
+| **桌面交互与契约**  | `contracts/entities.ts` 导出 `skillCandidateSchema`；IPC 与 Preload 打通 `autoEvolveSkillCandidates`；`Tasks.tsx` 增加「自动分析历史失败提炼」按钮                                          | 静态门禁与 UI 构建通过                                    |
+
+证据：
+
+- `packages/core/test/integration/vermes-mobius-enhancements.test.ts` 2/2 通过
+- 全量自动化测试：**50 passed / 9 skipped / 288 tests passed / 0 failed**
+- 独立二次复审回归测试：**12/12 满分全绿**（`direction-round2-93ecaed.test.ts`）
+- 静态门禁：TypeScript 0 错误 / ESLint 0 错误 / Prettier 0 告警
+- 真实环境通过：本地受控沙箱与异常守护全部通过；线上 Hermes 依赖真实本地环境。

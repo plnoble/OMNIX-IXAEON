@@ -244,9 +244,28 @@ export function TasksPage({ projects }: { projects: Project[] }) {
       ))}
 
       <Card title="能力候选与自我演进 (Skill Candidates)" testId="skills-card">
-        <p className="muted">
-          经验到能力成长：任务失败可提炼候选；必须填报真实客观执行证据（前后对比+退出码验证）后方可批准上架。修改方法旧证据自动作废。
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <p className="muted" style={{ margin: 0 }}>
+            经验到能力成长：任务失败可提炼候选；必须填报真实客观执行证据（前后对比+退出码验证）后方可批准上架。修改方法旧证据自动作废。
+          </p>
+          <Button
+            kind="default"
+            disabled={busy}
+            onClick={() => {
+              void act(async () => {
+                const evolved = await api.autoEvolveSkillCandidates({
+                  projectId: projectId || null,
+                });
+                if (evolved.length === 0) {
+                  setError('未发现未处理的高频或聚类失败记录');
+                }
+              });
+            }}
+            testId="auto-evolve-skills"
+          >
+            自动分析历史失败提炼
+          </Button>
+        </div>
         {skills.length === 0 ? (
           <p className="muted">暂无能力候选。可在失败任务上点击「提炼为能力候选」。</p>
         ) : (

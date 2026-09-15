@@ -692,3 +692,21 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - 全量测试：**49 文件通过，286 项测试通过，12 项跳过，0 失败**；
    - 静态门禁：TypeScript 0 错误、ESLint 0 错误、Prettier 0 告警；
    - 真实环境通过：受控沙箱与渲染增强闭关验证通过；线上实际渲染抓取依赖用户配置有效 TinyFish Key。
+
+## 2026-09-15 · 吸收开源优秀设计：vermes 进程网关守护与 Mobius 自演进失败聚类落地
+
+按用户指令借鉴 [donghzs/vermes](https://github.com/donghzs/vermes) 与 [nutshellai-tech/mobius](https://github.com/nutshellai-tech/mobius) 的架构经验，落地两项系统级增强：
+
+1. **vermes 进程网关守护与超时探活（`tuiGateway.ts`）**：
+   - **底层异常即刻捕获**：在 `TuiGatewaySession.spawnProcess` 中新增 `onUnexpectedExit` 机制与 stderr 环形缓冲区，当 Hermes 进程因环境或 Python 异常退出时，立即带出真实退出码与 stderr 摘要，并拒绝所有挂起请求（`rejectPending`），彻底杜绝无响应永久挂起；
+   - **活动心跳守卫（Watchdog）**：引入 `inactivityLimitMs`（连续 60s 无任何 stdio 响应判定假死），自动中止挂死会话并抛出可操作的 `SERVER_UNAVAILABLE`。
+2. **Mobius 自演进失败模式聚类与自动反思（`skills.ts`）**：
+   - **多失败自动聚类提炼**：新增 `autoEvolveFromFailurePatterns(projectId)`，自动扫描 `work_runs` 中未被关联过的失败记录，按项目、任务特征词与退出码进行聚类；
+   - **自动反思与模板建议**：对多次重复出现的同类失败模式（>=2 次），自动生成带有明确重复次数、退出码分析、报错摘要的 `SkillCandidate` 提案；
+   - **闭环守约**：自动提炼的自演进候选依然严格受 S2-02 规则约束，必须经过受控沙箱运行命令验证（`runControlledEvaluation`）且证明正收益后方可批准，绝不绕过安全防线；通过 `instr(created_from_work_run_id, work_runs.id)` 实现聚类历史幂等，防止重复提案；
+   - **桌面端交互**：`Tasks.tsx` 增加「自动分析历史失败提炼」操作入口；IPC 与 Contracts 完整打通。
+3. **验证与四层报告纪律**：
+   - 新增集成测试 `packages/core/test/integration/vermes-mobius-enhancements.test.ts`（2/2 通过）；
+   - 全量测试：**50 文件通过，288 项测试全部通过，12 项跳过，0 失败**；
+   - 独立复审回归：`direction-round2-93ecaed.test.ts` **12/12 满分全绿**；
+   - 静态门禁：TypeScript 0 错误、ESLint 0 错误、Prettier 0 告警。

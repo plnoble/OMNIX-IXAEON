@@ -109,6 +109,8 @@ const api: IxaIpcApi = {
   proposeSkillCandidate: (input) => ipcRenderer.invoke('ixaeon:proposeSkillCandidate', input),
   evaluateSkillWithEvidence: (input) =>
     ipcRenderer.invoke('ixaeon:evaluateSkillWithEvidence', input),
+  autoEvolveSkillCandidates: (input) =>
+    ipcRenderer.invoke('ixaeon:autoEvolveSkillCandidates', input),
 };
 
 /** 更新能力（独立于 IxaIpcApi：仅生产构建存在，开发运行为 no-op）。 */

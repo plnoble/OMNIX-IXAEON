@@ -74,6 +74,104 @@ export class SkillCandidateStore {
     return this.get(id);
   }
 
+  /**
+   * Mobius 启发：自演进聚合器（从历史连续失败中自动反思并提炼 Skill 候选）。
+   * 分析未被提案过的失败 work_runs，根据错误特征与任务类型聚合，自动提炼结构化候选。
+   */
+  autoEvolveFromFailurePatterns(projectId?: string | null): SkillCandidate[] {
+    const unhandledRunsQuery = projectId
+      ? `SELECT * FROM work_runs
+         WHERE outcome = 'failed' AND project_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM skill_candidates
+             WHERE created_from_work_run_id IS NOT NULL
+               AND instr(created_from_work_run_id, work_runs.id) > 0
+           )
+         ORDER BY finished_at DESC LIMIT 30`
+      : `SELECT * FROM work_runs
+         WHERE outcome = 'failed'
+           AND NOT EXISTS (
+             SELECT 1 FROM skill_candidates
+             WHERE created_from_work_run_id IS NOT NULL
+               AND instr(created_from_work_run_id, work_runs.id) > 0
+           )
+         ORDER BY finished_at DESC LIMIT 30`;
+
+    const runs = (
+      projectId
+        ? this.db.prepare(unhandledRunsQuery).all(projectId)
+        : this.db.prepare(unhandledRunsQuery).all()
+    ) as Array<{
+      id: string;
+      project_id: string | null;
+      agent_name: string;
+      task: string;
+      summary: string;
+      tests_json: string;
+      finished_at: string;
+    }>;
+
+    if (runs.length === 0) return [];
+
+    // 解析 tests_json 提取 verify_exit_code，并按（project + exitCode + task 前缀）聚类
+    const parsedRuns = runs.map((r) => {
+      let exitCode: number | null = null;
+      try {
+        const tests = JSON.parse(r.tests_json || '{}') as { verify_exit_code?: number };
+        if (typeof tests?.verify_exit_code === 'number') {
+          exitCode = tests.verify_exit_code;
+        }
+      } catch {
+        exitCode = null;
+      }
+      return { ...r, exitCode };
+    });
+
+    const clusters = new Map<string, typeof parsedRuns>();
+    for (const r of parsedRuns) {
+      // 提取任务特征词（取任务前 8 字符作为模式）
+      const taskStem = r.task.slice(0, 8).trim();
+      const key = `${r.project_id ?? 'global'}::${taskStem}::code_${r.exitCode ?? 'unknown'}`;
+      const group = clusters.get(key) ?? [];
+      group.push(r);
+      clusters.set(key, group);
+    }
+
+    const created: SkillCandidate[] = [];
+    for (const [key, group] of clusters.entries()) {
+      const representative = group[0];
+      if (!representative) continue;
+      const count = group.length;
+
+      // 连续/多次出现相同失败特征，或严重验证失败
+      const isRepeated = count >= 2;
+      const title = isRepeated
+        ? `自演进提案（重复失败 ${count} 次）：${representative.task.slice(0, 50)}`
+        : `自演进提案：${representative.task.slice(0, 50)}`;
+
+      const exitInfo =
+        representative.exitCode != null
+          ? `验证退出码 ${representative.exitCode}`
+          : '执行未通过验证';
+
+      const errorSnippet = representative.summary
+        ? `\n核验报错输出摘要：\n${representative.summary.slice(0, 300)}`
+        : '';
+
+      const summary = `系统根据历史失败聚类自动反思生成：\n- 模式特征：${key}\n- 表现：${exitInfo}${errorSnippet}\n- 建议：针对该类模式定制专用执行步骤与前置校验规则。`;
+
+      const candidate = this.proposeFromFailure({
+        projectId: representative.project_id,
+        workRunId: group.map((r) => r.id).join(','),
+        task: title,
+        summary,
+      });
+      created.push(candidate);
+    }
+
+    return created;
+  }
+
   get(id: string): SkillCandidate {
     const row = this.db.prepare('SELECT * FROM skill_candidates WHERE id = ?').get(id) as
       SkillCandidate | undefined;

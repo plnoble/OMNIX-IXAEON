@@ -14,6 +14,7 @@ import type {
   Segment,
   Source,
   WorkRun,
+  SkillCandidate,
 } from './entities.js';
 import { z } from 'zod';
 import { itemTypeSchema } from './entities.js';
@@ -637,6 +638,8 @@ export interface IxaIpcApi {
     taskId?: string | null;
     benefit: string;
   }): Promise<{ ok: true }>;
+  /** Mobius 启发：从历史连续失败中自动反思并提炼 Skill 候选 */
+  autoEvolveSkillCandidates(input?: { projectId?: string | null }): Promise<SkillCandidate[]>;
 }
 
 /** 更新状态（electron-updater 推送与手动查询共用形状）。 */

@@ -661,6 +661,9 @@ export function registerIpc(runtime: AppRuntime): void {
       await runtime.evaluateSkillWithEvidence(input);
       return { ok: true as const };
     },
+    autoEvolveSkillCandidates: async (input) => {
+      return runtime.autoEvolveSkillCandidates(input?.projectId);
+    },
   };
 
   // 注册（统一错误序列化：渲染进程收到 "IXAxxxx 消息" 形式）

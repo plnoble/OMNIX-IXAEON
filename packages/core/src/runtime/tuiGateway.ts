@@ -10,6 +10,10 @@ import { CORE_TOOL_NAMES } from './broker.js';
 export interface TuiTransport {
   rpc: JsonRpcStdio;
   kill(): void;
+  /** 当子进程非正常提前退出时触发（借鉴 vermes 网关守护模式） */
+  onUnexpectedExit?(
+    callback: (code: number | null, signal: string | null, stderrTail: string) => void,
+  ): void;
 }
 
 export interface TuiSpawnOptions {
@@ -73,13 +77,24 @@ export class TuiGatewaySession {
     if (opts.mcpBridgedTools) this.currentMcpBridged = opts.mcpBridgedTools;
     if (opts.resumeSessionId) this.sessionId = opts.resumeSessionId;
     transport.rpc.on('notification', (method: string, params: unknown) => {
+      this.lastActivityAt = Date.now();
       void this.onNotification(method, params);
     });
     transport.rpc.on('close', () => {
       this.dead = true;
       if (this.status === 'running') this.end('failed');
     });
+    transport.onUnexpectedExit?.((code, signal, stderrTail) => {
+      this.dead = true;
+      const detail = stderrTail ? `：${stderrTail}` : '';
+      const exitMsg = `Hermes 进程异常退出 (code ${code ?? 'null'}, signal ${signal ?? 'none'})${detail}`;
+      this.push('failed', { error: exitMsg });
+      if (this.status === 'running') this.end('failed');
+      transport.rpc.rejectPending(new IxaError(ErrorCodes.SERVER_UNAVAILABLE, exitMsg));
+    });
   }
+
+  private lastActivityAt = Date.now();
 
   /** A06：长驻会话在复用前更新当前回合的输入参数（runId/goal/budget 等）。 */
   setInput(input: RuntimeRunInput): void {
@@ -120,9 +135,39 @@ export class TuiGatewaySession {
       env,
     });
     const rpc = new JsonRpcStdio(child.stdout, child.stdin);
+
+    // vermes 守护模式：stderr 缓冲区与异常退出捕获
+    let intentionalKill = false;
+    const stderrChunks: string[] = [];
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      stderrChunks.push(chunk);
+      if (stderrChunks.length > 50) stderrChunks.shift();
+    });
+
+    let exitHandler:
+      ((code: number | null, signal: string | null, stderrTail: string) => void) | null = null;
+
+    child.on('exit', (code, signal) => {
+      if (!intentionalKill) {
+        const stderrTail = stderrChunks.join('').slice(-2000).trim();
+        exitHandler?.(code, signal, stderrTail);
+      }
+    });
+
+    child.on('error', (err) => {
+      if (!intentionalKill) {
+        exitHandler?.(1, null, `进程启动或执行错误: ${err.message}`);
+      }
+    });
+
     return {
       rpc,
+      onUnexpectedExit(cb) {
+        exitHandler = cb;
+      },
       kill() {
+        intentionalKill = true;
         // A01：取消要停止子进程树（Hermes 可能再起子工具进程），
         // 不能只关 stdio 留孤儿进程。Windows 用 taskkill /T；失败回退 kill。
         if (child.pid) {
@@ -241,12 +286,36 @@ export class TuiGatewaySession {
         } else resolve();
         return;
       }
+      this.lastActivityAt = Date.now();
       const timer = setTimeout(() => {
+        clearInterval(watchdog);
         this.end('failed');
         reject(new IxaError(ErrorCodes.SERVER_UNAVAILABLE, 'TUI gateway 会话超时'));
       }, timeoutMs);
+
+      // vermes 模式：静默无响应心跳守卫（连续 60 秒无任何 stdio/事件输出判定假死）
+      const inactivityLimitMs = Math.min(timeoutMs, 60_000);
+      const watchdog = setInterval(() => {
+        if (this.status !== 'running') {
+          clearInterval(watchdog);
+          return;
+        }
+        if (Date.now() - this.lastActivityAt > inactivityLimitMs) {
+          clearInterval(watchdog);
+          clearTimeout(timer);
+          this.end('failed');
+          reject(
+            new IxaError(
+              ErrorCodes.SERVER_UNAVAILABLE,
+              `TUI gateway 进程无响应（超过 ${Math.round(inactivityLimitMs / 1000)}s 静默无输出），已安全中止`,
+            ),
+          );
+        }
+      }, 5_000);
+
       this.finished = (status) => {
         clearTimeout(timer);
+        clearInterval(watchdog);
         if (status === 'failed') {
           reject(new IxaError(ErrorCodes.SERVER_UNAVAILABLE, 'TUI gateway 会话失败'));
         } else resolve();

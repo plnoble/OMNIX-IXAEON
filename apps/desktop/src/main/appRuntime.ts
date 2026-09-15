@@ -1322,6 +1322,14 @@ export class AppRuntime {
     const skills = new SkillCandidateStore(this.db);
     return skills.proposeFromFailure(input);
   }
+
+  /**
+   * Mobius 启发：自演进聚合器（从历史连续失败中自动反思并提炼 Skill 候选）
+   */
+  autoEvolveSkillCandidates(projectId?: string | null) {
+    const skills = new SkillCandidateStore(this.db);
+    return skills.autoEvolveFromFailurePatterns(projectId);
+  }
 }
 
 /** 用户已确认隔离默认值：有 Codex 就真机派发，否则 Fake。 */
