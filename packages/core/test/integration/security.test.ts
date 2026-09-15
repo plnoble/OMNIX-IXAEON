@@ -78,9 +78,7 @@ describe('M5 安全：提示注入不触发工具/文件读取', () => {
 
   it('提取后问答引用注入文本而非执行（FakeProvider 无网络）', async () => {
     // 先用 FakeProvider 提取（入队结构化响应：注入文本作为资料被引用为条目）
-    const sourceId = (
-      db.prepare('SELECT id FROM sources LIMIT 1').get() as { id: string }
-    ).id;
+    const sourceId = (db.prepare('SELECT id FROM sources LIMIT 1').get() as { id: string }).id;
     const extractProvider = new FakeProvider('fake-sec-extract');
     extractProvider.enqueueStructured({
       items: [
@@ -118,7 +116,9 @@ describe('M5 安全：文件权限', () => {
     const sources = new SourceStore(db);
     const imports = new ImportService(db, vault, perms, sources);
     const doc = fixturePath('files', 'project-notes.md');
-    expect(() => imports.importFile(doc, { projectId: null, permissionId: "no-permission-id" })).toThrowError();
+    expect(() =>
+      imports.importFile(doc, { projectId: null, permissionId: 'no-permission-id' }),
+    ).toThrowError();
   });
 
   it('敏感文件（.env）即使在允许列表中也不可导入', () => {
@@ -128,9 +128,9 @@ describe('M5 安全：文件权限', () => {
     const imports = new ImportService(db, vault, perms, sources);
     const envFile = join(dir, 'app.env');
     writeFileSync(envFile, 'SECRET=1');
-    expect(() => imports.importFile(envFile, { projectId: null, permissionId: perms.grantFile(envFile).id })).toThrowError(
-      /敏感|不允许|env/i,
-    );
+    expect(() =>
+      imports.importFile(envFile, { projectId: null, permissionId: perms.grantFile(envFile).id }),
+    ).toThrowError(/敏感|不允许|env/i);
   });
 });
 
@@ -162,8 +162,7 @@ describe('M5 安全：日志泄漏', () => {
     const logger = new Logger({ file: logFile, baseFields: { app: 'ixaeon' } });
     const uniquePhrase = ` UNIQUE-SECRET-${Date.now()}-MARKER `;
     const unit = '全文对话正文XYZ'; // 9 字符
-    const longText =
-      `开头标记${uniquePhrase}` + unit.repeat(3000) + '结尾标记'; // > 27000 字符
+    const longText = `开头标记${uniquePhrase}` + unit.repeat(3000) + '结尾标记'; // > 27000 字符
     logger.info('批量任务进度', { text: longText, content: longText, count: 1 });
     logger.debug('debug 级别同样清洗', { prompt: longText });
     const content = readFileSync(logFile, 'utf8');
@@ -192,7 +191,9 @@ describe('M5 安全：日志泄漏', () => {
     expect(content).not.toContain(secretPhrase);
     // Error 序列化后 message / cause.message / response 是摘要，不是正文
     expect(content).toMatch(/"message":"\[content \d+ chars sha256:[0-9a-f]{12}\]"/);
-    expect(content).toMatch(/"cause":\{"name":"Error","message":"\[content \d+ chars sha256:[0-9a-f]{12}\]"\}/);
+    expect(content).toMatch(
+      /"cause":\{"name":"Error","message":"\[content \d+ chars sha256:[0-9a-f]{12}\]"\}/,
+    );
     expect(content).toMatch(/"response":"\[content \d+ chars sha256:[0-9a-f]{12}\]"/);
   });
 });
@@ -226,6 +227,8 @@ describe('M5 安全：无外联（除模型 API 外）', () => {
               host.startsWith('api.search.brave.com') ||
               host.startsWith('api.tavily.com') ||
               host.startsWith('api.tinyfish.ai') ||
+              host.startsWith('api.search.tinyfish.ai') ||
+              host.startsWith('api.fetch.tinyfish.ai') ||
               host.startsWith('evil.example'); // 注入样本字符串（仅资料文本，非请求目标）
             if (!allow) offenders.push(`${abs}: ${url}`);
           }

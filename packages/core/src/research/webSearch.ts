@@ -193,15 +193,14 @@ async function tinyfishSearch(
   limit: number,
   deps: WebSearchExecutorDeps,
 ): Promise<WebSearchOutcome> {
+  const url = `https://api.search.tinyfish.ai?query=${encodeURIComponent(query)}&limit=${encodeURIComponent(String(limit))}`;
   const json = (await httpJson(
-    'https://api.tinyfish.ai/v1/search',
+    url,
     {
-      method: 'POST',
+      method: 'GET',
       headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
+        'X-API-Key': apiKey,
       },
-      body: JSON.stringify({ query, limit, max_results: limit }),
     },
     deps,
   )) as TinyFishResponse;

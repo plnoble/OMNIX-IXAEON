@@ -290,6 +290,7 @@ export class TuiGatewaySession {
       const timer = setTimeout(() => {
         clearInterval(watchdog);
         this.end('failed');
+        this.transport.kill();
         reject(new IxaError(ErrorCodes.SERVER_UNAVAILABLE, 'TUI gateway 会话超时'));
       }, timeoutMs);
 
@@ -304,6 +305,7 @@ export class TuiGatewaySession {
           clearInterval(watchdog);
           clearTimeout(timer);
           this.end('failed');
+          this.transport.kill();
           reject(
             new IxaError(
               ErrorCodes.SERVER_UNAVAILABLE,

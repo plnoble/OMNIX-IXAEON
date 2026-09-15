@@ -710,6 +710,17 @@ ALTER TABLE research_sources ADD COLUMN discovered_by TEXT NOT NULL DEFAULT 'use
   CHECK (discovered_by IN ('user', 'auto'));
 `,
   },
+  {
+    id: 23,
+    name: 'research-source-provenance-repair',
+    sql: `
+-- Q07（审核 2026-09-15）：修复旧数据库中带有 auto_discovered 标记的历史来源，
+-- 迁移 22 将所有旧来源默认赋予 'user'，此处安全修正有可靠旧标记的来源为 'auto'。
+UPDATE research_sources
+SET discovered_by = 'auto'
+WHERE last_error = 'auto_discovered';
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

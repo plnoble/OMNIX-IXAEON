@@ -4,8 +4,8 @@
 
 1. [长期愿景与开发路线图](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_长期愿景与开发路线图.md)：理解最终目标和不能偏离的原则。
 2. [架构决策记录](D:/Agent/Project/OMNIX-IXAEON析衍/docs/IXAEON_架构决策记录.md)：区分用户目的、可替换技术选择和已实现事实，理解为什么选择当前路线。
-3. [当前 V0.3 重整开发计划](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_v0.3_重整开发计划_个人Agent内核与Hermes接入.md)：按 B0–B5 确定本轮范围与真实行为验收。
-4. `REVIEW_PACKET.md` 最新章节、当前 Git 状态、`docs/dev-log-v03.md` 及 [2026-09-11 独立审核](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_方向与质量独立审核_2026-09-11.md)：确定实际完成情况与未完成项。
+3. [V0.3 重整总计划](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_v0.3_重整开发计划_个人Agent内核与Hermes接入.md) 与 [下一阶段施工单：目标驱动个人 Agent 闭环](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_下一阶段开发计划_目标驱动个人Agent闭环_2026-09-15.md)：总计划 B0–B5 的门槛不降低，当前按 M0–M2 分批修边界、打通真实桌面办事、验证多话题日用。
+4. `REVIEW_PACKET.md` 最新章节、当前 Git 状态、`docs/dev-log-v03.md` 及 [bbe651f 最新代码审核](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_v0.3_最新代码审核_bbe651f_2026-09-15.md)：确定实际完成情况与未完成项。保留 [2026-09-11 独立审核](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_方向与质量独立审核_2026-09-11.md) 等历史依据，旧通过记录不代表新代码全链已验收。
 
 仓库移动后，上述链接按同名根目录文件读取。
 

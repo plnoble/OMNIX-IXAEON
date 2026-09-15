@@ -219,9 +219,11 @@ export class ResearchChecker {
 
       // 重新读取包含新增自动来源的完整来源列表
       const allSources = this.store.listSources(topic.id);
+      let renderError: string | null = null;
       for (const src of allSources) {
         if (pages >= topic.max_pages_per_run) break;
-        if (this.store.getTopic(topic.id).generation !== generation) {
+        const checkTopicBefore = this.store.getTopic(topic.id);
+        if (checkTopicBefore.paused || checkTopicBefore.generation !== generation) {
           throw new IxaError(ErrorCodes.JOB_CANCELLED, '关注已暂停/撤权，晚到结果作废');
         }
         try {
@@ -239,14 +241,20 @@ export class ResearchChecker {
             this.fetchDeps?.tinyfishFetcher &&
             isSpaOrDynamicSkeleton(fetched.body, entries[0].excerpt)
           ) {
+            // Q04 / T06：在发起新的外部云渲染前再次检查关注状态与暂停
+            const checkTopicRender = this.store.getTopic(topic.id);
+            if (checkTopicRender.paused || checkTopicRender.generation !== generation) {
+              throw new IxaError(ErrorCodes.JOB_CANCELLED, '关注已暂停/撤权，晚到结果作废');
+            }
             try {
               const rendered = await this.fetchDeps.tinyfishFetcher.fetchRendered(src.url);
               if (rendered.content && rendered.content.trim().length > 0) {
                 // 用渲染得到的正文替换原单页骨架
                 entries = [parsePage(rendered.content, fetched.finalUrl)];
               }
-            } catch {
-              // 动态渲染如果网络或配额异常，安全退守静态抓取结果，不中断整个运行
+            } catch (renderErr) {
+              // Q04 / T07：云渲染抛出错误不能静默丢弃，必须反映在运行状态中
+              renderError = `SPA 骨架云端渲染失败: ${renderErr instanceof Error ? renderErr.message : String(renderErr)}`;
             }
           }
 
@@ -362,7 +370,8 @@ export class ResearchChecker {
         modelDegraded > 0
           ? `模型研读失败 ${modelDegraded} 次，已降级为规则研读（模型服务故障或返回无效）`
           : null;
-      const finalRunError = [runError, degradedNote].filter(Boolean).join('；') || null;
+      const finalRunError =
+        [runError, degradedNote, renderError].filter(Boolean).join('；') || null;
       // 成功的最低标准：读了批准来源，或完成了一次真实搜索；
       // 零来源+搜索失败=这轮什么都没干成，如实记失败
       if (pages === 0 && (!searchUsed || searchError !== null)) {

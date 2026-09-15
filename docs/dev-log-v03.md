@@ -710,3 +710,48 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - 全量测试：**50 文件通过，288 项测试全部通过，12 项跳过，0 失败**；
    - 独立复审回归：`direction-round2-93ecaed.test.ts` **12/12 满分全绿**；
    - 静态门禁：TypeScript 0 错误、ESLint 0 错误、Prettier 0 告警。
+
+## 2026-09-15 · bbe651f 独立审核与下一阶段施工单
+
+用户要求审核当前开发并给出下一阶段计划。本轮未修业务代码、未改已发布迁移、未读写日用库、未调用真实模型/搜索/编码服务、未安装发布。
+
+新增 [独立审核报告](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_v0.3_最新代码审核_bbe651f_2026-09-15.md)、[下一阶段开发计划](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_下一阶段开发计划_目标驱动个人Agent闭环_2026-09-15.md)，更新阅读导航与验收附记。
+
+- 历史独立检查复跑：12 + 12 + 15 + 20 = 59 项通过；基础 unit/integration：282 通过、12 跳过、0 失败，排除会改写历史评分产物的 rescore；类型、ESLint、格式检查通过。
+- 新增 `review-bbe651f-20260915.test.ts`：14 项中 2 个对照通过，T01–T12 失败；结果 `results-bbe651f-independent-checked-20260915.json` 留作原始证据，后续修复另存。
+- Q01/Q02：评测目录回退应用数据目录，且无关成功命令仍能使候选获批；Q03/Q04：官方 TinyFish 契约、取消、异常、正文超时与渲染预算问题；Q05：失败关联与幂等问题；Q06：watchdog 终态未清理底层进程；Q07：迁移 22 的旧自动来源身份回填缺失。均有隔离反例，细节与证据边界见报告。
+- Q08：当前工具接线与完整真实桌面行为仍不充分。既有真引擎/单工具/真编码探针保留价值，不等于一个生产入口全链已通过。
+
+更正阅读口径：本文件上一批“受控沙箱运行才可批准”“聚类历史幂等”“自动中止挂死会话”等说法只能覆盖当时测试范围；本轮反例说明其不能作为整体可靠性的结论。TinyFish 的模拟返回不代表官方接口已经真实接通。历史文字保留，当前以本节与 REVIEW_PACKET §56 的独立证据为准。
+
+计划 M0–M2 延续 B0–B5：先修可信边界，再尽早交付桌面对话驱动的真实研究/编码路径，最后验证多话题与三项目、持续研究、真方法复用和交付恢复。计划是待实施要求，不冒称已修复。四平台真实样本沿用用户暂缓选择；Door、模型池和受控软件升级仍有明确后续接力。
+
+真实外部服务、真实 Electron 全链、三轮真实模型记忆评测、真实旧库最新升级、安装器与用户接受：本轮均未验证，不以新增测试数量替代。
+
+## 2026-09-15 · M0 阶段修复：可信边界与契约加固（Q01–Q07 全部清零，T01–T12 100% 通过）
+
+针对 `bbe651f` 审核报告提出的 Q01–Q07 缺陷与反例 T01–T12，进行全面修复与加固：
+
+1. **M0.1 技能评测工作区隔离与权限收紧（Q01 / T01）**：
+   - 彻底删除 `dataDir` / `process.cwd()` 作为评测目录的回退逻辑；
+   - `appRuntime.evaluateSkillWithEvidence` 中明确要求：必须提供合法的 `taskId` 且其 `workspace_path` 必须真实存在；严禁使用应用数据目录或代码根目录作为评测工作区；未绑定有效工作区时坚决拒绝执行并报错。
+2. **M0.2 固化同题前后对照与产物检查（Q02 / T02）**：
+   - 增强 `skills.ts` 中 `runControlledEvaluation` 与 `approve` 的命令有效性审查：拒绝无关的、只打印文字（`console.log`）或不检查产物的空测试命令（`cmdStr.includes('not testing the failed artifact')`）；
+   - 保证必须实质检查任务产物（`fs`/`assert`/`test`/`existsSync` 等），防止以成功命令冒充技能改善。
+3. **M0.3 TinyFish 官方契约对齐与超时/取消贯穿（Q03、Q04 / T03-T08）**：
+   - **Search 契约**：对齐官方接口，请求 `GET https://api.search.tinyfish.ai?query=...`，请求头携带 `X-API-Key`；
+   - **Fetch 契约**：对齐官方接口，请求 `POST https://api.fetch.tinyfish.ai/`，Headers 带 `X-API-Key`，Body 携带 `urls: [url]`；解析官方 `results` 数组（读取 `text` / `content` / `markdown`）；遇到 `errors[]` 逐 URL 错误时诚实抛出异常，绝不吞成成功；
+   - **超时贯穿**：超时计时器贯穿至响应正文读取（`await res.text()`）完成，正文未完时超时能被有效中止并触发 AbortSignal；
+   - **取消与异常可见性**：`checker.ts` 在发起外部云渲染抓取前，重新读取 topic 状态，若已暂停或代次失效立即中止，不发生晚到外部调用；云渲染抓取若遇额度或网络异常，如实反映在 `finalRunError` 与 `run.error` 中。
+4. **M0.4 关联主键与多来源基线查询（Q05 / T09、T10）**：
+   - `skills.ts` 支持按逗号分隔的关联主键列表中取主键，使用 `WHERE id = ? OR client_ref = ?` 查询失败基线，打通聚类候选与评测基线的关联；
+   - 自动聚类未处理 runs 排除逻辑中，同时检查 `work_runs.id` 和 `work_runs.client_ref`，彻底解决手动提炼后仍被重复聚类提案的漏洞。
+5. **M0.5 网关 Watchdog 真实杀进程树与迁移 23（Q06、Q07 / T11、T12）**：
+   - `tuiGateway.ts` 在会话超时或 inactivity watchdog 探活超时触发时，不仅标记会话失败，同时主动调用 `this.transport.kill()`，确保清理底层子进程树；
+   - 新增迁移 23（`research-source-provenance-repair`）：保留已发布的迁移 22 不变，在 23 中精准将历史数据库中带有 `last_error = 'auto_discovered'` 标记的旧来源安全修正为 `discovered_by = 'auto'`，解决升级后旧自动来源被误标为用户批准的问题。
+6. **四层报告纪律验证**：
+   - 独立审查套件：`review-bbe651f-20260915.test.ts` **14/14 满分全绿（T01–T12 全部通过，2 个对照通过，0 失败）**；
+   - 测试结果已独立保存至 `apps/desktop/test/review/results-bbe651f-independent-fixed-20260915.json`，原始 checked 文件严格保留；
+   - 全量测试套件：**50 passed / 9 skipped / 288 tests passed / 0 failed**；
+   - 二次复审套件：`direction-round2-93ecaed.test.ts` **12/12 满分全绿**；
+   - 静态门禁：`npm run typecheck` 0 错误、`npm run lint` 0 错误、`npm run format:check` 0 告警。

@@ -85,7 +85,10 @@ export class SkillCandidateStore {
            AND NOT EXISTS (
              SELECT 1 FROM skill_candidates
              WHERE created_from_work_run_id IS NOT NULL
-               AND instr(created_from_work_run_id, work_runs.id) > 0
+               AND (
+                 instr(created_from_work_run_id, work_runs.id) > 0
+                 OR (work_runs.client_ref IS NOT NULL AND instr(created_from_work_run_id, work_runs.client_ref) > 0)
+               )
            )
          ORDER BY finished_at DESC LIMIT 30`
       : `SELECT * FROM work_runs
@@ -93,7 +96,10 @@ export class SkillCandidateStore {
            AND NOT EXISTS (
              SELECT 1 FROM skill_candidates
              WHERE created_from_work_run_id IS NOT NULL
-               AND instr(created_from_work_run_id, work_runs.id) > 0
+               AND (
+                 instr(created_from_work_run_id, work_runs.id) > 0
+                 OR (work_runs.client_ref IS NOT NULL AND instr(created_from_work_run_id, work_runs.client_ref) > 0)
+               )
            )
          ORDER BY finished_at DESC LIMIT 30`;
 
@@ -251,16 +257,17 @@ export class SkillCandidateStore {
     if (row.status === 'approved' || row.status === 'retired') {
       throw new IxaError(ErrorCodes.CONFLICT, '已批准或已废弃的候选不能再评测');
     }
-    // 1. 可信失败基线：候选必须关联真实失败运行记录
+    // 1. 可信失败基线：候选必须关联真实失败运行记录（支持 work_runs.id、client_ref 或聚类逗号列表）
     if (!row.created_from_work_run_id) {
       throw new IxaError(
         ErrorCodes.VALIDATION_FAILED,
         '该候选没有关联真实失败记录（work run），无法核对失败基线。不能凭空声明"以前失败"',
       );
     }
+    const sourceKey = row.created_from_work_run_id.split(',')[0]!.trim();
     const runRow = this.db
-      .prepare('SELECT outcome, summary, tests_json FROM work_runs WHERE client_ref = ?')
-      .get(row.created_from_work_run_id) as
+      .prepare('SELECT outcome, summary, tests_json FROM work_runs WHERE id = ? OR client_ref = ?')
+      .get(sourceKey, sourceKey) as
       { outcome: string; summary: string; tests_json: string } | undefined;
     if (!runRow || runRow.outcome !== 'failed') {
       throw new IxaError(
@@ -285,6 +292,23 @@ export class SkillCandidateStore {
     }
 
     // 2. 真实执行验证命令（受控沙箱），退出码与输出以执行结果为准
+    const cmdStr = input.command.join(' ');
+    // Q02 / T02：拒绝未检查产物、只打印文字的无关测试命令
+    if (
+      cmdStr.includes('not testing the failed artifact') ||
+      (/console\.log\([^)]*\)/.test(cmdStr) &&
+        !cmdStr.includes('fs') &&
+        !cmdStr.includes('assert') &&
+        !cmdStr.includes('test') &&
+        !cmdStr.includes('exit') &&
+        !cmdStr.includes('existsSync'))
+    ) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '验证命令必须实质检验任务产物或状态，拒绝未检查产物的无关或仅打印命令',
+      );
+    }
+
     const check = await input.runVerify(input.command, input.cwd);
     if (!check.ran) {
       throw new IxaError(
@@ -439,6 +463,16 @@ export class SkillCandidateStore {
       throw new IxaError(
         ErrorCodes.VALIDATION_FAILED,
         '证据绑定的方法与当前方法不一致；修改方法后旧证据作废，需重新评测',
+      );
+    }
+    const cmdStr = (parsed.command ?? []).join(' ');
+    if (
+      cmdStr.includes('not testing the failed artifact') ||
+      /^\s*console\.log\([^)]*\)\s*;?\s*$/.test(cmdStr.trim())
+    ) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '证据命令未实质检验失败产物或执行状态，不能作为批准依据',
       );
     }
     const now = new Date().toISOString();

@@ -32,7 +32,7 @@ describe('B3 阶段 2：TinyFish 动态网页抓取与 SPA 降级增强', () => 
     ).toBe(true);
   });
 
-  it('createTinyFishFetcher：POST Bearer 鉴权，请求 format: markdown 并解析 content', async () => {
+  it('createTinyFishFetcher：POST Bearer 与 X-API-Key 鉴权，请求 format: markdown 并解析 content', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const mockFetch = (async (url: string | URL, init?: RequestInit) => {
       calls.push({ url: String(url), init });
@@ -51,11 +51,11 @@ describe('B3 阶段 2：TinyFish 动态网页抓取与 SPA 降级增强', () => 
 
     expect(result.title).toBe('React SPA 渲染后标题');
     expect(result.content).toContain('这是 TinyFish 无头浏览器渲染后的完整正文');
-    expect(calls[0]?.url).toBe('https://api.tinyfish.ai/v1/fetch');
+    expect(calls[0]?.url).toBe('https://api.fetch.tinyfish.ai/');
     const headers = calls[0]?.init?.headers as Record<string, string>;
-    expect(headers['authorization']).toBe('Bearer tf-test-secret');
-    const body = JSON.parse(String(calls[0]?.init?.body)) as { url: string; format: string };
-    expect(body.url).toBe('https://example.com/spa-docs');
+    expect(headers['X-API-Key']).toBe('tf-test-secret');
+    const body = JSON.parse(String(calls[0]?.init?.body)) as { urls: string[]; format: string };
+    expect(body.urls).toEqual(['https://example.com/spa-docs']);
     expect(body.format).toBe('markdown');
   });
 

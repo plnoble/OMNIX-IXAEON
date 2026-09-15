@@ -70,24 +70,29 @@ export function createTinyFishFetcher(
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timer);
 
+      let text = '';
       let res: Response;
       try {
-        res = await fetchFn('https://api.tinyfish.ai/v1/fetch', {
+        res = await fetchFn('https://api.fetch.tinyfish.ai/', {
           method: 'POST',
           signal: controller.signal,
           headers: {
             'content-type': 'application/json',
+            'X-API-Key': apiKey,
             authorization: `Bearer ${apiKey}`,
             accept: 'application/json',
           },
           body: JSON.stringify({
-            url: valid.toString(),
+            urls: [valid.toString()],
             format: 'markdown',
           }),
         });
+        text = await res.text();
       } catch (err) {
         const reason =
-          err instanceof Error && err.name === 'AbortError' ? `超时（${timer}ms）` : String(err);
+          (err instanceof Error && err.name === 'AbortError') || controller.signal.aborted
+            ? `超时（${timer}ms）`
+            : String(err);
         throw new IxaError(
           ErrorCodes.SERVER_UNAVAILABLE,
           `TinyFish 动态抓取服务不可达（${reason}）。未完成动态渲染，不伪造正文。`,
@@ -95,8 +100,6 @@ export function createTinyFishFetcher(
       } finally {
         clearTimeout(timeout);
       }
-
-      const text = await res.text();
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           throw new IxaError(
@@ -117,36 +120,93 @@ export function createTinyFishFetcher(
       }
 
       try {
-        const json = JSON.parse(text) as Record<string, unknown>;
+        const json = JSON.parse(text) as {
+          results?: Array<{
+            url?: string;
+            final_url?: string;
+            title?: string;
+            text?: string;
+            content?: string;
+            markdown?: string;
+            status?: number;
+          }>;
+          errors?: Array<{
+            url?: string;
+            error?: string;
+            status?: number;
+            message?: string;
+          }>;
+          data?: Record<string, unknown>;
+          content?: string;
+          markdown?: string;
+          text?: string;
+          title?: string;
+          status?: number;
+        };
+
+        // Q03 / T05：处理官方逐 URL 错误
+        const targetStr = valid.toString();
+        const urlError =
+          json.errors?.find((e) => e.url === targetStr || e.url === targetUrl) ??
+          (Array.isArray(json.errors) && json.errors.length > 0 ? json.errors[0] : null);
+        if (urlError) {
+          throw new IxaError(
+            ErrorCodes.SERVER_UNAVAILABLE,
+            `TinyFish 动态抓取失败（目标 ${urlError.url ?? targetUrl} 报错: ${urlError.error ?? urlError.message ?? 'error'}，HTTP ${urlError.status ?? 400}）`,
+          );
+        }
+
+        // Q03 / T04：优先从 results 数组读取
+        const resultItem =
+          json.results?.find((r) => r.url === targetStr || r.url === targetUrl) ??
+          json.results?.[0];
+
         const data =
           json && typeof json.data === 'object' && json.data !== null
             ? (json.data as Record<string, unknown>)
             : json;
 
         const content =
-          typeof data?.content === 'string'
+          resultItem?.text ??
+          resultItem?.content ??
+          resultItem?.markdown ??
+          (typeof data?.content === 'string'
             ? data.content
             : typeof data?.markdown === 'string'
               ? data.markdown
               : typeof data?.text === 'string'
                 ? data.text
-                : '';
+                : '');
 
         const title =
-          typeof data?.title === 'string'
+          resultItem?.title ??
+          (typeof data?.title === 'string'
             ? data.title
             : typeof json?.title === 'string'
               ? String(json.title)
-              : '';
+              : '');
 
-        const status = typeof data?.status === 'number' ? data.status : res.status;
+        const status =
+          typeof resultItem?.status === 'number'
+            ? resultItem.status
+            : typeof data?.status === 'number'
+              ? (data.status as number)
+              : res.status;
+
+        if (!content && json.errors && json.errors.length > 0) {
+          throw new IxaError(
+            ErrorCodes.SERVER_UNAVAILABLE,
+            `TinyFish 动态抓取返回错误: ${JSON.stringify(json.errors)}`,
+          );
+        }
 
         return {
           title,
           content,
           status,
         };
-      } catch {
+      } catch (err) {
+        if (err instanceof IxaError) throw err;
         throw new IxaError(
           ErrorCodes.SERVER_UNAVAILABLE,
           `TinyFish 动态抓取返回了无法解析的响应：${brief(text)}`,

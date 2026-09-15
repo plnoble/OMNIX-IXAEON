@@ -1,0 +1,33 @@
+{
+  "baseline": "bbe651f",
+  "date": "2026-09-15",
+  "gates": [
+    {
+      "name": "typecheck",
+      "cmd": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+      "chunk_id": "ef95eb",
+      "wall_time_seconds": 6.9133785,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    },
+    {
+      "name": "lint",
+      "cmd": "node node_modules/eslint/bin/eslint.js .",
+      "chunk_id": "e40684",
+      "wall_time_seconds": 4.9068453,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    },
+    {
+      "name": "format",
+      "cmd": "node node_modules/prettier/bin/prettier.cjs --check \"apps/*/src/**/*.{ts,tsx,css,html}\" \"packages/*/src/**/*.{ts,tsx}\" \"scripts/**/*.mjs\" \"apps/*/scripts/**/*.mjs\" \"*.{ts,mjs,json}\"",
+      "chunk_id": "5e2a8d",
+      "wall_time_seconds": 3.1080778000000002,
+      "exit_code": 0,
+      "original_token_count": 17,
+      "output": "Checking formatting...\nAll matched files use Prettier code style!\n"
+    }
+  ]
+}

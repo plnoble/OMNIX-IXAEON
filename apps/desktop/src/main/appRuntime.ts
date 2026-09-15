@@ -1090,7 +1090,17 @@ export class AppRuntime {
         .get(input.taskId) as { workspace_path: string | null } | undefined;
       cwd = task?.workspace_path ?? undefined;
     }
-    const runDir = cwd ?? (this.dataDir || process.cwd());
+    // M0.1 / Q01：评测必须绑定有效的任务隔离工作区，坚决拒绝回退到 dataDir 或 process.cwd()
+    if (!cwd || !existsSync(cwd)) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '受控评测必须绑定有效的编码任务工作区，未提供有效工作区或路径不存在，拒绝在应用数据目录执行',
+      );
+    }
+    if (this.dataDir && resolve(cwd) === resolve(this.dataDir)) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '受控评测禁止将应用数据目录作为执行工作区');
+    }
+    const runDir = cwd;
     await store.runControlledEvaluation(input.id, {
       method: input.method,
       benefit: input.benefit,
