@@ -783,3 +783,8 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - 复跑二次复审套件 `direction-round2-93ecaed.test.ts`：**12/12 全部通过**；
    - 全量自动化测试套件：**51 个测试文件、290 项测试全部通过（0 失败，9 跳过）**；
    - 静态门禁：TypeScript `tsc --noEmit`、`eslint .`、`prettier --check` 保持 0 错误、0 告警。
+## 2026-09-15 · v0.2.9 发版
+
+发布增量版本 v0.2.9。包含 M0 阶段可信边界加固（Q01–Q07 全部清零，T01–T12 100% 通过）与 M1 阶段目标驱动桌面办事闭环（NP07 / NP08）。
+
+安装包 `IXAEON-Setup-0.2.9.exe` 122,985,478 字节，SHA-256 `722CA60B1EF35E0F54D456CF6BAB9BAA781522D3F51231AA5579521CF131DD48`。

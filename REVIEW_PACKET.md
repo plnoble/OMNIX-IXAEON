@@ -1262,3 +1262,16 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
   - 自动化测试通过：全量 290 项测试通过，新增 M1 闭环测试与历史复审全部通过；
   - 真实环境通过：受控沙箱与独立多条件代码验证命令真实执行通过；
   - 用户接受：待用户验收。
+## 59. v0.2.9 发版（2026-09-15）
+
+日用增量，不是 0.3.0 正式版。
+
+包含：
+- M0 契约与可信边界加固（Q01–Q07 全部清零，T01–T12 100% 通过）；
+- M1 MCP 正式办事工具链（`search_web`、`read_web`、`propose_task`、`get_task_status`）及结果协议回交；
+- M1 目标驱动桌面办事全流程闭环（桌面下达目标 → Agent 提案 → 桌面批准 → 受控执行 → 独立多条件验证 → pending_accept → 桌面验收完成并回交会话）；
+- 迁移 23 历史来源身份安全修复；
+- 独立 Windows NSIS 安装包构建。
+
+- 安装包：`IXAEON-Setup-0.2.9.exe`（122,985,478 字节）
+- SHA-256：`722CA60B1EF35E0F54D456CF6BAB9BAA781522D3F51231AA5579521CF131DD48`
