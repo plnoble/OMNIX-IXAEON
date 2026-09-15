@@ -169,6 +169,13 @@ export {
   type ContextSelectionResult,
 } from './memory/contextSelector.js';
 export {
+  createTinyFishFetcher,
+  isSpaOrDynamicSkeleton,
+  type TinyFishFetcher,
+  type TinyFishFetchResult,
+  type TinyFishFetchDeps,
+} from './research/tinyfishFetch.js';
+export {
   MEMORY_EVAL_SCENARIOS,
   runDeterministicMemoryEval,
   type MemoryEvalScenario,

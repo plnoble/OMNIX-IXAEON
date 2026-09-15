@@ -1,6 +1,7 @@
 import { lookup } from 'node:dns/promises';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { assertPublicHttpsUrl, isBlockedResolvedAddress } from './urlSafety.js';
+import type { TinyFishFetcher } from './tinyfishFetch.js';
 
 export const RESEARCH_TIMEOUT_MS = 20_000;
 export const RESEARCH_MAX_BYTES = 2 * 1024 * 1024;
@@ -17,6 +18,8 @@ export interface FetchDeps {
   lookup?(hostname: string): Promise<Array<{ address: string; family: number }>>;
   fetch?(url: string, init: RequestInit): Promise<Response>;
   now?(): number;
+  /** 可选的 TinyFish 动态网页渲染抓取器（B3 阶段 2） */
+  tinyfishFetcher?: TinyFishFetcher;
 }
 
 /**

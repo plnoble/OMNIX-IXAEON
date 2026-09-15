@@ -60,7 +60,8 @@ import {
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
-import { desktopResearchFetchDeps } from './researchFetch.js';
+import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './researchFetch.js';
+import type { TinyFishFetcher } from '@ixaeon/core';
 import { syncBundledExtension } from './extensionBundle.js';
 
 /**
@@ -157,7 +158,7 @@ export class AppRuntime {
     const research = new ResearchChecker(
       db,
       systemClock,
-      desktopResearchFetchDeps(),
+      desktopResearchFetchDeps(() => runtimeRef.current?.getTinyFishFetcher() ?? undefined),
       () => runtimeRef.current?.getWebSearchExecutor() ?? undefined,
       () => runtimeRef.current?.getProvider() ?? null,
     );
@@ -591,6 +592,24 @@ export class AppRuntime {
     }
   }
 
+  /**
+   * TinyFish 动态网页抓取器（B3 阶段 2）。配置了 TinyFish 时在遇到 SPA 页面时触发渲染抓取。
+   */
+  getTinyFishFetcher(): TinyFishFetcher | null {
+    const ws = this.config.webSearch;
+    if (!ws || ws.provider !== 'tinyfish' || !ws.apiKeyPresent) return null;
+    const encrypted = ws.apiKeyEncrypted;
+    if (!encrypted) return null;
+    const apiKey = decryptApiKey(encrypted);
+    if (!apiKey) return null;
+    try {
+      return createDesktopTinyFishFetcher(apiKey);
+    } catch (err) {
+      this.logger.warn('TinyFish 抓取器创建失败', { error: String(err) });
+      return null;
+    }
+  }
+
   /** 设置页「测试搜索」：真实查询一次，结果只回标题/URL/摘要，不落库。 */
   async testWebSearch(input: { query: string; apiKey?: string }): Promise<{
     provider: 'brave' | 'tavily' | 'tinyfish';
@@ -741,7 +760,7 @@ export class AppRuntime {
       this.search,
       this.coding,
       this.projects,
-      desktopResearchFetchDeps(),
+      desktopResearchFetchDeps(() => this.getTinyFishFetcher() ?? undefined),
       this.getWebSearchExecutor() ?? undefined,
     );
     // A06：同一桌面对话复用 AgentSession（进而复用引擎侧 Hermes 会话——
@@ -984,7 +1003,7 @@ export class AppRuntime {
     const research = new ResearchChecker(
       db,
       systemClock,
-      desktopResearchFetchDeps(),
+      desktopResearchFetchDeps(() => this.getTinyFishFetcher() ?? undefined),
       () => this.getWebSearchExecutor() ?? undefined,
       () => this.getProvider(),
     );

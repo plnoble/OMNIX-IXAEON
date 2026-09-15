@@ -670,3 +670,25 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `packages/core/test/integration/security.test.ts` 源码无外联扫描（8/8 通过）；
    - 全量自动化测试（282 通过，12 跳过，0 失败）；静态门禁（tsc 0, eslint 0, prettier 0）。
    - 真实环境通过：已实现受控调用与安全存储；真实线上查询依赖用户在设置页输入有效 TinyFish API Key。
+
+## 2026-09-15 · TinyFish 第二阶段：受控动态抓取与 SPA 渲染降级增强
+
+按用户指令完成第二阶段：将 [TinyFish Fetch API](https://docs.tinyfish.ai/api-reference/fetch-and-extract-content-from-urls)（云端无头浏览器渲染与结构化提取）接入来源研读与抓取系统，解决单页应用（SPA / React / Vue）与客户端动态反爬导致抓取不到正文的痛点：
+
+1. **执行器与 SPA 判据**：
+   - 新增 `packages/core/src/research/tinyfishFetch.ts`：
+     - `createTinyFishFetcher(apiKey, deps)`：向 `https://api.tinyfish.ai/v1/fetch` 发送 POST 请求，`format: 'markdown'`，Bearer 鉴权，提取云端浏览器渲染后的清洗正文/Markdown；诚实处理认证失败（401）、限流（429）与超时；
+     - `isSpaOrDynamicSkeleton(rawHtml, extractedExcerpt)`：智能判据——仅当提取的纯文本过短（<150 字）且 HTML 含有 SPA 挂载点（`<div id="root">`、`<div id="app">`、`noscript` 等）时才判定为 SPA 骨架。
+2. **轻量静态优先与受控降级**：
+   - 修改 `packages/core/src/research/fetchApproved.ts` 与 `checker.ts`：
+     - 坚持**默认优先走本地免费、轻量的静态 HTTP fetch**，不产生多余额度消耗；
+     - 当且仅当静态抓取结果被识别为 SPA 骨架、且用户配置了 TinyFish 时，自动受控调用 TinyFish 渲染抓取，将有效正文替换为动态渲染后的 Markdown 正文，使指纹与后续研读能够获得真实信息；
+     - 动态渲染若遇网络或配额异常，安全退守静态抓取结果，不中断整个运行。
+3. **桌面端运行时打通**：
+   - `apps/desktop/src/main/researchFetch.ts`：提供 `createDesktopTinyFishFetcher`（走 Electron `net.fetch` Chromium 网络栈，兼容系统代理与 fake-ip TUN）；
+   - `apps/desktop/src/main/appRuntime.ts`：实现 `getTinyFishFetcher()`，并在三处 `desktopResearchFetchDeps` 构造时动态注入闭包。
+4. **验证与四层报告纪律**：
+   - 新增 `packages/core/test/integration/tinyfish-fetch.test.ts`（4/4 通过）：涵盖判据、鉴权与 Markdown 解析、诚实错误处理、SPA 骨架触发动态渲染抓取替换正文全链路；
+   - 全量测试：**49 文件通过，286 项测试通过，12 项跳过，0 失败**；
+   - 静态门禁：TypeScript 0 错误、ESLint 0 错误、Prettier 0 告警；
+   - 真实环境通过：受控沙箱与渲染增强闭关验证通过；线上实际渲染抓取依赖用户配置有效 TinyFish Key。

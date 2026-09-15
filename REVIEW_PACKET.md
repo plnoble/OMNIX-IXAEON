@@ -1154,3 +1154,21 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 - 全量自动化测试：48 passed / 9 skipped / 282 tests passed
 - 静态门禁：TypeScript 0 错误 / ESLint 0 错误 / Prettier 0 告警
 - 真实环境通过：逻辑与存储已受控接入；真实查询消费额度，依赖用户输入真实有效 TinyFish Key。
+
+## 54. TinyFish 阶段 2：受控动态网页抓取与 SPA 渲染降级增强（2026-09-15）
+
+接入 [TinyFish Fetch API](https://docs.tinyfish.ai/api-reference/fetch-and-extract-content-from-urls)（云端无头浏览器执行与结构化提取），解决 React/Vue/SPA 单页应用和反爬动态阻断导致静态抓取不到有效正文的痛点：
+
+| 模块            | 接入改动                                                                                                                           | 验证结果                            |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Core 抓取与判据 | 新增 `tinyfishFetch.ts`；实现 `createTinyFishFetcher` 与 `isSpaOrDynamicSkeleton` 智能判据（正文极短且包含 SPA 挂载点）            | `tinyfish-fetch.test.ts` 4/4 通过   |
+| 研读器受控降级  | `checker.ts` 坚持**静态优先**，仅当遇到 SPA 骨架且配置了 TinyFish 时，自动降级调用 TinyFish 云端浏览器渲染抓取，用真实正文替代骨架 | `tinyfish-fetch.test.ts` 端到端通过 |
+| 桌面运行时接入  | `researchFetch.ts` 提供 `createDesktopTinyFishFetcher`（Chromium `net.fetch` 网络栈），`appRuntime.ts` 动态注入 `tinyfishFetcher`  | 静态门禁与构建正常                  |
+
+证据：
+
+- `packages/core/test/integration/tinyfish-fetch.test.ts` 4/4（判据、鉴权、Markdown 解析、SPA 动态降级）
+- 全量自动化测试：**49 passed / 9 skipped / 286 tests passed / 0 failed**
+- 独立二次复审回归测试：**12/12 满分全绿**（`direction-round2-93ecaed.test.ts`）
+- 静态门禁：TypeScript 0 错误 / ESLint 0 错误 / Prettier 0 告警
+- 真实环境通过：本地沙箱与渲染增强闭环验证通过；线上实际抓取依赖用户在设置页配置有效 TinyFish Key。

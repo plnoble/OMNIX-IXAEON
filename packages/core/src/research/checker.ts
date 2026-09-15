@@ -3,6 +3,7 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { fetchApprovedSource, type FetchDeps } from './fetchApproved.js';
 import { parseFeed, parsePage } from './parse.js';
+import { isSpaOrDynamicSkeleton } from './tinyfishFetch.js';
 import { ResearchStore } from './researchStore.js';
 import { assertPublicHttpsUrl } from './urlSafety.js';
 import { sanitizePublicQuery } from '../memory/querySanitize.js';
@@ -226,10 +227,28 @@ export class ResearchChecker {
         try {
           const fetched = await fetchApprovedSource(src.url, this.fetchDeps);
           pages += 1;
-          const entries =
+          let entries =
             src.kind === 'feed'
               ? parseFeed(fetched.body, fetched.finalUrl)
               : [parsePage(fetched.body, fetched.finalUrl)];
+
+          // B3 阶段 2：SPA 动态骨架检测与 TinyFish 渲染抓取降级增强
+          if (
+            src.kind === 'page' &&
+            entries[0] &&
+            this.fetchDeps?.tinyfishFetcher &&
+            isSpaOrDynamicSkeleton(fetched.body, entries[0].excerpt)
+          ) {
+            try {
+              const rendered = await this.fetchDeps.tinyfishFetcher.fetchRendered(src.url);
+              if (rendered.content && rendered.content.trim().length > 0) {
+                // 用渲染得到的正文替换原单页骨架
+                entries = [parsePage(rendered.content, fetched.finalUrl)];
+              }
+            } catch {
+              // 动态渲染如果网络或配额异常，安全退守静态抓取结果，不中断整个运行
+            }
+          }
 
           // 页面指纹未变：自上次检查以来毫无新变化，不重复研读与通知
           if (
