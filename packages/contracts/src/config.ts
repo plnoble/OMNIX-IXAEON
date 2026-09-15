@@ -45,7 +45,7 @@ export const appConfigSchema = z.object({
   /** 受控网页搜索（B3）：provider=none 时 search_web 诚实失败 */
   webSearch: z
     .object({
-      provider: z.enum(['none', 'brave', 'tavily']).default('none'),
+      provider: z.enum(['none', 'brave', 'tavily', 'tinyfish']).default('none'),
       /** Electron safeStorage 加密后的搜索 API Key（base64）。永不明文落盘。 */
       apiKeyEncrypted: z.string().nullable().default(null),
       /** 是否已配置 Key（UI 状态展示；未配置则 search_web 报 IXA0017） */

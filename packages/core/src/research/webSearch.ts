@@ -12,7 +12,7 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
  * 测试注入 fetchFn；生产用全局 fetch。
  */
 
-export type WebSearchProvider = 'brave' | 'tavily';
+export type WebSearchProvider = 'brave' | 'tavily' | 'tinyfish';
 
 export interface WebSearchHit {
   title: string;
@@ -170,6 +170,70 @@ async function tavilySearch(
   return { provider: 'tavily', query, hits };
 }
 
+// --- TinyFish ---
+
+interface TinyFishResult {
+  title?: unknown;
+  url?: unknown;
+  snippet?: unknown;
+  content?: unknown;
+  description?: unknown;
+  text?: unknown;
+}
+
+interface TinyFishResponse {
+  results?: TinyFishResult[];
+  data?: TinyFishResult[];
+  items?: TinyFishResult[];
+}
+
+async function tinyfishSearch(
+  apiKey: string,
+  query: string,
+  limit: number,
+  deps: WebSearchExecutorDeps,
+): Promise<WebSearchOutcome> {
+  const json = (await httpJson(
+    'https://api.tinyfish.ai/v1/search',
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ query, limit, max_results: limit }),
+    },
+    deps,
+  )) as TinyFishResponse;
+  const rawList = Array.isArray(json?.results)
+    ? json.results
+    : Array.isArray(json?.data)
+      ? json.data
+      : Array.isArray(json?.items)
+        ? json.items
+        : [];
+  const hits: WebSearchHit[] = rawList
+    .filter((r) => typeof r.url === 'string' && typeof r.title === 'string')
+    .map((r) => {
+      const snip =
+        typeof r.snippet === 'string'
+          ? r.snippet
+          : typeof r.content === 'string'
+            ? r.content
+            : typeof r.description === 'string'
+              ? r.description
+              : typeof r.text === 'string'
+                ? r.text
+                : '';
+      return {
+        title: String(r.title),
+        url: String(r.url),
+        snippet: snip,
+      };
+    });
+  return { provider: 'tinyfish', query, hits };
+}
+
 /**
  * 创建搜索执行器。provider 是实际服务；Key 由调用方解密后传入（永不明文落盘）。
  * 未知 provider 抛参数错（配置层已用 enum 限制，这里是防线二）。
@@ -192,6 +256,12 @@ export function createWebSearchExecutor(
     return {
       provider,
       search: (query, limit = 5) => tavilySearch(apiKey, query, limit, deps),
+    };
+  }
+  if (provider === 'tinyfish') {
+    return {
+      provider,
+      search: (query, limit = 5) => tinyfishSearch(apiKey, query, limit, deps),
     };
   }
   throw new IxaError(

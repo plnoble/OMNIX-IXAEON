@@ -115,7 +115,7 @@ export function SettingsPage() {
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
   const [searchForm, setSearchForm] = useState<{
-    provider: 'none' | 'brave' | 'tavily';
+    provider: 'none' | 'brave' | 'tavily' | 'tinyfish';
     apiKey: string;
   }>({ provider: 'none', apiKey: '' });
   const [searchTest, setSearchTest] = useState<{
@@ -432,7 +432,7 @@ export function SettingsPage() {
             onChange={(e) => {
               setSearchForm({
                 ...searchForm,
-                provider: e.target.value as 'none' | 'brave' | 'tavily',
+                provider: e.target.value as 'none' | 'brave' | 'tavily' | 'tinyfish',
               });
               setSearchTest({ busy: false, result: null });
             }}
@@ -441,6 +441,7 @@ export function SettingsPage() {
             <option value="none">不配置（诚实失败）</option>
             <option value="brave">Brave Search API</option>
             <option value="tavily">Tavily API</option>
+            <option value="tinyfish">TinyFish API (Web Agent)</option>
           </select>
         </Field>
         {searchForm.provider !== 'none' && (

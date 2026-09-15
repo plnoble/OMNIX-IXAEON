@@ -86,6 +86,40 @@ describe('B3 网页搜索执行器（mock fetch，不联机）', () => {
     expect(body.max_results).toBe(3);
   });
 
+  it('tinyfish：POST Bearer 鉴权，解析 results 列表', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchFn = (async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 'TinyFish 搜索结果',
+              url: 'https://tinyfish.ai/doc',
+              snippet: 'TinyFish AI Web Agent 摘要',
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    const exec = createWebSearchExecutor('tinyfish', 'tf-secret-key', { fetchFn });
+    const out = await exec.search('autonomous agents', 4);
+    expect(out.provider).toBe('tinyfish');
+    expect(out.hits).toHaveLength(1);
+    expect(out.hits[0]).toEqual({
+      title: 'TinyFish 搜索结果',
+      url: 'https://tinyfish.ai/doc',
+      snippet: 'TinyFish AI Web Agent 摘要',
+    });
+    expect(calls[0]?.url).toBe('https://api.tinyfish.ai/v1/search');
+    const headers = calls[0]?.init?.headers as Record<string, string>;
+    expect(headers['authorization']).toBe('Bearer tf-secret-key');
+    const body = JSON.parse(String(calls[0]?.init?.body)) as { query: string; limit: number };
+    expect(body.query).toBe('autonomous agents');
+    expect(body.limit).toBe(4);
+  });
+
   it('401/429/网络失败都诚实抛错，不造结果', async () => {
     const fetch401 = (async () =>
       new Response('{"error":"denied"}', { status: 401 })) as unknown as typeof fetch;

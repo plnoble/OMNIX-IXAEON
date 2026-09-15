@@ -593,7 +593,7 @@ export class AppRuntime {
 
   /** 设置页「测试搜索」：真实查询一次，结果只回标题/URL/摘要，不落库。 */
   async testWebSearch(input: { query: string; apiKey?: string }): Promise<{
-    provider: 'brave' | 'tavily';
+    provider: 'brave' | 'tavily' | 'tinyfish';
     hits: Array<{ title: string; url: string; snippet: string }>;
   }> {
     const query = input.query.trim();

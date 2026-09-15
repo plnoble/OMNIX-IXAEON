@@ -948,7 +948,6 @@ Ask 入口先探 Hermes；未接通则走 Core 有界工具循环并记 `runtime
 
 分层证据：mock 执行器 5/5（`b3-websearch.test.ts`）+ 研究循环合成 8/8 + 生产路径用户确认。未完成：真实 Tavily×研究循环（用户应用内跑一次）、paid_budget_mode 接搜索次数、B5 导入器、记忆模型门槛。本批改动不在 0.2.7（发版先于本批），下版携带。
 
-
 ## 42. B5 三平台导入器 + B2 三轮真实评测 + B4 真实项目探针（2026-09-13 续三/四）
 
 **B5 三平台导入器**（`b5-platform-importers.test.ts` 8/8）：按用户口径（四平台真实样本不再索取，公开格式实现+合成验证，真实数据随用随填）实现 Claude conversations.json（线性、文本块、附件披露）、Grok prod-grok-backend.json（DAG+BSON 时间+角色归一）、Gemini MyActivity.json（活动日志重建+双变体+截断如实标注）；文件名+结构双探测、512MB 上限、跨格式不误吞、端到端授权/幂等/撤销拒绝/坏格式诚实失败。迁移 19 重建 sources 扩 provider 枚举——第一版列清单与真实结构不符（漏 4 列、漏 work_result、索引名错），按迁移 1-17 真实演化修正后 17→19 升级测试同步更新（18 列全保留+四索引重建+外键关停对齐迁移 16 做法）。
@@ -972,21 +971,22 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 **预检**：tsc 0 错误；integration 234 通过+10 跳过（47 文件）；审计 20/20；R15 真实日用库副本 19→20 幂等保全、源库字节不变。
 
 **发布记录**：commit + tag v0.2.8 + GitHub Release（gh release create，附 exe/latest.yml/blockmap 与发布说明）。
+
 ## 44. 独立审核 2026-09-13 第一批修复：A01–A05 + A10（restructure 13 反例转绿）
 
 审核基线 `47e1f8e`（0.2.8 后）。修复批全部完成并验证：
 
-| 审核条目 | 修复 | 反例 |
-|---|---|---|
-| A01 工具审批/次数/取消边界 | 精确协议字段匹配+四道执行边界+进程树终止+能力诚实 | H01–H05 转绿 |
-| A02 原文受众泄漏 | modelMayReadSegment 统一口径（未绑定来源原文一律不发） | M01 转绿，C02 保持 |
-| A03 撤权后隐式重建 | 授权状态机+显式恢复入口；普通提问不再隐式 grant | M03 转绿 |
-| A04 验证器自扩权限 | 参数剥离/强制工作区边界/非 Node 明确不裸跑/取消接入 | E02 转绿，C01 保持 |
-| A05 删除漏检+验证器改动 | 三方 diff 补删除+符号链接指纹+验证后复检 | E01/E03 转绿 |
-| A07 评分器（部分） | 空回答=必答全缺失 | Q01 转绿 |
-| A09 Skill（部分） | 无前后证据不能批准 | S01 转绿 |
-| A08 研究（部分） | 定时轮次显式预算下自主搜索并扣额度 | R01 转绿 |
-| A10 门禁 | ESLint 0 / Prettier 0 / tsc 0 | verify 各步过 |
+| 审核条目                   | 修复                                                   | 反例               |
+| -------------------------- | ------------------------------------------------------ | ------------------ |
+| A01 工具审批/次数/取消边界 | 精确协议字段匹配+四道执行边界+进程树终止+能力诚实      | H01–H05 转绿       |
+| A02 原文受众泄漏           | modelMayReadSegment 统一口径（未绑定来源原文一律不发） | M01 转绿，C02 保持 |
+| A03 撤权后隐式重建         | 授权状态机+显式恢复入口；普通提问不再隐式 grant        | M03 转绿           |
+| A04 验证器自扩权限         | 参数剥离/强制工作区边界/非 Node 明确不裸跑/取消接入    | E02 转绿，C01 保持 |
+| A05 删除漏检+验证器改动    | 三方 diff 补删除+符号链接指纹+验证后复检               | E01/E03 转绿       |
+| A07 评分器（部分）         | 空回答=必答全缺失                                      | Q01 转绿           |
+| A09 Skill（部分）          | 无前后证据不能批准                                     | S01 转绿           |
+| A08 研究（部分）           | 定时轮次显式预算下自主搜索并扣额度                     | R01 转绿           |
+| A10 门禁                   | ESLint 0 / Prettier 0 / tsc 0                          | verify 各步过      |
 
 证据：`apps/desktop/test/review/results-restructure-20260913-fixed.json`（15/15，不覆盖 final-budget-checked）；integration 234+10 skipped；0911 审计 20/20。
 
@@ -998,16 +998,17 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 
 审核基线同上。A06「统一工具服务 / 会话历史 / 运行账本持续化 / 自研兜底 ADR」一批完成：
 
-| 维度 | 修复 | 验证 |
-|---|---|---|
-| 工具结果回交引擎 | apps/mcp 补 record_observation / get_evidence（MCP 协议真正回交结果；desktop 两条端点+contracts schema） | 替身网关 4/4 之一 |
-| 防双执行 | TuiGatewaySession.mcpBridgedTools——已 MCP 桥接的工具 tool.start 本地不执行（reason=mcp_bridged_not_local） | a06 测试：桥接后 0 写入 |
-| 会话身份/历史 | AgentSession 复用引擎会话（session.create 一次，后续 prompt.submit 同 session_id）；desktop ask() 复用实例；contextRef 经 get_project_context 注入 | a06 测试：先插 running 行+同会话 |
-| 运行账本持续化 | 先插 running 行 + 每个事件 onEvent 实时追加 events_json + 终态 finish；Hermes 失败落 Core=同 run upsert 不二次插；启动 recoverOrphanedRuns 崩解回收 | a06 测试：running 行先插/终态收尾/孤儿回收 |
-| 自研兜底 ADR | ADR-11：MCP 是工具回交唯一通道；协议不携带 permissionVersion/contextRef/budget（Core 侧强制如实说明）；core-bounded 兜底启用条件/切换附注/降级定位写死 | 文档 |
-| 长驻会话（续十） | HermesRuntimeAdapter 长驻池（同 contextRef 同进程续 session_id）；ask() 放宽未配 key 检查（Hermes 自备模型不被挡） | a06-real-hermes-direct 2/2 |
+| 维度             | 修复                                                                                                                                                   | 验证                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| 工具结果回交引擎 | apps/mcp 补 record_observation / get_evidence（MCP 协议真正回交结果；desktop 两条端点+contracts schema）                                               | 替身网关 4/4 之一                          |
+| 防双执行         | TuiGatewaySession.mcpBridgedTools——已 MCP 桥接的工具 tool.start 本地不执行（reason=mcp_bridged_not_local）                                             | a06 测试：桥接后 0 写入                    |
+| 会话身份/历史    | AgentSession 复用引擎会话（session.create 一次，后续 prompt.submit 同 session_id）；desktop ask() 复用实例；contextRef 经 get_project_context 注入     | a06 测试：先插 running 行+同会话           |
+| 运行账本持续化   | 先插 running 行 + 每个事件 onEvent 实时追加 events_json + 终态 finish；Hermes 失败落 Core=同 run upsert 不二次插；启动 recoverOrphanedRuns 崩解回收    | a06 测试：running 行先插/终态收尾/孤儿回收 |
+| 自研兜底 ADR     | ADR-11：MCP 是工具回交唯一通道；协议不携带 permissionVersion/contextRef/budget（Core 侧强制如实说明）；core-bounded 兜底启用条件/切换附注/降级定位写死 | 文档                                       |
+| 长驻会话（续十） | HermesRuntimeAdapter 长驻池（同 contextRef 同进程续 session_id）；ask() 放宽未配 key 检查（Hermes 自备模型不被挡）                                     | a06-real-hermes-direct 2/2                 |
 
 证据：
+
 - 替身自动化：`packages/core/test/integration/a06-core-unified.test.ts` 4/4
 - 真机直接回归：`packages/core/test/integration/a06-real-hermes-direct.test.ts` 2/2（`IXAEON_REAL_HERMES=1`：真 Hermes `gemini-3.7-flash-tiered`，首问回答/续问会话记忆/账本先插 running 行真实捕获）
 - 全量集成：默认 238 通过+12 跳过；真机模式 240 通过+10 跳过。0913 审计 15/15、0911 审计 20/20；lint/prettier/tsc 全 0。
@@ -1016,12 +1017,13 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 
 ## 46. 独立审核 2026-09-13 第三批修复：A07 生产/评测共用选材 + 评分器反例扩充
 
-| 维度 | 修复 | 验证 |
-|---|---|---|
-| 共用选材服务 | 新增 `ContextSelector`（`packages/core/src/memory/contextSelector.ts`），受众/状态/关联系数/纠正优先/一次性过滤统一；生产 `session.ts` 派发前调用注入 prompt；评测 `evalScenarios.ts` 直接调用 | `a07-context-selector.test.ts` 4/4 |
-| 评分器反例扩充 | `rescore` 扩充 5 类反例（Q01 空回答必答缺失、Q02 异常报错直接未通过、Q03 照抄问句记缺失、Q04 否认事实不因回声去词误判、Q05 正常召回通过） | `memory-eval-rescore.test.ts` 6/6 |
+| 维度           | 修复                                                                                                                                                                                           | 验证                               |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| 共用选材服务   | 新增 `ContextSelector`（`packages/core/src/memory/contextSelector.ts`），受众/状态/关联系数/纠正优先/一次性过滤统一；生产 `session.ts` 派发前调用注入 prompt；评测 `evalScenarios.ts` 直接调用 | `a07-context-selector.test.ts` 4/4 |
+| 评分器反例扩充 | `rescore` 扩充 5 类反例（Q01 空回答必答缺失、Q02 异常报错直接未通过、Q03 照抄问句记缺失、Q04 否认事实不因回声去词误判、Q05 正常召回通过）                                                      | `memory-eval-rescore.test.ts` 6/6  |
 
 证据：
+
 - `packages/core/test/integration/a07-context-selector.test.ts` 4/4
 - `packages/core/test/integration/memory-eval-rescore.test.ts` 6/6
 - 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`，不覆盖 final-budget-checked）
@@ -1031,12 +1033,13 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 
 ## 47. 独立审核 2026-09-13 第四批修复：A08 主动研究自主闭环
 
-| 维度 | 修复 | 验证 |
-|---|---|---|
-| 定时自主搜索闭环 | `ResearchStore.createTopic` 恢复 `paid_budget_mode` / `request_cap` 参数透传；`ResearchChecker.tick()` 在预批预算下自主搜索并扣额度，公开合格候选自动建立来源并纳入抓取 | `a08-proactive-research.test.ts` 4/4 |
-| 模型研读与价值判断 | 新增 `ResearchJudge`（`packages/core/src/research/judge.ts`），研究问题作为推理输入；模型/规则研读提炼结论，防御注入；网络自动来源无关内容不落库保持安静 | `a08-proactive-research.test.ts` 4/4 |
+| 维度               | 修复                                                                                                                                                                    | 验证                                 |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| 定时自主搜索闭环   | `ResearchStore.createTopic` 恢复 `paid_budget_mode` / `request_cap` 参数透传；`ResearchChecker.tick()` 在预批预算下自主搜索并扣额度，公开合格候选自动建立来源并纳入抓取 | `a08-proactive-research.test.ts` 4/4 |
+| 模型研读与价值判断 | 新增 `ResearchJudge`（`packages/core/src/research/judge.ts`），研究问题作为推理输入；模型/规则研读提炼结论，防御注入；网络自动来源无关内容不落库保持安静                | `a08-proactive-research.test.ts` 4/4 |
 
 证据：
+
 - `packages/core/test/integration/a08-proactive-research.test.ts` 4/4
 - 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
 - 0911 审计 **20/20**
@@ -1045,13 +1048,14 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 
 ## 48. 独立审核 2026-09-13 第五批修复：A09 Skill 经验成长（证据绑定不可改写 + 真实入口版本批准）
 
-| 维度 | 修复 | 验证 |
-|---|---|---|
-| 不可改写客观证据 | 迁移 21 增加 `version`、`eval_evidence_json`、`approved_version`；`evaluateWithEvidence` 强制检验前置失败+后置通过，存入不可由候选改写的真实执行事实 | `a09-skill-growth.test.ts` 4/4 |
-| 方法生成与编辑 | 新增 `updateMethod(id, method)` 支持具体改进方法定义，修改自动重置为 proposed 并递增版本 | `a09-skill-growth.test.ts` 4/4 |
+| 维度             | 修复                                                                                                                                                                                    | 验证                           |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| 不可改写客观证据 | 迁移 21 增加 `version`、`eval_evidence_json`、`approved_version`；`evaluateWithEvidence` 强制检验前置失败+后置通过，存入不可由候选改写的真实执行事实                                    | `a09-skill-growth.test.ts` 4/4 |
+| 方法生成与编辑   | 新增 `updateMethod(id, method)` 支持具体改进方法定义，修改自动重置为 proposed 并递增版本                                                                                                | `a09-skill-growth.test.ts` 4/4 |
 | 真实入口版本批准 | Contracts / Preload / Main IPC 接通 `listSkillCandidates` / `approveSkillCandidate` / `retireSkillCandidate`；版本一致性校验（过时版本批准拒收，抛 `CONFLICT`）；批准后检出，撤回后移除 | `a09-skill-growth.test.ts` 4/4 |
 
 证据：
+
 - `packages/core/test/integration/a09-skill-growth.test.ts` 4/4
 - 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
 - 0911 审计 **20/20**
@@ -1060,13 +1064,14 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 
 ## 49. 独立审核 2026-09-13 第六批修复：A03 问答存档独立状态与设置页显式开关控制
 
-| 维度 | 修复 | 验证 |
-|---|---|---|
-| 契约与 IPC 暴露 | `settingsViewSchema` 扩展 `askCaptureStatus`；`IxaIpcApi` 增加 `enableAskCapture` 与 `disableAskCapture`；Preload / Main IPC 完整打通并记录审计日志 | `a03-ask-capture.test.ts` 2/2 |
-| 初次停用状态固化 | `disableAskCapture` 在库中尚无记录时插入一条 `status='revoked'` 记录，彻底防止首次未提问前关闭被误判为 enabled | `a03-ask-capture.test.ts` 2/2 |
-| 设置页 UI 闭环 | `Settings.tsx` 新增「桌面问答存档（Ask Capture）」卡片，展示当前状态与独立开关，用户主动操作即刻生效，重启与再提问均保持停用 | 前端组件与页面构建正常 |
+| 维度             | 修复                                                                                                                                                | 验证                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| 契约与 IPC 暴露  | `settingsViewSchema` 扩展 `askCaptureStatus`；`IxaIpcApi` 增加 `enableAskCapture` 与 `disableAskCapture`；Preload / Main IPC 完整打通并记录审计日志 | `a03-ask-capture.test.ts` 2/2 |
+| 初次停用状态固化 | `disableAskCapture` 在库中尚无记录时插入一条 `status='revoked'` 记录，彻底防止首次未提问前关闭被误判为 enabled                                      | `a03-ask-capture.test.ts` 2/2 |
+| 设置页 UI 闭环   | `Settings.tsx` 新增「桌面问答存档（Ask Capture）」卡片，展示当前状态与独立开关，用户主动操作即刻生效，重启与再提问均保持停用                        | 前端组件与页面构建正常        |
 
 证据：
+
 - `apps/desktop/test/integration/a03-ask-capture.test.ts` 2/2
 - 0913 审计 **15/15**（`results-restructure-20260913-fixed.json`）
 - 0911 审计 **20/20**
@@ -1077,13 +1082,14 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 
 对照《IXAEON_v0.3_重整复审与方向判断_2026-09-14.md》提出的 3 项交付要求与独立复审套件：
 
-| 交付编号 | 对应反例 | 修复与核心改进 | 验证结果 |
-|---|---|---|---|
-| **交付 1：可靠接线** | C01, C08, C09 | 1. **D01 (C01)**：硬化 MCP 服务受众边界。McpService 与编码客户端读者强制使用 `coding_client` 受众判定，严防 `model` 独占披露泄露。<br>2. **D02 (C08)**：引入动态披露纪元（`getDisclosureEpoch`），引擎适配器检测到撤权或授权版本变动即刻销毁并重建长驻会话。<br>3. **D03 (C09)**：补齐 `apps/mcp/src/direct.ts` 的 `callDirect` 路由，完全实现 `get-evidence` / `record-observation` 端点。<br>4. **环境解耦**：改造 `a06-core-unified.test.ts` 摆脱真实 Hermes 安装依赖。 | `direction-recheck-20260914.test.ts` C01, C08, C09 全绿；`a06-core-unified.test.ts` 4/4 绿 |
-| **交付 2：桌面日常场景** | C02, C03, C06, C07 | 1. **D05 (C02, C03)**：项目兜底选材严格遵守临时要求过滤，允许零记忆；模型 Prompt 注入显式包含争议/冲突标记（`disputed`）。<br>2. **D06 (C06, C07)**：自动发现候选来源持久化标识与副作用前置校验；暂停/取消后晚到搜索候选坚决作废；已检查且指纹未变页面不重复生成发现。<br>3. **D04**：桌面端提供预批搜索预算（`paid_budget_mode` 与 `request_cap`）输入与补充接口，界面文案纠偏，接入模型研读器。 | `direction-recheck-20260914.test.ts` C02, C03, C06, C07 全绿；`s4-research` 8/8 绿；`b3-research` 8/8 绿 |
-| **交付 3：核心体验守门** | C04, C05 | 1. **D07 (C04, C05)**：技能版本与客观执行证据强绑定；纯文本 `evaluate` 不生成证据且 `approve` 坚决拒收；修改方法立即废弃旧证据；桌面任务界面补齐从失败任务提炼候选、录入证据、版本绑定批准的闭环。<br>2. **D08 诚实声明**：独立套件保存至 `results-direction-recheck-20260914-fixed.json`，未覆盖历史文件。 | `direction-recheck-20260914.test.ts` 12/12 满分通过；全量集成测试 47 文件、280 项 100% 通过；`tsc --noEmit` 0 报错 |
+| 交付编号                 | 对应反例           | 修复与核心改进                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 验证结果                                                                                                           |
+| ------------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **交付 1：可靠接线**     | C01, C08, C09      | 1. **D01 (C01)**：硬化 MCP 服务受众边界。McpService 与编码客户端读者强制使用 `coding_client` 受众判定，严防 `model` 独占披露泄露。<br>2. **D02 (C08)**：引入动态披露纪元（`getDisclosureEpoch`），引擎适配器检测到撤权或授权版本变动即刻销毁并重建长驻会话。<br>3. **D03 (C09)**：补齐 `apps/mcp/src/direct.ts` 的 `callDirect` 路由，完全实现 `get-evidence` / `record-observation` 端点。<br>4. **环境解耦**：改造 `a06-core-unified.test.ts` 摆脱真实 Hermes 安装依赖。 | `direction-recheck-20260914.test.ts` C01, C08, C09 全绿；`a06-core-unified.test.ts` 4/4 绿                         |
+| **交付 2：桌面日常场景** | C02, C03, C06, C07 | 1. **D05 (C02, C03)**：项目兜底选材严格遵守临时要求过滤，允许零记忆；模型 Prompt 注入显式包含争议/冲突标记（`disputed`）。<br>2. **D06 (C06, C07)**：自动发现候选来源持久化标识与副作用前置校验；暂停/取消后晚到搜索候选坚决作废；已检查且指纹未变页面不重复生成发现。<br>3. **D04**：桌面端提供预批搜索预算（`paid_budget_mode` 与 `request_cap`）输入与补充接口，界面文案纠偏，接入模型研读器。                                                                          | `direction-recheck-20260914.test.ts` C02, C03, C06, C07 全绿；`s4-research` 8/8 绿；`b3-research` 8/8 绿           |
+| **交付 3：核心体验守门** | C04, C05           | 1. **D07 (C04, C05)**：技能版本与客观执行证据强绑定；纯文本 `evaluate` 不生成证据且 `approve` 坚决拒收；修改方法立即废弃旧证据；桌面任务界面补齐从失败任务提炼候选、录入证据、版本绑定批准的闭环。<br>2. **D08 诚实声明**：独立套件保存至 `results-direction-recheck-20260914-fixed.json`，未覆盖历史文件。                                                                                                                                                                | `direction-recheck-20260914.test.ts` 12/12 满分通过；全量集成测试 47 文件、280 项 100% 通过；`tsc --noEmit` 0 报错 |
 
 证据：
+
 - `apps/desktop/test/review/direction-recheck-20260914.test.ts` **12/12 满分全绿**（含 3 组 CONTROL 严格对照）
 - `results-direction-recheck-20260914-fixed.json`：`numPassedTests: 12, numFailedTests: 0, success: true`
 - 全量测试：`47 passed / 280 passed / 0 failed`
@@ -1108,18 +1114,19 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 
 对照《IXAEON_v0.3_重整二次复审_2026-09-15.md》提出的 8 项问题（S2-01 至 S2-08）与 R01–R09 独立反例，完成全量修复并跑通受控验证：
 
-| 问题编号 | 对应反例 | 修复与核心改进 | 验证结果 |
-|---|---|---|---|
-| **S2-01** | R01 | `ipc.ts` 在 `createResearchTopic` 入口做完整 camelCase→snake_case 转换，严格校验 `paidBudgetMode`、`requestCap`（非负）、`intervalMs`（≥60,000ms），修复界面选择的预算/间隔被静默丢弃的问题。 | `direction-round2-93ecaed.test.ts` R01 绿 |
-| **S2-05** | R02 | 新增数据库迁移 22（`research-source-discovery-origin`），为 `research_sources` 增加 `discovered_by TEXT NOT NULL DEFAULT 'user'` 持久列。来源身份与瞬态错误（`last_error`）彻底分离，成功抓取清空 `last_error` 不再丢失身份，跨周期第 2 轮对不相关内容坚决保持安静。 | `direction-round2-93ecaed.test.ts` R02 绿 |
-| **S2-02** | R03 | 彻底关闭桌面 IPC 采信调用方自报退出码漏洞：`executor.ts` 导出受控沙箱验证器 `runControlledVerifyCommand`；`skills.ts` 引入 `runControlledEvaluation`（基线取失败运行记录，验证由主进程沙箱现在真实执行，时间取当前时间，证据盖 `producedBy: 'controlled'` 章并绑定候选版本与方法快照；修改方法即作废）；`Tasks.tsx` 增加受控对照评测交互入口。 | `direction-round2-93ecaed.test.ts` R03 绿（伪造证据被坚决拒收） |
-| **S2-03** | R04, R05, R06, R09 | 1. **R04**：`getDisclosureEpoch(db, now)` 计入自然到期（`expires_at ≤ now`）；<br>2. **R05**：`items` 状态（更新时间/superseded 变更）纳入纪元；IPC `correctItem` 主动调用 `runtime.invalidateContext()`；<br>3. **R06**：IPC `revokeSourceReading` 主动调用 `runtime.invalidateContext()`；<br>4. **R09**：`AppRuntime.stop()` 在关闭数据库之前先调用 `this.invalidateContext()` 释放长驻会话，不再留悬挂引用。 | `direction-round2-93ecaed.test.ts` R04, R05, R06, R09 全绿 |
-| **S2-06** | R07 | `judge.ts` 增加产生模式（`model` / `rules` / `rules-degraded`）与 `modelError`。当配置了模型但调用失败时，失败原因与降级次数如实写入 `run.error`（并更新主题 `last_failure`），保留抓取资料但不再冒充模型成功。 | `direction-round2-93ecaed.test.ts` R07 绿 |
-| **S2-04** | R08 | 落实重整计划 §6.3 起始上限——`checker.ts` 引入 `MAX_MODEL_CALLS_PER_RUN = 8`，每轮模型研读最多 8 次，与搜索预算独立，超出自动走规则研读；文案纠正：区分出门说法（发搜索）与模型研读（发具体问题给模型），删除「不消耗额度」旧文案。 | `direction-round2-93ecaed.test.ts` R08 绿 |
-| **S2-07** | 办事链路 | 1. `broker.ts` 的 `propose_task` 支持自定义验证命令参数（`verifyCommand`），不再死锁只能检查 `note.txt`；<br>2. 问答结尾提示纠正为日常偏好/事实自动沉淀，仅冲突/决策待确认；<br>3. 新增集成测试 `s2-07-agent-action-loop.test.ts`，端到端跑通：目标创建→上下文选材→任务提案（定制验证命令）→显式批准范围与命令→真实沙箱执行与独立核验（exit 2 失败）→自动提炼候选→受控沙箱验证修复（exit 0）→客观盖章→批准上架→项目自动带出。 | `s2-07-agent-action-loop.test.ts` 1/1 绿 |
-| **S2-08** | 门禁与自洽 | 1. 删掉 `mcpStore.ts:19` 未用 `modelMayReadItem`，ESLint 0 报错；<br>2. `.prettierignore` 排除结果 JSON，Prettier 格式化所有修改文件，`npm run format:check` 0 告警；<br>3. `memory-eval-real.test.ts` 改走生产路径 `ContextSelector.selectForQuestion`；<br>4. 新测试结果输出至新文件 `results-direction-round2-93ecaed-fixed.json`，未改动历史 checked 原件。 | 静态门禁全部通过；不可变测试文件完好保存 |
+| 问题编号  | 对应反例           | 修复与核心改进                                                                                                                                                                                                                                                                                                                                                                                                                | 验证结果                                                        |
+| --------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **S2-01** | R01                | `ipc.ts` 在 `createResearchTopic` 入口做完整 camelCase→snake_case 转换，严格校验 `paidBudgetMode`、`requestCap`（非负）、`intervalMs`（≥60,000ms），修复界面选择的预算/间隔被静默丢弃的问题。                                                                                                                                                                                                                                 | `direction-round2-93ecaed.test.ts` R01 绿                       |
+| **S2-05** | R02                | 新增数据库迁移 22（`research-source-discovery-origin`），为 `research_sources` 增加 `discovered_by TEXT NOT NULL DEFAULT 'user'` 持久列。来源身份与瞬态错误（`last_error`）彻底分离，成功抓取清空 `last_error` 不再丢失身份，跨周期第 2 轮对不相关内容坚决保持安静。                                                                                                                                                          | `direction-round2-93ecaed.test.ts` R02 绿                       |
+| **S2-02** | R03                | 彻底关闭桌面 IPC 采信调用方自报退出码漏洞：`executor.ts` 导出受控沙箱验证器 `runControlledVerifyCommand`；`skills.ts` 引入 `runControlledEvaluation`（基线取失败运行记录，验证由主进程沙箱现在真实执行，时间取当前时间，证据盖 `producedBy: 'controlled'` 章并绑定候选版本与方法快照；修改方法即作废）；`Tasks.tsx` 增加受控对照评测交互入口。                                                                                | `direction-round2-93ecaed.test.ts` R03 绿（伪造证据被坚决拒收） |
+| **S2-03** | R04, R05, R06, R09 | 1. **R04**：`getDisclosureEpoch(db, now)` 计入自然到期（`expires_at ≤ now`）；<br>2. **R05**：`items` 状态（更新时间/superseded 变更）纳入纪元；IPC `correctItem` 主动调用 `runtime.invalidateContext()`；<br>3. **R06**：IPC `revokeSourceReading` 主动调用 `runtime.invalidateContext()`；<br>4. **R09**：`AppRuntime.stop()` 在关闭数据库之前先调用 `this.invalidateContext()` 释放长驻会话，不再留悬挂引用。              | `direction-round2-93ecaed.test.ts` R04, R05, R06, R09 全绿      |
+| **S2-06** | R07                | `judge.ts` 增加产生模式（`model` / `rules` / `rules-degraded`）与 `modelError`。当配置了模型但调用失败时，失败原因与降级次数如实写入 `run.error`（并更新主题 `last_failure`），保留抓取资料但不再冒充模型成功。                                                                                                                                                                                                               | `direction-round2-93ecaed.test.ts` R07 绿                       |
+| **S2-04** | R08                | 落实重整计划 §6.3 起始上限——`checker.ts` 引入 `MAX_MODEL_CALLS_PER_RUN = 8`，每轮模型研读最多 8 次，与搜索预算独立，超出自动走规则研读；文案纠正：区分出门说法（发搜索）与模型研读（发具体问题给模型），删除「不消耗额度」旧文案。                                                                                                                                                                                            | `direction-round2-93ecaed.test.ts` R08 绿                       |
+| **S2-07** | 办事链路           | 1. `broker.ts` 的 `propose_task` 支持自定义验证命令参数（`verifyCommand`），不再死锁只能检查 `note.txt`；<br>2. 问答结尾提示纠正为日常偏好/事实自动沉淀，仅冲突/决策待确认；<br>3. 新增集成测试 `s2-07-agent-action-loop.test.ts`，端到端跑通：目标创建→上下文选材→任务提案（定制验证命令）→显式批准范围与命令→真实沙箱执行与独立核验（exit 2 失败）→自动提炼候选→受控沙箱验证修复（exit 0）→客观盖章→批准上架→项目自动带出。 | `s2-07-agent-action-loop.test.ts` 1/1 绿                        |
+| **S2-08** | 门禁与自洽         | 1. 删掉 `mcpStore.ts:19` 未用 `modelMayReadItem`，ESLint 0 报错；<br>2. `.prettierignore` 排除结果 JSON，Prettier 格式化所有修改文件，`npm run format:check` 0 告警；<br>3. `memory-eval-real.test.ts` 改走生产路径 `ContextSelector.selectForQuestion`；<br>4. 新测试结果输出至新文件 `results-direction-round2-93ecaed-fixed.json`，未改动历史 checked 原件。                                                               | 静态门禁全部通过；不可变测试文件完好保存                        |
 
 ### 四层报告纪律状态
+
 - **已实现**：S2-01～S2-08 全量代码、迁移 22、IPC 受控边界、沙箱执行器、文案、端到端办事链与静态门禁已就绪。
 - **自动化测试通过**：
   - 二次复审独立反例套件：**12/12 通过**（`apps/desktop/test/review/results-direction-round2-93ecaed-fixed.json`，0 失败）；
@@ -1129,3 +1136,21 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
   - 静态门禁：`tsc --noEmit` 0 错误、`eslint .` 0 错误、`prettier --check` 0 告警。
 - **真实环境通过**：主进程受控沙箱验证器（node subprocess）真实执行命令与退出码核对通过；Hermes / Codex 云端真机调用依赖真实在线凭证，在 CI/本地测试套件中安全跳过。
 - **用户接受**：待用户检验。不以单测通过宣称最终完成。
+
+## 53. 受控网页搜索扩展：接入 TinyFish Web Agent Provider（2026-09-15）
+
+根据用户指示，将 [TinyFish](https://github.com/tinyfish-io)（面向 Agent 优化的 Web Agent & Search API）作为第三个受控网页搜索提供商接入系统：
+
+| 模块             | 接入改动                                                                                                                                                                                                  | 验证结果                        |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Contracts & 配置 | `appConfigSchema`、`settingsViewSchema`、`IxaIpcApi` 的 `webSearch.provider` 扩展包含 `'tinyfish'`                                                                                                        | `tsc --noEmit` 0 错误           |
+| Core 执行器      | `webSearch.ts` 新增 `tinyfishSearch`，调用 `https://api.tinyfish.ai/v1/search`，Bearer 鉴权，解析适配 `results`/`data`/`items` 结构；承接本地隐私脱敏防护（`sanitizePublicQuery`）与网络/配额诚实错误处理 | `b3-websearch.test.ts` 6/6 通过 |
+| 出口网络安全     | `security.test.ts` 静态扫描白名单显式增加 `api.tinyfish.ai` 受控出口并注明意图                                                                                                                            | `security.test.ts` 8/8 通过     |
+| 桌面运行时与前端 | `Settings.tsx` 增加 `TinyFish API (Web Agent)` 下拉选项；`appRuntime.ts` 的 `testWebSearch` 扩展支持 `tinyfish` 真实测试                                                                                  | 前端构建正常，格式门禁通过      |
+
+证据：
+
+- `packages/core/test/integration/b3-websearch.test.ts` 6/6（含 TinyFish 单元测试）
+- 全量自动化测试：48 passed / 9 skipped / 282 tests passed
+- 静态门禁：TypeScript 0 错误 / ESLint 0 错误 / Prettier 0 告警
+- 真实环境通过：逻辑与存储已受控接入；真实查询消费额度，依赖用户输入真实有效 TinyFish Key。

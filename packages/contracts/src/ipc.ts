@@ -275,7 +275,7 @@ export const settingsViewSchema = z.object({
     extensionPaired: z.boolean(),
     extensionLastSyncAt: z.string().nullable(),
     /** 受控网页搜索（B3）：provider 与 Key 状态（Key 永不回传渲染进程） */
-    webSearchProvider: z.enum(['none', 'brave', 'tavily']).default('none'),
+    webSearchProvider: z.enum(['none', 'brave', 'tavily', 'tinyfish']).default('none'),
     webSearchKeyPresent: z.boolean().default(false),
   }),
   dataDir: z.string(),
@@ -560,7 +560,7 @@ export interface IxaIpcApi {
   }): Promise<{ ok: true }>;
   /** 保存网页搜索设置（B3）。Key 用 safeStorage 加密落盘，留空表示保持不变。 */
   saveWebSearchSettings(input: {
-    provider: 'none' | 'brave' | 'tavily';
+    provider: 'none' | 'brave' | 'tavily' | 'tinyfish';
     apiKey?: string;
   }): Promise<{ ok: true }>;
   /**
@@ -568,7 +568,7 @@ export interface IxaIpcApi {
    * 发一次真实查询。消耗 1 次额度；结果只回标题/URL，不落库。
    */
   testWebSearch(input: { query: string; apiKey?: string }): Promise<{
-    provider: 'brave' | 'tavily';
+    provider: 'brave' | 'tavily' | 'tinyfish';
     hits: Array<{ title: string; url: string; snippet: string }>;
   }>;
   /**

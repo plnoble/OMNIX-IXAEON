@@ -338,7 +338,6 @@ B3 剩余（下一批）：研究检查循环接 search_web（searchUsed 标志�
 
 仍未做（如实）：真实 Tavily×研究循环（用户应用内「立即检查」带出门说法主题跑一次即闭合）；付费预算（paid_budget_mode）未接搜索次数；B5 导入器未实现；记忆评测模型门槛未跑。发版不含本批研究循环改动（发版在其之前）——下个版本带。
 
-
 ## 2026-09-13（续三）· B5 三平台导入器落地；评测与 B4 真机探针开跑
 
 1. **B5 三平台导入器**（`packages/core/src/import/platformParsers.ts` + `importService.ts` 接线 + 迁移 19，`b5-platform-importers.test.ts` 8/8，全量 230 通过+7 环境跳过）：
@@ -346,36 +345,37 @@ B3 剩余（下一批）：研究检查循环接 search_web（searchUsed 标志�
    - Grok `prod-grok-backend.json`：`parent_response_id` 重建 DAG 边（`dag_edges`/`is_active_branch`）；BSON `{"$date":{"$numberLong":ms}}` 时间归一；sender 大小写/模型名归一（非 human=assistant）。
    - Gemini `MyActivity.json`（Takeout 活动日志非对话存档，如实标注）：按 titleUrl `/app/c/<id>` 分组、按 time 排序重建；变体 A details[{name:'Request'|'Response'}] 与变体 B userInteractions 可同文件混存；响应截断/缺失在 metadata 明示（`truncated_responses`/`missing assistant_response`），标题取首条用户消息。
    - 接线：文件名+结构双重探测（`conversations.json`/`prod-grok-backend.json`/`myactivity.json` + looksLike* 结构嗅探），512MB 上限，跨格式不误吞（ChatGPT 样本不被新嗅探吞掉）；端到端授权导入+幂等+撤销拒绝+坏格式诚实失败。
-   - 迁移 19：sources 重建扩 provider CHECK（+claude/gemini/grok_export）。第一版列清单与真实结构不符（漏 content_revision/analyzed_*/archived_* 列、漏 work_result kind、索引名错）——已按迁移 1+10+11+13+15+17 的真实演化修正：18 列全保留、kind 含 work_result、四索引按原样重建（idx_sources_dedup(provider,account_namespace,external_id,content_hash) 等）、外键关停后重建（对齐迁移 16 做法）。17→19 升级测试更新并断言新 provider 值可写入。
+   - 迁移 19：sources 重建扩 provider CHECK（+claude/gemini/grok_export）。第一版列清单与真实结构不符（漏 content_revision/analyzed__/archived__ 列、漏 work_result kind、索引名错）——已按迁移 1+10+11+13+15+17 的真实演化修正：18 列全保留、kind 含 work_result、四索引按原样重建（idx_sources_dedup(provider,account_namespace,external_id,content_hash) 等）、外键关停后重建（对齐迁移 16 做法）。17→19 升级测试更新并断言新 provider 值可写入。
 2. **B2 记忆评测真实模型三轮开跑**（IXAEON_REAL_HERMES=1，用户网关，后台进行中）：第一版评测工具自写 SQL **漏掉 modelMayReadItem 披露过滤+字段映射失真**，导致未披露条目（p3/p4）入料、材料缺料——如实废弃作废数据、修为与确定性评测完全同源（seedCorpus/loadModelVisibleItems/selectRelevantItems 从 evalScenarios 导出共用），每场景独立会话（与产品 ask 一问一会话一致）、每场景即时落盘、三轮全量 60×3。原始回答全量落盘 docs/memory-eval-2026-09-13/。
 3. **B4 真实项目探针第一个真发现**：真 Codex 在本仓库受控副本写 scripts/redact-for-log.mjs+test 成功、自报测试通过，但**独立验证如实失败**——defaultCheck 的 --permission 加固（fs 限制在副本）下 Node 23.4+ 权限模型默认禁止 spawn 子进程，`node --test` 被 ERR_ACCESS_DENIED(ChildProcess) 挡掉（同机 scratch 实证：--permission 下 `node --test x` exit 1、`node x` 进程内直跑 exit 0）。产品行为正确（不把执行器自报当通过）；修正任务规格为进程内 node:test 验证命令（v2 dispatch_key）重跑。教训入 Skill 候选链：验证命令规格必须与独立验证加固兼容。
 
-
 ## 2026-09-13（续四）· B2 三轮真实评测结果；B4 真机通过；全批回归
+
 1. **B2 三轮真实模型评测完成**（180 场景，10.3 分钟，用户网关）。第一版评分器问句回声伪影（模型正确否定边界复述问句词被误判侵入）→ 问句回声规则 + 离线重评分（`memory-eval-rescore.test.ts`，原始口径与修正口径并列落盘）。修正后：相关召回 1.0/1.0/1.0（≥0.9 过）、无关不侵入 1.0/1.0/1.0（≥0.95 过）、**临时不升格 0.9/0.9/1.0 未达 ≥0.95**——e9 问句预设红色主题、模型答「没有其他」语义成立但未复述关键词，2/3 轮复现；不调期望掩盖，待问句中性化重测。真发现：pm4 三轮一致把「私人目标」答成项目目标（个人/项目范围混淆）；词法评分低估语义召回（n3 等），原始回答全量落盘供人工复核。
 2. **B4 真实项目受控副本×真 Codex 通过**（`b4-real-project-codex.test.ts` 2/2）：真 Codex 写 scripts/redact-for-log.mjs+测试，独立验证（--permission 加固）通过、diff 在范围内、接受入 work_runs、Skill 候选对照链完整（evaluated 不自行 approved）。第一个真发现：`node --test` 在独立验证加固下被 ERR_ACCESS_DENIED(ChildProcess) 挡掉（Node 权限模型禁 spawn 子进程），产品正确地不把执行器自报当通过；验证命令规格修正为进程内 node:test（v2）。第一个真 Codex 派发（v1，--test 版）作为真实失败记录保留。
 3. 本批全量回归 + 审计套件 + tsc 见提交记录；评测/B4 探针保持 env 门控默认跳过，不进常规 CI。
 
-
 ## 2026-09-13（续五）· 用户验证反馈三项落地：版本号显示、真实模型名、任务页验证命令开放；记忆路由约定
+
 用户实跑问话验证（真 Hermes 回合成功）并给三条反馈：
+
 1. **版本号不直观**：AppState.version 本就存在但从未展示 → 应用头部标题旁显示 `v{version}`（`app-version` testid + CSS）。
 2. **UI 只显示「模型 hermes」**：session.info 事件带真实模型/提供商（gemini-3.7-flash-tiered / custom:newapi）但被当 unhandled 丢弃 → TuiGatewaySession 捕获 session.info，HermesRunResult 增 modelName/providerName，Ask 结果 modelName 用真实值（未上报回退 'hermes'）。
 3. **记忆路由真发现**：轨迹第 14 步 Hermes 自跑自带 memory 工具，用户日程落进 Hermes 记忆库而非 IXAEON Core（违背「Hermes 可替换、Core 资料独立保存」）。本轮落地**派发约定**：问话目标附带「写记忆请用 record_observation，不要用自带 memory」；运行记录仍存用户原话。**待用户拍板的方向**（范围较大不擅动）：问话后把问答对落库为来源+跑提取候选（Core 独立保存的完整路径，每问一次提取调用）。
 4. **任务页验证命令开放**：原硬编码 note.txt 占位检查 → 可编辑字段（引号感知拆分 splitCommandLine，默认值=原行为已验证 argv 逐字一致），附沙箱提示（node --permission 禁子进程：node --test/npm 被拒，用进程内 node 直跑）。为用户真人编码任务试验铺路。
-回归：全项目 254 过+10 跳过；审计 20/20；tsc 0 错。
-
+   回归：全项目 254 过+10 跳过；审计 20/20；tsc 0 错。
 
 ## 2026-09-13（续六）· 用户拍板：所有问答内容都进 Core（迁移 20）；真人首个编码任务完成
+
 1. **问答落 Core**（用户指示「所有问答内容都进 Core」）：每次问答回答后，问答对存为 ask_session 来源（迁移 20 扩 provider 枚举；挂 ask.ixaeon.local 域授权，可撤销=停提取，边界不特例）→ 自动入队提取 → 理解候选走「提案→用户确认」。幂等（runId+内容哈希）；存档失败不吞回答、如实附注。R15 真实日用库副本探针升级为动态口径（当前版本→最新 20），真实库副本 40 来源/870 片段/80 条目/2 项目 19→20 幂等保全、ask_session 写入生效、源库字节不变。`ask-capture.test.ts` 3/3（含撤销后拒绝）。
 2. **真人首个编码任务完成**：用户在应用内建草案（试验项目+redact-for-log 目标+进程内 node:test 验证命令）→ 批准 → 派发真 Codex → 独立验证 passed（4/4）→ 用户接受 →「完成（未部署）」。「测试代码被修改」标记为预期行为（范围含测试文件）。四口径至此：真机通过+用户接受同时成立（首个）。
 
-
 ## 2026-09-13（续七）· 0.2.8 发版
+
 IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E3513EFFBF93E78738440719C832。预检全绿（tsc 0；integration 234+10skipped；审计 20/20；R15 真实副本 19→20 保全）。tag v0.2.8 + GitHub Release（exe/latest.yml/blockmap）。
 
-
 ## 2026-09-13（续八）· 独立审核 A01–A05+A10 修复批（restructure 13 反例转绿）
+
 按《IXAEON_v0.3_重整独立审核_2026-09-13.md》第一批要求完成：
 
 **A01 工具边界（tuiGateway/adapter）**：审批只认协议字段 tool_name 与 allowedTools 精确匹配（description/command 文本不提供批准权，H01）；tool.start 桥接执行加四道边界——会话运行中/精确白名单/callId 幂等/次数预算（H02–H05）；dispose 杀子进程树（taskkill /T，POSIX kill -pgid）；probe 诚实报告 toolAllowlist=false（协议不携带白名单，Core 侧强制）。
@@ -416,11 +416,13 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 按用户要求完成 A06 真机冒烟，拿到真机端到端接入证据：
 
 **1. 架构发现与修复（长驻会话）**：
+
 - 真机实测发现旧实现只复用了 `session_id` 字符串，但每次 `start()` 重新 spawn 新进程，新进程内无该会话 → 会话探针失败。
 - 修复：`HermesRuntimeAdapter` 实现长驻会话池（`resident` Map），同 `contextRef` 的调用在同进程内续 session_id；`TuiGatewaySession` 增加 `setInput` / `isDead`；进程死亡/中断才作废重建。
 - `appRuntime.ask()` 放宽前置检查：`hermesAvailable` 时即使未配 OpenAI key 亦放行（Hermes 引擎自备模型，不再被 IXAEON 本地模型未配置挡住）。
 
 **2. 真机验证（`a06-real-hermes-direct.test.ts` 2/2，`IXAEON_REAL_HERMES=1`）**：
+
 - 真 Hermes 单轮对话：`session.create` → `prompt.submit` → `message.complete`，真实回答返回 `IXAEON_REAL_VERIFIED`，真实模型名 `gemini-3.7-flash-tiered`，真实用时 34s。
 - 会话历史（「那我刚才说的呢」）：同 adapter 实例第二问「我上一句让你回答了什么？」，Hermes 凭自身会话历史准确回答出 `IXAEON_REAL_VERIFIED`（`sessionId` 严格一致）。
 - 账本先插 + 实时性：回合进行中轮询确定性捕获到 `status === 'running'`；回合结束终态收尾为 `succeeded`，`events_json` 含实际事件。
@@ -434,6 +436,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 按 A07 要求完成：
 
 **1. 生产与评测共用上下文选材服务 `ContextSelector`**：
+
 - 新增 `packages/core/src/memory/contextSelector.ts`，抽离统一的候选加载与语义关联度排序逻辑。
 - 遵循受众过滤（model 视角下严格执行 `modelMayReadItem` / `modelMayReadSegment`）、用户纠正优先（origin === 'user' 加权）、问句意图加权（目标/约束/冲突识别）、一次性事件过滤（ephemeral 语句隔离）与预算截断。
 - **生产接线**：`session.ts` 在向 Hermes 派发目标前调用 `ContextSelector.selectForQuestion`，精选记忆注入派发提示（使生产环境的自动记忆选材与评测完全同源）。
@@ -441,6 +444,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 - 新增测试：`packages/core/test/integration/a07-context-selector.test.ts`（4/4 通过）。
 
 **2. 评分器硬化与反例扩充**：
+
 - `memory-eval-rescore.test.ts` 扩充 5 类反例：
   - `Q01` 空回答 → 必答全缺失（已转绿）
   - `Q02` 报错/异常回答（含 IxaError / API error / ECONNREFUSED 等）→ 标记 `rejectReason: 'execution_error'`，直接未通过
@@ -449,6 +453,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
   - `Q05` 正常正确召回 → 正常通过
 
 验证：
+
 - `packages/core/test/integration/a07-context-selector.test.ts` 4/4 通过
 - `packages/core/test/integration/memory-eval-rescore.test.ts` 6/6 通过
 - 全量集成：**41 passed | 9 skipped（共 247 passed）**
@@ -462,17 +467,20 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 按 A08 要求完成：
 
 **1. 预批预算定时自主闭环（无人值守研究）**：
+
 - `ResearchStore.createTopic` 修复：完整支持 `paid_budget_mode`、`request_cap`、`interval_ms` 等预算参数透传，不再硬编码 `'none', 0`。
 - `ResearchChecker.tick()`：定时到期轮次在预批预算（`paid_budget_mode='request_cap'` 且 `request_cap>0`）下自主触发外发搜索并扣减 1 个额度。
 - **自动来源建立与抓取**：定时轮次搜索返回的公开合格 URL（`assertPublicHttpsUrl` 通过且安全校验合格）自动在当前关注下登记为来源并拉取页面，实现「批准领域与预算内自动建立来源」闭环。
 
 **2. 模型研读、价值判断与安静原则（`ResearchJudge`）**：
+
 - 新增 `packages/core/src/research/judge.ts`：将研究问题（`question`）作为推理核心输入；
 - 有模型配置时走结构化模型研读，无模型时走规则语义研读兜底；
 - 对内容进行针对性价值判断与核心发现摘要提炼，过滤无关内容及提示词注入；
 - **安静原则**：搜索自动发现的条目仅在研读判定为实质相关（`relevant: true`）且有增量时才落库 `finding`；若无新价值或无关内容，保持安静（0 findings，无打扰通知）。
 
 **3. 自动化集成验证**：
+
 - 新增 `packages/core/test/integration/a08-proactive-research.test.ts`（4/4 通过）：
   - 模型研读提炼价值结论与摘要
   - 无关内容与提示词注入判定不相关（保持安静）
@@ -489,12 +497,14 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 按 A09 要求完成：
 
 **1. 数据库迁移 21（不可改写客观证据 + 具体版本号）**：
+
 - 新增迁移 21 `skill-candidates-immutable-evidence`：
   - `version INTEGER NOT NULL DEFAULT 1`
   - `eval_evidence_json TEXT`（不可由候选改写的客观评测记录）
   - `approved_version INTEGER`（用户批准的具体版本）
 
 **2. 核心领域逻辑硬化（`SkillCandidateStore`）**：
+
 - 新增 `updateMethod(id, method)`：候选方法支持传入具体改进定义，修改递增 `version`；
 - 新增 `evaluateWithEvidence(id, { method, evidence, benefit })`：
   - 强制检验客观证据：基线（before）必须是失败案例（`exitCodeBefore !== 0`），改进后（after）必须成功通过（`exitCodeAfter === 0`），杜绝在原本成功的案例上伪造改进；
@@ -506,11 +516,13 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 - `retire(id)`：支持撤销已批准的技能（状态变为 `retired`，从项目上下文中移除，不再注入）。
 
 **3. 桌面真实入口接线（Contracts / Preload / Main IPC）**：
+
 - `packages/contracts/src/ipc.ts`：声明 `listSkillCandidates`、`approveSkillCandidate`、`retireSkillCandidate`；
 - `apps/desktop/src/preload/index.ts`：通过 `contextBridge` 暴露 IPC 调用；
 - `apps/desktop/src/main/appRuntime.ts` 与 `apps/desktop/src/main/ipc.ts`：实现并注册三条真实 IPC 路由。
 
 **4. 自动化集成验证**：
+
 - 新增 `packages/core/test/integration/a09-skill-growth.test.ts`（4/4 通过）：
   - 失败任务自动提案候选（版本 1，proposed）
   - 方法编辑递增版本号
@@ -527,6 +539,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 按 A03 独立审核要求完成桌面问答存档（Ask Capture）的独立状态与 UI/IPC 闭环：
 
 **1. 契约与接口扩展（Contracts / Preload / Main IPC）**：
+
 - `packages/contracts/src/ipc.ts`：
   - `settingsViewSchema` 扩展 `askCaptureStatus: z.enum(['enabled', 'revoked']).default('enabled')`；
   - `IxaIpcApi` 增加 `enableAskCapture(): Promise<{ status: 'enabled' }>` 和 `disableAskCapture(): Promise<{ status: 'revoked' }>`；
@@ -535,6 +548,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 - `apps/desktop/src/main/appRuntime.ts`：加固 `disableAskCapture`——库中尚无记录时（初次提问前用户即关闭），显式插入一条已撤销记录（`status='revoked'`），固化用户的停用选择，防止空记录导致状态回退为 enabled。
 
 **2. 桌面设置页 UI 闭环**：
+
 - `apps/desktop/src/renderer/src/pages/Settings.tsx`：
   - 新增「桌面问答存档（Ask Capture）」设置卡片；
   - 明确展示当前存档授权状态（已启用 / 已撤销）；
@@ -542,6 +556,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
   - 文案清晰告知：撤销后重启与后续提问均保持停用，普通提问不会隐式重建授权；如需恢复必须在设置页显式重新开启。
 
 **3. 自动化集成验证**：
+
 - 新增 `apps/desktop/test/integration/a03-ask-capture.test.ts`（2/2 通过）：
   - 初始状态 enabled；disableAskCapture 显式撤销并记录审计；
   - 撤销后提问不自动重新授权（保持 revoked），不新增问答来源；
@@ -558,17 +573,20 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 根据《IXAEON_v0.3_重整复审与方向判断_2026-09-14.md》提出的三项交付与 C01–C09 反例，完成全量修复与闭环验证：
 
 ### 交付 1：可靠接线（D01, D02, D03）
+
 1. **D01 (C01)**：硬化 MCP 服务受众边界。McpService 与通用编码客户端读者使用 `coding_client` 受众授权判定，阻断仅对模型披露（`model`）的私有资料借由通用 MCP 接口泄露；`BrokerContext` 显式标明 `audience`。
 2. **D02 (C08)**：引入动态披露纪元（`getDisclosureEpoch`）。`HermesRuntimeAdapter` 在会话开始与执行期间比对授权纪元，一旦检测到撤权或披露变更，立即销毁并重建长驻引擎会话；桌面主进程与 IPC 撤权、恢复路径均主动触发上下文失效。
 3. **D03 (C09)**：补齐 `apps/mcp/src/direct.ts` 的 `callDirect` 路由，完全对齐 `get-evidence` 与 `record-observation` 端点。
 4. **环境解耦**：将 `a06-core-unified.test.ts` 彻底改造为基于协议替身（mock locator/probe/transport）的隔离单测，不再依赖宿主机是否已安装本地 Hermes。
 
 ### 交付 2：从桌面跑通日常场景（D04, D05, D06）
+
 1. **D05 (C02, C03)**：修复记忆上下文兜底选材。项目兜底同样遵守临时/一次性要求过滤（`isEphemeralStatement`），允许零记忆；在引擎 Prompt 注入中显式标记并保留争议/冲突约束状态（`disputed`）。
 2. **D06 (C06, C07)**：自动发现来源跨周期持久化防御。在执行来源写入副作用前检查 `generation` 与 `paused`，暂停/取消后晚到搜索候选坚决丢弃；对已抓取且指纹未变的页面不重复生成发现；研读判定不相关的自动来源保持安静。
 3. **D04**：桌面端提供预批搜索预算（`paid_budget_mode` 与 `request_cap`）输入与补充接口（`setResearchBudget`），更新界面文案；将模型研读器接入桌面运行时。
 
 ### 交付 3：核心体验与自我演进守门（D07, D08）
+
 1. **D07 (C04, C05)**：技能候选版本与客观执行证据（`eval_evidence_json`）严格绑定。纯文本 `evaluate` 不得作为能力升级批准凭据；修改执行方法立即作废旧版本证据；桌面任务界面补齐从失败任务提炼能力候选、录入验证证据、绑定版本批准/废弃的完整交互闭环。
 2. **D08 声明纠偏与验证**：独立套件 `direction-recheck-20260914.test.ts` 12 项用例（含 3 组 CONTROL 对照）**12/12 满分全绿**。报告诚实导出至 `results-direction-recheck-20260914-fixed.json`（未覆盖历史 `final-checked.json`）。全仓库全量集成测试 47 测试文件、280 项用例 100% 通过。
 
@@ -585,6 +603,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 根据《IXAEON_v0.3_重整二次复审_2026-09-15.md》提出的 8 项问题（S2-01 至 S2-08）与 R01–R09 反例，完成全量修复、受控评测闭环与测试验证：
 
 ### 交付 1：可靠边界与完整生命周期（S2-01, S2-03, S2-05）
+
 1. **S2-01 (R01)**：`apps/desktop/src/main/ipc.ts` 在创建研究主题入口做 camelCase→snake_case 完整边界转换，严格校验 `paidBudgetMode`、`requestCap`（非负）、`intervalMs`（≥60,000ms），修复界面选择的预算和检查周期被静默丢弃的问题。
 2. **S2-05 (R02)**：新增数据库迁移 22（`research-source-discovery-origin`），在 `research_sources` 增加 `discovered_by TEXT NOT NULL DEFAULT 'user' CHECK (discovered_by IN ('user', 'auto'))` 持久列。来源身份与瞬态错误状态（`last_error`）彻底分离，抓取成功清空 `last_error` 时不再丢失自动发现身份，跨周期第 2 轮对不相关内容坚决保持安静。
 3. **S2-03 (R04, R05, R06, R09)**：
@@ -593,11 +612,13 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `apps/desktop/src/main/appRuntime.ts` 的 `stop()` 在关闭数据库之前先调用 `this.invalidateContext()`，释放长驻会话与引擎进程，不再留悬挂引用。
 
 ### 交付 2：真实研究预算与降级诚实可见（S2-04, S2-06）
+
 1. **S2-04 (R08)**：落实重整计划 §6.3 起始上限——`packages/core/src/research/checker.ts` 引入 `MAX_MODEL_CALLS_PER_RUN = 8`，单轮（每次检查）最多调用 8 次模型研读，与搜索预算（`request_cap`）相互独立，超出部分自动回退规则研读（`mode: 'rules'`，不计故障）。
 2. **S2-06 (R07)**：`packages/core/src/research/judge.ts` 增加判断产生模式（`mode: 'model' | 'rules' | 'rules-degraded'`）与失败原因 `modelError`。当配置了模型但调用失败回退规则研读时，失败原因与降级次数如实写入 `run.error`（并同步更新主题 `last_failure`），保留已抓取资料但不再伪装成「模型研读成功」。
 3. **S2-04 文案纠正**：修改 `Research.tsx` 与 `appRuntime.researchSnapshot` 文案，明确区分搜索用出门说法（本地脱敏后发搜索服务）与模型研读可读研究问题（外发模型服务），删除「定时不消耗额度」旧文案，明确提示每轮 8 次模型研读上限与出站内容。
 
 ### 交付 3：受控技能评测与完整办事链（S2-02, S2-07, S2-08）
+
 1. **S2-02 (R03)**：
    - 彻底关闭桌面 IPC 接受调用方自填 exitCode/output/verifiedAt 的漏洞。
    - `packages/core/src/execution/executor.ts` 导出 `runControlledVerifyCommand`；
@@ -614,6 +635,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `direction-round2-93ecaed.test.ts` 12 项测试（含 3 组 CONTROL 对照）**12/12 满分全绿**，结果输出至 `apps/desktop/test/review/results-direction-round2-93ecaed-fixed.json`（未改动历史 checked.json）。
 
 ### 四层报告纪律状态
+
 - **已实现**：S2-01～S2-08 的代码、迁移 22、IPC 边界、受控评测器、文案、端到端办事链与门禁已全部就绪。
 - **自动化测试通过**：
   - 本轮二次复审反例套件：**12/12 通过**（`results-direction-round2-93ecaed-fixed.json`）；
@@ -623,3 +645,28 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
   - 静态门禁：TypeScript 0 错误、ESLint 0 错误、Prettier 0 告警。
 - **真实环境通过**：主进程受控沙箱验证器（node subprocess）真实执行命令与返回码捕获通过；真实 Hermes / Codex 云端真机调用依赖真实凭证在测试中安全跳过。
 - **用户接受**：待用户检验。不以单测全绿宣称阶段最终完成。
+
+## 2026-09-15 · 接入 TinyFish Web Agent 受控网络搜索
+
+按用户指令评估并接入 [TinyFish](https://github.com/tinyfish-io) 搜索能力（POST `https://api.tinyfish.ai/v1/search`）：
+
+1. **类型与契约**：
+   - `packages/contracts/src/config.ts`：`appConfigSchema.webSearch.provider` 扩展枚举包含 `'tinyfish'`；
+   - `packages/contracts/src/ipc.ts`：`saveWebSearchSettings`、`testWebSearch` 及 `settingsViewSchema.config.webSearchProvider` 扩展包含 `'tinyfish'`；
+   - `packages/core/src/research/webSearch.ts`：`WebSearchProvider` 扩展为 `'brave' | 'tavily' | 'tinyfish'`；
+2. **受控执行器实现**：
+   - `packages/core/src/research/webSearch.ts` 实现 `tinyfishSearch`：
+     - 请求头带 `Authorization: Bearer ${apiKey}` 与 `content-type: application/json`；
+     - 请求体发送 `{ query, limit, max_results: limit }`；
+     - 响应体鲁棒解析兼容 `results` / `data` / `items` 数组结构与 `title` / `url` / `snippet`（或 `content` / `description` / `text`）字段；
+     - 继承既有本地脱敏防护（`sanitizePublicQuery`）与诚实错误处理（401/429/超时抛标准 `SERVER_UNAVAILABLE`，不伪造结果）。
+3. **安全边界**：
+   - `packages/core/test/integration/security.test.ts` 无外联静态扫描白名单增加 `api.tinyfish.ai`，作为经用户在设置页配置 Key 后才启用的受控搜索出口。
+4. **桌面界面闭环**：
+   - `apps/desktop/src/renderer/src/pages/Settings.tsx` 搜索服务下拉菜单增加「TinyFish API (Web Agent)」选项；
+   - `apps/desktop/src/main/appRuntime.ts` 的 `testWebSearch` 扩展支持 `tinyfish`，支持设置页单次真实测试。
+5. **验证**：
+   - `packages/core/test/integration/b3-websearch.test.ts` 新增 TinyFish 请求/鉴权/数据解析单测（6/6 通过）；
+   - `packages/core/test/integration/security.test.ts` 源码无外联扫描（8/8 通过）；
+   - 全量自动化测试（282 通过，12 跳过，0 失败）；静态门禁（tsc 0, eslint 0, prettier 0）。
+   - 真实环境通过：已实现受控调用与安全存储；真实线上查询依赖用户在设置页输入有效 TinyFish API Key。
