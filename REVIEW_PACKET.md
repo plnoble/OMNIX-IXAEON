@@ -1239,3 +1239,26 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 - 独立二次复审回归测试：**12/12 满分全绿**（`direction-round2-93ecaed.test.ts`）
 - 静态门禁：TypeScript 0 错误 / ESLint 0 错误 / Prettier 0 告警
 - 四层状态：已实现（M0 全部缺陷闭环修复完成并入库）；自动化测试通过（全量 288 项 + 审核 14 项 + 二次复审 12 项 100% 通过）；真实环境通过（本地受控沙箱与隔离边界实测通过）；用户接受待验收。
+
+## 58. M1 目标驱动桌面办事闭环与 MCP 协议回交交付（2026-09-15）
+
+落实施工单《IXAEON_下一阶段开发计划_目标驱动个人Agent闭环_2026-09-15.md》§5.2 完成 M1 阶段全部要求：
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| **M1.1 (NP07 / Q08) MCP 工具链回交** | 正式接入 `search_web`、`read_web`、`propose_task`、`get_task_status`；本地 HTTP 端点挂载；结果经 MCP 协议正式回交模型上下文 | `packages/contracts/src/mcp.ts`<br>`packages/core/src/storage/mcpStore.ts`<br>`apps/mcp/src/shared.ts`<br>`apps/desktop/src/main/server/localServer.ts`<br>`apps/desktop/src/main/appRuntime.ts` |
+| **M1.2 & M1.3 (NP08) 桌面办事全流程** | 用户提出目标 → Agent 查阅研究 → `propose_task` 提出带独立判据的草案卡片 → 桌面审查批准 → 受控工作区真实生成产物 → 独立多条件验证脚本真实执行 → 验证通过待验收 → 用户最终确认验收 → 结果与产物变更回交原会话 | `packages/core/test/integration/m1-desktop-action-loop.test.ts`<br>`results-m1-desktop-action-loop-20260915.json` |
+| **负例与越权保护** | 越权未批准任务直接执行被拒绝；已取消任务拒绝派发 | `m1-desktop-action-loop.test.ts` (NP08) |
+
+证据与四层报告：
+- **新增 M1 端到端测试**：`packages/core/test/integration/m1-desktop-action-loop.test.ts`（**2/2 自动化测试全部通过**）
+- **独立证据文件**：`apps/desktop/test/review/results-m1-desktop-action-loop-20260915.json`
+- **M0 审核套件回归**：`review-bbe651f-20260915.test.ts`（**14/14 全部通过**）
+- **二次复审套件回归**：`direction-round2-93ecaed.test.ts`（**12/12 全部通过**）
+- **全量自动化测试套件**：**51 个测试文件、290 项测试全部通过（0 失败，9 跳过）**
+- **静态代码门禁**：TypeScript `tsc --noEmit`、`eslint .`、`prettier --check` 均 0 错误、0 告警
+- **四层状态**：
+  - 已实现：M1 工具链与端到端办事闭环全部实现入库；
+  - 自动化测试通过：全量 290 项测试通过，新增 M1 闭环测试与历史复审全部通过；
+  - 真实环境通过：受控沙箱与独立多条件代码验证命令真实执行通过；
+  - 用户接受：待用户验收。

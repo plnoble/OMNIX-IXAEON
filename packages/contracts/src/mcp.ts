@@ -190,6 +190,84 @@ export const getEvidenceOutputSchema = z.object({
 });
 export type GetEvidenceOutput = z.infer<typeof getEvidenceOutputSchema>;
 
+// --- M1 工具链扩展：search_web / read_web / propose_task / get_task_status ---
+
+export const searchWebInputSchema = z.object({
+  query: z.string().min(1).max(500).describe('脱敏后的公开搜索查询'),
+  limit: z.number().int().min(1).max(10).default(5).optional(),
+});
+export type SearchWebInput = z.infer<typeof searchWebInputSchema>;
+
+export const searchWebOutputSchema = z.object({
+  provider: z.string(),
+  query: z.string(),
+  redacted: z.boolean(),
+  reasons: z.array(z.string()),
+  hits: z.array(
+    z.object({
+      title: z.string(),
+      url: z.string(),
+      snippet: z.string(),
+    }),
+  ),
+});
+export type SearchWebOutput = z.infer<typeof searchWebOutputSchema>;
+
+export const readWebInputSchema = z.object({
+  url: z.string().url().describe('公开网页的 HTTPS 链接'),
+});
+export type ReadWebInput = z.infer<typeof readWebInputSchema>;
+
+export const readWebOutputSchema = z.object({
+  finalUrl: z.string(),
+  status: z.number(),
+  excerpt: z.string(),
+});
+export type ReadWebOutput = z.infer<typeof readWebOutputSchema>;
+
+export const proposeTaskInputSchema = z.object({
+  project_ref: z.string().min(1).max(500).describe('所属项目 ID、名称或路径'),
+  goal: z.string().min(1).max(2000).describe('拟完成的编码目标'),
+  scope: z
+    .array(z.string())
+    .min(1)
+    .max(20)
+    .default(['note.txt'])
+    .optional()
+    .describe('允许修改的文件列表'),
+  verify_command: z.array(z.string()).optional().describe('受控校验命令（限 node 执行器）'),
+  rationale: z.string().max(1000).optional().describe('提议理由或分析依据'),
+});
+export type ProposeTaskInput = z.infer<typeof proposeTaskInputSchema>;
+
+export const proposeTaskOutputSchema = z.object({
+  task_id: z.string(),
+  project_id: z.string(),
+  goal: z.string(),
+  scope: z.array(z.string()),
+  status: z.string(),
+  note: z.string(),
+});
+export type ProposeTaskOutput = z.infer<typeof proposeTaskOutputSchema>;
+
+export const getTaskStatusInputSchema = z.object({
+  task_id: z.string().min(1).max(100).describe('任务 ID'),
+});
+export type GetTaskStatusInput = z.infer<typeof getTaskStatusInputSchema>;
+
+export const getTaskStatusOutputSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  goal: z.string(),
+  status: z.string(),
+  verify_status: z.string().nullable(),
+  verify_exit_code: z.number().nullable(),
+  verify_output: z.string().nullable(),
+  summary: z.string().nullable(),
+  changed_paths: z.array(z.string()),
+});
+export type GetTaskStatusOutput = z.infer<typeof getTaskStatusOutputSchema>;
+
 /** MCP 服务器初始化说明（6.5 节使用规则）。 */
 export const MCP_SERVER_INSTRUCTIONS = `你是与本机 IXAEON（析衍）项目记忆系统协作的编码 AI。IXAEON 保存用户授权的项目资料、决定与工作历史。
 

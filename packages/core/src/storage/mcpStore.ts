@@ -17,6 +17,7 @@ import {
   assertCodingClientMayReadItem,
   assertCodingClientMayReadSegment,
 } from '../access.js';
+import { sanitizePublicQuery } from '../memory/querySanitize.js';
 
 /**
  * MCP 工具逻辑（计划 6.x）。
@@ -903,5 +904,186 @@ export class McpService {
     }
     recordAudit(this.db, 'mcp.get_evidence', { itemId });
     return { item_id: row.id, statement: row.statement, origin: row.origin, type: row.type };
+  }
+
+  /**
+   * M1.1 (Q08 / NP07)：MCP 网页搜索工具——真正给引擎返回搜索结果。
+   */
+  async searchWeb(
+    input: { query: string; limit?: number },
+    webSearch?: {
+      search(
+        query: string,
+        limit: number,
+      ): Promise<{
+        provider: string;
+        query: string;
+        hits: Array<{ title: string; url: string; snippet: string }>;
+      }>;
+    },
+  ): Promise<{
+    provider: string;
+    query: string;
+    redacted: boolean;
+    reasons: string[];
+    hits: Array<{ title: string; url: string; snippet: string }>;
+  }> {
+    const raw = String(input.query ?? '').trim();
+    const sanitized = sanitizePublicQuery(raw);
+    if (!sanitized.query) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'search_web 需要可公开的 query');
+    }
+    if (!webSearch) {
+      throw new IxaError(
+        ErrorCodes.SERVER_UNAVAILABLE,
+        `真实搜索入口未配置（缺服务/Key）。公开查询已本地检查（redacted=${sanitized.redacted}）：${sanitized.query}。`,
+      );
+    }
+    const limit = Math.min(Math.max(Number(input.limit ?? 5) || 5, 1), 10);
+    const outcome = await webSearch.search(sanitized.query, limit);
+    recordAudit(this.db, 'mcp.search_web', {
+      query: sanitized.query,
+      hitsCount: outcome.hits.length,
+    });
+    return {
+      provider: outcome.provider,
+      redacted: sanitized.redacted,
+      reasons: sanitized.reasons,
+      query: outcome.query,
+      hits: outcome.hits,
+    };
+  }
+
+  /**
+   * M1.1 (Q08 / NP07)：MCP 抓取网页正文工具。
+   */
+  async readWeb(
+    url: string,
+    fetchFn?: (targetUrl: string) => Promise<{ finalUrl: string; status: number; excerpt: string }>,
+  ): Promise<{
+    finalUrl: string;
+    status: number;
+    excerpt: string;
+  }> {
+    if (!url) throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'read_web 需要 url');
+    if (!fetchFn) {
+      throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '网页读取抓取服务未注入');
+    }
+    const result = await fetchFn(url);
+    recordAudit(this.db, 'mcp.read_web', { url: result.finalUrl, status: result.status });
+    return result;
+  }
+
+  /**
+   * M1.1 (Q08 / NP07)：MCP 提议任务工具——在 Core 中创建待批准任务草案。
+   */
+  proposeTask(
+    input: {
+      project_ref: string;
+      goal: string;
+      scope?: string[];
+      verify_command?: string[];
+      rationale?: string;
+    },
+    createTask: (params: {
+      projectId: string;
+      goal: string;
+      scope: string[];
+      allowedCommands: string[][];
+    }) => { id: string; project_id: string; goal: string; scope_json: string; status: string },
+  ): {
+    task_id: string;
+    project_id: string;
+    goal: string;
+    scope: string[];
+    status: string;
+    note: string;
+  } {
+    const project = this.resolveProject(input.project_ref);
+    const goal = input.goal.trim();
+    if (!goal) throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'propose_task 需要 goal');
+
+    const scope = Array.isArray(input.scope) && input.scope.length > 0 ? input.scope : ['note.txt'];
+    const allowedCommands: string[][] =
+      Array.isArray(input.verify_command) && input.verify_command.length > 0
+        ? [input.verify_command.map(String)]
+        : [
+            [
+              process.execPath,
+              '-e',
+              "const fs=require('fs');if(!fs.existsSync('note.txt'))process.exit(2);",
+            ],
+          ];
+
+    const task = createTask({
+      projectId: project.id,
+      goal,
+      scope,
+      allowedCommands,
+    });
+
+    recordAudit(this.db, 'mcp.propose_task', { taskId: task.id, projectId: project.id, goal });
+    return {
+      task_id: task.id,
+      project_id: task.project_id,
+      goal: task.goal,
+      scope,
+      status: task.status,
+      note: '任务提案已生成，等待桌面用户在界面审阅批准后派发执行',
+    };
+  }
+
+  /**
+   * M1.1 (Q08 / NP07)：MCP 查询任务执行结果与状态。
+   */
+  getTaskStatus(
+    taskId: string,
+    getTask: (id: string) => {
+      id: string;
+      project_id: string;
+      goal: string;
+      status: string;
+      verify_status: string | null;
+      verify_exit_code: number | null;
+      verify_output: string | null;
+      executor_report_json: string | null;
+    },
+  ): {
+    id: string;
+    project_id: string;
+    goal: string;
+    status: string;
+    verify_status: string | null;
+    verify_exit_code: number | null;
+    verify_output: string | null;
+    summary: string | null;
+    changed_paths: string[];
+  } {
+    const task = getTask(taskId);
+    let summary: string | null = null;
+    let changed_paths: string[] = [];
+    if (task.executor_report_json) {
+      try {
+        const report = JSON.parse(task.executor_report_json) as {
+          summary?: string;
+          changedPaths?: string[];
+        };
+        summary = report.summary ?? null;
+        changed_paths = report.changedPaths ?? [];
+      } catch {
+        // ignore
+      }
+    }
+    return {
+      id: task.id,
+      project_id: task.project_id,
+      goal: task.goal,
+      status: task.status,
+      verify_status: task.verify_status,
+      verify_exit_code: task.verify_exit_code,
+      verify_output: task.verify_output,
+      summary,
+      changed_paths,
+    };
   }
 }

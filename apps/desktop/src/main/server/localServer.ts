@@ -3,6 +3,8 @@ import type { CoreDatabase } from '@ixaeon/core';
 import {
   type PermissionService,
   type SourceStore,
+  type WebSearchExecutor,
+  type CodingOrchestrator,
   McpService,
   Vault,
   recordAudit,
@@ -18,6 +20,10 @@ import {
   recordWorkResultInputSchema,
   recordObservationInputSchema,
   getEvidenceInputSchema,
+  searchWebInputSchema,
+  readWebInputSchema,
+  proposeTaskInputSchema,
+  getTaskStatusInputSchema,
   type AppConfig,
   type CaptureBatch,
   type CaptureBatchResponse,
@@ -65,6 +71,9 @@ interface LocalServerDeps {
   onCaptured?: (sourceId: string, acceptedCount: number) => void;
   /** 对话恢复回调（该会话的全部 externalId 别名；用于恢复后补一次最新版本分析） */
   onConversationResumed?: (externalIds: string[]) => void;
+  getWebSearchExecutor?: () => WebSearchExecutor | null;
+  fetchWebPage?: (url: string) => Promise<{ finalUrl: string; status: number; excerpt: string }>;
+  getCodingOrchestrator?: () => CodingOrchestrator;
 }
 
 export class LocalServer {
@@ -397,6 +406,101 @@ export class LocalServer {
           }
           const mcp = new McpService(this.deps.db);
           return reply.send(mcp.getEvidence(parsed.data.item_id));
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    // M1.1 (Q08 / NP07)：搜索、抓取、提议编码任务与状态查询端点
+    app.post('/api/mcp/search-web', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = searchWebInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `search_web 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const mcp = new McpService(this.deps.db);
+          const executor = this.deps.getWebSearchExecutor?.() ?? undefined;
+          const result = await mcp.searchWeb(parsed.data, executor ?? undefined);
+          return reply.send(result);
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    app.post('/api/mcp/read-web', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = readWebInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `read_web 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const mcp = new McpService(this.deps.db);
+          const fetcher = this.deps.fetchWebPage;
+          const result = await mcp.readWeb(parsed.data.url, fetcher);
+          return reply.send(result);
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    app.post('/api/mcp/propose-task', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = proposeTaskInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `propose_task 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const coding = this.deps.getCodingOrchestrator?.();
+          if (!coding) {
+            throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '编码任务调度器未就绪');
+          }
+          const mcp = new McpService(this.deps.db);
+          const result = mcp.proposeTask(parsed.data, (p) => coding.create(p));
+          return reply.send(result);
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    app.post('/api/mcp/get-task-status', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireLocalToken(request.headers.authorization);
+          const parsed = getTaskStatusInputSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `get_task_status 参数错误: ${parsed.error.message}`,
+            });
+          }
+          const coding = this.deps.getCodingOrchestrator?.();
+          if (!coding) {
+            throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '编码任务调度器未就绪');
+          }
+          const mcp = new McpService(this.deps.db);
+          const result = mcp.getTaskStatus(parsed.data.task_id, (id) => coding.store.get(id));
+          return reply.send(result);
         } catch (err) {
           return this.sendError(reply, err);
         }

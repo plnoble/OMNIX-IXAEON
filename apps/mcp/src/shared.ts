@@ -274,4 +274,99 @@ export function registerTools(
       }
     },
   );
+
+  // --- M1 工具链扩展：search_web / read_web / propose_task / get_task_status ---
+
+  server.registerTool(
+    'search_web',
+    {
+      description:
+        '使用受控搜索引擎在公开互联网搜索资料。query 会在本地进行隐私脱敏，返回包含标题、链接、正文摘录的搜索结果列表。',
+      inputSchema: {
+        query: z.string().min(1).max(500).describe('脱敏后的公开搜索关键词'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(10)
+          .default(5)
+          .optional()
+          .describe('返回条目上限（1-10）'),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await call('/api/mcp/search-web', args);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: errMessage(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'read_web',
+    {
+      description: '读取公开网页正文内容（支持静态抓取与动态 SPA 云端渲染）。',
+      inputSchema: {
+        url: z.string().url().describe('公开网页的 HTTPS 链接'),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await call('/api/mcp/read-web', args);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: errMessage(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'propose_task',
+    {
+      description:
+        '在桌面上提出一个具体的编码修改任务提案。用户在桌面端审阅批准后才会真正执行。' +
+        '包含目标、允许修改的文件范围、验证命令与修改理由。',
+      inputSchema: {
+        project_ref: z.string().min(1).max(500).describe('所属项目 ID、名称或根路径'),
+        goal: z.string().min(1).max(2000).describe('具体编码目标'),
+        scope: z
+          .array(z.string())
+          .min(1)
+          .max(20)
+          .default(['note.txt'])
+          .optional()
+          .describe('允许改动的文件列表'),
+        verify_command: z.array(z.string()).optional().describe('受控验收命令（限 node 执行）'),
+        rationale: z.string().max(1000).optional().describe('提议依据与方案说明'),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await call('/api/mcp/propose-task', args);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: errMessage(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'get_task_status',
+    {
+      description: '查询先前提出的编码任务的当前状态、执行结果报告、实际 diff 及验收结果。',
+      inputSchema: {
+        task_id: z.string().min(1).max(100).describe('任务 ID'),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await call('/api/mcp/get-task-status', args);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: errMessage(err) }], isError: true };
+      }
+    },
+  );
 }

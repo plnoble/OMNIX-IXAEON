@@ -40,6 +40,7 @@ import {
   setDataDirChoice,
   createWebSearchExecutor,
   runControlledVerifyCommand,
+  fetchApprovedSource,
   type AskResult,
   type CoreDatabase,
   type ModelProvider,
@@ -206,6 +207,23 @@ export class AppRuntime {
             .get(ext) as { id: string } | undefined;
           if (row) rt.enqueueAutoExtraction(row.id);
         }
+      },
+      getWebSearchExecutor: () => runtimeRef.current?.getWebSearchExecutor() ?? null,
+      fetchWebPage: async (url: string) => {
+        const rt = runtimeRef.current;
+        if (!rt) throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '运行时不可用');
+        const deps = desktopResearchFetchDeps(() => rt.getTinyFishFetcher() ?? undefined);
+        const fetched = await fetchApprovedSource(url, deps);
+        return {
+          finalUrl: fetched.finalUrl,
+          status: fetched.status,
+          excerpt: fetched.body.slice(0, 3000),
+        };
+      },
+      getCodingOrchestrator: () => {
+        const rt = runtimeRef.current;
+        if (!rt) throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '运行时不可用');
+        return rt.coding;
       },
     });
 
@@ -768,9 +786,16 @@ export class AppRuntime {
     const session =
       this.currentAsk ??
       new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider, {
-        // A06：record_observation/get_evidence 已由 ixaeon MCP 服务注册给
-        // Hermes（结果经协议回交），网关侧不再本地执行，防双写。
-        mcpBridgedTools: ['record_observation', 'get_evidence'],
+        // A06 & M1.1：以下工具已由 ixaeon MCP 服务注册给 Hermes（结果经 MCP 协议回交），
+        // 网关侧不再本地执行，防双写。
+        mcpBridgedTools: [
+          'record_observation',
+          'get_evidence',
+          'search_web',
+          'read_web',
+          'propose_task',
+          'get_task_status',
+        ],
       });
     const runId = randomUUID();
     this.currentAsk = session;

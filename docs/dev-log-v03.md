@@ -1,4 +1,4 @@
-# v0.3 开发日志
+﻿# v0.3 开发日志
 
 ## 2026-09-08 · S0：目标、数据和入口清点（第一批第 1 部分）
 
@@ -755,3 +755,31 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - 全量测试套件：**50 passed / 9 skipped / 288 tests passed / 0 failed**；
    - 二次复审套件：`direction-round2-93ecaed.test.ts` **12/12 满分全绿**；
    - 静态门禁：`npm run typecheck` 0 错误、`npm run lint` 0 错误、`npm run format:check` 0 告警。
+
+## 2026-09-15 · M1 阶段落地：目标驱动桌面办事闭环与 MCP 工具链回交（NP07 / NP08）
+
+按照施工单《IXAEON_下一阶段开发计划_目标驱动个人Agent闭环_2026-09-15.md》§5.2 完成 M1 阶段开发：
+
+1. **M1.1 (NP07 / Q08) 正式 MCP 工具链接入与结果正式回交**：
+   - 在 `@ixaeon/contracts`（`mcp.ts`）与 `@ixaeon/mcp`（`shared.ts`）中正式声明并注册核心办事工具：
+     - `search_web`：支持脱敏公开关键词搜索，向引擎返回标准化 `provider`, `query`, `hits`（含 title, url, snippet）；
+     - `read_web`：支持抓取公开网页正文，向引擎返回 `finalUrl`, `status`, `excerpt`；
+     - `propose_task`：支持从推理上下文提出具体编码修改任务草案（含 project_ref, goal, scope, verify_command, rationale），在 Core 中生成待批准任务并向桌面呈现卡片；
+     - `get_task_status`：支持查询任务状态、执行报告、实际 diff 范围及独立验证退出码/输出；
+   - 在本地 HTTP 服务（`localServer.ts`）挂载对应的 Bearer 鉴权端点：
+     - `/api/mcp/search-web`、`/api/mcp/read-web`、`/api/mcp/propose-task`、`/api/mcp/get-task-status`；
+   - 在 `appRuntime.ts` 中配置依赖注入与桥接名单：将 `search_web`, `read_web`, `propose_task`, `get_task_status` 统一纳入 `mcpBridgedTools`，杜绝双写；工具执行结果经 MCP 协议正式回交引擎模型上下文。
+2. **M1.2 & M1.3 (NP08) 桌面对话目标驱动全闭环**：
+   - 实现用户在桌面会话下达实际目标，Hermes/Agent 调用 `search_web`/`read_web` 查阅资料，随后调用 `propose_task` 提出带独立判据的编码草案；
+   - 任务草案在 Core 形成受控记录（`status='draft'`），桌面用户审阅后执行 `approveAndQueue`；
+   - 执行器在独立受控工作区副本中生成真实业务功能产物（如 `dedupe.js` 实现有效去重、异常过滤与时间戳排序）；
+   - 独立多条件验证脚本真实执行（测试正常数据、重复数据与异常数据，验证严格退出码与断言），验证通过进入 `pending_accept` 状态待用户最终验收；
+   - 最终用户在桌面确认验收转入 `completed`，实际变更文件与报告如实沉淀在 `work_runs` 并回交原会话；
+   - 健全负例保护：越权未批准直接派发执行坚决被拒，已取消任务拒绝执行。
+3. **验证结果**：
+   - 新增 M1 端到端闭环测试 `packages/core/test/integration/m1-desktop-action-loop.test.ts`：**2/2 自动化测试全部通过**；
+   - 测试结果已独立沉淀在 `apps/desktop/test/review/results-m1-desktop-action-loop-20260915.json`；
+   - 复跑 M0 审核套件 `review-bbe651f-20260915.test.ts`：**14/14 全部通过**；
+   - 复跑二次复审套件 `direction-round2-93ecaed.test.ts`：**12/12 全部通过**；
+   - 全量自动化测试套件：**51 个测试文件、290 项测试全部通过（0 失败，9 跳过）**；
+   - 静态门禁：TypeScript `tsc --noEmit`、`eslint .`、`prettier --check` 保持 0 错误、0 告警。
