@@ -275,10 +275,34 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                 </p>
               ) : (
                 <p className="warn" style={{ fontSize: '0.85em' }}>
-                  尚无客观执行证据（eval_evidence_json 为空），无法批准。
+                  尚无受控执行证据（需经沙箱真实验证退出码与输出），无法批准。
                 </p>
               )}
               <div className="card-actions" style={{ marginTop: 8 }}>
+                {s.status !== 'approved' && s.status !== 'retired' && (
+                  <Button
+                    kind="default"
+                    disabled={busy}
+                    onClick={() => {
+                      const cmd = window.prompt(
+                        '输入验证命令（空格分隔，必须是 node 沙箱命令）：',
+                        'node -e process.exit(0)',
+                      );
+                      if (!cmd) return;
+                      const benefit =
+                        window.prompt('输入该方法相比基线的实际收益说明：', '解决了原失败') ?? '';
+                      void act(() =>
+                        api.evaluateSkillWithEvidence({
+                          id: s.id,
+                          command: cmd.trim().split(/\s+/),
+                          benefit,
+                        }),
+                      );
+                    }}
+                  >
+                    运行受控对照验证
+                  </Button>
+                )}
                 {s.status === 'evaluated' && s.eval_evidence_json && (
                   <Button
                     kind="primary"

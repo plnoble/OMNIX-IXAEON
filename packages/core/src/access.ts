@@ -3,10 +3,19 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { MemoryScope } from '@ixaeon/contracts';
 
 /**
- * D02（审核 2026-09-14）：计算当前权限与披露的纪元版本号（Epoch）。
- * 任何权限授权/撤销、条目披露授权/撤销都会改变此版本。
+ * D02 / S2-03（审核 2026-09-14、2026-09-15）：计算当前有效权限与披露的纪元版本号（Epoch）。
+ * 纪元必须覆盖**实际生效**的授权集合，而不是历史累计：
+ * - 权限撤销（status 变化）、披露撤销（revoked_at）→ 数量/时间变化
+ * - 披露自然到期（expires_at ≤ now）→ 到期的授权不再计入（R04：读取已拒绝，
+ *   纪元也必须随之改变，否则适配器仍认为旧会话有效）
+ * - 条目纠正（superseded / 内容更新）→ items 状态计入纪元（R05：纠正必须
+ *   使带着旧结论的长驻会话失效）
+ * now 默认取当前时间；测试可注入。SQLite datetime('now') 无法感知 JS 假时钟。
  */
-export function getDisclosureEpoch(db: CoreDatabase): string {
+export function getDisclosureEpoch(
+  db: CoreDatabase,
+  now: string = new Date().toISOString(),
+): string {
   const p = db
     .prepare(
       "SELECT COUNT(*) AS c, COALESCE(MAX(granted_at), '') AS t FROM permissions WHERE status='active'",
@@ -14,10 +23,17 @@ export function getDisclosureEpoch(db: CoreDatabase): string {
     .get() as { c: number; t: string };
   const d = db
     .prepare(
-      "SELECT COUNT(*) AS c, COALESCE(MAX(granted_at), '') AS t FROM disclosure_grants WHERE revoked_at IS NULL",
+      `SELECT COUNT(*) AS c, COALESCE(MAX(granted_at), '') AS t FROM disclosure_grants
+       WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`,
+    )
+    .get(now) as { c: number; t: string };
+  // 条目当前状态（含纠正产生的 superseded 变化）计入纪元
+  const i = db
+    .prepare(
+      "SELECT COUNT(*) AS c, COALESCE(MAX(updated_at), '') AS t FROM items WHERE state IN ('current', 'disputed')",
     )
     .get() as { c: number; t: string };
-  return `${p.c}:${p.t}|${d.c}:${d.t}`;
+  return `${p.c}:${p.t}|${d.c}:${d.t}|${i.c}:${i.t}`;
 }
 
 /**

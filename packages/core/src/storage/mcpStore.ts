@@ -16,7 +16,6 @@ import {
   assertSourceAuthorized,
   assertCodingClientMayReadItem,
   assertCodingClientMayReadSegment,
-  modelMayReadItem,
 } from '../access.js';
 
 /**

@@ -740,6 +740,19 @@ function uniquePaths(paths: string[]): string[] {
   return [...new Set(paths.map((p) => p.replaceAll('\\', '/')))];
 }
 
+/**
+ * S2-02（审核 2026-09-15）：受控验证命令执行器——供 Skill 对照评测等主进程入口使用。
+ * 复用统一沙箱（仅 node、剥离自带 --permission/--allow-fs-*、强制 cwd 读写边界），
+ * 返回真实退出码与输出。调用方自报的退出码/输出一律不采信。
+ */
+export async function runControlledVerifyCommand(
+  argv: string[],
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<IndependentCheck> {
+  return defaultCheck(argv, cwd, signal);
+}
+
 function hashWorkspace(root: string): Map<string, string> {
   const map = new Map<string, string>();
   const walk = (dir: string) => {

@@ -1,0 +1,35 @@
+{
+  "audit": "IXAEON second restructuring review",
+  "date": "2026-09-15",
+  "baseline": "93ecaed",
+  "scope": "Read-only static gates; no fixes, real models, search, coding execution or deployment",
+  "gates": [
+    {
+      "name": "lint",
+      "cmd": "node node_modules/eslint/bin/eslint.js .",
+      "chunk_id": "4e7295",
+      "wall_time_seconds": 3.3713686,
+      "exit_code": 1,
+      "original_token_count": 62,
+      "output": "\nD:\\Agent\\Project\\OMNIX-IXAEON析衍\\packages\\core\\src\\storage\\mcpStore.ts\n  19:3  error  'modelMayReadItem' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars\n\n✖ 1 problem (1 error, 0 warnings)\n\n"
+    },
+    {
+      "name": "format",
+      "cmd": "node node_modules/prettier/bin/prettier.cjs --check \"apps/*/src/**/*.{ts,tsx,css,html}\" \"packages/*/src/**/*.{ts,tsx}\" \"scripts/**/*.mjs\" \"apps/*/scripts/**/*.mjs\" \"*.{ts,mjs,json}\"",
+      "chunk_id": "85e8c9",
+      "wall_time_seconds": 2.3581909,
+      "exit_code": 1,
+      "original_token_count": 75,
+      "output": "Checking formatting...\n[warn] apps/desktop/src/renderer/src/pages/Research.tsx\n[warn] packages/core/src/research/checker.ts\n[warn] packages/core/src/research/judge.ts\n[warn] results-direction-recheck-20260914-fixed.json\n[warn] Code style issues found in 4 files. Run Prettier with --write to fix.\n"
+    },
+    {
+      "name": "typecheck",
+      "cmd": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+      "chunk_id": "d5ba1a",
+      "wall_time_seconds": 4.3874439,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  ]
+}

@@ -240,9 +240,9 @@ describe('B5 合成旧库升级到 20', () => {
 
     const upgraded = openDatabase(oldDbPath);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(21);
+    expect(currentMigrationVersion(upgraded)).toBe(22);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(21);
+    expect(currentMigrationVersion(upgraded)).toBe(22);
     const cols = (
       upgraded.prepare('PRAGMA table_info(sources)').all() as Array<{ name: string }>
     ).map((c) => c.name);

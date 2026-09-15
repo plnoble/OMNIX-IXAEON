@@ -133,9 +133,10 @@ export function ResearchPage({
         <p className="muted">
           有批准网址时，「立即检查」只证明这个网址能打开并记下内容。
           {data?.searchConfigured
-            ? ' 配置了搜索服务后：写了「出门说法」的关注，手动检查会再做一次受控搜索（查询本地脱敏后外发），返回候选网址。候选不是发现——你批准后才会被读取。定时轮次仍只读批准来源，不消耗搜索额度。'
+            ? ' 配置了搜索服务后：写了「出门说法」的关注，手动检查会做受控搜索（公开描述经脱敏后外发出门）返回候选；在预批搜索预算内，定时轮次会自动搜索并纳入研读。'
             : ' 无网址的关注可以先记下方向，检查会明确失败，直到在设置页配置搜索入口。'}{' '}
-          发现是外部线索，不会自动变成你的目标。
+          每轮模型研读上限 8
+          次调用（与搜索预算独立，超出走规则研读）。发现是外部线索，不会自动变成你的目标。
         </p>
       </Card>
       <Card title="新建关注">
@@ -148,7 +149,7 @@ export function ResearchPage({
         </Field>
         <Field
           label="出门说法（搜索用）"
-          hint="配置搜索服务后，手动检查会把这句话（本地脱敏后）发给搜索服务找候选来源；不写就不搜。问题本身不会外发。"
+          hint="用于搜索候选：本地脱敏后发给搜索服务找候选网址。研读阶段模型会读取具体研究问题与抓取内容（配置云端模型时即外发模型服务）；不写出门说法则不搜索。"
         >
           <input
             value={publicDescription}
@@ -220,7 +221,9 @@ export function ResearchPage({
             {t.enabled ? '已启用自动检查' : '自动检查关闭'} · {t.paused ? '已暂停' : '未暂停'}
             {' · '}
             自主搜索预算：
-            {t.paid_budget_mode === 'request_cap' ? `剩余 ${t.request_cap ?? 0} 次` : '未设预批预算'}
+            {t.paid_budget_mode === 'request_cap'
+              ? `剩余 ${t.request_cap ?? 0} 次`
+              : '未设预批预算'}
           </p>
           <p className="muted">
             上次成功 {t.last_success_at ?? '无'} · 上次失败 {t.last_failure_at ?? '无'}

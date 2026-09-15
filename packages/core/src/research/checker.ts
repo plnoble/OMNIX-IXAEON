@@ -19,6 +19,12 @@ export const systemClock: Clock = { now: () => new Date() };
 const RUN_LEASE_MS = 5 * 60 * 1000;
 const INJECTION_HINT =
   /upload your (files|data)|run this command|curl |powershell |rm -rf|ignore previous|system prompt/i;
+/**
+ * S2-04（审核 2026-09-15）：重整计划 §6.3 起始上限——每轮（每次检查运行）
+ * 模型研读最多调用 8 次。与搜索预算（request_cap）相互独立：
+ * 搜索预算只控制搜索，模型调用上限控制研读；「0 次搜索」不等于「0 次模型调用」。
+ */
+export const MAX_MODEL_CALLS_PER_RUN = 8;
 
 /** 搜索返回的候选 URL：不是发现，等用户批准后才成为来源（计划：搜索→批准→抓取）。 */
 export interface SearchCandidate {
@@ -153,6 +159,10 @@ export class ResearchChecker {
     let searchError: string | null = null;
     let searchUsed = false;
     const autoSourceIds = new Set<string>();
+    // S2-04（审核 2026-09-15）：重整计划 §6.3 起始上限——每轮模型研读最多 8 次调用，
+    // 与搜索预算相互独立；超出部分走规则研读（mode='rules'，不计故障）。
+    let modelCallsUsed = 0;
+    let modelDegraded = 0;
     const sources = this.store.listSources(topic.id);
     try {
       if (sources.length === 0 && !(wantSearch && topic.public_description.trim().length > 0)) {
@@ -181,7 +191,11 @@ export class ResearchChecker {
         // 若搜索期间已被暂停/撤权，晚到候选绝不登记到数据库 sources 中。
         if (opts.scheduled) {
           const currentTopic = this.store.getTopic(topic.id);
-          if (currentTopic.generation !== generation || currentTopic.paused || !currentTopic.enabled) {
+          if (
+            currentTopic.generation !== generation ||
+            currentTopic.paused ||
+            !currentTopic.enabled
+          ) {
             throw new IxaError(ErrorCodes.JOB_CANCELLED, '关注已暂停/撤权，晚到搜索结果作废');
           }
           for (const candidate of searchCandidates) {
@@ -190,10 +204,10 @@ export class ResearchChecker {
                 topic.id,
                 { url: candidate.url, kind: 'page' },
                 now,
+                // S2-05（审核 2026-09-15）：发现方式持久保存（迁移 22 discovered_by 列），
+                // 不再借用 last_error（成功抓取即清空，导致跨周期身份丢失）。
+                { discoveredBy: 'auto' },
               );
-              this.db
-                .prepare("UPDATE research_sources SET last_error = 'auto_discovered' WHERE id = ?")
-                .run(added.id);
               autoSourceIds.add(added.id);
             } catch {
               /* 已存在或冲突不阻塞 */
@@ -242,18 +256,28 @@ export class ResearchChecker {
               continue;
             }
 
-            // A08：调用模型/规则研读器研读与判断价值
-            const judgment = await this.judge.judge(topic, {
-              title: entry.title,
-              url: entryUrl,
-              excerpt: entry.excerpt,
-            });
+            // A08 / S2-04：调用模型/规则研读器研读与判断价值。
+            // 每轮模型调用上限 MAX_MODEL_CALLS_PER_RUN=8，超出走规则研读。
+            const allowModel = modelCallsUsed < MAX_MODEL_CALLS_PER_RUN;
+            const judgment = await this.judge.judge(
+              topic,
+              {
+                title: entry.title,
+                url: entryUrl,
+                excerpt: entry.excerpt,
+              },
+              { allowModel },
+            );
+            if (judgment.mode === 'model') modelCallsUsed += 1;
+            if (judgment.mode === 'rules-degraded') {
+              modelDegraded += 1;
+              modelCallsUsed += 1;
+            }
 
-            // D06（审核 2026-09-14）：自动搜索发现的候选来源，若研读判定不相关，
-            // 无论第 1 轮还是跨周期第 2 轮（last_error 持久化标记）都必须保持安静，绝不生成 finding。
+            // D06 / S2-05（审核 2026-09-15）：自动搜索发现的候选来源，若研读判定不相关，
+            // 无论第 1 轮还是跨周期第 2 轮（discovered_by 持久化标记）都必须保持安静，绝不生成 finding。
             // 用户显式批准监控的来源，用户指定监控其更新，即使泛化内容也予以记录。
-            const isAutoSource =
-              autoSourceIds.has(src.id) || src.last_error === 'auto_discovered';
+            const isAutoSource = autoSourceIds.has(src.id) || src.discovered_by === 'auto';
             if (isAutoSource && !judgment.relevant) {
               continue;
             }
@@ -312,10 +336,18 @@ export class ResearchChecker {
         };
       }
       const runError = error ?? (searchError !== null ? `搜索失败：${searchError}` : null);
+      // S2-06（审核 2026-09-15）：模型研读降级必须可见——
+      // 配置了模型但调用失败时，run.error 如实记录降级原因，
+      // 不允许看起来像「模型研读成功」。已抓取资料与部分成果保留。
+      const degradedNote =
+        modelDegraded > 0
+          ? `模型研读失败 ${modelDegraded} 次，已降级为规则研读（模型服务故障或返回无效）`
+          : null;
+      const finalRunError = [runError, degradedNote].filter(Boolean).join('；') || null;
       // 成功的最低标准：读了批准来源，或完成了一次真实搜索；
       // 零来源+搜索失败=这轮什么都没干成，如实记失败
       if (pages === 0 && (!searchUsed || searchError !== null)) {
-        const fail = runError ?? '没有成功读取任何批准来源';
+        const fail = finalRunError ?? '没有成功读取任何批准来源';
         this.store.markFailure(topic.id, now, fail, topic.interval_ms);
         this.store.finishRun(run.id, {
           status: 'failed',
@@ -326,18 +358,18 @@ export class ResearchChecker {
         });
       } else {
         this.store.markSuccess(topic.id, now, topic.interval_ms);
-        if (runError) {
+        if (finalRunError) {
           this.db
             .prepare(
               'UPDATE research_topics SET last_failure = ?, last_failure_at = ? WHERE id = ?',
             )
-            .run(runError.slice(0, 500), now, topic.id);
+            .run(finalRunError.slice(0, 500), now, topic.id);
         }
         this.store.finishRun(run.id, {
           status: 'succeeded',
           pagesFetched: pages,
           findingsNew: findings.length,
-          error: runError,
+          error: finalRunError,
           now,
         });
       }

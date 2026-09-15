@@ -300,7 +300,11 @@ export function registerIpc(runtime: AppRuntime): void {
     revokeSourceReading: async (sourceId): Promise<Permission> => {
       const source = runtime.sources.get(sourceId);
       if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, '来源不存在');
-      return runtime.permissions.revoke(source.permission_id);
+      const revoked = runtime.permissions.revoke(source.permission_id);
+      // S2-03 / R06（审核 2026-09-15）：来源撤权必须立即失效当前引擎上下文，
+      // 不能等下一次新运行因权限数量变化才重建——正在进行的回合不许继续用旧原文。
+      runtime.invalidateContext();
+      return revoked;
     },
     deleteSourceDerived: async (sourceId) => {
       const source = runtime.sources.get(sourceId);
@@ -341,7 +345,13 @@ export function registerIpc(runtime: AppRuntime): void {
         evidence: evidence.map((e) => ({ segment_id: e.segment_id, excerpt: e.excerpt })),
       };
     },
-    correctItem: async (input) => runtime.items.correct(input),
+    // S2-03 / R05（审核 2026-09-15）：纠正条目使旧结论 superseded，
+    // 必须立即失效长驻引擎会话中的旧结论——同会话与后续会话都采用新结论。
+    correctItem: async (input) => {
+      const corrected = runtime.items.correct(input);
+      runtime.invalidateContext();
+      return corrected;
+    },
     setItemPendingReview: async (input) =>
       runtime.items.setPendingReview(input.itemId, input.needsReview),
     confirmItem: async (itemId) => {
@@ -386,7 +396,42 @@ export function registerIpc(runtime: AppRuntime): void {
     acceptProjectRelation: async (id) => runtime.relations.accept(id),
     rejectProjectRelation: async (id) => runtime.relations.reject(id),
     listResearchTopics: async () => runtime.researchSnapshot(),
-    createResearchTopic: async (input) => runtime.research.createTopic(input),
+    // S2-01（审核 2026-09-15）：公开 IPC 契约是 camelCase，存储层是 snake_case，
+    // 此前原样转发导致界面选择的预算/间隔被静默丢弃（保存成默认 none/0/1 天）。
+    // 在边界统一转换并校验，不再依赖存储层猜双命名。
+    createResearchTopic: async (input) => {
+      if (
+        input.paidBudgetMode !== undefined &&
+        !['none', 'request_cap'].includes(input.paidBudgetMode)
+      ) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          'paidBudgetMode 只能是 none 或 request_cap',
+        );
+      }
+      if (
+        input.requestCap !== undefined &&
+        (!Number.isFinite(input.requestCap) || input.requestCap < 0)
+      ) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'requestCap 必须是非负数字');
+      }
+      if (
+        input.intervalMs !== undefined &&
+        (!Number.isFinite(input.intervalMs) || input.intervalMs < 60_000)
+      ) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'intervalMs 不能小于 1 分钟');
+      }
+      return runtime.research.createTopic({
+        question: input.question,
+        publicDescription: input.publicDescription,
+        relatedGoalId: input.relatedGoalId,
+        relatedProjectId: input.relatedProjectId,
+        sources: input.sources,
+        paid_budget_mode: input.paidBudgetMode,
+        request_cap: input.requestCap,
+        interval_ms: input.intervalMs,
+      });
+    },
     setResearchTopicEnabled: async (input) =>
       runtime.research.store.setEnabled(input.id, input.enabled),
     setResearchTopicPaused: async (input) =>
@@ -613,7 +658,7 @@ export function registerIpc(runtime: AppRuntime): void {
       return { id: created.id };
     },
     evaluateSkillWithEvidence: async (input) => {
-      runtime.evaluateSkillWithEvidence(input);
+      await runtime.evaluateSkillWithEvidence(input);
       return { ok: true as const };
     },
   };

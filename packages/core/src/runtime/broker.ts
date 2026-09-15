@@ -194,17 +194,30 @@ export class CoreToolBroker {
           throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'propose_task 需要 projectId 与 goal');
         }
         const scope = Array.isArray(args.scope) ? (args.scope as string[]) : ['note.txt'];
-        return this.coding.create({
-          projectId,
-          goal,
-          scope,
-          allowedCommands: [
+        // S2-07（审核 2026-09-15）：提案的验证命令允许从参数配置（仍受 Node 统一沙箱约束），
+        // 不再写死只能检查 note.txt。未提供时采用默认探针命令。
+        let allowedCommands: string[][] | undefined;
+        if (Array.isArray(args.verifyCommand) && args.verifyCommand.length > 0) {
+          const first = String(args.verifyCommand[0]);
+          const isNode = first === process.execPath || /node(\.exe)?$/i.test(first);
+          if (isNode) {
+            allowedCommands = [args.verifyCommand.map(String)];
+          }
+        }
+        if (!allowedCommands) {
+          allowedCommands = [
             [
               process.execPath,
               '-e',
               "const fs=require('fs');if(!fs.existsSync('note.txt'))process.exit(2);if(!String(fs.readFileSync('note.txt','utf8')).trim())process.exit(3);",
             ],
-          ],
+          ];
+        }
+        return this.coding.create({
+          projectId,
+          goal,
+          scope,
+          allowedCommands,
         });
       }
       case 'dispatch_coding_task':

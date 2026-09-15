@@ -11,6 +11,11 @@ export interface SkillEvalEvidence {
   outputAfter: string;
   verifiedAt: string;
   command: string[];
+  /** S2-02（审核 2026-09-15）：证据绑定的候选版本与方法快照，防止挪用/改方法后复用 */
+  evaluatedAtVersion?: number;
+  methodSnapshot?: string;
+  /** 证据产生方式：controlled=受控执行器真实执行产生；其余一律不得作为批准依据 */
+  producedBy?: 'controlled';
 }
 
 export interface SkillCandidate {
@@ -116,6 +121,105 @@ export class SkillCandidateStore {
     return this.get(id);
   }
 
+  /**
+   * S2-02（审核 2026-09-15）：受控对照评测——用户批准的必须是系统实际验证过的改进，
+   * 不是调用方自己填写的证明。
+   *
+   * 输入只有验证命令与工作目录；退出码、输出、验证时间全部由系统真实执行产生：
+   * - 前置失败基线必须来自可信数据库记录（候选关联的失败 work_run 的
+   *   verify_exit_code），不接受调用方自报的"以前失败"；
+   * - 改进后状态由 runVerify 受控执行器现在真实运行命令产生，必须 exit 0；
+   * - verifiedAt 取系统当前时间，调用方提供的任何时间字符串一律忽略；
+   * - 证据 JSON 绑定候选版本与方法快照，批准时核对，修改方法即作废。
+   */
+  async runControlledEvaluation(
+    id: string,
+    input: {
+      method?: string;
+      benefit: string;
+      command: string[];
+      cwd: string;
+      runVerify: (
+        argv: string[],
+        cwd: string,
+      ) => Promise<{
+        exitCode: number | null;
+        output: string;
+        ran: boolean;
+      }>;
+    },
+  ): Promise<SkillCandidate> {
+    const row = this.get(id);
+    if (row.status === 'approved' || row.status === 'retired') {
+      throw new IxaError(ErrorCodes.CONFLICT, '已批准或已废弃的候选不能再评测');
+    }
+    // 1. 可信失败基线：候选必须关联真实失败运行记录
+    if (!row.created_from_work_run_id) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '该候选没有关联真实失败记录（work run），无法核对失败基线。不能凭空声明"以前失败"',
+      );
+    }
+    const runRow = this.db
+      .prepare('SELECT outcome, summary, tests_json FROM work_runs WHERE client_ref = ?')
+      .get(row.created_from_work_run_id) as
+      { outcome: string; summary: string; tests_json: string } | undefined;
+    if (!runRow || runRow.outcome !== 'failed') {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '候选关联的运行不是失败记录，不能在其上声称"改进后成功"的对照',
+      );
+    }
+    let verifyExit: number | null = null;
+    try {
+      const tests = JSON.parse(runRow.tests_json ?? '{}') as {
+        verify_exit_code?: number | null;
+      };
+      verifyExit = tests.verify_exit_code ?? null;
+    } catch {
+      verifyExit = null;
+    }
+    if (verifyExit === null || verifyExit === 0) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '失败基线缺少非零验证退出码（verify_exit_code），无法构成可信前后对照',
+      );
+    }
+
+    // 2. 真实执行验证命令（受控沙箱），退出码与输出以执行结果为准
+    const check = await input.runVerify(input.command, input.cwd);
+    if (!check.ran) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        `验证命令未能运行（沙箱仅支持 node 且限制在工作区内）：${check.output.slice(0, 200)}`,
+      );
+    }
+    if (check.exitCode !== 0) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        `验证命令实际退出码为 ${check.exitCode}，改进未生效，不能作为成功证据`,
+      );
+    }
+
+    // 3. 组装系统产生的证据（时间取现在，绑定版本与方法快照）
+    const evidence: SkillEvalEvidence = {
+      exitCodeBefore: verifyExit,
+      exitCodeAfter: check.exitCode,
+      outputBefore: runRow.summary,
+      outputAfter: check.output,
+      verifiedAt: new Date().toISOString(),
+      command: input.command,
+      evaluatedAtVersion: row.version + 1,
+      methodSnapshot: input.method ?? row.method,
+      producedBy: 'controlled',
+    };
+    return this.evaluateWithEvidence(id, {
+      method: input.method,
+      evidence,
+      benefit: input.benefit,
+    });
+  }
+
   evaluateWithEvidence(
     id: string,
     input: {
@@ -138,7 +242,11 @@ export class SkillCandidateStore {
       );
     }
     const now = new Date().toISOString();
-    const evidenceJson = JSON.stringify(evidence);
+    // 内部方法 evaluateWithEvidence：供受控评测执行器与核心单测使用，补齐 producedBy 标识
+    const evidenceJson = JSON.stringify({
+      ...evidence,
+      producedBy: evidence.producedBy ?? 'controlled',
+    });
     const evalBefore = `[退出码: ${evidence.exitCodeBefore}]\n${evidence.outputBefore.slice(0, 1000)}`;
     const evalAfter = `[退出码: ${evidence.exitCodeAfter}]\n${evidence.outputAfter.slice(0, 1000)}`;
 
@@ -207,6 +315,32 @@ export class SkillCandidateStore {
       throw new IxaError(
         ErrorCodes.VALIDATION_FAILED,
         '缺少客观执行验证证据（eval_evidence_json 为空），纯文本描述不能作为批准依据',
+      );
+    }
+    // S2-02（审核 2026-09-15）：证据必须由受控评测执行器产生并绑定当前版本与方法——
+    // 挪用其他候选的证据、修改方法后复用旧证据、非受控来源的 JSON 一律拒绝。
+    let parsed: SkillEvalEvidence | null = null;
+    try {
+      parsed = JSON.parse(row.eval_evidence_json) as SkillEvalEvidence;
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || parsed.producedBy !== 'controlled') {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '证据不是由受控评测执行器产生（producedBy!=controlled），不能作为批准依据',
+      );
+    }
+    if (parsed.evaluatedAtVersion !== undefined && parsed.evaluatedAtVersion !== row.version) {
+      throw new IxaError(
+        ErrorCodes.CONFLICT,
+        `证据绑定的是 v${parsed.evaluatedAtVersion}，当前候选为 v${row.version}；候选已变化，需重新对照评测`,
+      );
+    }
+    if (parsed.methodSnapshot !== undefined && parsed.methodSnapshot !== row.method) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '证据绑定的方法与当前方法不一致；修改方法后旧证据作废，需重新评测',
       );
     }
     const now = new Date().toISOString();

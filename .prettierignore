@@ -18,3 +18,7 @@ IXAEON_v0.1_验收问题与修复任务.md
 
 # pnpm lockfile 保持机器生成格式
 pnpm-lock.yaml
+
+# 不可变评测证据与结果 JSON：保持原样，不被格式化改写
+results-*.json
+apps/desktop/test/review/results-*.json

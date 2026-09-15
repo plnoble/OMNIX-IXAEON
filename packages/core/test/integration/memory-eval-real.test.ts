@@ -19,11 +19,10 @@ import {
   migrate,
   type CoreDatabase,
 } from '../../src/index.js';
-import { selectRelevantItems } from '../../src/storage/askStore.js';
+import { ContextSelector } from '../../src/memory/contextSelector.js';
 import {
   MEMORY_EVAL_SCENARIOS,
   seedCorpus,
-  loadModelVisibleItems,
   type MemoryEvalScenario,
 } from '../../src/memory/evalScenarios.js';
 
@@ -116,7 +115,7 @@ function scoreScenario(
   return { missingRecall, intruded };
 }
 
-/** 构建与 AskService/确定性评测完全同源的上下文材料。 */
+/** 构建与生产 AskService / Hermes 完全同源的上下文选材（走 ContextSelector 生产路径）。 */
 function buildContextPackage(
   db: CoreDatabase,
   scenario: MemoryEvalScenario,
@@ -124,12 +123,12 @@ function buildContextPackage(
 ): string {
   const projectId =
     scenario.perspective !== null ? (projectIds[scenario.perspective] ?? null) : null;
-  const visible = loadModelVisibleItems(db, projectId);
-  const selected = selectRelevantItems(visible, scenario.question, projectId);
-  if (selected.length === 0) {
+  const selector = new ContextSelector(db);
+  const selection = selector.selectForQuestion(scenario.question, projectId);
+  if (selection.items.length === 0) {
     return '（当前问题没有相关已披露记忆。请直接依据常识简短回答，不要编造用户偏好或约束。）';
   }
-  const lines = selected.map((s) => `- [${s.type}] ${s.statement}`);
+  const lines = selection.items.map((s) => `- [${s.type}] ${s.statement}`);
   return ['以下是与本次问题相关的用户记忆（已获披露）：', ...lines].join('\n');
 }
 

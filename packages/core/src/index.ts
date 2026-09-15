@@ -129,6 +129,7 @@ export {
   resolveCodexLocator,
   DEFAULT_NOTE_VERIFY,
   isPlaceholderVerifyCommand,
+  runControlledVerifyCommand,
   type CodingExecutor,
   type ExecutorReport,
   type IndependentCheck,

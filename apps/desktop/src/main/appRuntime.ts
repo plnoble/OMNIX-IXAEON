@@ -39,6 +39,7 @@ import {
   saveConfig,
   setDataDirChoice,
   createWebSearchExecutor,
+  runControlledVerifyCommand,
   type AskResult,
   type CoreDatabase,
   type ModelProvider,
@@ -777,7 +778,7 @@ export class AppRuntime {
               permissionId: askPerm.id,
             });
             this.enqueueExtract(captured.source.id, false);
-            result.notice = `${result.notice}；问答已存入 IXAEON 记忆（理解候选将在「待讨论」等你确认）。`;
+            result.notice = `${result.notice}；问答已存入 IXAEON 记忆（日常偏好与事实自动沉淀生效；若有冲突或关键决策，将在「待讨论」等你确认）。`;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this.logger.warn('问答落 Core 失败', { runId, error: message });
@@ -826,8 +827,8 @@ export class AppRuntime {
         'approved-sources-only' | 'approved-sources-plus-search',
       searchConfigured,
       notice: searchConfigured
-        ? '已配置搜索服务：手动检查会根据出门说法受控搜索返回候选；在预批预算内（无人值守），定时检查会自动根据公开描述搜索候选并由模型研读评估价值，无需逐个批准网址。未设预算或额度用尽时，定时只检查已有来源。'
-        : '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。可在设置页「网页搜索」配置。',
+        ? '已配置搜索服务：出门说法经本地脱敏后发往搜索服务检索候选；预批预算内定时轮次自动搜索并研读。研读阶段会向模型服务发送具体研究问题与抓取内容，每轮最多 8 次模型调用（超出走规则研读）。'
+        : '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。可在设置页「网页搜索」配置。研读阶段每轮最多 8 次模型调用。',
       topics,
     };
   }
@@ -1041,6 +1042,46 @@ export class AppRuntime {
     }, 60_000);
   }
 
+  /**
+   * S2-02（审核 2026-09-15）：受控对照评测入口。
+   * 不信任调用方自报的退出码/输出/时间——
+   * 1. 基线必须来自已记录的失败运行；
+   * 2. 验证命令由受控沙箱（限 node）现在真实执行；
+   * 3. 证据绑定当前候选版本与方法快照。
+   * 兼容从 input.command 或 input.evidence.command 提取命令，
+   * 但调用方自报的 exitCode / output / verifiedAt 一律丢弃不采信。
+   */
+  async evaluateSkillWithEvidence(input: {
+    id: string;
+    method?: string;
+    command?: string[];
+    evidence?: { command?: string[] };
+    taskId?: string | null;
+    benefit: string;
+  }): Promise<{ ok: true }> {
+    const command = input.command ?? input.evidence?.command;
+    if (!command || !Array.isArray(command) || command.length === 0) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '受控评测必须提供验证命令 argv');
+    }
+    const store = new SkillCandidateStore(this.db);
+    let cwd: string | undefined;
+    if (input.taskId) {
+      const task = this.db
+        .prepare('SELECT workspace_path FROM coding_tasks WHERE id = ?')
+        .get(input.taskId) as { workspace_path: string | null } | undefined;
+      cwd = task?.workspace_path ?? undefined;
+    }
+    const runDir = cwd ?? (this.dataDir || process.cwd());
+    await store.runControlledEvaluation(input.id, {
+      method: input.method,
+      benefit: input.benefit,
+      command,
+      cwd: runDir,
+      runVerify: (argv, dir) => runControlledVerifyCommand(argv, dir),
+    });
+    return { ok: true };
+  }
+
   async stop(): Promise<void> {
     if (this.researchTimer) {
       clearInterval(this.researchTimer);
@@ -1052,6 +1093,9 @@ export class AppRuntime {
     this.jobs.stop();
     await this.jobs.idle();
     await this.stopServer();
+    // S2-03 / R09（审核 2026-09-15）：关库之前先释放长驻 Agent 会话——
+    // 否则退出路径只关数据库，Hermes 侧会话/进程仍持有旧上下文引用。
+    this.invalidateContext();
     this.db.close();
     this.logger.info('运行时已停止');
   }
@@ -1258,27 +1302,6 @@ export class AppRuntime {
   }) {
     const skills = new SkillCandidateStore(this.db);
     return skills.proposeFromFailure(input);
-  }
-
-  evaluateSkillWithEvidence(input: {
-    id: string;
-    method?: string;
-    evidence: {
-      exitCodeBefore: number;
-      exitCodeAfter: number;
-      outputBefore: string;
-      outputAfter: string;
-      verifiedAt: string;
-      command: string[];
-    };
-    benefit: string;
-  }) {
-    const skills = new SkillCandidateStore(this.db);
-    return skills.evaluateWithEvidence(input.id, {
-      method: input.method,
-      evidence: input.evidence,
-      benefit: input.benefit,
-    });
   }
 }
 

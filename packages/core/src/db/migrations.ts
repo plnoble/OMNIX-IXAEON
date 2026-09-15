@@ -699,6 +699,17 @@ ALTER TABLE skill_candidates ADD COLUMN eval_evidence_json TEXT;
 ALTER TABLE skill_candidates ADD COLUMN approved_version INTEGER;
 `,
   },
+  {
+    id: 22,
+    name: 'research-source-discovery-origin',
+    sql: `
+-- S2-05（审核 2026-09-15）：自动发现来源的身份与错误状态分离持久保存。
+-- 此前 auto_discovered 标记借用 last_error，首次成功抓取即被清空，
+-- 导致跨周期后自动候选被误当作用户显式批准来源。
+ALTER TABLE research_sources ADD COLUMN discovered_by TEXT NOT NULL DEFAULT 'user'
+  CHECK (discovered_by IN ('user', 'auto'));
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

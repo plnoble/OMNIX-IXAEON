@@ -452,6 +452,8 @@ export const researchSourceSchema = z.object({
   last_checked_at: isoDateTimeSchema.nullable(),
   last_success_at: isoDateTimeSchema.nullable(),
   last_error: z.string().nullable(),
+  /** S2-05（审核 2026-09-15）：来源发现方式与错误状态分离持久保存 */
+  discovered_by: z.enum(['user', 'auto']),
   created_at: isoDateTimeSchema,
 });
 export type ResearchSource = z.infer<typeof researchSourceSchema>;

@@ -51,6 +51,8 @@ function toSource(row: Record<string, unknown>): ResearchSource {
     last_checked_at: (row['last_checked_at'] as string | null) ?? null,
     last_success_at: (row['last_success_at'] as string | null) ?? null,
     last_error: (row['last_error'] as string | null) ?? null,
+    // S2-05（审核 2026-09-15）：迁移 22 之前的历史行没有该列值，视为 user
+    discovered_by: (row['discovered_by'] as 'user' | 'auto') ?? 'user',
     created_at: row['created_at'] as string,
   };
 }
@@ -186,6 +188,7 @@ export class ResearchStore {
     topicId: string,
     input: { url: string; kind: ResearchSourceKind },
     now = new Date().toISOString(),
+    opts?: { discoveredBy?: 'user' | 'auto' },
   ): ResearchSource {
     this.getTopic(topicId);
     const url = assertPublicHttpsUrl(input.url).toString();
@@ -196,12 +199,14 @@ export class ResearchStore {
       throw new IxaError(ErrorCodes.CONFLICT, '该关注已有这个来源');
     }
     const id = randomUUID();
+    // S2-05（审核 2026-09-15）：发现方式持久保存（discovered_by），
+    // 不再借用 last_error——成功抓取会清空 last_error，导致跨周期身份丢失。
     this.db
       .prepare(
-        `INSERT INTO research_sources (id, topic_id, url, kind, last_fingerprint, last_checked_at, last_success_at, last_error, created_at)
-         VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?)`,
+        `INSERT INTO research_sources (id, topic_id, url, kind, last_fingerprint, last_checked_at, last_success_at, last_error, discovered_by, created_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)`,
       )
-      .run(id, topicId, url, input.kind, now);
+      .run(id, topicId, url, input.kind, opts?.discoveredBy ?? 'user', now);
     const row = this.db.prepare('SELECT * FROM research_sources WHERE id = ?').get(id) as Record<
       string,
       unknown

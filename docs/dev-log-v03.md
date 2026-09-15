@@ -571,3 +571,55 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 ### 交付 3：核心体验与自我演进守门（D07, D08）
 1. **D07 (C04, C05)**：技能候选版本与客观执行证据（`eval_evidence_json`）严格绑定。纯文本 `evaluate` 不得作为能力升级批准凭据；修改执行方法立即作废旧版本证据；桌面任务界面补齐从失败任务提炼能力候选、录入验证证据、绑定版本批准/废弃的完整交互闭环。
 2. **D08 声明纠偏与验证**：独立套件 `direction-recheck-20260914.test.ts` 12 项用例（含 3 组 CONTROL 对照）**12/12 满分全绿**。报告诚实导出至 `results-direction-recheck-20260914-fixed.json`（未覆盖历史 `final-checked.json`）。全仓库全量集成测试 47 测试文件、280 项用例 100% 通过。
+
+## 2026-09-15 · 独立二次复审记录（不是开发修复）
+
+基线 `93ecaed`，结论：部分修复通过，不能验收为重整完成。详见 [独立二次复审报告](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_v0.3_重整二次复审_2026-09-15.md) 和 `REVIEW_PACKET.md` §51。
+
+历史审核 12/12、15/15、20/20 通过；限定范围基础回归 274 通过、12 跳过。新独立检查 3 对照通过、9 失败，原始结果保存在 `apps/desktop/test/review/results-direction-round2-93ecaed-checked.json`。TypeScript 通过，ESLint 和格式门禁尚未通过。
+
+本次只新增审核测试、证据、报告与日志索引，没有修业务代码或迁移，没有运行真实模型/搜索/编码、安装器或正式部署。上轮“全面落地/完整交互闭环”需收窄为已被具体证据覆盖的修复；预算创建、可信技能评测、会话生命周期、跨周期研究、模型预算与诚实降级，以及完整桌面办事链仍须处理。下一批按报告修复和行为验收，不以旧用例全绿代替阶段完成。
+
+## 2026-09-15 · 响应二次复审与门禁修复（S2-01～S2-08 闭环交付）
+
+根据《IXAEON_v0.3_重整二次复审_2026-09-15.md》提出的 8 项问题（S2-01 至 S2-08）与 R01–R09 反例，完成全量修复、受控评测闭环与测试验证：
+
+### 交付 1：可靠边界与完整生命周期（S2-01, S2-03, S2-05）
+1. **S2-01 (R01)**：`apps/desktop/src/main/ipc.ts` 在创建研究主题入口做 camelCase→snake_case 完整边界转换，严格校验 `paidBudgetMode`、`requestCap`（非负）、`intervalMs`（≥60,000ms），修复界面选择的预算和检查周期被静默丢弃的问题。
+2. **S2-05 (R02)**：新增数据库迁移 22（`research-source-discovery-origin`），在 `research_sources` 增加 `discovered_by TEXT NOT NULL DEFAULT 'user' CHECK (discovered_by IN ('user', 'auto'))` 持久列。来源身份与瞬态错误状态（`last_error`）彻底分离，抓取成功清空 `last_error` 时不再丢失自动发现身份，跨周期第 2 轮对不相关内容坚决保持安静。
+3. **S2-03 (R04, R05, R06, R09)**：
+   - `packages/core/src/access.ts` 的 `getDisclosureEpoch(db, now)` 覆盖**实际生效**的授权集合：计入自然到期（`expires_at ≤ now`）、条目纠正（`items.updated_at` / `state` 变更）；
+   - `apps/desktop/src/main/ipc.ts` 中的 `correctItem` 与 `revokeSourceReading` 均主动调用 `runtime.invalidateContext()`，正在进行的回合与后续会话不再使用旧原文或 superseded 结论；
+   - `apps/desktop/src/main/appRuntime.ts` 的 `stop()` 在关闭数据库之前先调用 `this.invalidateContext()`，释放长驻会话与引擎进程，不再留悬挂引用。
+
+### 交付 2：真实研究预算与降级诚实可见（S2-04, S2-06）
+1. **S2-04 (R08)**：落实重整计划 §6.3 起始上限——`packages/core/src/research/checker.ts` 引入 `MAX_MODEL_CALLS_PER_RUN = 8`，单轮（每次检查）最多调用 8 次模型研读，与搜索预算（`request_cap`）相互独立，超出部分自动回退规则研读（`mode: 'rules'`，不计故障）。
+2. **S2-06 (R07)**：`packages/core/src/research/judge.ts` 增加判断产生模式（`mode: 'model' | 'rules' | 'rules-degraded'`）与失败原因 `modelError`。当配置了模型但调用失败回退规则研读时，失败原因与降级次数如实写入 `run.error`（并同步更新主题 `last_failure`），保留已抓取资料但不再伪装成「模型研读成功」。
+3. **S2-04 文案纠正**：修改 `Research.tsx` 与 `appRuntime.researchSnapshot` 文案，明确区分搜索用出门说法（本地脱敏后发搜索服务）与模型研读可读研究问题（外发模型服务），删除「定时不消耗额度」旧文案，明确提示每轮 8 次模型研读上限与出站内容。
+
+### 交付 3：受控技能评测与完整办事链（S2-02, S2-07, S2-08）
+1. **S2-02 (R03)**：
+   - 彻底关闭桌面 IPC 接受调用方自填 exitCode/output/verifiedAt 的漏洞。
+   - `packages/core/src/execution/executor.ts` 导出 `runControlledVerifyCommand`；
+   - `packages/core/src/runtime/skills.ts` 引入 `runControlledEvaluation`：基线必须来自已记录的失败运行（`work_runs` 中的 `verify_exit_code`），改进由主进程统一沙箱受控执行器（限 node）现在真实运行命令，时间取系统当前时间，证据 JSON 盖章 `producedBy: 'controlled'` 并绑定候选版本与方法快照。修改方法后旧证据失效，伪造或未运行评测坚决拒绝批准；
+   - `Tasks.tsx` 增加「运行受控对照验证」前端交互入口。
+2. **S2-07 (端到端办事链路)**：
+   - `packages/core/src/runtime/broker.ts` 的 `propose_task` 支持自定义验证命令参数（`verifyCommand`），不再死锁只能检查 `note.txt`；
+   - 问答结束提示纠偏，明确日常偏好/事实自动沉淀生效，仅关键决策/冲突进待确认；
+   - 新增端到端集成测试 `packages/core/test/integration/s2-07-agent-action-loop.test.ts`，从目标创建、生产路径上下文选材、任务提案（自定义验证命令）、用户批准、真实沙箱执行与独立验证器判定失败（exit 2）、自动提炼候选、受控沙箱运行命令验证修复（exit 0）、批准上架、到下次任务自动带出获准技能，全链路闭环通过。
+3. **S2-08 (门禁与自洽)**：
+   - 删除 `mcpStore.ts:19` 未使用的 `modelMayReadItem`，ESLint 0 错误通过；
+   - `.prettierignore` 增加 `results-*.json`，格式化所有修改文件，`npm run format:check` 0 告警通过；
+   - `memory-eval-real.test.ts` 改走生产路径 `ContextSelector.selectForQuestion`；
+   - `direction-round2-93ecaed.test.ts` 12 项测试（含 3 组 CONTROL 对照）**12/12 满分全绿**，结果输出至 `apps/desktop/test/review/results-direction-round2-93ecaed-fixed.json`（未改动历史 checked.json）。
+
+### 四层报告纪律状态
+- **已实现**：S2-01～S2-08 的代码、迁移 22、IPC 边界、受控评测器、文案、端到端办事链与门禁已全部就绪。
+- **自动化测试通过**：
+  - 本轮二次复审反例套件：**12/12 通过**（`results-direction-round2-93ecaed-fixed.json`）；
+  - 上轮 0914 反例回归套件：**12/12 通过**；
+  - `packages/core` 全量：**41 文件通过（250 项通过，12 项跳过，0 失败）**；
+  - `apps/desktop` 全量：**6 文件通过（26 项通过，0 失败）**；
+  - 静态门禁：TypeScript 0 错误、ESLint 0 错误、Prettier 0 告警。
+- **真实环境通过**：主进程受控沙箱验证器（node subprocess）真实执行命令与返回码捕获通过；真实 Hermes / Codex 云端真机调用依赖真实凭证在测试中安全跳过。
+- **用户接受**：待用户检验。不以单测全绿宣称阶段最终完成。

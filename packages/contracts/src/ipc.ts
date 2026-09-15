@@ -625,17 +625,16 @@ export interface IxaIpcApi {
     task: string;
     summary: string;
   }): Promise<{ id: string }>;
+  /**
+   * S2-02（审核 2026-09-15）：受控对照评测。验证命令由主进程沙箱真实执行，
+   * 调用方自报的退出码/输出/时间一律不采信；失败基线取自候选关联的真实失败运行。
+   */
   evaluateSkillWithEvidence(input: {
     id: string;
     method?: string;
-    evidence: {
-      exitCodeBefore: number;
-      exitCodeAfter: number;
-      outputBefore: string;
-      outputAfter: string;
-      verifiedAt: string;
-      command: string[];
-    };
+    command: string[];
+    /** 可选：在该编码任务的隔离工作区内执行（服务端解析，渲染层不传裸路径） */
+    taskId?: string | null;
     benefit: string;
   }): Promise<{ ok: true }>;
 }

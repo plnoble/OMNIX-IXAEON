@@ -15,6 +15,15 @@ export interface ResearchJudgment {
   valueAnalysis: string;
   /** 置信度 0.0 - 1.0 */
   confidence: number;
+  /**
+   * S2-06（审核 2026-09-15）：本条判断的实际产生方式，必须如实可见。
+   * - model：配置的模型成功完成推理研读
+   * - rules：未配置模型，按设计走规则研读（正常降级路径，不是故障）
+   * - rules-degraded：配置了模型但调用失败，回退规则研读（modelError 带原因）
+   */
+  mode: 'model' | 'rules' | 'rules-degraded';
+  /** mode='rules-degraded' 时的模型失败原因（不吞成静默成功）。 */
+  modelError: string | null;
 }
 
 const INJECTION_HINT =
@@ -36,10 +45,7 @@ function extractTokens(text: string): string[] {
  */
 export class ResearchJudge {
   constructor(
-    private readonly provider?:
-      | ModelProvider
-      | null
-      | (() => ModelProvider | null | undefined),
+    private readonly provider?: ModelProvider | null | (() => ModelProvider | null | undefined),
   ) {}
 
   private get activeProvider(): ModelProvider | null {
@@ -52,6 +58,13 @@ export class ResearchJudge {
   async judge(
     topic: ResearchTopic,
     entry: { title: string; url: string; excerpt: string },
+    opts?: {
+      /**
+       * S2-04（审核 2026-09-15）：调用方控制的每轮模型调用预算。
+       * false 时即使配置了模型也直接走规则研读（mode='rules'，不计为降级故障）。
+       */
+      allowModel?: boolean;
+    },
   ): Promise<ResearchJudgment> {
     const text = `${entry.title}\n${entry.excerpt}`;
 
@@ -62,12 +75,14 @@ export class ResearchJudge {
         summary: '',
         valueAnalysis: '内容包含诱导性指令，已安全忽略',
         confidence: 0,
+        mode: 'rules',
+        modelError: null,
       };
     }
 
-    // 1. 若配置了模型提供商，走模型推理研读
+    // 1. 若配置了模型提供商且预算允许，走模型推理研读
     const prov = this.activeProvider;
-    if (prov) {
+    if (prov && opts?.allowModel !== false) {
       try {
         const system =
           '你是一个严谨的研究助理。请根据研究主题与研究问题，研读网络资料并做出结构化价值判断。输出有效 JSON。';
@@ -96,15 +111,32 @@ ${entry.excerpt.slice(0, 1500)}
               summary: parsed.summary.trim() || entry.title,
               valueAnalysis: parsed.valueAnalysis ?? '',
               confidence: parsed.confidence ?? 0.8,
+              mode: 'model',
+              modelError: null,
             };
           }
         }
-      } catch {
-        /* 模型调用失败时回退到规则研读 */
+        // 模型返回了不可解析的输出：按降级处理，不静默伪装成模型结论
+        return this.ruleJudge(topic, entry, text, 'rules-degraded', '模型返回未包含有效 JSON 判断');
+      } catch (err) {
+        // S2-06（审核 2026-09-15）：模型调用失败回退规则研读，
+        // 但必须如实带回失败原因，不许吞成静默成功。
+        const msg = err instanceof Error ? err.message : String(err);
+        return this.ruleJudge(topic, entry, text, 'rules-degraded', msg.slice(0, 300));
       }
     }
 
-    // 2. 规则研读兜底（无模型或模型失败时）
+    // 2. 规则研读兜底（无模型或本轮模型预算用尽）
+    return this.ruleJudge(topic, entry, text, 'rules', null);
+  }
+
+  private ruleJudge(
+    topic: ResearchTopic,
+    entry: { title: string; excerpt: string },
+    text: string,
+    mode: 'rules' | 'rules-degraded',
+    modelError: string | null,
+  ): ResearchJudgment {
     const question = (
       topic.question ? `${topic.question} ${topic.public_description}` : topic.public_description
     ).toLowerCase();
@@ -118,6 +150,8 @@ ${entry.excerpt.slice(0, 1500)}
         summary: entry.excerpt.slice(0, 200).trim() || entry.title,
         valueAnalysis: '匹配公开描述领域',
         confidence: 0.6,
+        mode,
+        modelError,
       };
     }
 
@@ -133,6 +167,8 @@ ${entry.excerpt.slice(0, 1500)}
         ? `命中研究关注点（${hits.slice(0, 3).join(', ')}）`
         : '未实质命中研究问题',
       confidence: isRelevant ? 0.7 : 0.2,
+      mode,
+      modelError,
     };
   }
 }
