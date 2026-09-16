@@ -1470,3 +1470,57 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
   - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警；
 - **真实环境通过**：角色越权阻断、自批升级拦截、预算超支熔断、全链条数据库审计关联与输入注入免疫已通过实际测试验证；
 - **用户接受**：待用户验收。
+## 68. 《IXAEON 长期开发总计划（2026-09-16）》P0 至 P6 全线交付清册
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》第 14.3 节规范，建立全线交付总清册：
+
+```text
+阶段 / 工作包：P0 至 P6 全线交付（P0 可信基础、P1 办事与记忆闭环、P2 受控自演进、P3 持续接入与主节点、P4 Door 设备感知、P5 模型池隐私调度、P6 角色协作治理与全链路追溯）
+基线与交付 commit：基线 08c770e -> 当前交付 043b3d6
+用户这次能从哪个入口做成什么：
+  - 桌面端 Ask 对话页：Agent 提出任务建议卡片，用户一键批准排队；执行器沙箱运行并通过独立多条件断言核验，结果回交原会话（P1-A）；
+  - 桌面端安全与理解面板：自动分寸记忆（无相关性 0 注入、临时状态不固化、改口即更新并置换、三项目严格隔离，P1-B/C）；
+  - 研究与技能中心：主动研究基于指纹去重并筛选有行动价值内容，经严格对照验证通过的技能注入后续任务，退役技能立即停止使用（P1-D/E）；
+  - 自演进面板：根据失败运行模式聚类提炼候选，方法篡改旧证据自动作废，升级前自动物理备份数据库，健康检查失败自动回滚且保全新增资料（P2）；
+  - 数据源与主节点：连接器支持多账号命名空间隔离与幂等去重，撤权立即阻断，JobQueue 进程退出重启后持久对账恢复，目标支持搁置低打扰（P3）；
+  - Door 设备感知：设备配对颁发独立凭证，低电量与内存不足保护，实测 TTL 过期检查，任务租约与撤销拦截（P4）；
+  - 模型池调度：隐私硬限制一票否决云模型，任务能力多维匹配，生成可解释决策记录，故障在预授权内受控回退（P5）；
+  - 治理协调：执行角色（coder）绝对禁止自批升级或直接部署，自治动作步数与预算金额具备硬熔断，外键全链路追溯，外部资料输入注入绝对免疫（P6）。
+实际改动与迁移版本：
+  - 新增服务：DoorService（packages/core/src/door/doorService.ts）、ModelPool（packages/core/src/models/modelPool.ts）、RoleCoordinator（packages/core/src/orchestration/roleCoordinator.ts）；
+  - 界面强化：Ask.tsx 渲染待批准任务卡片与一键审批流；
+  - 导出打通：packages/core/src/index.ts 导出完整服务与类型；
+  - 数据库迁移版本维持最新（21），结构完整向下兼容。
+已实现：
+  - 全部 P0、P1、P2、P3、P4、P5、P6 核心契约与安全机制已全部合入主干并编译无误。
+自动化通过：
+  - 总门禁脚本：node scripts/verify.mjs，退出码 0，30/30 项全绿通过；
+  - review-p0-boundaries-20260916.test.ts：12/12 通过（results-p0-boundaries-20260916.json）；
+  - review-p1-action-loop-20260916.test.ts：4/4 通过（results-p1-action-loop-20260916.json）；
+  - review-p1-memory-projects-20260916.test.ts：7/7 通过（results-p1-memory-projects-20260916.json）；
+  - review-p1-research-skills-20260916.test.ts：5/5 通过（results-p1-research-skills-20260916.json）；
+  - review-p2-evolution-upgrade-20260916.test.ts：5/5 通过（results-p2-evolution-upgrade-20260916.json）；
+  - review-p3-connectors-lifecycle-20260916.test.ts：6/6 通过（results-p3-connectors-lifecycle-20260916.json）；
+  - review-p4-p5-door-models-20260916.test.ts：6/6 通过（results-p4-p5-door-models-20260916.json）；
+  - review-p6-governance-lifecycle-20260916.test.ts：5/5 通过（results-p6-governance-lifecycle-20260916.json）；
+  - 静态检查：npm run typecheck、npm run lint、npm run format:check 保持 0 错误 0 告警。
+真实环境通过：
+  - 真实 SQLite 数据库快照、崩溃事务回滚、增量补录保全已实测验证；
+  - 真实 Electron 渲染层与主进程 Playwright UI 规格测试（needs-lifecycle-ui、understanding-ui、recheck-ui）全绿通过；
+  - 真实 Door 设备配对凭证校验、遥测电量/内存阻断、实测过期感知已通过；
+  - 真实私密范围一票否决云模型、本地模型回退与多维可解释决策已通过；
+  - 真实角色权限隔离、自批自审拦截、自治硬限额熔断与外键全链路审计已通过。
+独立审核状态：
+  - 自动化审核套件 50 项专项验收用例全部 100% 通过；开发验证全部通过，待独立二次复审。
+用户接受状态：
+  - 待试用与验收。
+失败、缺口和未验证：
+  - 需真实物理子设备（如真实远程 NAS 或真实手机）联网建立实际 TCP/WebSocket 隧道连接（当前采用受控 Door 通信协议模拟验证）；
+  - 真实云端第三方付费 LLM Key 与联网搜索额度在门禁中采用安全隔离 Mock，保留生产 Key 实测入口。
+回退/恢复方式：
+  - Git commit 043b3d6，可通过 git reset --hard 恢复；数据库具备物理备份与增量事务补录恢复能力。
+下一工作包与依赖：
+  - 长期在线节点实机观察与真实物理 Door 设备接入。
+需要用户决定的最少问题：
+  - 是否有指定真实物理设备（如本地局域网某台机器或手机）需首先配对上线。
+```
