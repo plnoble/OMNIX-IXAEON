@@ -798,6 +798,7 @@ export class AppRuntime {
         ],
       });
     const runId = randomUUID();
+    const startedAt = new Date().toISOString();
     this.currentAsk = session;
     this.currentAskRunId = runId;
     try {
@@ -833,7 +834,44 @@ export class AppRuntime {
           result.notice = `${result.notice}；问答存档已停用（授权曾被撤销）。如需恢复请在设置中开启「问答存档」。`;
         }
       }
-      return result;
+
+      // P1-A：查询在本次提问运行期间生成的提议任务（如有），附带回交给原对话
+      let proposedTasks: Array<{ id: string; goal: string; status: string; scope: string[] }> = [];
+      try {
+        const tasks = this.db
+          .prepare(
+            `SELECT id, goal, status, scope_json FROM coding_tasks
+             WHERE created_at >= ? AND project_id IS NOT NULL
+             ORDER BY created_at DESC LIMIT 5`,
+          )
+          .all(startedAt) as Array<{
+          id: string;
+          goal: string;
+          status: string;
+          scope_json: string;
+        }>;
+        proposedTasks = tasks.map((t) => {
+          let scope: string[] = [];
+          try {
+            scope = JSON.parse(t.scope_json) as string[];
+          } catch {
+            scope = [];
+          }
+          return {
+            id: t.id,
+            goal: t.goal,
+            status: t.status,
+            scope,
+          };
+        });
+      } catch {
+        // ignore
+      }
+
+      return {
+        ...result,
+        proposedTasks: proposedTasks.length > 0 ? proposedTasks : undefined,
+      };
     } finally {
       if (this.currentAskRunId === runId) {
         // A06：正常终态保留会话引用供复用；由下一次 ask 前置检查

@@ -303,9 +303,23 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                     kind="default"
                     disabled={busy}
                     onClick={() => {
+                      // 寻找该候选所属项目下的可用任务工作区
+                      const matchingTasks = tasks.filter(
+                        (t) =>
+                          (!s.project_id || t.project_id === s.project_id) &&
+                          Boolean(t.workspace_path),
+                      );
+                      let targetTaskId = matchingTasks[0]?.id;
+                      if (!targetTaskId) {
+                        const entered = window.prompt(
+                          '请输入该技能评测绑定的任务 ID（必须归属同项目且具备隔离工作区）：',
+                        );
+                        if (!entered) return;
+                        targetTaskId = entered.trim();
+                      }
                       const cmd = window.prompt(
-                        '输入验证命令（空格分隔，必须是 node 沙箱命令）：',
-                        'node -e process.exit(0)',
+                        '输入验证命令（必须是实质检验产物的 node 沙箱命令）：',
+                        DEFAULT_VERIFY,
                       );
                       if (!cmd) return;
                       const benefit =
@@ -313,7 +327,8 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                       void act(() =>
                         api.evaluateSkillWithEvidence({
                           id: s.id,
-                          command: cmd.trim().split(/\s+/),
+                          taskId: targetTaskId,
+                          command: splitCommandLine(cmd),
                           benefit,
                         }),
                       );

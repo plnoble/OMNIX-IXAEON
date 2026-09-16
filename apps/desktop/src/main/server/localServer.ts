@@ -152,9 +152,11 @@ export class LocalServer {
         ? 404
         : apiErr.code === ErrorCodes.INVALID_TOKEN || apiErr.code === ErrorCodes.PERMISSION_REVOKED
           ? 401
-          : apiErr.code === ErrorCodes.VALIDATION_FAILED
-            ? 400
-            : 500;
+          : apiErr.code === ErrorCodes.PERMISSION_DENIED || apiErr.code === ErrorCodes.SCOPE_DENIED
+            ? 403
+            : apiErr.code === ErrorCodes.VALIDATION_FAILED
+              ? 400
+              : 500;
     return reply.code(status).send(apiErr);
   }
 

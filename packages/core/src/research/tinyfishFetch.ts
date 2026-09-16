@@ -141,6 +141,9 @@ export function createTinyFishFetcher(
         });
         text = await readLimitedResponseText(res, MAX_RENDER_BYTES, controller);
       } catch (err) {
+        if (err instanceof IxaError) {
+          throw err;
+        }
         const reason =
           (err instanceof Error && err.name === 'AbortError') || controller.signal.aborted
             ? `超时（${timer}ms）`

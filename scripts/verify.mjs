@@ -140,6 +140,24 @@ results.push(
 );
 
 results.push(
+  run('review-p0-boundaries（P0 可信基础相邻输入与契约边界 12 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p0-boundaries-20260916.config.ts',
+  ]),
+);
+
+results.push(
+  run('review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p1-action-loop-20260916.config.ts',
+  ]),
+);
+
+results.push(
   run('review-direction-round2（二次复审 12 项回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',

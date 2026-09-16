@@ -103,6 +103,69 @@ export function AskPage({ projects }: { projects: Project[] }) {
                 </ul>
               </div>
             )}
+            {answer.proposedTasks && answer.proposedTasks.length > 0 && (
+              <div className="proposed-tasks" style={{ marginTop: 16 }}>
+                <h4>行动批准卡（Agent 提议的受控编码任务）</h4>
+                {answer.proposedTasks.map((t) => (
+                  <div
+                    key={t.id}
+                    className="card"
+                    style={{ margin: '8px 0', border: '1px solid #3b82f6', padding: 12 }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div>
+                        <strong>目标：{t.goal}</strong>
+                        <p className="muted" style={{ margin: '4px 0', fontSize: '0.85em' }}>
+                          任务 ID: {t.id} · 文件范围: {t.scope.join(', ') || '受限'} · 状态:{' '}
+                          {t.status}
+                        </p>
+                      </div>
+                      <div>
+                        {t.status === 'draft' && (
+                          <Button
+                            kind="primary"
+                            disabled={busy}
+                            onClick={async () => {
+                              try {
+                                setBusy(true);
+                                await api.approveCodingTask(t.id);
+                                setAnswer((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        proposedTasks: prev.proposedTasks?.map((item) =>
+                                          item.id === t.id ? { ...item, status: 'queued' } : item,
+                                        ),
+                                      }
+                                    : null,
+                                );
+                              } catch (err) {
+                                setError(errMsg(err));
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            批准并排队
+                          </Button>
+                        )}
+                        {t.status === 'queued' && (
+                          <span className="badge" style={{ color: '#10b981' }}>
+                            已排队执行
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <p className="muted">
               引擎 {answer.engine ?? 'ask'} · 模型 {answer.modelName} · 使用 {answer.usedChars}{' '}
               字符资料

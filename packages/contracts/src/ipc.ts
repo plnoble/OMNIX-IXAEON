@@ -246,6 +246,17 @@ export const askAnswerSchema = z.object({
       }),
     )
     .optional(),
+  /** P1-A：在对话期间由 Agent 提出的待批准行动任务 */
+  proposedTasks: z
+    .array(
+      z.object({
+        id: z.string(),
+        goal: z.string(),
+        status: z.string(),
+        scope: z.array(z.string()),
+      }),
+    )
+    .optional(),
 });
 export type AskAnswer = z.infer<typeof askAnswerSchema>;
 

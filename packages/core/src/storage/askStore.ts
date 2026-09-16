@@ -44,6 +44,8 @@ export interface AskResult {
   engine?: 'hermes' | 'core-bounded' | 'missing' | 'ask';
   runId?: string;
   steps?: Array<{ round: number; tool: string; ok: boolean; detail: string }>;
+  /** P1-A：在对话期间由 Agent 提出的待批准行动任务 */
+  proposedTasks?: Array<{ id: string; goal: string; status: string; scope: string[] }>;
 }
 
 const MAX_CONTEXT_CHARS = 12_000;
