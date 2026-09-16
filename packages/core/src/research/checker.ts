@@ -234,11 +234,15 @@ export class ResearchChecker {
               ? parseFeed(fetched.body, fetched.finalUrl)
               : [parsePage(fetched.body, fetched.finalUrl)];
 
-          // B3 阶段 2：SPA 动态骨架检测与 TinyFish 渲染抓取降级增强
+          // B3 阶段 2：SPA 动态骨架检测与 TinyFish 渲染抓取降级增强（RR07：定时调度必须有预批付费预算与额度）
+          const budgetAllows =
+            topic.paid_budget_mode === 'request_cap' && (topic.request_cap ?? 0) > 0;
+          const allowRender = !opts.scheduled || budgetAllows;
           if (
             src.kind === 'page' &&
             entries[0] &&
             this.fetchDeps?.tinyfishFetcher &&
+            allowRender &&
             isSpaOrDynamicSkeleton(fetched.body, entries[0].excerpt)
           ) {
             // Q04 / T06：在发起新的外部云渲染前再次检查关注状态与暂停

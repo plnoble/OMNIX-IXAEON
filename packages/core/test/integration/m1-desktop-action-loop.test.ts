@@ -44,6 +44,12 @@ describe('M1 阶段：目标驱动桌面办事全闭环与 MCP 工具链回交�
     const executor: FakeCodingExecutor = new FakeCodingExecutor();
     const coding = new CodingOrchestrator(db, executor, dir);
 
+    // 建立受控运行中的会话（代表合法桌面会话处于 running 状态）
+    const now = new Date().toISOString();
+    db.prepare(
+      "INSERT INTO runtime_runs (id, goal, project_id, engine, status, created_at) VALUES (?, ?, ?, 'hermes', 'running', ?)",
+    ).run('run-m1-np07', '测试受控网络搜索', project.id, now);
+
     // 1. search_web: 验证脱敏与搜索结果结构化返回
     const mockSearch = createWebSearchExecutor('tinyfish', 'tf-mock-key', {
       fetchFn: (async (url) => {

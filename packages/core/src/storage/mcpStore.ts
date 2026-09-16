@@ -933,6 +933,21 @@ export class McpService {
     if (!sanitized.query) {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'search_web 需要可公开的 query');
     }
+    // RR03 (F04)：检查是否存在受控运行会话或活跃搜索许可，避免通用客户端无限制发起付费搜索
+    const hasActiveRun = this.db
+      .prepare("SELECT id FROM runtime_runs WHERE status = 'running' LIMIT 1")
+      .get() as { id: string } | undefined;
+    const hasSearchPermission = this.db
+      .prepare(
+        "SELECT id FROM permissions WHERE locator = 'search_web' AND status = 'active' LIMIT 1",
+      )
+      .get() as { id: string } | undefined;
+    if (!hasActiveRun && !hasSearchPermission) {
+      throw new IxaError(
+        ErrorCodes.PERMISSION_DENIED,
+        '当前没有处于运行状态的会话或搜索许可，通用 MCP 客户端不能发起网络搜索',
+      );
+    }
     if (!webSearch) {
       throw new IxaError(
         ErrorCodes.SERVER_UNAVAILABLE,
@@ -1060,6 +1075,20 @@ export class McpService {
     changed_paths: string[];
   } {
     const task = getTask(taskId);
+    // RR04 (F05)：检查该任务所属项目是否对当前客户端获准公开
+    const activeRun = this.db
+      .prepare(
+        "SELECT id FROM runtime_runs WHERE status = 'running' AND (project_id = ? OR project_id IS NULL) LIMIT 1",
+      )
+      .get(task.project_id) as { id: string } | undefined;
+    const projectPermission = this.db
+      .prepare(
+        "SELECT id FROM permissions WHERE status = 'active' AND (locator = ? OR locator = 'all') LIMIT 1",
+      )
+      .get(task.project_id) as { id: string } | undefined;
+    if (!activeRun && !projectPermission) {
+      throw new IxaError(ErrorCodes.SCOPE_DENIED, '该任务所属项目未获准对通用 MCP 客户端公开');
+    }
     let summary: string | null = null;
     let changed_paths: string[] = [];
     if (task.executor_report_json) {

@@ -41,6 +41,27 @@ export interface SkillCandidate {
  * 经验到 Skill 候选。一次失败自动提案，不等于能力升级。
  * 批准需要对照评测结果；无收益保持未采用。
  */
+/**
+ * RR01 / F01：验证命令是否仅为打印文本（或伪造断言的无效命令）。
+ * 剥离所有引号内的字符串字面量后，剔除 console 打印调用，
+ * 纯打印或无实质检验的命令坚决拒绝。
+ */
+export function isOnlyPrintCommand(command: string[]): boolean {
+  const full = command.join(' ');
+  if (full.includes('not testing the failed artifact')) return true;
+  const hasNodeEval = command.includes('-e') || command.some((arg) => /console\.\w+/.test(arg));
+  if (hasNodeEval) {
+    const stripped = full.replace(/'(?:[^'\\]|\\.)*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
+    const withoutConsole = stripped.replace(/console\.\w+\([^)]*\)/g, '').trim();
+    const substantive =
+      /(assert|fs|existsSync|readFileSync|strictEqual|deepStrictEqual|ok|exit|throw|process\.exit)/i;
+    if (!substantive.test(withoutConsole)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export class SkillCandidateStore {
   constructor(private readonly db: CoreDatabase) {}
 
@@ -292,17 +313,8 @@ export class SkillCandidateStore {
     }
 
     // 2. 真实执行验证命令（受控沙箱），退出码与输出以执行结果为准
-    const cmdStr = input.command.join(' ');
-    // Q02 / T02：拒绝未检查产物、只打印文字的无关测试命令
-    if (
-      cmdStr.includes('not testing the failed artifact') ||
-      (/console\.log\([^)]*\)/.test(cmdStr) &&
-        !cmdStr.includes('fs') &&
-        !cmdStr.includes('assert') &&
-        !cmdStr.includes('test') &&
-        !cmdStr.includes('exit') &&
-        !cmdStr.includes('existsSync'))
-    ) {
+    // RR01 / F01：拒绝未实质检查产物、仅打印文字或伪装断言的无关测试命令
+    if (isOnlyPrintCommand(input.command)) {
       throw new IxaError(
         ErrorCodes.VALIDATION_FAILED,
         '验证命令必须实质检验任务产物或状态，拒绝未检查产物的无关或仅打印命令',
@@ -465,11 +477,7 @@ export class SkillCandidateStore {
         '证据绑定的方法与当前方法不一致；修改方法后旧证据作废，需重新评测',
       );
     }
-    const cmdStr = (parsed.command ?? []).join(' ');
-    if (
-      cmdStr.includes('not testing the failed artifact') ||
-      /^\s*console\.log\([^)]*\)\s*;?\s*$/.test(cmdStr.trim())
-    ) {
+    if (isOnlyPrintCommand(parsed.command ?? [])) {
       throw new IxaError(
         ErrorCodes.VALIDATION_FAILED,
         '证据命令未实质检验失败产物或执行状态，不能作为批准依据',

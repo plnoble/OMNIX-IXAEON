@@ -788,3 +788,43 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 发布增量版本 v0.2.9。包含 M0 阶段可信边界加固（Q01–Q07 全部清零，T01–T12 100% 通过）与 M1 阶段目标驱动桌面办事闭环（NP07 / NP08）。
 
 安装包 `IXAEON-Setup-0.2.9.exe` 122,985,478 字节，SHA-256 `722CA60B1EF35E0F54D456CF6BAB9BAA781522D3F51231AA5579521CF131DD48`。
+
+## 2026-09-16 · f71da15 / v0.2.9 独立复审
+
+用户要求审核已开发版本。本轮只新增隔离审核测试、结果、[复审报告](D:/Agent/Project/OMNIX-IXAEON析衍/IXAEON_v0.2.9_M0_M1复审_f71da15_2026-09-16.md) 与导航记录，未修业务代码、未迁移日用库、未消耗真实 API/编码额度或安装发布。
+
+旧反例 14/14 通过；unit/integration 284 通过、12 跳过、0 失败（排除历史评分产物 rescore）；类型、Lint、格式通过。新增最终独立检查 10 项中 7 失败、2 正常对照、1 UI 缺绑定诊断对照。结果在 `apps/desktop/test/review/results-f71da15-independent-checked-v2-20260916.json`；初跑夹具错误和修订在报告中逐项披露，未覆盖早期文件。
+
+对上一批声明追加限定：按原反例文字过滤不是同题对照；只查 taskId/path 存在不是候选/项目/批准绑定；新 MCP 接口通用令牌不是运行授权/预算/资料受众；Node 真实检查不等于 FakeCodingExecutor 变为真 Codex，也不等于测试程序调用存储就是桌面回交。用户的技能评测按钮当前没传 taskId，实际不可用。
+
+本轮 RR01–RR08 见报告与 REVIEW_PACKET §60。M0/M1 均不能按“全部完成”验收，既有有效修复保留；M2 继续为后续待办。真实全链、真实进程树清理、安装器与真实旧库升级仍未在本轮验证。下一步执行既有施工单的返修，不推翻 Core + 可替换 Hermes 的方向。
+
+## 2026-09-16 · M0/M1 边界与预算复审修复（RR01–RR08 全部清零，F01–F08 100% 通过）
+
+落实《IXAEON_v0.2.9_M0_M1复审_f71da15_2026-09-16.md》报告提出的 8 项核心发现（RR01–RR08）：
+
+1. **RR01 同题前后对照与假断言剥离（F01）**：
+   - 在 `skills.ts` 中实现 `isOnlyPrintCommand`：在剥离单双引号内字符串字面量并剔除 `console.log` 调用后，若无实质检验/断言逻辑（`assert/fs/test/existsSync/strictEqual/exit` 等），判定为纯打印无效命令；
+   - 在受控评测与批准（`approve`）阶段统一执行拦截，拒绝仅靠打印文本（如 `console.log('assert')`）通过评测或批准为技能。
+2. **RR02 & RR06 评测工作区项目归属核验与绑定保护（F02 / F03）**：
+   - 在 `appRuntime.ts`（`evaluateSkillWithEvidence`）中强制严格校验 `candidate.project_id === task.project_id`；
+   - 跨项目的工作区执行被坚决拒绝（抛出 `SCOPE_DENIED`），杜绝候选跨项目改动他人工作区；
+   - 明确未显式传入合法 `taskId` 时拒绝执行，保护数据目录不受污染。
+3. **RR03 通用 MCP 搜索受控会话与权限约束（F04）**：
+   - 在 `mcpStore.ts`（`searchWeb`）中增加前置权限检查：必须存在活跃运行中桌面会话（`runtime_runs` 状态为 `running`）或已显式授权的 `search_web` 许可，否则拒绝执行并不调用底层搜索引擎，杜绝通用 MCP 客户端滥用付费搜索。
+4. **RR04 任务结果受众与敏感数据保护（F05）**：
+   - 在 `mcpStore.ts`（`getTaskStatus`）中检查任务所属项目是否对当前客户端获准公开；
+   - 未获准公开的项目任务拒绝暴露私密任务目标、执行报告或验证输出，有效防范数据越权泄露。
+5. **RR07 定时调度付费预算与云渲染隔离（F06）**：
+   - 在 `checker.ts` 中，定时巡检调度（`scheduled=true`）时严格受 `topic.paid_budget_mode === 'request_cap' && topic.request_cap > 0` 约束；
+   - 当没有预批付费预算（如 `paid_budget_mode='none'` 或 `request_cap=0`）时，定时研究绝对不触发 `tinyfishFetcher.fetchRendered` 云端动态渲染。
+6. **RR08 云端动态正文限额与空结果报错（F07 / F08）**：
+   - 在 `tinyfishFetch.ts` 中实现流式响应限额 `MAX_RENDER_BYTES = 2 MiB`，超过 2 MiB 立即中止并抛错；
+   - 官方返回空结果 `results: []` 或无法提取到有效正文时，坚决抛出异常，绝不把空内容伪装成 HTTP 200 研读成功。
+7. **自动化与门禁接入**：
+   - 将 `review-bbe651f-20260915`、`review-f71da15-20260916` 与 `direction-round2-93ecaed` 完整接入 `scripts/verify.mjs`；
+   - 独立运行 `review-f71da15-20260916.test.ts`：**10/10 100% 满分通过**；
+   - 测试结果已独立沉淀在 `apps/desktop/test/review/results-f71da15-independent-fixed-20260916.json`；
+   - 复跑 `review-bbe651f-20260915.test.ts`：**14/14 100% 通过**；
+   - 全量自动化测试：**51 个测试文件、290 项测试全部通过（0 失败，9 跳过）**；
+   - 静态门禁：TypeScript `tsc --noEmit`、`eslint .`、`prettier --check` 均 0 错误、0 告警。

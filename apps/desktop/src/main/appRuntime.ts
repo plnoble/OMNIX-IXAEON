@@ -1108,24 +1108,36 @@ export class AppRuntime {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '受控评测必须提供验证命令 argv');
     }
     const store = new SkillCandidateStore(this.db);
-    let cwd: string | undefined;
-    if (input.taskId) {
-      const task = this.db
-        .prepare('SELECT workspace_path FROM coding_tasks WHERE id = ?')
-        .get(input.taskId) as { workspace_path: string | null } | undefined;
-      cwd = task?.workspace_path ?? undefined;
-    }
-    // M0.1 / Q01：评测必须绑定有效的任务隔离工作区，坚决拒绝回退到 dataDir 或 process.cwd()
-    if (!cwd || !existsSync(cwd)) {
+    const candidate = store.get(input.id);
+    if (!input.taskId) {
       throw new IxaError(
         ErrorCodes.VALIDATION_FAILED,
         '受控评测必须绑定有效的编码任务工作区，未提供有效工作区或路径不存在，拒绝在应用数据目录执行',
       );
     }
-    if (this.dataDir && resolve(cwd) === resolve(this.dataDir)) {
+    const task = this.db
+      .prepare('SELECT project_id, workspace_path FROM coding_tasks WHERE id = ?')
+      .get(input.taskId) as { project_id: string; workspace_path: string | null } | undefined;
+
+    if (!task?.workspace_path || !existsSync(task.workspace_path)) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '受控评测必须绑定有效的编码任务工作区，未提供有效工作区或路径不存在，拒绝在应用数据目录执行',
+      );
+    }
+
+    // RR02 (F02)：严格核对技能候选所属项目与任务工作区项目归属，严禁跨项目越界执行
+    if (candidate.project_id && task.project_id && candidate.project_id !== task.project_id) {
+      throw new IxaError(
+        ErrorCodes.SCOPE_DENIED,
+        '受控评测绑定的任务不属于该技能候选所属的项目，拒绝跨项目执行',
+      );
+    }
+
+    if (this.dataDir && resolve(task.workspace_path) === resolve(this.dataDir)) {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '受控评测禁止将应用数据目录作为执行工作区');
     }
-    const runDir = cwd;
+    const runDir = task.workspace_path;
     await store.runControlledEvaluation(input.id, {
       method: input.method,
       benefit: input.benefit,

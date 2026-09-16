@@ -17,6 +17,58 @@ export interface TinyFishFetcher {
 }
 
 const DEFAULT_FETCH_TIMEOUT_MS = 25_000;
+const MAX_RENDER_BYTES = 2 * 1024 * 1024;
+
+async function readLimitedResponseText(
+  res: Response,
+  maxBytes: number,
+  controller: AbortController,
+): Promise<string> {
+  const cl = res.headers?.get?.('content-length');
+  if (cl && Number(cl) > maxBytes) {
+    controller.abort();
+    throw new IxaError(
+      ErrorCodes.VALIDATION_FAILED,
+      `TinyFish 动态抓取响应超过 ${maxBytes} 字节限制`,
+    );
+  }
+  if (
+    res.body &&
+    typeof (res.body as { getReader?: () => ReadableStreamDefaultReader<Uint8Array> }).getReader ===
+      'function'
+  ) {
+    const reader = (
+      res.body as { getReader(): ReadableStreamDefaultReader<Uint8Array> }
+    ).getReader();
+    const decoder = new TextDecoder();
+    let total = 0;
+    let chunks = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value?.byteLength ?? 0;
+      if (total > maxBytes) {
+        await reader.cancel();
+        controller.abort();
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          `TinyFish 动态抓取响应超过 ${maxBytes} 字节限制`,
+        );
+      }
+      if (value) chunks += decoder.decode(value, { stream: true });
+    }
+    chunks += decoder.decode();
+    return chunks;
+  }
+  const text = await res.text();
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    throw new IxaError(
+      ErrorCodes.VALIDATION_FAILED,
+      `TinyFish 动态抓取响应超过 ${maxBytes} 字节限制`,
+    );
+  }
+  return text;
+}
 
 function brief(body: string): string {
   return body.replace(/\s+/g, ' ').slice(0, 300);
@@ -87,7 +139,7 @@ export function createTinyFishFetcher(
             format: 'markdown',
           }),
         });
-        text = await res.text();
+        text = await readLimitedResponseText(res, MAX_RENDER_BYTES, controller);
       } catch (err) {
         const reason =
           (err instanceof Error && err.name === 'AbortError') || controller.signal.aborted
@@ -197,6 +249,13 @@ export function createTinyFishFetcher(
           throw new IxaError(
             ErrorCodes.SERVER_UNAVAILABLE,
             `TinyFish 动态抓取返回错误: ${JSON.stringify(json.errors)}`,
+          );
+        }
+
+        if (!content || !content.trim()) {
+          throw new IxaError(
+            ErrorCodes.SERVER_UNAVAILABLE,
+            'TinyFish 动态抓取未取得有效正文内容（结果为空或未能提取到正文）',
           );
         }
 

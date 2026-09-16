@@ -122,6 +122,33 @@ results.push(
 );
 
 results.push(
+  run('review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-bbe651f-20260915.config.ts',
+  ]),
+);
+
+results.push(
+  run('review-f71da15（M0/M1 边界与预算复审 10 项，修复 RR01-RR08 回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-f71da15-20260916.config.ts',
+  ]),
+);
+
+results.push(
+  run('review-direction-round2（二次复审 12 项回归）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.direction-round2-93ecaed.config.ts',
+  ]),
+);
+
+results.push(
   run('review-project-audit（全项目审核 15 项，修复 C01-C13 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
