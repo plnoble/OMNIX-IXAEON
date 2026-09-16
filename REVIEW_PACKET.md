@@ -1364,3 +1364,28 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
   - `scripts/verify.mjs`：已挂载全部最新套件。
 - **真实环境通过**：本机受控沙箱隔离、真实代码文件生成与 Node 独立多条件断言在真实运行时验证通过；
 - **用户接受**：待用户验收。
+## 63. P1-B 至 P1-E 阶段验收（记忆分寸、项目统筹、主动研究与技能复用）（2026-09-16）
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》推进 P1 各项能力：
+
+### 1. P1-B 与 P1-C 验收
+- 建立套件 `apps/desktop/test/review/review-p1-memory-projects-20260916.test.ts`；
+- **分寸与边界**：无关问题返回 0 条个人记忆；临时事项不升级为长期约束；自然纠正后旧条目 superseded、新条目 origin=user 优先采纳；
+- **三个项目统筹**：相关项目提议能力复用并记录收益/代价/替代方案；无关项目保持独立；用户否决后不再强推；完成状态依赖实际成功交付记录；
+- 独立结果证据：`apps/desktop/test/review/results-p1-memory-projects-20260916.json`（**7/7 100% 通过**）。
+
+### 2. P1-D 与 P1-E 验收
+- 建立套件 `apps/desktop/test/review/review-p1-research-skills-20260916.test.ts`；
+- **主动研究**：新事实与来源固定；内容指纹去重；暂停后坚决不触发到期调度；请求限额耗尽受控停止；
+- **方法真实复用**：从真实失败基线与前后对照评测中获准 Skill；下一次同项目任务派发时真实将获准方法注入执行上下文；不同项目严格隔离；撤销/废弃后不再复用；
+- 独立结果证据：`apps/desktop/test/review/results-p1-research-skills-20260916.json`（**5/5 100% 通过**）。
+
+### 3. 四层报告状态
+- **已实现**：P1-B、P1-C、P1-D、P1-E 的核心契约与测试全量合入；
+- **自动化测试通过**：
+  - `review-p1-memory-projects-20260916.test.ts`：7/7 通过；
+  - `review-p1-research-skills-20260916.test.ts`：5/5 通过；
+  - `scripts/verify.mjs`：26 项门禁全部通过（包括 UI 端到端、全部集成与构建）；
+  - 静态检查：TypeScript / ESLint / Prettier 0 错误 0 告警；
+- **真实环境通过**：真实 SQLite 关系分析、调度池到期计算、任务派发上下文注入已通过真实运行时验证；
+- **用户接受**：待用户验收。

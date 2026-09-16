@@ -158,6 +158,24 @@ results.push(
 );
 
 results.push(
+  run('review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p1-memory-projects-20260916.config.ts',
+  ]),
+);
+
+results.push(
+  run('review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p1-research-skills-20260916.config.ts',
+  ]),
+);
+
+results.push(
   run('review-direction-round2（二次复审 12 项回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',

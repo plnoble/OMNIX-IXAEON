@@ -865,3 +865,23 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 正式挂载 `review-p0-boundaries` 与 `review-p1-action-loop`；
    - 全量回归：51 个测试文件、290 项测试全部通过（0 失败，12 跳过）；
    - 静态检查：TypeScript `tsc --noEmit`、ESLint、Prettier 全部 0 错误 0 告警。
+## 2026-09-16 · 推进 P1-B 至 P1-E 验收（记忆分寸/项目统筹/主动研究/技能复用）
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P1-B、P1-C、P1-D、P1-E 工作包：
+
+1. **P1-B 自动且有分寸的记忆 & P1-C 三个项目统筹**：
+   - 编写并跑通 `apps/desktop/test/review/review-p1-memory-projects-20260916.test.ts`（7 项全部通过）；
+   - **分寸原则（P1-B01/B02）**：与个人记忆无关的通用问题取 0 条记忆注入，不硬塞巨型画像；临时事项不升级为长期约束；
+   - **自然纠正优先（P1-B03/B04）**：用户自然纠正后旧条目设为 superseded，新条目（origin=user）优先采纳；上下文注入明确标识来源与争议状态；
+   - **项目统筹与复用（P1-C01/C02/C03）**：项目间有复用价值时提议关系并说明收益与代价；无关项目保持独立；用户否决后不再强行推介；项目已完成状态必须依据实际成功的工作记录。
+
+2. **P1-D 主动研究，不是收藏网页 & P1-E 方法真正进入下一次工作**：
+   - 编写并跑通 `apps/desktop/test/review/review-p1-research-skills-20260916.test.ts`（5 项全部通过）；
+   - **主动研究产物与指纹去重（P1-D01）**：记录包含新事实与行动价值（action_worthy）的发现，内容指纹去重避免重复发现；
+   - **调度、暂停与预算控制（P1-D02/D03）**：暂停后到期调度池坚决不调度；预算耗尽时受控停止；
+   - **技能真实复用（P1-E01/E02）**：真实失败基线与前后对照评测获准 Skill 后，在下一次同项目任务派发时真实将该方法与标题注入执行上下文；不同项目严格隔离；撤销/废弃后不再复用。
+
+3. **静态门禁与回归**：
+   - `scripts/verify.mjs` 挂载 `review-p1-memory-projects` 与 `review-p1-research-skills`；
+   - 全仓验证：26 项门禁全部通过（包括真实 Electron UI 测试）；
+   - 静态检查：TypeScript / ESLint / Prettier 0 错误 0 告警。
