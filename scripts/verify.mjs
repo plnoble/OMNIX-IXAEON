@@ -176,6 +176,15 @@ results.push(
 );
 
 results.push(
+  run('review-p2-evolution-upgrade（P2 自演进、受控实验、版本批准与安全回滚 5 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p2-evolution-upgrade-20260916.config.ts',
+  ]),
+);
+
+results.push(
   run('review-direction-round2（二次复审 12 项回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',

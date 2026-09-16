@@ -885,3 +885,17 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p1-memory-projects` 与 `review-p1-research-skills`；
    - 全仓验证：26 项门禁全部通过（包括真实 Electron UI 测试）；
    - 静态检查：TypeScript / ESLint / Prettier 0 错误 0 告警。
+## 2026-09-16 · 推进 P2 阶段验收（受控自升级、失败反思提炼、实验比较与安全回滚）
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P2 工作包：
+
+1. **P2 自演进、自升级与安全回滚契约落地**：
+   - 编写并跑通 `apps/desktop/test/review/review-p2-evolution-upgrade-20260916.test.ts`（5 项全部通过）；
+   - **真实失败反思聚类（P2-A01/A02）**：系统根据连续相同特征的失败 `work_runs`（相同前缀任务与错误退出码）自动反思聚合，提炼出包含重复失败次数、双向运行依据与特征总结的 Skill 候选；无失败时不盲目膨胀；
+   - **受控实验与独立比较（P2-B01/B02）**：改进命令若未能真正解决问题（退出码仍为非零），坚决拒绝作为有效证据；方法被修改后旧证据作废（版本/快照失配），拒绝批准；
+   - **升级前备份与健康失败自动回滚（P2-D01）**：演练升级前数据库 WAL 刷盘与完整物理备份；若新版本健康检查失败，自动回滚至基线结构；升级期间用户产生的新增资料通过暂存事务补录回滚后的库中，确保数据不被静默丢失。
+
+2. **静态检查与门禁总回归**：
+   - `scripts/verify.mjs` 挂载 `review-p2-evolution-upgrade`；
+   - 27 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
+   - 静态检查：TypeScript `tsc --noEmit`、ESLint、Prettier 保持 0 错误 0 告警。
