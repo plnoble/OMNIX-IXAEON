@@ -185,6 +185,15 @@ results.push(
 );
 
 results.push(
+  run('review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p3-connectors-lifecycle-20260916.config.ts',
+  ]),
+);
+
+results.push(
   run('review-direction-round2（二次复审 12 项回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',

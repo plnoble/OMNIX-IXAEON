@@ -899,3 +899,19 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p2-evolution-upgrade`；
    - 27 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
    - 静态检查：TypeScript `tsc --noEmit`、ESLint、Prettier 保持 0 错误 0 告警。
+## 2026-09-16 · 推进 P3 阶段验收（持续资料入口、知识边界、持久主节点与目标低打扰）
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P3 工作包：
+
+1. **P3 连接器命名空间、知识意图边界、持久任务与目标低打扰契约**：
+   - 编写并跑通 `apps/desktop/test/review/review-p3-connectors-lifecycle-20260916.test.ts`（6 项全部通过）；
+   - **连接器命名空间与幂等（P3-A01）**：同一外部 ID 在不同账号命名空间（`work-account` 与 `personal-account`）严格隔离，同账号重复同步相同哈希内容幂等去重；
+   - **撤销授权立即拦截（P3-A02）**：来源授权一旦被用户撤销（`revoked`），后续所有读取与派生分析立即被拦截抛出 `PERMISSION_DENIED`；
+   - **知识与用户意图严格区分（P3-B01）**：外部架构教程、网上建议只能作为背景知识（`type='project_summary'`），绝不能冒充用户亲口指定的项目目标（`type='goal' AND origin='user'`）；
+   - **可恢复的在线主节点持久任务（P3-C01/C02）**：任务在 SQLite `jobs` 表持久落库；模拟服务崩溃重启后新建实例无缝恢复执行；暂时性网络问题退避重试，非法参数等非暂时性致命错误坚决熔断不盲目重试；
+   - **长期目标管理与低打扰（P3-D01）**：多个目标并存；用户主动搁置（`shelve`）非紧急目标后，退出日常提醒队列，但完整保留其内容与依据，不反复打扰用户。
+
+2. **静态门禁与总回归**：
+   - `scripts/verify.mjs` 挂载 `review-p3-connectors-lifecycle`；
+   - 28 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
+   - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警。
