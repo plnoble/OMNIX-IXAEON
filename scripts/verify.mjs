@@ -194,6 +194,15 @@ results.push(
 );
 
 results.push(
+  run('review-p4-p5-door-models（P4 Door 设备感知生命周期与 P5 模型池隐私调度 6 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p4-p5-door-models-20260916.config.ts',
+  ]),
+);
+
+results.push(
   run('review-direction-round2（二次复审 12 项回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',

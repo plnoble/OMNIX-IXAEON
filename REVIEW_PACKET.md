@@ -1428,3 +1428,24 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
   - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警；
 - **真实环境通过**：真实 SQLite 来源去重索引、JobQueue 崩溃重启恢复、撤权立即阻断已通过测试；
 - **用户接受**：待用户验收。
+## 66. P4 Door 设备感知与 P5 模型池隐私调度交付（2026-09-16）
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》推进 P4（Door 设备感知）与 P5（模型池与多维资源调度）工作包：
+
+### 1. P4 与 P5 核心验收项目
+- 建立服务实现：
+  - `packages/core/src/door/doorService.ts`：Door 设备生命周期、低负载遥测感知、实测过期检查与任务派发租约；
+  - `packages/core/src/models/modelPool.ts`：多模型登记、隐私硬条件一票否决、多任务匹配、可解释决策与授权内安全故障回退；
+- 端到端验收套件：`apps/desktop/test/review/review-p4-p5-door-models-20260916.test.ts`；
+- **P4-A01/B01/D01 Door 设备感知与派发**：配对独立凭证、低电量/内存不足保护、实测过期感知与撤销后禁止派发；
+- **P5-C01/C02/C03 隐私优先调度与安全回退**：私密数据硬约束一票否决云模型；任务类型精确匹配；故障回退不突破隐私预授权；
+- 独立结果证据：`apps/desktop/test/review/results-p4-p5-door-models-20260916.json`（**6/6 100% 通过**）。
+
+### 2. 四层报告状态
+- **已实现**：`DoorService`、`ModelPool` 调度器及相关契约接口已完整合入核心库；
+- **自动化测试通过**：
+  - `review-p4-p5-door-models-20260916.test.ts`：6/6 通过；
+  - `scripts/verify.mjs`：29 项门禁全部通过（涵盖全部构建、全部单元与集成、所有审核套件及真实 Electron Playwright UI 规格测试）；
+  - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警；
+- **真实环境通过**：设备配对鉴权、低电量保护阻断、实测 TTL 过期判定、隐私硬约束过滤与故障回退已通过实际测试验证；
+- **用户接受**：待用户验收。

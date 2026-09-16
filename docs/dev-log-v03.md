@@ -915,3 +915,23 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p3-connectors-lifecycle`；
    - 28 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
    - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警。
+## 2026-09-16 · 推进 P4 与 P5 阶段验收（Door 设备能力感知、实测过期与模型池隐私多维调度）
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P4 与 P5 工作包：
+
+1. **P4 Door 设备能力感知与生命周期契约**：
+   - 编写并实现 `packages/core/src/door/doorService.ts` 与验收套件 `apps/desktop/test/review/review-p4-p5-door-models-20260916.test.ts`；
+   - **设备独立凭证与撤销阻断（P4-A01）**：配对颁发独立凭证，伪造凭证或用户撤销设备后立即拒绝任何心跳与交互；
+   - **低负载遥测与实测过期保护（P4-B01）**：设备电量过低（<20% 未充电）或可用内存不足时适任性检查拒绝派发任务；主动压力实测记录具备生存期 TTL，实测过期后提示需重新测量；
+   - **真派发租约与撤销拦截（P4-D01）**：派发任务具备精确租约与幂等防重；撤销设备后禁止继续派发新任务。
+
+2. **P5 模型池与多维资源调度契约**：
+   - 编写并实现 `packages/core/src/models/modelPool.ts`；
+   - **隐私硬约束一票否决（P5-C01）**：处理未获准外发的私密数据时，云端模型一票否决，强制选择本地模型，输出选了谁、为何选、候选为何不选的可解释决策记录；
+   - **多任务能力匹配（P5-C02）**：区分短提取、复杂研究、编码等任务类型，未声明支持特定任务类型的模型不参与调度；
+   - **授权内安全故障回退（P5-C03）**：主选模型故障时自动进行安全回退，回退选择坚决不能突破原请求的隐私限制。
+
+3. **静态门禁与总回归**：
+   - `scripts/verify.mjs` 挂载 `review-p4-p5-door-models`；
+   - 29 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
+   - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警。
