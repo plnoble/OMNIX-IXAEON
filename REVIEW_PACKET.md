@@ -1449,3 +1449,24 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
   - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警；
 - **真实环境通过**：设备配对鉴权、低电量保护阻断、实测 TTL 过期判定、隐私硬约束过滤与故障回退已通过实际测试验证；
 - **用户接受**：待用户验收。
+## 67. P6 角色分工隔离、受控自治熔断与工程贯穿规范交付（2026-09-16）
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》推进 P6 角色协作隔离、自治预算与工程贯穿规范工作包：
+
+### 1. P6 核心验收项目
+- 建立服务实现：
+  - `packages/core/src/orchestration/roleCoordinator.ts`：角色职责边界（researcher/coder/auditor）、硬动作步数上限与硬预算熔断管理；
+- 端到端验收套件：`apps/desktop/test/review/review-p6-governance-lifecycle-20260916.test.ts`；
+- **P6-A01 coder 绝不能自批升级**：执行角色写代码，但不能自批自审升级或部署；auditor 独立评测无权篡改代码；
+- **P6-C01/C02 受控自治动作与预算硬上限**：动作步数耗尽强行暂停；超出预算限额自动熔断终止；
+- **12.1-01 / 12.4-01 全链条追溯与防注入提权**：目标、任务、work_runs、独立断言全链路审计；外部资料一律作为待处理文本，绝不作为控制指令越权；
+- 独立结果证据：`apps/desktop/test/review/results-p6-governance-lifecycle-20260916.json`（**5/5 100% 通过**）。
+
+### 2. 四层报告状态
+- **已实现**：`RoleCoordinator` 角色协调器、职责隔离矩阵、自治预算熔断及链路追溯契约已合入核心代码库；
+- **自动化测试通过**：
+  - `review-p6-governance-lifecycle-20260916.test.ts`：5/5 通过；
+  - `scripts/verify.mjs`：30 项门禁全部通过（涵盖全部构建、全部单元与集成、所有审核套件及真实 Electron Playwright UI 规格测试）；
+  - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警；
+- **真实环境通过**：角色越权阻断、自批升级拦截、预算超支熔断、全链条数据库审计关联与输入注入免疫已通过实际测试验证；
+- **用户接受**：待用户验收。

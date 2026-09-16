@@ -203,6 +203,15 @@ results.push(
 );
 
 results.push(
+  run('review-p6-governance-lifecycle（P6 角色协作隔离、受限自治边界与工程贯穿规范 5 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p6-governance-lifecycle-20260916.config.ts',
+  ]),
+);
+
+results.push(
   run('review-direction-round2（二次复审 12 项回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',

@@ -935,3 +935,18 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p4-p5-door-models`；
    - 29 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
    - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警。
+## 2026-09-16 · 推进 P6 与贯穿工程规范验收（角色分工防自批升级、受控自治硬预算熔断与全链条审计）
+
+按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P6 与第 12 节贯穿工程要求工作包：
+
+1. **P6 角色职责隔离与受控自治契约**：
+   - 编写并实现 `packages/core/src/orchestration/roleCoordinator.ts` 与验收套件 `apps/desktop/test/review/review-p6-governance-lifecycle-20260916.test.ts`；
+   - **coder 绝不能自批升级（P6-A01）**：严格隔离执行者职责，coder 角色在沙箱中编写候选代码，但尝试自批升级或直接部署时被坚决拦截（抛出 `PERMISSION_DENIED`），必须交由独立审计角色或用户审核；独立审计者（auditor）只能评测核验，无权篡改业务代码；
+   - **受控自治硬步数与硬预算熔断（P6-C01/C02）**：自治执行具备最大动作上限与金额限额；动作步数耗尽自动暂停；单次请求超出预算上限（如 $0.05）坚决拦截并停止，避免无限自主失控；
+   - **事实来源与全链条追溯（12.1-01）**：用户目标（items）、派发任务（coding_tasks）、产物运行记录（work_runs）与独立测试断言在数据库中保持全链路可信外键追溯；
+   - **外部资料绝不当控制指令（12.4-01）**：网页抓取或外部聊天中的提示词注入指令（如伪造的系统提权覆盖）仅作为待理解文档保存，核心调度与权限服务对其一律免疫，坚决不发生越权提权。
+
+2. **静态门禁与总回归**：
+   - `scripts/verify.mjs` 挂载 `review-p6-governance-lifecycle`；
+   - 30 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
+   - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警。

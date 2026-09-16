@@ -200,3 +200,9 @@ export {
   type SupportedTask,
   type ModelSelectionResult,
 } from './models/modelPool.js';
+export {
+  RoleCoordinator,
+  type AgentRole,
+  type AutonomousBudget,
+  type RoleActionRequest,
+} from './orchestration/roleCoordinator.js';
