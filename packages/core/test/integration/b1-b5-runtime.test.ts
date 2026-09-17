@@ -7,6 +7,7 @@ import {
   openDatabase,
   migrate,
   currentMigrationVersion,
+  MIGRATIONS,
   ProjectService,
   ItemService,
   SearchService,
@@ -222,8 +223,10 @@ describe('B4 Skill 候选：提案≠升级', () => {
   });
 });
 
-describe('B5 合成旧库升级到 20', () => {
-  it('迁移 17 副本升级到最新（25）且幂等，新表存在，旧归档列仍在，provider 枚举扩展', () => {
+const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.id;
+
+describe('B5 合成旧库升级到最新迁移', () => {
+  it('迁移 17 副本升级到最新且幂等，新表存在，旧归档列仍在，provider 枚举扩展', () => {
     const oldDir = mkdtempSync(join(tmpdir(), 'ixaeon-m17-'));
     const oldDbPath = join(oldDir, 'old.db');
     const old = openDatabase(oldDbPath);
@@ -240,9 +243,9 @@ describe('B5 合成旧库升级到 20', () => {
 
     const upgraded = openDatabase(oldDbPath);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(25);
+    expect(currentMigrationVersion(upgraded)).toBe(LATEST_MIGRATION);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(25);
+    expect(currentMigrationVersion(upgraded)).toBe(LATEST_MIGRATION);
     const cols = (
       upgraded.prepare('PRAGMA table_info(sources)').all() as Array<{ name: string }>
     ).map((c) => c.name);

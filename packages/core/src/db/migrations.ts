@@ -784,6 +784,61 @@ CREATE TABLE connectors (
 );
 `,
   },
+  {
+    id: 26,
+    name: 'conversations-and-messages',
+    sql: `
+-- 三周任务单 D1（2026-09-17）：连续对话。
+-- 此前问答是单轮无状态（AskService.ask(projectId, question) 不带任何历史），
+-- 数据库里没有对话表，界面每问一次覆盖上一次。愿景第 1、2 条
+-- （「我照常聊天你逐渐理解我」「换个窗口你记得相关的事」）在交互层没有载体。
+--
+-- 设计决定：
+-- 1. messages 是权威记录；ask_session 来源从对话派生（D5），不再每问一次建一条来源。
+-- 2. engine_session_id 只在进程内有效，重启后为空；重开旧对话时新建引擎会话并
+--    重喂最近几轮消息。它「记得」的就是这里存着的、用户看得见的消息，不假装没断过。
+-- 3. 不做分支/重生成（无 parent_message_id）：当前不需要，避免规格填空式的提前抽象。
+CREATE TABLE conversations (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT,
+  -- 最近一次使用的引擎会话（进程内有效，重启后失效）
+  engine TEXT,
+  engine_session_id TEXT,
+  -- 本对话派生出的 ask_session 来源（追加式，不是每轮一条）
+  source_id TEXT REFERENCES sources(id) ON DELETE SET NULL
+);
+
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  content TEXT NOT NULL,
+  -- streaming：正在逐段写入；cancelled/failed 必须可见，不留空白气泡
+  status TEXT NOT NULL DEFAULT 'complete'
+    CHECK (status IN ('streaming', 'complete', 'failed', 'cancelled')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  -- 本轮运行标识（对应 runtime_runs 与审计）
+  run_id TEXT,
+  engine TEXT,
+  model_name TEXT,
+  -- 引用单列保存：回答可核验是产品硬要求，不与其他元数据混在一起
+  citations_json TEXT NOT NULL DEFAULT '[]',
+  -- steps / notice / coverage / usedChars 等渲染用元数据
+  meta_json TEXT NOT NULL DEFAULT '{}',
+  error_message TEXT,
+  UNIQUE (conversation_id, seq)
+);
+
+CREATE INDEX idx_messages_conversation ON messages(conversation_id, seq);
+CREATE INDEX idx_conversations_updated ON conversations(archived_at, updated_at DESC);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

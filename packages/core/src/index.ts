@@ -83,6 +83,15 @@ export {
   type NeedsReason,
 } from './storage/needsReview.js';
 export { AskService, type AskResult } from './storage/askStore.js';
+export {
+  ConversationStore,
+  type Conversation,
+  type ConversationSummary,
+  type Message,
+  type MessageRole,
+  type MessageStatus,
+  type MessageCitation,
+} from './storage/conversationStore.js';
 export { McpService } from './storage/mcpStore.js';
 export { ArchiveService } from './storage/archiveStore.js';
 export {
