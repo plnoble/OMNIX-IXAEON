@@ -48,9 +48,14 @@ async function launchApp(
     env: launchEnv(dataDir, scriptPath),
   });
   const page = await app.firstWindow();
+  // 整合复核补充：整个流程不允许出现页面报错。改名曾用 window.prompt，
+  // Electron 不支持、点击即抛错，但页面不崩，原测试没发现（9-17 用户实测才暴露）。
+  page.on('pageerror', (err) => pageErrors.push(err.message));
   await page.waitForLoadState('domcontentloaded');
   return { app, page };
 }
+
+const pageErrors: string[] = [];
 
 async function setupOnce(page: Page): Promise<void> {
   await page.getByTestId('setup-next-1').click();
@@ -140,6 +145,23 @@ test.describe('D6 聊天界面', () => {
       .first()
       .getAttribute('data-conversation-id');
     expect(firstConvId).toBeTruthy();
+
+    // 改名：列表内直接编辑，回车保存；Esc 取消不保存
+    const firstItem = page.locator(
+      `[data-testid="conversation-item"][data-conversation-id="${firstConvId}"]`,
+    );
+    await firstItem.getByTestId('conversation-rename').click();
+    const renameInput = firstItem.getByTestId('conversation-rename-input');
+    await expect(renameInput).toBeFocused();
+    await renameInput.fill('系统名问答');
+    await renameInput.press('Enter');
+    await expect(firstItem).toContainText('系统名问答');
+    await firstItem.getByTestId('conversation-rename').click();
+    await firstItem.getByTestId('conversation-rename-input').fill('不该保存的名字');
+    await firstItem.getByTestId('conversation-rename-input').press('Escape');
+    await expect(firstItem.getByTestId('conversation-rename-input')).toHaveCount(0);
+    await expect(firstItem).toContainText('系统名问答');
+    await expect(firstItem).not.toContainText('不该保存的名字');
 
     await page.getByTestId('conversation-new').click();
     await askOnce(page, '这是第二个对话的问题', 2);
@@ -259,5 +281,6 @@ test.describe('D6 聊天界面', () => {
     await expect(page.getByText('已排队执行')).toBeVisible({ timeout: 15_000 });
 
     await app.close();
+    expect(pageErrors).toEqual([]);
   });
 });

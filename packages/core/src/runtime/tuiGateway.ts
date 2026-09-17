@@ -417,8 +417,20 @@ export class TuiGatewaySession {
             }
           }
         } else if (skipReason !== null) {
-          // 如实记录拒绝原因（不吞掉事件，方便审计回看）。
-          this.push('tool_result', { name, callId, ok: false, skipped: true, reason: skipReason });
+          // skipReason 只表示「Core 不代为执行」，不表示工具被拦住：TUI gateway
+          // 没有 tool.respond，Hermes 自跑原生工具，Core 无权阻止。此前这里记成
+          // ok:false / skipped:true，读起来像「已拦截」——2026-09-17 真机记录里
+          // search_files 就这样被记成拦截，实际已执行并返回了 51 个文件。
+          // 真正限制 Hermes 能用什么工具的是启动时的 HERMES_TUI_TOOLSETS 钉定；
+          // 该工具实际是否成功，看紧随其后的 tool.complete 事件。
+          this.push('tool_result', {
+            name,
+            callId,
+            coreExecuted: false,
+            executedBy: skipReason === 'mcp_bridged_not_local' ? 'hermes_via_ixaeon_mcp' : 'hermes',
+            coreCanBlock: false,
+            reason: skipReason,
+          });
         }
         break;
       }

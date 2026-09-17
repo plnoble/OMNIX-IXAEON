@@ -147,12 +147,8 @@ export function SettingsPage() {
   }, [reload]);
 
   const fetchModels = async () => {
-    // Key 优先用输入框的（明文，仅本次请求）；已保存则可留空用已保存的？
-    // —— 已保存的 Key 不回显也不可读，因此拉列表要求输入框里有 Key。
-    if (form.apiKey.trim().length === 0) {
-      setError('请先在下方输入 API Key，再获取可用模型（已保存的 Key 不可回读）');
-      return;
-    }
+    // 输入框有 Key 就用它（仅本次请求）；留空则由主进程用已保存的 Key——
+    // 界面读不到已保存的 Key，但主进程能解密，且只在 API 地址没变时才复用。
     setFetchingModels(true);
     setError(null);
     setNotice(null);
@@ -355,13 +351,20 @@ export function SettingsPage() {
         <p className={view.hermesFound ? 'note' : 'warn'} data-testid="settings-hermes-notice">
           {view.hermesNotice || '尚未探测 Hermes。'}
         </p>
-        <p className="muted">
-          不偷偷安装。需要锁定版本、专属目录和你的批准后，才接 stdio
-          会话。当前问答仍是单轮检索，不是完整工具循环。
+        <p className="muted" data-testid="settings-hermes-scope">
+          「问答」页的聊天由 Hermes 运行，<strong>用的是 Hermes 自己配置的模型</strong>
+          （Hermes 目录下的 config.yaml），下面「模型接入」里的设置不会改变聊天用的模型；
+          每条回答下方会显示实际用了哪个模型。聊天时 Hermes 只能联网搜索和查 IXAEON
+          记忆（记忆接入开启后），不能读写本机文件、不能执行命令。
         </p>
       </Card>
 
       <Card title="模型接入" testId="settings-model">
+        <p className="muted" data-testid="settings-model-scope">
+          这里的模型用于后台分析资料，以及没装 Hermes 时的兜底问答。
+          {view.hermesFound ? '已装 Hermes，聊天用的是 Hermes 自己的模型（见上方）。' : ''}
+          获取模型列表时 API Key 可以留空，会用已保存的 Key（仅限 API 地址没变）。
+        </p>
         {/* RF08：旧明文密钥被清除时明确提示重新输入（可理解、可恢复，不静默） */}
         {view.apiKeyNeedsReentry && !view.config.apiKeyPresent && (
           <p className="warn" data-testid="settings-apikey-reentry">

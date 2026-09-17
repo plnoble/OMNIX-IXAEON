@@ -987,3 +987,29 @@ textarea {
   margin-left: 10px;
   vertical-align: middle;
 }
+
+/* 顶层错误边界：出错时代替整屏空白 */
+.app-crash {
+  max-width: 720px;
+  margin: 48px auto;
+  padding: 24px 28px;
+  background: var(--panel);
+  border: 1px solid var(--bad);
+  border-radius: 10px;
+}
+
+.app-crash h2 {
+  margin: 0 0 8px;
+  color: var(--bad);
+}
+
+.app-crash pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--panel-2);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-size: 12px;
+  max-height: 260px;
+  overflow: auto;
+}

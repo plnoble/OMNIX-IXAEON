@@ -68,6 +68,11 @@ export function AskPage({ projects }: { projects: Project[] }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [expandedRef, setExpandedRef] = useState<string | null>(null);
+  // 列表里直接改名。不能用 window.prompt：Electron 不支持，调用会直接抛错
+  //（9-07 的 ea7c721 因此改掉过归档的 prompt，D6 又把它带了回来，9-17 用户实测改名无反应）。
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState('');
+  const renameCancelled = useRef(false);
   const stick = useRef(true);
   const listEl = useRef<HTMLDivElement>(null);
   const noticeShown = useMemo(() => noticeVisibility(messages), [messages]);
@@ -205,26 +210,56 @@ export function AskPage({ projects }: { projects: Project[] }) {
                     if (!busy) void openConversation(c.id).catch((err) => setError(errMsg(err)));
                   }}
                 >
-                  <button
-                    type="button"
-                    className="ask-conv-main"
-                    disabled={busy}
-                    onClick={() =>
-                      void openConversation(c.id).catch((err) => setError(errMsg(err)))
-                    }
-                  >
-                    <strong>{c.title}</strong>
-                    <span className="muted">{c.lastMessagePreview ?? '（空对话）'}</span>
-                  </button>
+                  {renamingId === c.id ? (
+                    <input
+                      className="ask-conv-rename"
+                      data-testid="conversation-rename-input"
+                      value={renameText}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setRenameText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                        if (e.key === 'Escape') {
+                          // 先打标记再失焦：失焦处理读到标记就不保存
+                          renameCancelled.current = true;
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={() => {
+                        // 失焦即保存（与常见聊天应用一致），Esc 除外
+                        const cancelled = renameCancelled.current;
+                        renameCancelled.current = false;
+                        setRenamingId(null);
+                        const title = renameText.trim();
+                        if (!cancelled && title.length > 0 && title !== c.title) {
+                          void actOnConv(() => api.renameConversation({ id: c.id, title }));
+                        }
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="ask-conv-main"
+                      disabled={busy}
+                      onClick={() =>
+                        void openConversation(c.id).catch((err) => setError(errMsg(err)))
+                      }
+                    >
+                      <strong>{c.title}</strong>
+                      <span className="muted">{c.lastMessagePreview ?? '（空对话）'}</span>
+                    </button>
+                  )}
                   <div className="ask-conv-actions">
                     <button
                       type="button"
                       className="btn btn-ghost"
+                      data-testid="conversation-rename"
                       onClick={(e) => {
                         e.stopPropagation();
-                        const title = window.prompt('对话标题', c.title);
-                        if (title)
-                          void actOnConv(() => api.renameConversation({ id: c.id, title }));
+                        renameCancelled.current = false;
+                        setRenameText(c.title);
+                        setRenamingId(c.id);
                       }}
                     >
                       改名
@@ -269,7 +304,7 @@ export function AskPage({ projects }: { projects: Project[] }) {
             }}
           >
             {messages.length === 0 && !busy ? (
-              <Empty>例如：正式系统名是什么？为什么否决了手机方案？</Empty>
+              <Empty>像聊天一样直接问。换一个话题时，点左上角「新对话」。</Empty>
             ) : (
               messages.map((m) => (
                 <AskMessage

@@ -690,13 +690,33 @@ export class AppRuntime {
     apiBaseUrl: string;
     apiKey: string;
   }): Promise<{ models: Array<{ id: string }> }> {
-    if (input.apiKey.trim().length === 0) {
-      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请先填写 API Key 再获取模型列表');
+    // 输入框留空时用已保存的 Key（在主进程里解密，只用于这一次请求，不回传界面），
+    // 用户换模型就不必每次重新粘贴。但只限 API 地址没变：地址换成另一家服务时
+    // 还沿用旧 Key，等于把 A 家的密钥发给 B 家（用户 2026-09-17 要求兼顾隐私）。
+    let apiKey = input.apiKey.trim();
+    if (apiKey.length === 0) {
+      const saved = this.config.model;
+      if (!saved.apiKeyPresent || !saved.apiKeyEncrypted) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '还没有保存过 API Key，请先填写');
+      }
+      if (normalizeApiBase(input.apiBaseUrl) !== normalizeApiBase(saved.apiBaseUrl)) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          'API 地址和已保存的不一样。为避免把原来的密钥发给新地址，请填写这个地址对应的 API Key',
+        );
+      }
+      apiKey = decryptApiKey(saved.apiKeyEncrypted) ?? '';
+      if (apiKey.length === 0) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          '已保存的 API Key 无法解密（可能来自另一台电脑），请重新填写',
+        );
+      }
     }
     try {
       const models = await listUpstreamModels({
         apiBaseUrl: input.apiBaseUrl,
-        apiKey: input.apiKey,
+        apiKey,
       });
       return { models };
     } catch (err) {
@@ -1549,6 +1569,21 @@ export class AppRuntime {
   autoEvolveSkillCandidates(projectId?: string | null) {
     const skills = new SkillCandidateStore(this.db);
     return skills.autoEvolveFromFailurePatterns(projectId);
+  }
+}
+
+/**
+ * 比较两个 API 地址是否指向同一服务：协议与主机不分大小写、忽略末尾斜杠；
+ * 路径大小写保留。空值表示官方默认地址。
+ */
+export function normalizeApiBase(url: string | null | undefined): string {
+  const raw = (url ?? '').trim();
+  if (raw.length === 0) return '';
+  try {
+    const u = new URL(raw);
+    return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return raw.replace(/\/+$/, '');
   }
 }
 

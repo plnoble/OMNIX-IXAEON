@@ -143,7 +143,12 @@ export {
   type ExecutorReport,
   type IndependentCheck,
 } from './execution/executor.js';
-export { locateHermes, hermesSpawnEnv, type HermesLocator } from './runtime/hermesLocator.js';
+export {
+  locateHermes,
+  hermesSpawnEnv,
+  HERMES_TUI_TOOLSETS,
+  type HermesLocator,
+} from './runtime/hermesLocator.js';
 export {
   HermesRuntimeAdapter,
   type RuntimeCapabilities,

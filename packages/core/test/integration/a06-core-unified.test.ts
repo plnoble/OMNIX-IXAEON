@@ -314,6 +314,18 @@ describe('A06 Core 统一管理发动机（协议替身）', () => {
         },
       }) + '\n',
     );
+    // 2026-09-17 真机回归：Hermes 原生工具（真机上出事的 search_files）
+    hostIn.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: {
+          type: 'tool.start',
+          session_id: 's-b',
+          payload: { tool_id: 'native-1', name: 'search_files', args: { path: '..' } },
+        },
+      }) + '\n',
+    );
     hostIn.write(
       JSON.stringify({
         jsonrpc: '2.0',
@@ -342,6 +354,31 @@ describe('A06 Core 统一管理发动机（协议替身）', () => {
           (e.payload as { reason?: string }).reason === 'mcp_bridged_not_local',
       ),
     ).toBe(true);
+
+    // 账本不得把「Core 未代为执行」写成「已拦截」：Hermes 自跑工具，Core 拦不住。
+    // 2026-09-17 真机上 search_files 被记成 ok:false / skipped:true，实际已执行。
+    const resultOf = (callId: string) =>
+      snap.events.find(
+        (e) => e.kind === 'tool_result' && (e.payload as { callId?: string }).callId === callId,
+      )?.payload as Record<string, unknown> | undefined;
+    const bridged = resultOf('mcp-1');
+    const native = resultOf('native-1');
+    expect(bridged).toMatchObject({
+      coreExecuted: false,
+      executedBy: 'hermes_via_ixaeon_mcp',
+      coreCanBlock: false,
+    });
+    expect(native).toMatchObject({
+      name: 'search_files',
+      coreExecuted: false,
+      executedBy: 'hermes',
+      coreCanBlock: false,
+      reason: 'tool_not_in_allowed_tools',
+    });
+    for (const payload of [bridged, native]) {
+      expect(payload).not.toHaveProperty('skipped');
+      expect(payload).not.toHaveProperty('ok');
+    }
     session.dispose();
   });
 });

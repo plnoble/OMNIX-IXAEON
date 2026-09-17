@@ -92,7 +92,24 @@ function equalsPath(a: string, b: string): boolean {
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
-/** 网关子进程环境：HERMES_HOME + PYTHONPATH（仓库根）+ 不缓冲输出。 */
+/**
+ * IXAEON 会话里 Hermes 能用的工具集（用户 2026-09-17 决定：记忆 + 联网搜索）。
+ *
+ * 必须在启动时钉：TUI gateway 协议没有 tool.respond，Hermes 自己执行自己的
+ * 工具；Core 的 allowedTools 只决定 Core 是否代为执行，拦不住 Hermes 原生工具。
+ * 不钉时 tui 会话用 hermes-cli 全套（19 个工具集，含 terminal / file /
+ * code_execution / computer_use）。2026-09-17 真机记录里，模型因此执行了
+ * search_files、列出 Hermes 目录下 51 个文件，而账本记的是「已拦截」。
+ *
+ * 取 web,ixaeon 的理由（均以 Hermes v2026.9.11 的 _load_enabled_toolsets 实测）：
+ * - web（web_search / web_extract）是内置工具集，永远有效，充当锚；
+ * - ixaeon 是 mcp_servers 里的记忆桥，未配置或 enabled:false 时被忽略；
+ * - 只钉 ixaeon 不行：桥关闭时条目全部无效，Hermes 会退回全套 19 个工具集。
+ * 刻意不含 memory：那是 Hermes 自己的记忆库，写进去就绕开了 IXAEON Core。
+ */
+export const HERMES_TUI_TOOLSETS = 'web,ixaeon';
+
+/** 网关子进程环境：HERMES_HOME + PYTHONPATH（仓库根）+ 不缓冲输出 + 工具集钉定。 */
 export function hermesSpawnEnv(locator: HermesLocator): Record<string, string> {
   const env: Record<string, string> = {};
   if (locator.home) env.HERMES_HOME = locator.home;
@@ -101,6 +118,8 @@ export function hermesSpawnEnv(locator: HermesLocator): Record<string, string> {
       locator.cwd + (process.env.PYTHONPATH ? pathDelimiter() + process.env.PYTHONPATH : '');
   }
   env.PYTHONUNBUFFERED = '1';
+  // 放在返回值里而不是依赖外部环境：spawn 时本值覆盖继承来的同名变量。
+  env.HERMES_TUI_TOOLSETS = HERMES_TUI_TOOLSETS;
   return env;
 }
 

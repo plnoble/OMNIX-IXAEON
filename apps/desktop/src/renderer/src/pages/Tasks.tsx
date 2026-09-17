@@ -303,34 +303,13 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                     kind="default"
                     disabled={busy}
                     onClick={() => {
-                      // 寻找该候选所属项目下的可用任务工作区
-                      const matchingTasks = tasks.filter(
-                        (t) =>
-                          (!s.project_id || t.project_id === s.project_id) &&
-                          Boolean(t.workspace_path),
-                      );
-                      let targetTaskId = matchingTasks[0]?.id;
-                      if (!targetTaskId) {
-                        const entered = window.prompt(
-                          '请输入该技能评测绑定的任务 ID（必须归属同项目且具备隔离工作区）：',
-                        );
-                        if (!entered) return;
-                        targetTaskId = entered.trim();
-                      }
-                      const cmd = window.prompt(
-                        '输入验证命令（必须是实质检验产物的 node 沙箱命令）：',
-                        DEFAULT_VERIFY,
-                      );
-                      if (!cmd) return;
-                      const benefit =
-                        window.prompt('输入该方法相比基线的实际收益说明：', '解决了原失败') ?? '';
-                      void act(() =>
-                        api.evaluateSkillWithEvidence({
-                          id: s.id,
-                          taskId: targetTaskId,
-                          command: splitCommandLine(cmd),
-                          benefit,
-                        }),
+                      // 原实现连续调用三次 window.prompt 收集任务 ID、验证命令与收益说明；
+                      // Electron 不支持 prompt，第一下就抛错，这个按钮在真实应用里从未生效
+                      //（自动化测试直接调接口，没点过按钮）。页面内表单尚未实现，
+                      // 先如实说明，不静默失败。见三周任务单「已知未通的入口」。
+                      setError(
+                        '「运行受控对照验证」需要填写任务、验证命令和收益说明，这个输入表单还没做。' +
+                          '原先的弹窗输入在桌面应用里不可用（点了会直接报错），已记入待办。',
                       );
                     }}
                   >

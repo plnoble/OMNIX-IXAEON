@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { registerIpc } from './ipc.js';
+import { watchRendererHealth } from './rendererDiagnostics.js';
 import { pushUpdateStatusToWindow, startAutoUpdater } from './updater.js';
 import type { AppState } from '@ixaeon/contracts';
 
@@ -24,6 +25,9 @@ async function createWindow(): Promise<void> {
       webSecurity: true,
     },
   });
+
+  // 界面崩溃/报错写入日志（此前完全没有兜底，出错只剩深色窗口）
+  watchRendererHealth(mainWindow, () => runtime?.logger ?? null);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
