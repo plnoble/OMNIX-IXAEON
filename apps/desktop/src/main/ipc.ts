@@ -279,6 +279,21 @@ export function registerIpc(runtime: AppRuntime): void {
       runtime.jobs.kick();
       return { jobId: job.id };
     },
+    // 批量重新分析：一次把分析失败的来源重新排队（已归档的跳过，不报错打断整批）
+    reextractSources: async (sourceIds) => {
+      let queued = 0;
+      let skipped = 0;
+      for (const id of sourceIds) {
+        if (runtime.sources.isArchived(id)) {
+          skipped += 1;
+          continue;
+        }
+        runtime.jobs.enqueue('extract', { sourceId: id, reextract: true });
+        queued += 1;
+      }
+      if (queued > 0) runtime.jobs.kick();
+      return { queued, skipped };
+    },
     archiveSource: async (input) => {
       const summary =
         input.summary && input.summary.trim().length > 0

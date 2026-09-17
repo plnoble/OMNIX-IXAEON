@@ -63,7 +63,12 @@ export function analysisStatus(
     }
     return { text: '有新内容尚未分析，当前显示旧理解', detail: pending, tone: 'warn' };
   }
-  if (a.analyzedRevision > 0) return { text: '已分析最新内容', tone: 'ok' };
+  if (a.analyzedRevision > 0) {
+    // 引用核对不上的结论会被丢掉（其余照常入库）——成功也要把丢了几条说出来
+    if (a.lastJobNote)
+      return { text: '已分析（部分结论被丢弃）', detail: a.lastJobNote, tone: 'warn' };
+    return { text: '已分析最新内容', tone: 'ok' };
+  }
   return { text: '已收到', tone: 'muted' };
 }
 
@@ -80,6 +85,11 @@ export function SourcesPage({
   const [list, setList] = useState<SourceListItem[] | null>(null);
   const [captureFlags, setCaptureFlags] = useState({ enabled: true, autoAnalyze: false });
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  /** 分析失败、且未归档的来源——「全部重新分析」的对象。 */
+  const failedIds = (list ?? [])
+    .filter((i) => i.analysis.lastJobStatus === 'failed' && !i.source.archived_at)
+    .map((i) => i.source.id);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<{
     source: Source;
@@ -258,6 +268,26 @@ export function SourcesPage({
     }
   };
 
+  /** 一次重跑所有分析失败的来源（真机上 44 条资料里 29 条从没成功过）。 */
+  const retryAllFailed = async () => {
+    if (failedIds.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.reextractSources(failedIds);
+      setNotice(
+        r.skipped > 0
+          ? `已重新排队 ${r.queued} 条（${r.skipped} 条已归档，跳过）`
+          : `已重新排队 ${r.queued} 条，稍后自动分析`,
+      );
+      await reload(true);
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const removeSource = async (id: string) => {
     const ok = window.confirm('删除该来源？对话片段和从它抽出的理解会删除，Vault 原文副本保留。');
     if (!ok) return;
@@ -347,6 +377,19 @@ export function SourcesPage({
   return (
     <div data-testid="page-sources">
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {notice && (
+        <p className="muted" data-testid="sources-notice">
+          {notice}
+        </p>
+      )}
+      {failedIds.length > 0 && (
+        <p className="muted" data-testid="sources-failed-summary">
+          有 {failedIds.length} 条资料这次没分析成功（原文都在，理解没更新）。
+          <Button disabled={busy} onClick={retryAllFailed} testId="sources-retry-all-failed">
+            全部重新分析
+          </Button>
+        </p>
+      )}
 
       <Card
         title="来源"

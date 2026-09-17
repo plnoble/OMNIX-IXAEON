@@ -38,6 +38,7 @@ const api: IxaIpcApi = {
   getSegmentContext: (input) => ipcRenderer.invoke('ixaeon:getSegmentContext', input),
   searchSegments: (input) => ipcRenderer.invoke('ixaeon:searchSegments', input),
   reextractSource: (sourceId) => ipcRenderer.invoke('ixaeon:reextractSource', sourceId),
+  reextractSources: (sourceIds) => ipcRenderer.invoke('ixaeon:reextractSources', sourceIds),
   archiveSource: (input) => ipcRenderer.invoke('ixaeon:archiveSource', input),
   unarchiveSource: (sourceId) => ipcRenderer.invoke('ixaeon:unarchiveSource', sourceId),
   revokeSourceReading: (sourceId) => ipcRenderer.invoke('ixaeon:revokeSourceReading', sourceId),

@@ -521,6 +521,15 @@ export class AppRuntime {
         this.enqueueAutoExtraction(payload.sourceId, job.id);
         this.jobs.kick();
       }
+      // 成功但有话要说：引用核对不上的结论被丢掉了，用户有权知道丢了几条。
+      if (stats.skippedBadRef > 0) {
+        this.db
+          .prepare('UPDATE jobs SET note = ? WHERE id = ?')
+          .run(
+            `本次有 ${stats.skippedBadRef} 条结论的依据和原文对不上，已丢弃；其余 ${stats.inserted} 条照常入库。可点「重新分析」再试一次。`,
+            job.id,
+          );
+      }
       recordAudit(this.db, 'extract.completed', {
         sourceId: payload.sourceId,
         auto: isAuto,

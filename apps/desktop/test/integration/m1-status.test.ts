@@ -54,14 +54,19 @@ afterAll(() => {
 function seed(name: string, body: string): { id: string; file: string } {
   const file = join(dir, `${name}.md`);
   writeFileSync(file, `# ${name}\n\n${body}`, 'utf8');
-  const created = imports
-    .importFile(file, { projectId: null, permissionId: perms.grantFile(file).id })
-    .created[0]!;
+  const created = imports.importFile(file, {
+    projectId: null,
+    permissionId: perms.grantFile(file).id,
+  }).created[0]!;
   return { id: created.id, file };
 }
 
 /** 模拟生产 extract 处理器的完成动作：推进 analyzed 并落任务行。 */
-function simulateExtractJob(sourceId: string, outcome: 'succeeded' | 'failed', error: string | null): void {
+function simulateExtractJob(
+  sourceId: string,
+  outcome: 'succeeded' | 'failed',
+  error: string | null,
+): void {
   const now = new Date().toISOString();
   const target = sources.getRevisions(sourceId).content;
   if (outcome === 'succeeded') {
@@ -102,6 +107,27 @@ describe('M1.2 真实状态数据', () => {
     expect(st.analyzedRevision).toBe(1);
     expect(st.analyzedAt).toBeTruthy();
     expect(st.lastJobStatus).toBe('succeeded');
+  });
+
+  it('成功但丢弃了对不上的依据：说明传到界面，不是静默跳过', () => {
+    // 2026-09-18：引用校验从「一条对不上就整份作废」放宽为「丢掉那几条」，
+    // 用户有权知道这次丢了几条——error 只在失败时才有意义，所以走 note。
+    const s = seed('status-note', 'STATUS_MARK_NOTE 内容。');
+    const now = new Date().toISOString();
+    sources.advanceAnalyzedRevision(s.id, sources.getRevisions(s.id).content);
+    db.prepare(
+      `INSERT INTO jobs (id, kind, status, payload_json, progress, error, note, retry_count, created_at, updated_at)
+       VALUES (?, 'extract', 'succeeded', ?, 0, NULL, ?, 0, ?, ?)`,
+    ).run(
+      crypto.randomUUID(),
+      JSON.stringify({ sourceId: s.id }),
+      '本次有 2 条结论的依据和原文对不上，已丢弃；其余 3 条照常入库。',
+      now,
+      now,
+    );
+    const st = statusOf(s.id);
+    expect(st.lastJobStatus).toBe('succeeded');
+    expect(st.lastJobNote).toContain('2 条');
   });
 
   it('追加新内容：content 递增、analyzed 不变 → 「有新内容尚未分析」可见', () => {

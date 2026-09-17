@@ -6,6 +6,7 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { assertSourceAuthorized } from '../access.js';
 import { addNeedsReason } from '../storage/needsReview.js';
 import { demoteEphemeralType } from '../memory/ephemeral.js';
+import { recordAudit } from '../audit.js';
 
 /** 单次提取的输出 schema（计划 5.3.4：候选项目、决定、否决、待办、目标、约束）。 */
 export const extractionOutputSchema = z.object({
@@ -56,7 +57,9 @@ export const MAX_BLOCK_CHARS = 8000;
  * 2. 所有模型块全部成功（结构、引用、长度校验通过）后，才在单个短事务中
  *    原子替换旧 current AI 理解；任一块失败 → 旧理解保持不变
  * 3. 确定性代码核验 segment_ref 真实存在（不信任模型）
- * 4. 无有效依据的结论不入当前理解（整批回滚语义）
+ * 4. 无有效依据的结论不入当前理解；核对得上的照常写入，丢弃数量如实上报
+ *   （2026-09-18 按真机数据放宽：原「一条对不上就整份作废」让 199 次分析全白跑。
+ *    全部对不上时仍整份作废，旧理解保住）
  * 5. 冲突结论标记 disputed（不去重合并）
  * 6. 授权撤销的来源拒绝重新提取（读取边界一致）
  */
@@ -225,14 +228,26 @@ export class Extractor {
     stats.skippedBadRef = pass.problems.length;
     stats.skippedPreserved += pass.skippedPreserved;
 
-    // 2) 替换前置校验（修复 R4）：引用校验是整次替换的前置条件 ——
-    // 存在无效引用（含虚构摘录）时明确失败并保留旧状态，绝不「跳过后继续替换」。
-    // 与「合法分析结果为空」（模型未给出任何结论，保持旧理解、返回 0 inserted）区分。
-    if (pass.problems.length > 0) {
+    // 2) 引用校验（修复 R4，2026-09-18 按真机数据放宽）：
+    // 原规则是「有一条引用对不上就整份作废」。真机结果：提取任务成功 29 次、失败 199 次，
+    // 44 条资料只有 15 条产出过理解——大量失败是模型把原话改写了一两个字，
+    // 整份资料因此白分析，用户资料等于没进系统。
+    // 现在：对不上的那几条丢掉（上面已 continue，不会入库），核对得上的照常写入，
+    // 丢弃数量记进审计并在「资料」页如实显示，不是静默跳过。
+    // 全部都对不上时仍然整份作废——那种情况下没有任何可信结论，旧理解必须保住。
+    if (pass.problems.length > 0 && collected.length === 0) {
       throw new IxaError(
         ErrorCodes.VALIDATION_FAILED,
         formatBadRefMessage(source.title, pass.problems),
       );
+    }
+    if (pass.problems.length > 0) {
+      recordAudit(this.db, 'extract.bad_refs_dropped', {
+        sourceId,
+        dropped: pass.problems.length,
+        kept: collected.length,
+        refs: pass.problems.slice(0, 8).map((p) => p.segmentRef),
+      });
     }
     if (collected.length === 0) {
       // 合法分析结果为空：模型确认没有可提取结论 —— 旧理解保持不变

@@ -140,6 +140,55 @@ describe('M2 提取（FakeProvider）', () => {
     expect(after).toEqual(before);
   });
 
+  it('部分引用对不上：丢掉那几条，其余照常入库（2026-09-18 按真机数据放宽）', async () => {
+    // 真机：提取任务成功 29 次、失败 199 次，44 条资料只有 15 条产出过理解。
+    // 大量失败是模型把原话改写了一两个字，整份资料因此白分析。
+    const doc = join(dir, 'partial-refs.md');
+    writeFileSync(doc, ['# 部分引用', '', 'PARTIALMARK 原文正文。'].join('\n'), 'utf8');
+    const result = imports.importFile(doc, {
+      projectId: null,
+      permissionId: permissions.grantFile(doc).id,
+    });
+    const source = result.created[0]!;
+    const provider = new FakeProvider('fake-partial');
+    const mixed = {
+      items: [
+        {
+          type: 'goal' as const,
+          statement: '核对得上的结论',
+          rationale: null,
+          confidence: 0.8,
+          segment_ref: 'S2',
+          project_hint: null,
+          excerpt: 'PARTIALMARK 原文正文',
+        },
+        {
+          type: 'goal' as const,
+          statement: '依据是编的结论',
+          rationale: null,
+          confidence: 0.8,
+          segment_ref: 'S2',
+          project_hint: null,
+          excerpt: '原文里没有这句话',
+        },
+      ],
+    };
+    provider.enqueueStructured(mixed);
+    provider.enqueueStructured(mixed); // 自动再跑一轮仍有坏引用
+    const stats = await new Extractor(db, provider).extractSource(source.id);
+    expect(stats.inserted).toBe(1);
+    expect(stats.skippedBadRef).toBe(1);
+    const statements = items.list({ projectId: null, state: 'current' }).map((i) => i.statement);
+    expect(statements).toContain('核对得上的结论');
+    expect(statements).not.toContain('依据是编的结论');
+    // 丢弃不是静默的：审计里留痕，界面按任务备注显示
+    const audit = db
+      .prepare("SELECT detail_json FROM audit_events WHERE kind = 'extract.bad_refs_dropped'")
+      .all() as Array<{ detail_json: string }>;
+    expect(audit).toHaveLength(1);
+    expect(JSON.parse(audit[0]!.detail_json)).toMatchObject({ dropped: 1, kept: 1 });
+  });
+
   it('无效引用自动再跑一轮，第二轮有效则写入', async () => {
     const doc = join(dir, 'r4-retry.md');
     writeFileSync(doc, ['# 重试', '', 'RETRYMARK 原文正文。'].join('\n'), 'utf8');

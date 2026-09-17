@@ -13,6 +13,8 @@ export interface SourceAnalysisStatus {
   analyzedAt: string | null;
   lastJobStatus: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
   lastJobError: string | null;
+  /** 任务成功但有话要说（如「本次丢弃 N 条依据对不上的结论」）。 */
+  lastJobNote: string | null;
   lastJobAt: string | null;
 }
 
@@ -213,6 +215,8 @@ export class SourceStore {
           ORDER BY created_at DESC LIMIT 1) AS last_job_status,
         (SELECT error FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
           ORDER BY created_at DESC LIMIT 1) AS last_job_error,
+        (SELECT note FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
+          ORDER BY created_at DESC LIMIT 1) AS last_job_note,
         (SELECT created_at FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
           ORDER BY created_at DESC LIMIT 1) AS last_job_at
       FROM sources s
@@ -234,6 +238,7 @@ export class SourceStore {
         analyzed_at: string | null;
         last_job_status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
         last_job_error: string | null;
+        last_job_note: string | null;
         last_job_at: string | null;
       }
     >;
@@ -245,6 +250,7 @@ export class SourceStore {
         analyzedAt: r.analyzed_at,
         lastJobStatus: r.last_job_status,
         lastJobError: r.last_job_error,
+        lastJobNote: r.last_job_note,
         lastJobAt: r.last_job_at,
       },
       source: {
