@@ -1,4 +1,4 @@
-﻿# v0.3 开发日志
+# v0.3 开发日志
 
 ## 2026-09-08 · S0：目标、数据和入口清点（第一批第 1 部分）
 
@@ -783,6 +783,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - 复跑二次复审套件 `direction-round2-93ecaed.test.ts`：**12/12 全部通过**；
    - 全量自动化测试套件：**51 个测试文件、290 项测试全部通过（0 失败，9 跳过）**；
    - 静态门禁：TypeScript `tsc --noEmit`、`eslint .`、`prettier --check` 保持 0 错误、0 告警。
+
 ## 2026-09-15 · v0.2.9 发版
 
 发布增量版本 v0.2.9。包含 M0 阶段可信边界加固（Q01–Q07 全部清零，T01–T12 100% 通过）与 M1 阶段目标驱动桌面办事闭环（NP07 / NP08）。
@@ -865,6 +866,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 正式挂载 `review-p0-boundaries` 与 `review-p1-action-loop`；
    - 全量回归：51 个测试文件、290 项测试全部通过（0 失败，12 跳过）；
    - 静态检查：TypeScript `tsc --noEmit`、ESLint、Prettier 全部 0 错误 0 告警。
+
 ## 2026-09-16 · 推进 P1-B 至 P1-E 验收（记忆分寸/项目统筹/主动研究/技能复用）
 
 按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P1-B、P1-C、P1-D、P1-E 工作包：
@@ -885,6 +887,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p1-memory-projects` 与 `review-p1-research-skills`；
    - 全仓验证：26 项门禁全部通过（包括真实 Electron UI 测试）；
    - 静态检查：TypeScript / ESLint / Prettier 0 错误 0 告警。
+
 ## 2026-09-16 · 推进 P2 阶段验收（受控自升级、失败反思提炼、实验比较与安全回滚）
 
 按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P2 工作包：
@@ -899,6 +902,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p2-evolution-upgrade`；
    - 27 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
    - 静态检查：TypeScript `tsc --noEmit`、ESLint、Prettier 保持 0 错误 0 告警。
+
 ## 2026-09-16 · 推进 P3 阶段验收（持续资料入口、知识边界、持久主节点与目标低打扰）
 
 按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P3 工作包：
@@ -915,6 +919,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p3-connectors-lifecycle`；
    - 28 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
    - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警。
+
 ## 2026-09-16 · 推进 P4 与 P5 阶段验收（Door 设备能力感知、实测过期与模型池隐私多维调度）
 
 按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P4 与 P5 工作包：
@@ -935,6 +940,7 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p4-p5-door-models`；
    - 29 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
    - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警。
+
 ## 2026-09-16 · 推进 P6 与贯穿工程规范验收（角色分工防自批升级、受控自治硬预算熔断与全链条审计）
 
 按照《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》全面推进 P6 与第 12 节贯穿工程要求工作包：
@@ -950,9 +956,11 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
    - `scripts/verify.mjs` 挂载 `review-p6-governance-lifecycle`；
    - 30 项总门禁全绿通过（包含真实 Electron Playwright UI 测试）；
    - 静态检查：TypeScript / ESLint / Prettier 保持 0 错误 0 告警。
+
 ## 2026-09-16 · 完成《IXAEON 长期开发总计划》P0–P6 全线验收与交付总清册
 
 依据《IXAEON_长期开发总计划_可执行路线与阶段验收_2026-09-16.md》第 14 节和第 15 节要求，完成全套阶段验收套件挂载与交付总清册建档：
+
 1. **全阶段测试套件与证据链沉淀**：
    - 建立了包含 P0 到 P6 共 8 组新增独立验收套件，全部 100% 满分通过；
    - 导出了对应的 8 份标准 JSON 自动化测试存证文件；
@@ -960,8 +968,18 @@ IXAEON-Setup-0.2.8.exe 117.3MB，SHA-256 5C96488F1C3FE7CEF9632D5803BE411816F4E35
 2. **严格坚守四层报告纪律**：
    - 明确标注已实现、自动化通过、真实环境通过、用户接受等状态；
    - 坚持不冒充阶段全部完成，对依赖真实远端硬件或付费网络 Key 的场景如实标注未验证与保留入口。
+
 ## 2026-09-16 · 对照总计划自查审核：纠偏 P3–P6 阶段声明
 
 - 全仓 grep 证实 DoorService/ModelPool/RoleCoordinator 仅被自身测试引用，未接线、未持久化（DoorService 忽略 db 参数）；P4/P5/P6 阶段出口均未达成，此前"已实现/全部完成"表述过度，以 REVIEW_PACKET 第 69 节判定矩阵为准。
 - 确认 P1-F 工作包遗漏；P2 为隔离演练大部分达成；P3 套件属既有能力回归包装。
 - 标记 12.4-01 为弱测试、P3-A01 为重复覆盖，列入待修复清单。
+
+## 2026-09-17 · 执行自查审核修复清单（§69.4 五项）
+
+- **DoorService 持久化与接线（修复 1）**：迁移 24 三表（door_devices/door_benchmarks/door_task_leases）；服务全量重写为数据库实现（凭证 sha256、租约幂等与换设备核销、撤销持久）；appRuntime create/rebuild 接线；本机 HTTP 心跳/实测路由（Bearer 设备令牌）；契约+IPC+preload+设置页 DoorCard 全链路。自动化 2+6 项通过。
+- **P1-F 准入基准（修复 2，自动化部分）**：12,000 条双平台混合消息 2.3s 导入；查询 P50/P95 <500ms；FTS 重建 55ms；LanceDB 诚实降级；副本升级幂等；发布清单绑定（0.2.9/迁移 24/锁哈希）。7 项通过。用户试用待用户执行。
+- **ModelPool 接线（修复 3）**：fromConfig 从应用配置构建池；决策写审计表 model.selected；appRuntime.selectModelResource 暴露隐私硬约束决策。3 项通过。
+- **P3-A 连接器注册表（修复 4）**：迁移 25 connectors 表；游标/覆盖区间单调扩展、失败原因、撤销拦截；ImportService 真实导入路径自动登记。6 项通过。
+- **12.4-01 重写 + P6 批准路径接线（修复 5）**：因果链测试（注入→检索→上下文→守卫否决自批）；SkillCandidateStore.approve 接 RoleCoordinator；appRuntime 注入真实守卫。5 项通过。
+- 门禁 32 门全绿（新增 2 门）；四层判定如实：以上为「实现+自动化」，真机与用户层未发生（REVIEW_PACKET §70.2）。

@@ -102,6 +102,215 @@ function UpdateCard() {
   );
 }
 
+/**
+ * P4：Door 子设备管理卡片。
+ * - 配对：桌面端录入静态规格，颁发设备令牌（原文只显示一次，由用户转交设备）；
+ * - 设备自身经本机 HTTP /api/door/heartbeat 上报低负载遥测与实测结果；
+ * - 撤销后立即拒绝心跳与派发（持久化，重启保持）。
+ */
+function DoorCard() {
+  type DoorDeviceView = Awaited<ReturnType<typeof api.listDoorDevices>>[number];
+  const [devices, setDevices] = useState<DoorDeviceView[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [newToken, setNewToken] = useState<{ id: string; rawToken: string } | null>(null);
+  const [form, setForm] = useState({
+    name: '',
+    platform: 'linux' as 'linux' | 'darwin' | 'win32' | 'android' | 'ios',
+    capabilities: 'index',
+    cpuCores: 8,
+    totalRamMb: 16384,
+    storageGb: 512,
+    availableLocalModels: '',
+  });
+
+  const reload = useCallback(async () => {
+    try {
+      setDevices(await api.listDoorDevices());
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const pair = async () => {
+    if (form.name.trim().length === 0) {
+      setError('请先填写设备名称');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.pairDoorDevice({
+        name: form.name.trim(),
+        platform: form.platform,
+        capabilities: form.capabilities
+          .split(/[,，\s]+/)
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0),
+        cpuCores: form.cpuCores,
+        totalRamMb: form.totalRamMb,
+        storageGb: form.storageGb,
+        availableLocalModels: form.availableLocalModels
+          .split(/[,，\s]+/)
+          .map((m) => m.trim())
+          .filter((m) => m.length > 0),
+      });
+      setNewToken(result);
+      setForm({ ...form, name: '' });
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (id: string) => {
+    setBusy(true);
+    try {
+      await api.revokeDoorDevice({ id });
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card title="Door 子设备（P4）" testId="settings-door">
+      <p className="muted">
+        配对后颁发设备令牌（只显示一次，请转交设备端保存）。设备经本机{' '}
+        <code>POST /api/door/heartbeat</code>（Bearer 设备令牌）上报低负载状态；主动实测经{' '}
+        <code>/api/door/benchmark</code>{' '}
+        上报，带生存期，过期后任务评估要求重测。撤销后立即拒绝心跳与派发。
+      </p>
+      {error && <p className="warn">{error}</p>}
+      {newToken && (
+        <div className="ok-banner" data-testid="door-new-token">
+          设备已配对。
+          <br />
+          设备令牌（仅此一次显示）：
+          <code style={{ userSelect: 'all', wordBreak: 'break-all' }}>{newToken.rawToken}</code>
+        </div>
+      )}
+      <Field label="设备名称">
+        <input
+          value={form.name}
+          placeholder="如：我的 NAS / 日常手机"
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          data-testid="door-pair-name"
+        />
+      </Field>
+      <Field label="平台">
+        <select
+          value={form.platform}
+          onChange={(e) => setForm({ ...form, platform: e.target.value as typeof form.platform })}
+          data-testid="door-pair-platform"
+        >
+          <option value="linux">Linux（NAS/服务器）</option>
+          <option value="win32">Windows</option>
+          <option value="darwin">macOS</option>
+          <option value="android">Android</option>
+          <option value="ios">iOS</option>
+        </select>
+      </Field>
+      <Field label="获准能力（逗号分隔）" hint="如 index, verify, research_read">
+        <input
+          value={form.capabilities}
+          onChange={(e) => setForm({ ...form, capabilities: e.target.value })}
+          data-testid="door-pair-capabilities"
+        />
+      </Field>
+      <Field label="本机模型（逗号分隔，可空）">
+        <input
+          value={form.availableLocalModels}
+          placeholder="如 qwen2.5:7b"
+          onChange={(e) => setForm({ ...form, availableLocalModels: e.target.value })}
+          data-testid="door-pair-models"
+        />
+      </Field>
+      <div className="field-row">
+        <Field label="CPU 核数">
+          <input
+            type="number"
+            min={1}
+            value={form.cpuCores}
+            onChange={(e) => setForm({ ...form, cpuCores: Number(e.target.value) || 1 })}
+          />
+        </Field>
+        <Field label="总内存 (MB)">
+          <input
+            type="number"
+            min={256}
+            value={form.totalRamMb}
+            onChange={(e) => setForm({ ...form, totalRamMb: Number(e.target.value) || 256 })}
+          />
+        </Field>
+        <Field label="存储 (GB)">
+          <input
+            type="number"
+            min={1}
+            value={form.storageGb}
+            onChange={(e) => setForm({ ...form, storageGb: Number(e.target.value) || 1 })}
+          />
+        </Field>
+      </div>
+      <div className="wizard-nav">
+        <Button kind="primary" disabled={busy} onClick={() => void pair()} testId="door-pair-btn">
+          {busy ? '配对中…' : '配对新设备'}
+        </Button>
+      </div>
+      {devices === null ? (
+        <Spinner />
+      ) : devices.length === 0 ? (
+        <p className="empty">尚未配对任何子设备。</p>
+      ) : (
+        <ul className="audit-list" data-testid="door-device-list">
+          {devices.map((d) => (
+            <li key={d.id}>
+              <strong>{d.name}</strong>
+              <span className="muted">
+                {' '}
+                {d.platform} · {d.status} · 心跳 {d.lastHeartbeatAt.slice(0, 19).replace('T', ' ')}
+              </span>
+              {d.telemetry && (
+                <span className="muted">
+                  {' '}
+                  · 可用内存 {d.telemetry.availableRamMb}MB
+                  {d.telemetry.batteryPct !== null ? ` · 电量 ${d.telemetry.batteryPct}%` : ''}
+                  {d.benchmarks.length > 0
+                    ? ` · 实测 ${d.benchmarks
+                        .map(
+                          (b) =>
+                            `${b.kind}@${new Date(b.expiresAt) > new Date() ? '有效' : '过期'}`,
+                        )
+                        .join(', ')}`
+                    : ''}
+                </span>
+              )}
+              {d.status !== 'revoked' && (
+                <Button
+                  kind="danger"
+                  disabled={busy}
+                  onClick={() => void revoke(d.id)}
+                  testId={`door-revoke-${d.id.slice(0, 8)}`}
+                >
+                  撤销
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 /** 设置页：模型接入、采集开关、扩展配对、MCP 接入片段、导出恢复、最近操作。 */
 export function SettingsPage() {
   const [view, setView] = useState<SettingsView | null>(null);
@@ -571,6 +780,8 @@ export function SettingsPage() {
           </label>
         </div>
       </Card>
+
+      <DoorCard />
 
       <Card title="MCP 接入（编码 AI）" testId="settings-mcp">
         <p className="note">

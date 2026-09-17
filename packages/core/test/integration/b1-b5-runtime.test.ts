@@ -223,7 +223,7 @@ describe('B4 Skill 候选：提案≠升级', () => {
 });
 
 describe('B5 合成旧库升级到 20', () => {
-  it('迁移 17 副本升级到最新（21）且幂等，新表存在，旧归档列仍在，provider 枚举扩展', () => {
+  it('迁移 17 副本升级到最新（25）且幂等，新表存在，旧归档列仍在，provider 枚举扩展', () => {
     const oldDir = mkdtempSync(join(tmpdir(), 'ixaeon-m17-'));
     const oldDbPath = join(oldDir, 'old.db');
     const old = openDatabase(oldDbPath);
@@ -240,9 +240,9 @@ describe('B5 合成旧库升级到 20', () => {
 
     const upgraded = openDatabase(oldDbPath);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(23);
+    expect(currentMigrationVersion(upgraded)).toBe(25);
     migrate(upgraded);
-    expect(currentMigrationVersion(upgraded)).toBe(23);
+    expect(currentMigrationVersion(upgraded)).toBe(25);
     const cols = (
       upgraded.prepare('PRAGMA table_info(sources)').all() as Array<{ name: string }>
     ).map((c) => c.name);
@@ -283,6 +283,11 @@ describe('B5 合成旧库升级到 20', () => {
     ).map((r) => r.name);
     expect(tables).toContain('runtime_runs');
     expect(tables).toContain('skill_candidates');
+    // 24/25（自查审核修复）：Door 设备持久化与连接器注册表新表存在
+    expect(tables).toContain('door_devices');
+    expect(tables).toContain('door_benchmarks');
+    expect(tables).toContain('door_task_leases');
+    expect(tables).toContain('connectors');
     const skillCols = (
       upgraded.prepare('PRAGMA table_info(skill_candidates)').all() as Array<{ name: string }>
     ).map((c) => c.name);

@@ -1,4 +1,6 @@
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
+import type { CoreDatabase } from '../db/database.js';
+import { recordAudit } from '../audit.js';
 
 export type ModelTier = 'cloud' | 'local';
 export type ModelPrivacyScope = 'public' | 'local_only';
@@ -24,6 +26,13 @@ export interface ModelSelectionResult {
   rejectedReasons: Record<string, string>;
 }
 
+export interface ModelPoolConfig {
+  /** 已配置的云端模型名（来自应用配置；未配置则为 null） */
+  cloudModelName: string | null;
+  /** 本机模型入口（如 Ollama 可用性声明；未配置则为 null） */
+  localModelName: string | null;
+}
+
 /**
  * P5: 模型池与资源调度服务
  * 规范：
@@ -31,9 +40,47 @@ export interface ModelSelectionResult {
  * 2. 匹配任务类型（提取 vs 复杂研究 vs 编码）；
  * 3. 产生可解释决策（选了谁、为何选、候选为何不选）；
  * 4. 故障回退必须在当前授权隐私约束内。
+ * 真实接线（修复自查审核 69.2-1）：fromConfig 从应用配置构建池；
+ * selectModel 每次决策写审计表（model.selected），可追溯。
  */
 export class ModelPool {
   private models = new Map<string, ModelDescriptor>();
+
+  constructor(private readonly db: CoreDatabase | null = null) {}
+
+  /** 从应用配置构建池（真实接线入口）。 */
+  static fromConfig(db: CoreDatabase | null, cfg: ModelPoolConfig): ModelPool {
+    const pool = new ModelPool(db);
+    if (cfg.cloudModelName) {
+      pool.register({
+        id: `cloud:${cfg.cloudModelName}`,
+        name: `${cfg.cloudModelName}（云端）`,
+        provider: cfg.cloudModelName.includes('deepseek') ? 'deepseek' : 'openai',
+        tier: 'cloud',
+        privacyScope: 'public',
+        supportedTasks: ['extraction', 'research', 'coding', 'chat'],
+        contextWindow: 64_000,
+        costPer1k: 0.002,
+        latencyMs: 800,
+        healthy: true,
+      });
+    }
+    if (cfg.localModelName) {
+      pool.register({
+        id: `local:${cfg.localModelName}`,
+        name: `${cfg.localModelName}（本机）`,
+        provider: 'ollama',
+        tier: 'local',
+        privacyScope: 'local_only',
+        supportedTasks: ['extraction', 'chat'],
+        contextWindow: 16_000,
+        costPer1k: 0,
+        latencyMs: 300,
+        healthy: true,
+      });
+    }
+    return pool;
+  }
 
   register(model: ModelDescriptor): void {
     this.models.set(model.id, model);
@@ -102,6 +149,17 @@ export class ModelPool {
 
     const chosen = candidates[0]!;
     const rationale = `已综合比较 ${all.length} 个候选资源：排除 ${Object.keys(rejectedReasons).length} 个不合规/不适用项；在 ${candidates.length} 个合规资源中，选中 ${chosen.name}（模式: ${chosen.tier}, 任务能力: ${request.task}, 延迟: ${chosen.latencyMs}ms）。`;
+
+    // 审计落库（可追溯：选了谁、为何选、候选为何不选）
+    if (this.db) {
+      recordAudit(this.db, 'model.selected', {
+        task: request.task,
+        allowCloud: request.allowCloud,
+        selected: chosen.id,
+        rationale,
+        rejectedReasons,
+      });
+    }
 
     return {
       selected: chosen,

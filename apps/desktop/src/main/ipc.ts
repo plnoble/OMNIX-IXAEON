@@ -664,6 +664,76 @@ export function registerIpc(runtime: AppRuntime): void {
     autoEvolveSkillCandidates: async (input) => {
       return runtime.autoEvolveSkillCandidates(input?.projectId);
     },
+
+    // --- P4：Door 设备管理（设备自身经 /api/door/* 心跳；此处为桌面管理面） ---
+    listDoorDevices: async () => {
+      return runtime.door.listDevices().map((d) => ({
+        id: d.id,
+        name: d.name,
+        platform: d.platform,
+        status: d.status,
+        capabilities: d.capabilities,
+        specs: d.specs,
+        telemetry: d.telemetry
+          ? {
+              availableRamMb: d.telemetry.availableRamMb,
+              batteryPct: d.telemetry.batteryPct ?? null,
+              isCharging: d.telemetry.isCharging ?? null,
+              temperatureC: d.telemetry.temperatureC ?? null,
+              reportedAt: d.telemetry.reportedAt,
+            }
+          : null,
+        benchmarks: d.benchmarks.map((b) => ({
+          kind: b.kind,
+          resultValue: b.resultValue,
+          testedAt: b.testedAt,
+          expiresAt: b.expiresAt,
+        })),
+        pairedAt: d.pairedAt,
+        lastHeartbeatAt: d.lastHeartbeatAt,
+      }));
+    },
+    pairDoorDevice: async (input) => {
+      const { device, rawToken } = runtime.door.pairDevice({
+        name: input.name,
+        platform: input.platform,
+        capabilities: input.capabilities,
+        specs: {
+          cpuCores: input.cpuCores,
+          totalRamMb: input.totalRamMb,
+          storageGb: input.storageGb,
+          availableLocalModels: input.availableLocalModels,
+        },
+      });
+      recordAudit(runtime.db, 'door.paired', { deviceId: device.id, platform: device.platform });
+      return { id: device.id, rawToken };
+    },
+    revokeDoorDevice: async (input) => {
+      runtime.door.revokeDevice(input.id);
+      recordAudit(runtime.db, 'door.revoked', { deviceId: input.id });
+      return { ok: true as const };
+    },
+    evaluateDoorSuitability: async (input) => {
+      return runtime.door.evaluateSuitability(input.id, {
+        taskKind: input.taskKind,
+        requiredRamMb: input.requiredRamMb,
+        requiresActiveBenchmark: input.requiresActiveBenchmark,
+      });
+    },
+    dispatchDoorTask: async (input) => {
+      const result = runtime.door.dispatchTask(input.deviceId, {
+        taskId: input.taskId,
+        leaseMs: input.leaseMs,
+      });
+      return { ok: true as const, leaseUntil: result.leaseUntil };
+    },
+    getDoorTaskLease: async (taskId) => {
+      return runtime.door.getTaskLease(taskId);
+    },
+    settleDoorTaskLease: async (input) => {
+      runtime.door.settleTaskLease(input.taskId, input.status);
+      return { ok: true as const };
+    },
   };
 
   // 注册（统一错误序列化：渲染进程收到 "IXAxxxx 消息" 形式）

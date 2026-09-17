@@ -3,20 +3,44 @@
  * 按照 IXAEON 长期开发总计划 2026-09-16 编制：
  * 1. P4 Door 最小设备身份、生命周期、低负载遥测感知、任务适任性、实测过期与撤权拦截；
  * 2. P5 模型池：隐私硬约束一票否决、多任务匹配、可解释决策与授权内安全故障回退。
+ * 自查审核修复（2026-09-16）：DoorService 已改为数据库持久化（迁移 24），
+ * 凭证只存哈希，原文仅在配对响应出现一次。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DoorService, ModelPool } from '../../../../packages/core/src/index.js';
+import { dirname, join, resolve } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import {
+  DoorService,
+  ModelPool,
+  migrate,
+  openDatabase,
+  type CoreDatabase,
+} from '../../../../packages/core/src/index.js';
 
+let dir: string;
+let db: CoreDatabase;
 let door: DoorService;
 let pool: ModelPool;
 
 beforeEach(() => {
-  door = new DoorService();
+  dir = mkdtempSync(join(tmpdir(), 'ixaeon-p4-door-'));
+  db = openDatabase(join(dir, 'door.db'));
+  migrate(db);
+  door = new DoorService(db);
   pool = new ModelPool();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  db.close();
+  const target = resolve(dir);
+  if (
+    dirname(target) !== resolve(tmpdir()) ||
+    !target.split(/[\\/]/).at(-1)?.startsWith('ixaeon-p4-door-')
+  )
+    throw new Error('Unsafe cleanup target');
+  rmSync(target, { recursive: true, force: true });
 });
 
 describe('P4 Door 设备能力感知与生命周期', () => {
@@ -54,7 +78,7 @@ describe('P4 Door 设备能力感知与生命周期', () => {
   });
 
   it('P4-B01 [实测过期与任务适任性评估] 低电量/内存不足拒绝派发，实测过期提示重新测量', () => {
-    const { device } = door.pairDevice({
+    const { device, rawToken } = door.pairDevice({
       name: '日常主力手机',
       platform: 'android',
       capabilities: ['chat', 'voice'],
@@ -67,7 +91,7 @@ describe('P4 Door 设备能力感知与生命周期', () => {
     });
 
     // 1. 低电量保护：电量只有 10% 且未充电
-    door.heartbeat(device.id, device.tokenHash, {
+    door.heartbeat(device.id, rawToken, {
       availableRamMb: 4096,
       batteryPct: 10,
       isCharging: false,
@@ -82,7 +106,7 @@ describe('P4 Door 设备能力感知与生命周期', () => {
     expect(reportBattery.reason).toContain('电量过低');
 
     // 2. 充电后状态恢复正常
-    door.heartbeat(device.id, device.tokenHash, {
+    door.heartbeat(device.id, rawToken, {
       availableRamMb: 4096,
       batteryPct: 80,
       isCharging: true,
@@ -113,7 +137,18 @@ describe('P4 Door 设备能力感知与生命周期', () => {
     expect(reportExpired.reason).toContain('实测评估已过期');
   });
 
-  it('P4-D01 [受控真派发与撤销拦截] 派发带租约保护，已撤销设备禁止派发任务', () => {
+  it('P4-D01 [受控真派发与撤销拦截] 派发带租约保护与幂等，已撤销设备禁止派发任务', () => {
+    const other = door.pairDevice({
+      name: '另一台工作站',
+      platform: 'linux',
+      capabilities: ['verify', 'compile'],
+      specs: {
+        cpuCores: 8,
+        totalRamMb: 16384,
+        storageGb: 1024,
+        availableLocalModels: [],
+      },
+    });
     const { device } = door.pairDevice({
       name: '离线工作站',
       platform: 'win32',
@@ -130,6 +165,15 @@ describe('P4 Door 设备能力感知与生命周期', () => {
     const dispatch = door.dispatchTask(device.id, { taskId: 'task-v01', leaseMs: 60000 });
     expect(dispatch.ok).toBe(true);
     expect(new Date(dispatch.leaseUntil).getTime()).toBeGreaterThan(Date.now());
+
+    // 同任务重复派发同设备：幂等返回，不新建副作用
+    const again = door.dispatchTask(device.id, { taskId: 'task-v01', leaseMs: 60000 });
+    expect(again.leaseUntil).toBe(dispatch.leaseUntil);
+
+    // 同任务换设备派发：断线后不能盲目重派，先核销原租约
+    expect(() =>
+      door.dispatchTask(other.device.id, { taskId: 'task-v01', leaseMs: 60000 }),
+    ).toThrow(/换设备重派必须先核销原租约/);
 
     // 撤销设备后派发任务被拦截
     door.revokeDevice(device.id);

@@ -721,6 +721,69 @@ SET discovered_by = 'auto'
 WHERE last_error = 'auto_discovered';
 `,
   },
+  {
+    id: 24,
+    name: 'door-devices-persistence',
+    sql: `
+-- P4 自查审核修复（2026-09-16）：Door 设备身份、遥测、实测与任务租约持久化。
+-- 此前 DoorService 为内存 Map，重启即失，违背配对持久与心跳状态要求。
+CREATE TABLE door_devices (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  platform TEXT NOT NULL CHECK (platform IN ('linux','darwin','win32','android','ios')),
+  status TEXT NOT NULL CHECK (status IN ('online','offline','restricted','revoked')),
+  capabilities_json TEXT NOT NULL DEFAULT '[]',
+  cpu_cores INTEGER NOT NULL,
+  total_ram_mb INTEGER NOT NULL,
+  storage_gb INTEGER NOT NULL,
+  local_models_json TEXT NOT NULL DEFAULT '[]',
+  token_hash TEXT NOT NULL,
+  telemetry_json TEXT,
+  paired_at TEXT NOT NULL,
+  last_heartbeat_at TEXT NOT NULL
+);
+CREATE TABLE door_benchmarks (
+  id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL REFERENCES door_devices(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('ram_stress','inference_speed')),
+  result_value REAL NOT NULL,
+  tested_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  UNIQUE (device_id, kind)
+);
+CREATE TABLE door_task_leases (
+  task_id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL REFERENCES door_devices(id) ON DELETE CASCADE,
+  lease_until TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'dispatched',
+  created_at TEXT NOT NULL
+);
+`,
+  },
+  {
+    id: 25,
+    name: 'connector-registry',
+    sql: `
+-- P3-A 自查审核修复（2026-09-16）：从「支持导入」变成「知道接入到哪里」。
+-- 每个连接器保存：平台、账号命名空间、采集方式、同步游标、覆盖区间、
+-- 最后成功时间、失败原因与撤销状态。
+CREATE TABLE connectors (
+  id TEXT PRIMARY KEY,
+  platform TEXT NOT NULL,
+  account_namespace TEXT NOT NULL DEFAULT 'local',
+  capture_method TEXT NOT NULL CHECK (capture_method IN ('history_export', 'live_capture', 'local_file')),
+  sync_cursor TEXT,
+  coverage_start TEXT,
+  coverage_end TEXT,
+  last_success_at TEXT,
+  last_failure_reason TEXT,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (platform, account_namespace, capture_method)
+);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

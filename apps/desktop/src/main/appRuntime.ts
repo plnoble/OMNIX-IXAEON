@@ -24,6 +24,9 @@ import {
   listUpstreamModels,
   ImportService,
   JobQueue,
+  DoorService,
+  ModelPool,
+  RoleCoordinator,
   Logger,
   openDatabase,
   PermissionService,
@@ -83,6 +86,7 @@ export class AppRuntime {
   research: ResearchChecker;
   coding: CodingOrchestrator;
   jobs: JobQueue;
+  door: DoorService;
   readonly logger: Logger;
   readonly localServer: LocalServer;
   private readonly fakeProvider = new FakeProvider('fake-model-v1');
@@ -114,6 +118,7 @@ export class AppRuntime {
     research: ResearchChecker;
     coding: CodingOrchestrator;
     jobs: JobQueue;
+    door: DoorService;
     logger: Logger;
     localServer: LocalServer;
   }) {
@@ -132,6 +137,7 @@ export class AppRuntime {
     this.research = deps.research;
     this.coding = deps.coding;
     this.jobs = deps.jobs;
+    this.door = deps.door;
     this.logger = deps.logger;
     this.localServer = deps.localServer;
   }
@@ -165,6 +171,7 @@ export class AppRuntime {
     );
     const coding = new CodingOrchestrator(db, createCodingExecutor(), resolved.dataDir);
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
+    const door = new DoorService(db);
 
     const config = loadConfig(layout.configFile);
     // 确保本地令牌存在（MCP / 本地 API 用）
@@ -243,6 +250,7 @@ export class AppRuntime {
       research,
       coding,
       jobs,
+      door,
       logger,
       localServer,
     });
@@ -587,6 +595,36 @@ export class AppRuntime {
       // 配置的 API 地址优先（用户在向导/设置填写）；环境变量仅测试用
       baseUrl: config.model.apiBaseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
     });
+  }
+
+  /**
+   * P5：按隐私约束与任务类型选择模型资源（可解释决策）。
+   * 云模型 = 用户已配置的 OpenAI 兼容端点；本机模型 = 配置声明。
+   * 隐私硬约束（allowCloud=false）一票否决云模型；决策写入审计表。
+   * 返回 null 表示无合规资源（调用方诚实失败，不偷偷换模型）。
+   */
+  selectModelResource(input: {
+    task: 'extraction' | 'research' | 'coding' | 'chat';
+    allowCloud: boolean;
+  }): { cloudConfigured: boolean; useCloud: boolean; rationale: string } | null {
+    const config = this.config;
+    // 本机模型入口：显式声明（IXAEON_LOCAL_MODEL）时启用；未声明则池中只有云模型
+    const localModelName = process.env.IXAEON_LOCAL_MODEL?.trim() || null;
+    const pool = ModelPool.fromConfig(this.db, {
+      cloudModelName: config.model.apiKeyPresent ? config.model.modelName : null,
+      localModelName,
+    });
+    if (pool.list().length === 0) return null;
+    try {
+      const result = pool.selectModel({ task: input.task, allowCloud: input.allowCloud });
+      return {
+        cloudConfigured: config.model.apiKeyPresent,
+        useCloud: result.selected.tier === 'cloud',
+        rationale: result.rationale,
+      };
+    } catch {
+      return null; // 无合规模型（如私密任务但未配置本机模型）
+    }
   }
 
   /**
@@ -1072,6 +1110,7 @@ export class AppRuntime {
     );
     const coding = new CodingOrchestrator(db, createCodingExecutor(), this.dataDir);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
+    const door = new DoorService(db);
     this.db = db;
     this.vault = vault;
     this.permissions = permissions;
@@ -1084,12 +1123,14 @@ export class AppRuntime {
     this.research = research;
     this.coding = coding;
     this.jobs = jobs;
+    this.door = door;
     // localServer 持有的是旧 db 引用：用新服务重建其依赖（复用同一实例）
     this.localServer.rebindDeps({
       db,
       permissions,
       sources,
       vault,
+      door,
     });
     this.registerJobHandlers();
     jobs.start();
@@ -1388,8 +1429,15 @@ export class AppRuntime {
     return skills.list(projectId);
   }
 
+  /** P6-A：批准路径的角色隔离守卫（coder 不能自批升级；批准属 auditor/用户职责）。 */
+  private readonly skillRoleGuard = new RoleCoordinator({
+    maxActions: 10_000,
+    budgetCapUsd: 1_000,
+    scope: 'skill_approval',
+  });
+
   approveSkillCandidate(id: string, version?: number) {
-    const skills = new SkillCandidateStore(this.db);
+    const skills = new SkillCandidateStore(this.db, this.skillRoleGuard);
     return skills.approve(id, version !== undefined ? { version } : undefined);
   }
 

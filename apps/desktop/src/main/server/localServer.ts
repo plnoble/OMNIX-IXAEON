@@ -5,6 +5,7 @@ import {
   type SourceStore,
   type WebSearchExecutor,
   type CodingOrchestrator,
+  type DoorService,
   McpService,
   Vault,
   recordAudit,
@@ -13,6 +14,8 @@ import {
   ErrorCodes,
   IxaError,
   captureBatchSchema,
+  doorHeartbeatSchema,
+  doorBenchmarkSchema,
   pairRequestSchema,
   prepareTaskInputSchema,
   searchContextInputSchema,
@@ -74,6 +77,8 @@ interface LocalServerDeps {
   getWebSearchExecutor?: () => WebSearchExecutor | null;
   fetchWebPage?: (url: string) => Promise<{ finalUrl: string; status: number; excerpt: string }>;
   getCodingOrchestrator?: () => CodingOrchestrator;
+  /** P4：Door 设备生命周期服务（心跳/实测上报端点使用） */
+  door?: DoorService;
 }
 
 export class LocalServer {
@@ -103,7 +108,9 @@ export class LocalServer {
    * 恢复失败后的运行时重建（修复 R2）：把数据/权限/来源服务重绑到新数据库句柄。
    * 配置回调闭包不依赖 db，无需更换。
    */
-  rebindDeps(next: Pick<LocalServerDeps, 'db' | 'permissions' | 'sources' | 'vault'>): void {
+  rebindDeps(
+    next: Pick<LocalServerDeps, 'db' | 'permissions' | 'sources' | 'vault' | 'door'>,
+  ): void {
     this.deps = { ...this.deps, ...next };
   }
 
@@ -684,6 +691,67 @@ export class LocalServer {
                 ? 403
                 : 400;
           return reply.code(status).send(apiErr);
+        }
+      },
+    });
+
+    // --- P4：Door 设备入口（Bearer 设备令牌 = 配对时颁发的一次性原文） ---
+    // 仅子设备自己使用：心跳上报低负载状态、上报主动实测结果。
+    // 派发/撤销/配对管理走桌面端（IPC），不经设备令牌。
+    app.post('/api/door/heartbeat', {
+      config: { bodyLimit: 1024 },
+      handler: async (request, reply) => {
+        try {
+          const door = this.deps.door;
+          if (!door) throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, 'Door 服务未启用');
+          const parsed = doorHeartbeatSchema.safeParse(request.body);
+          if (!parsed.success) {
+            throw new IxaError(ErrorCodes.VALIDATION_FAILED, '心跳格式错误');
+          }
+          const header =
+            typeof request.headers.authorization === 'string' ? request.headers.authorization : '';
+          const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+          const token = match?.[1] ?? '';
+          if (!token) throw new IxaError(ErrorCodes.INVALID_TOKEN, '缺少设备令牌');
+          const device = door.heartbeat(parsed.data.deviceId, token, {
+            availableRamMb: parsed.data.availableRamMb,
+            batteryPct: parsed.data.batteryPct ?? null,
+            isCharging: parsed.data.isCharging ?? null,
+            temperatureC: parsed.data.temperatureC ?? null,
+            reportedAt: new Date().toISOString(),
+          });
+          return reply.send({ ok: true, status: device.status });
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    app.post('/api/door/benchmark', {
+      config: { bodyLimit: 1024 },
+      handler: async (request, reply) => {
+        try {
+          const door = this.deps.door;
+          if (!door) throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, 'Door 服务未启用');
+          const parsed = doorBenchmarkSchema.safeParse(request.body);
+          if (!parsed.success) {
+            throw new IxaError(ErrorCodes.VALIDATION_FAILED, '实测上报格式错误');
+          }
+          const header =
+            typeof request.headers.authorization === 'string' ? request.headers.authorization : '';
+          const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+          const token = match?.[1] ?? '';
+          if (!token) throw new IxaError(ErrorCodes.INVALID_TOKEN, '缺少设备令牌');
+          // 上报前先以心跳鉴权（同凭证），再落实测记录
+          door.heartbeat(parsed.data.deviceId, token);
+          door.recordBenchmark(parsed.data.deviceId, {
+            kind: parsed.data.kind,
+            resultValue: parsed.data.resultValue,
+            ttlMs: parsed.data.ttlMs,
+          });
+          return reply.send({ ok: true });
+        } catch (err) {
+          return this.sendError(reply, err);
         }
       },
     });

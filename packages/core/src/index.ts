@@ -199,7 +199,14 @@ export {
   type ModelPrivacyScope,
   type SupportedTask,
   type ModelSelectionResult,
+  type ModelPoolConfig,
 } from './models/modelPool.js';
+export {
+  ConnectorRegistry,
+  type ConnectorRecord,
+  type ConnectorPlatform,
+  type CaptureMethod,
+} from './connectors/connectorRegistry.js';
 export {
   RoleCoordinator,
   type AgentRole,

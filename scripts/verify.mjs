@@ -203,6 +203,24 @@ results.push(
 );
 
 results.push(
+  run('review-p4-door-persistence（P4 持久化修复：重启保留、凭证只落哈希、撤销持久 2 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p4-door-persistence-20260916.config.ts',
+  ]),
+);
+
+results.push(
+  run('review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项）', [
+    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+    'run',
+    '--config',
+    'apps/desktop/test/review/vitest.review-p3a-connector-registry-20260916.config.ts',
+  ]),
+);
+
+results.push(
   run('review-p6-governance-lifecycle（P6 角色协作隔离、受限自治边界与工程贯穿规范 5 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',

@@ -27,6 +27,7 @@ import {
 } from './platformParsers.js';
 import { readProjectSnapshot } from './projectSnapshot.js';
 import { recordAudit } from '../audit.js';
+import type { ConnectorRegistry, ConnectorPlatform } from '../connectors/connectorRegistry.js';
 
 /** 单文件读取上限（与项目目录规则一致）。 */
 export const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
@@ -79,6 +80,7 @@ export class ImportService {
     private readonly vault: Vault,
     private readonly permissions: PermissionService,
     private readonly sources: SourceStore,
+    private readonly connectors?: ConnectorRegistry,
   ) {}
 
   /** 取出并验证授权（存在 / active / 覆盖路径，realpath 防符号链接与 junction 逃逸）。 */
@@ -141,10 +143,71 @@ export class ImportService {
   }
 
   /**
-   * 导入用户明确选择的文件（Markdown / TXT / JSON / conversations.json）。
-   * permissionId 必须来自可信主进程的原生对话框流程。
+   * 带连接器记录的导入入口（P3-A，迁移 25）。
+   * 成功 → recordSuccess（游标=导入时刻，覆盖区间=导入来源时间范围）；
+   * 失败 → recordFailure（保留最后成功历史）并原样抛出。
    */
   importFile(
+    absPath: string,
+    opts: {
+      projectId: string | null;
+      permissionId: string;
+      maxBytes?: number;
+      accountNamespace?: string;
+    },
+  ): ImportFileResult {
+    if (!this.connectors) return this.importFileInner(absPath, opts);
+    try {
+      const result = this.importFileInner(absPath, opts);
+      const connector = this.detectConnector(absPath, opts.accountNamespace ?? 'local');
+      if (connector) {
+        const times = [...result.created, ...result.deduplicated]
+          .map((s) => s.captured_at)
+          .filter((t): t is string => typeof t === 'string' && t.length > 0)
+          .sort();
+        const now = new Date().toISOString();
+        this.connectors.recordSuccess(connector.id, {
+          cursor: now, // 本地文件导入无平台增量游标，用导入时刻；平台连接器由各自同步器推进
+          coverageStart: times[0] ?? now,
+          coverageEnd: times.at(-1) ?? now,
+        });
+      }
+      return result;
+    } catch (err) {
+      const connector = this.detectConnector(absPath, opts.accountNamespace ?? 'local');
+      if (connector) this.connectors.recordFailure(connector.id, String(err));
+      throw err;
+    }
+  }
+
+  /** 根据文件名判定连接器身份（platform × namespace × method 唯一）。 */
+  private detectConnector(absPath: string, accountNamespace: string): { id: string } | null {
+    if (!this.connectors) return null;
+    const name = basename(absPath).toLowerCase();
+    let platform: ConnectorPlatform;
+    if (name === 'conversations.json') {
+      platform = 'chatgpt_export'; // ChatGPT/Claude 同名导出，保守归入 chatgpt_export
+    } else if (name === 'prod-grok-backend.json') {
+      platform = 'grok_export';
+    } else if (name === 'myactivity.json') {
+      platform = 'gemini_export';
+    } else if (/\.md$|\.txt$|\.json$/.test(name)) {
+      platform = 'local_file';
+    } else {
+      return null;
+    }
+    return this.connectors.upsert({
+      platform,
+      accountNamespace,
+      captureMethod: 'history_export',
+    });
+  }
+
+  /**
+   * 原导入逻辑：导入用户明确选择的文件（Markdown / TXT / JSON / conversations.json）。
+   * permissionId 必须来自可信主进程的原生对话框流程。
+   */
+  private importFileInner(
     absPath: string,
     opts: {
       projectId: string | null;
