@@ -159,7 +159,12 @@ export {
 } from './runtime/tuiGateway.js';
 export { JsonRpcStdio } from './runtime/jsonrpcStdio.js';
 export { CoreToolBroker, CORE_TOOL_NAMES, type CoreToolName } from './runtime/broker.js';
-export { AgentSession, type AgentSessionResult, type AgentStep } from './runtime/session.js';
+export {
+  AgentSession,
+  type AgentSessionResult,
+  type AgentStep,
+  type PriorTurn,
+} from './runtime/session.js';
 export {
   SkillCandidateStore,
   type SkillCandidate,

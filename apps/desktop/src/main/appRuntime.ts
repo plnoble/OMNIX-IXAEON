@@ -18,6 +18,7 @@ import {
   resolveCodexLocator,
   HermesRuntimeAdapter,
   AgentSession,
+  ConversationStore,
   SkillCandidateStore,
   CoreToolBroker,
   OpenAIResponsesProvider,
@@ -87,6 +88,8 @@ export class AppRuntime {
   coding: CodingOrchestrator;
   jobs: JobQueue;
   door: DoorService;
+  /** D2/D4：对话与消息的权威记录。 */
+  readonly conversations: ConversationStore;
   readonly logger: Logger;
   readonly localServer: LocalServer;
   private readonly fakeProvider = new FakeProvider('fake-model-v1');
@@ -99,8 +102,17 @@ export class AppRuntime {
   private extensionLoadDir: string | null = null;
   private modelCallCount = 0;
   private researchTimer: NodeJS.Timeout | null = null;
-  private currentAsk: AgentSession | null = null;
-  private currentAskRunId: string | null = null;
+  /**
+   * D4：引擎会话按对话隔离。原来是一个全局 currentAsk 字段——一次只能有
+   * 一个对话，切换话题会串台。现在每个对话一个 AgentSession（进而一个引擎
+   * 侧 session_id），互不污染。
+   * 这个 Map 活在进程里；应用重启后引擎会话全部消失，届时由
+   * ConversationStore.clearEngineSessions() 清掉库里的陈旧 id，
+   * 并靠 D3 的 priorTurns 重新喂上下文。
+   */
+  private readonly askSessions = new Map<string, AgentSession>();
+  /** 每个对话当前在跑的 runId（用于按对话取消）。 */
+  private readonly activeAskRuns = new Map<string, string>();
 
   private constructor(deps: {
     dataDir: string;
@@ -140,6 +152,13 @@ export class AppRuntime {
     this.door = deps.door;
     this.logger = deps.logger;
     this.localServer = deps.localServer;
+    this.conversations = new ConversationStore(deps.db);
+    // D4：引擎会话活在引擎进程里，上一次运行留下的 engine_session_id 早已失效。
+    // 启动时清空，避免重开旧对话时去续一个不存在的会话。
+    const cleared = this.conversations.clearEngineSessions();
+    if (cleared > 0) {
+      this.logger.info('清理上次运行遗留的引擎会话', { conversations: cleared });
+    }
   }
 
   static async create(): Promise<AppRuntime> {
@@ -765,11 +784,20 @@ export class AppRuntime {
     return 'enabled';
   }
 
+  /**
+   * 权限或披露变更时使全部长驻引擎上下文失效（D02）。
+   * D4：改为遍历所有对话的会话——撤权必须对每个对话都生效，
+   * 不能因为切到另一个对话就还拿着旧披露纪元的引擎上下文。
+   *
+   * 这里只丢进程内的会话，不写库：conversations.engine_session_id 由启动时的
+   * clearEngineSessions() 统一清理，一列一个归属。stop() 也走这条路径，
+   * 关机时不该再往正要关闭的库里写一遍冗余的 null。
+   */
   invalidateContext(contextRef?: string): void {
-    if (this.currentAsk) {
-      this.currentAsk.invalidateContext(contextRef);
-      this.currentAsk = null;
+    for (const session of this.askSessions.values()) {
+      session.invalidateContext(contextRef);
     }
+    this.askSessions.clear();
   }
 
   /** 显式停用入口（设置页）：撤销问答存档授权；已存记录保留但不新增。 */
@@ -798,7 +826,20 @@ export class AppRuntime {
     return 'revoked';
   }
 
-  async ask(projectId: string | null, question: string): Promise<AskResult> {
+  /**
+   * 提问。
+   *
+   * D3/D4：提问现在必定落在某个对话里。不传 conversationId 就新建一个——
+   * 没有「对话之外的提问」这种东西，否则消息就没有归属，重启后也找不回来。
+   * 历史轮次从 ConversationStore 取，随本轮一起交给引擎（见 AgentSession.run
+   * 的 priorTurns）；引擎会话按对话隔离，两个对话交替提问不会串台。
+   */
+  async ask(input: {
+    conversationId?: string | null;
+    projectId: string | null;
+    question: string;
+  }): Promise<AskResult & { conversationId: string; userMessageId: string; messageId: string }> {
+    const { projectId, question } = input;
     // A06（审核 2026-09-13）：Hermes 引擎不依赖 IXAEON 的模型配置（那是
     // core-bounded 兜底循环用的）。真 Hermes 可用时即使未配 key 也要放行——
     // 否则「装了引擎却用不上」。两者都没有才如实拒绝。
@@ -810,6 +851,23 @@ export class AppRuntime {
         'IXA0010 模型未配置：请在设置中填写 OpenAI API Key，或安装 Hermes 引擎后使用问答',
       );
     }
+
+    const conversation =
+      input.conversationId != null && input.conversationId.length > 0
+        ? this.conversations.get(input.conversationId)
+        : this.conversations.create({ projectId });
+    const conversationId = conversation.id;
+
+    // 先取历史，再落本轮提问——否则会把刚问的这句当成「此前的内容」喂回去。
+    const priorTurns = this.conversations
+      .recentTurns(conversationId)
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    const userMessage = this.conversations.appendMessage(conversationId, {
+      role: 'user',
+      content: question,
+    });
+
     const broker = new CoreToolBroker(
       this.db,
       this.items,
@@ -819,10 +877,10 @@ export class AppRuntime {
       desktopResearchFetchDeps(() => this.getTinyFishFetcher() ?? undefined),
       this.getWebSearchExecutor() ?? undefined,
     );
-    // A06：同一桌面对话复用 AgentSession（进而复用引擎侧 Hermes 会话——
-    // 「那我刚才说的呢」依靠同会话背景）。取消/异常时丢弃会话，下一问重建。
+    // A06：同一对话复用 AgentSession（进而复用引擎侧 Hermes 会话）。
+    // D4：按 conversationId 取，不再是全局单例。
     const session =
-      this.currentAsk ??
+      this.askSessions.get(conversationId) ??
       new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider, {
         // A06 & M1.1：以下工具已由 ixaeon MCP 服务注册给 Hermes（结果经 MCP 协议回交），
         // 网关侧不再本地执行，防双写。
@@ -837,10 +895,10 @@ export class AppRuntime {
       });
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
-    this.currentAsk = session;
-    this.currentAskRunId = runId;
+    this.askSessions.set(conversationId, session);
+    this.activeAskRuns.set(conversationId, runId);
     try {
-      const result = await session.run({ goal: question, projectId, runId });
+      const result = await session.run({ goal: question, projectId, runId, priorTurns });
       // 用户指示（2026-09-13）：所有问答内容都进 Core。
       // A03（审核 2026-09-13）：问答存档挂独立的启用/撤销状态——
       // 用户在授权列表撤销过 ask.ixaeon.local 后，普通提问**不再隐式重建授权**，
@@ -906,23 +964,74 @@ export class AppRuntime {
         // ignore
       }
 
+      // D3/D4：回答落库。取消的回合按 cancelled 记，不冒充完成——
+      // 下一轮的 priorTurns 只取 complete，半截回答不会变成背景。
+      const cancelled = result.notice?.includes('用户取消') === true;
+      const assistantMessage = this.conversations.appendMessage(conversationId, {
+        role: 'assistant',
+        content: result.answer,
+        status: cancelled ? 'cancelled' : 'complete',
+        runId,
+        engine: result.engine,
+        modelName: result.modelName,
+        citations: result.citations,
+        meta: {
+          notice: result.notice,
+          usedChars: result.usedChars,
+          coverage: result.coverage,
+          steps: result.steps,
+          proposedTasks: proposedTasks.length > 0 ? proposedTasks : undefined,
+        },
+      });
+      // 引擎会话 id 落库：仅用于显示「这个对话上次用的是哪个引擎会话」。
+      // 它进程内有效，下次启动会被 clearEngineSessions 清掉。
+      this.conversations.setEngineSession(
+        conversationId,
+        result.engine,
+        session.getEngineSessionId(),
+      );
+
       return {
         ...result,
+        conversationId,
+        userMessageId: userMessage.id,
+        messageId: assistantMessage.id,
         proposedTasks: proposedTasks.length > 0 ? proposedTasks : undefined,
       };
+    } catch (err) {
+      // 失败也要在对话里留痕，否则用户看到的是一句话发出去然后什么都没有。
+      const message = err instanceof Error ? err.message : String(err);
+      this.conversations.appendMessage(conversationId, {
+        role: 'assistant',
+        content: '',
+        status: 'failed',
+        runId,
+        errorMessage: message.slice(0, 500),
+      });
+      throw err;
     } finally {
-      if (this.currentAskRunId === runId) {
-        // A06：正常终态保留会话引用供复用；由下一次 ask 前置检查
-        //（复用是引擎侧同 session_id 的连续性，不是执行状态残留）。
-        this.currentAskRunId = null;
+      if (this.activeAskRuns.get(conversationId) === runId) {
+        // A06：正常终态保留会话引用供复用（复用是引擎侧同 session_id 的
+        // 连续性，不是执行状态残留）；这里只清掉「在跑」的标记。
+        this.activeAskRuns.delete(conversationId);
       }
     }
   }
 
-  cancelAsk(): { cancelled: boolean; runId: string | null } {
-    const runId = this.currentAskRunId;
-    if (!this.currentAsk || !runId) return { cancelled: false, runId: null };
-    this.currentAsk.cancel(runId);
+  /**
+   * 取消。传 conversationId 只取消那个对话；不传则取消当前唯一在跑的回合
+   *（多个对话同时在跑时不传 id 属于调用方错误，如实拒绝，不随便挑一个杀）。
+   */
+  cancelAsk(conversationId?: string | null): { cancelled: boolean; runId: string | null } {
+    let target = conversationId ?? null;
+    if (target === null) {
+      if (this.activeAskRuns.size !== 1) return { cancelled: false, runId: null };
+      target = [...this.activeAskRuns.keys()][0]!;
+    }
+    const runId = this.activeAskRuns.get(target);
+    const session = this.askSessions.get(target);
+    if (!runId || !session) return { cancelled: false, runId: null };
+    session.cancel(runId);
     return { cancelled: true, runId };
   }
 

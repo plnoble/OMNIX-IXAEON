@@ -387,9 +387,27 @@ export function registerIpc(runtime: AppRuntime): void {
     createManualItem: async (input) => runtime.items.createManual(input),
     listCorrections: async (input) => runtime.items.listCorrections(input.projectId),
 
-    // --- 问答（M2） ---
-    askQuestion: async (input) => runtime.ask(input.projectId, input.question),
-    cancelAsk: async () => runtime.cancelAsk(),
+    // --- 问答（M2）与对话（D2/D4） ---
+    askQuestion: async (input) =>
+      runtime.ask({
+        conversationId: input.conversationId ?? null,
+        projectId: input.projectId,
+        question: input.question,
+      }),
+    cancelAsk: async (conversationId) => runtime.cancelAsk(conversationId ?? null),
+    listConversations: async (input) => runtime.conversations.list(input ?? {}),
+    getConversation: async (id) => ({
+      conversation: runtime.conversations.get(id),
+      messages: runtime.conversations.messages(id),
+    }),
+    createConversation: async (input) => runtime.conversations.create(input ?? {}),
+    renameConversation: async (input) => runtime.conversations.rename(input.id, input.title),
+    archiveConversation: async (id) => runtime.conversations.archive(id),
+    unarchiveConversation: async (id) => runtime.conversations.unarchive(id),
+    deleteConversation: async (id) => {
+      runtime.conversations.delete(id);
+      return { deleted: true as const };
+    },
     getPersonalOverview: async () => runtime.personalOverview(),
     listProjectRelations: async (input) => runtime.relations.list(input),
     proposeProjectRelations: async () => runtime.proposeRelations(),

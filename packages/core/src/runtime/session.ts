@@ -23,6 +23,34 @@ export interface AgentStep {
   detail: string;
 }
 
+/** D3：喂给本轮的历史消息（由调用方从 ConversationStore 取）。 */
+export interface PriorTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** 历史轮次注入的总字符上限：超出时丢弃最早的轮次，保留最近的。 */
+const MAX_PRIOR_CHARS = 6_000;
+
+/**
+ * D3：把历史轮次拼成可注入的文本块。从最近往前取，超过上限就停，
+ * 保证注入的是「最近若干轮」而不是被截断的半句话。
+ */
+function formatPriorTurns(turns: PriorTurn[]): string {
+  if (turns.length === 0) return '';
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i]!;
+    const line = `${turn.role === 'user' ? '用户' : '你'}：${turn.content}`;
+    if (used + line.length > MAX_PRIOR_CHARS) break;
+    used += line.length;
+    kept.unshift(line);
+  }
+  if (kept.length === 0) return '';
+  return `\n\n（本对话此前的内容，按时间正序，供你接上下文。这是已经发生过的对话，不要重复回答其中已答过的部分。）\n${kept.join('\n')}`;
+}
+
 export interface AgentSessionResult extends AskResult {
   engine: 'hermes' | 'core-bounded' | 'missing';
   runId: string;
@@ -98,16 +126,27 @@ export class AgentSession {
     this.adapter.invalidateContext(contextRef);
   }
 
+  /** 本实例当前持有的引擎会话 id（进程内有效；供 D4 落库显示）。 */
+  getEngineSessionId(): string | null {
+    return this.hermesSessionId;
+  }
+
   async run(input: {
     goal: string;
     projectId: string | null;
     runId?: string;
+    /**
+     * D3：本对话此前已完成的轮次（时间正序）。由调用方从 ConversationStore
+     * 取，AgentSession 不自己查库——它不该知道对话表的存在。
+     */
+    priorTurns?: PriorTurn[];
   }): Promise<AgentSessionResult> {
     const goal = input.goal.trim();
     if (!goal) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '问题不能为空');
     const runId = input.runId ?? randomUUID();
     const now = new Date().toISOString();
     const caps = this.adapter.probe();
+    const priorTurns = input.priorTurns ?? [];
 
     if (caps.locator.found) {
       // A06：账本先插 running 行——引擎回合期间的每个事件实时落库，
@@ -153,11 +192,17 @@ export class AgentSession {
             /* 上下文取不到时照常派发，不编造 */
           }
         }
+        // D3：历史轮次只在引擎会话不存在时注入。
+        // 引擎会话活着的时候，之前那些话本来就在它的上下文里（A06 的复用逻辑），
+        // 再注入一遍等于把同一段对话说两遍，既费 token 又会让模型以为用户重复了。
+        // 需要注入的是这两种情况：本对话在本进程内第一次提问，或应用重启后
+        // 重开旧对话（engine_session_id 已被 clearEngineSessions 清空）。
+        const priorBlock = this.hermesSessionId === null ? formatPriorTurns(priorTurns) : '';
         // 记忆路由约定（2026-09-13 用户实测发现：模型默认用 Hermes 自带 memory
         // 工具，用户日程落进 Hermes 记忆库而不是 IXAEON Core——违背「Hermes
         // 可替换、Core 资料独立保存」）。派发目标附带本约定，引导写入 Core；
         // 运行记录仍保存用户原始问题。
-        const dispatchedGoal = `${goal}${contextBlock}\n\n（IXAEON 约定：凡需要记住用户告诉你的内容，请调用 record_observation 工具写入 IXAEON 记忆，不要使用你自带的 memory 工具。）`;
+        const dispatchedGoal = `${goal}${contextBlock}${priorBlock}\n\n（IXAEON 约定：凡需要记住用户告诉你的内容，请调用 record_observation 工具写入 IXAEON 记忆，不要使用你自带的 memory 工具。）`;
         const hermes = await this.adapter.start(
           {
             runId,
@@ -244,7 +289,9 @@ export class AgentSession {
       ? 'Hermes 可执行文件存在，但 stdio 会话未探针通过，本轮走 Core 有界循环，不是完整 Hermes。'
       : `Hermes 未安装，本轮走 Core 有界工具循环（不是 Hermes）。${caps.locator.reason}`;
     const steps: AgentStep[] = [];
-    let transcript = `用户问题：${goal}\n项目：${input.projectId ?? '个人视角'}\n${notice}`;
+    // D3：Core 兜底循环没有任何引擎侧记忆，历史轮次每次都要注入，
+    // 否则「那我刚才说的呢」在没装 Hermes 时永远答不上来。
+    let transcript = `用户问题：${goal}${formatPriorTurns(priorTurns)}\n项目：${input.projectId ?? '个人视角'}\n${notice}`;
     // A06：hermes 失败落 Core 循环 = 同一 run 的第二次尝试——已预插的
     // running 行 upsert 复用（保留 hermes 失败痕迹于 notice/events），不二次 INSERT。
     const existing = this.db

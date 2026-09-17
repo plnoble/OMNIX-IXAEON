@@ -7,6 +7,7 @@ import {
   migrate,
   ItemService,
   ProjectService,
+  ConversationStore,
   HermesRuntimeAdapter,
   type CoreDatabase,
 } from '@ixaeon/core';
@@ -56,7 +57,16 @@ describe('A03 问答存档独立状态与显式开关控制', () => {
       },
     };
 
-    Object.assign(runtime, { db, items, projects, permissions: perms });
+    // D4：invalidateContext 现在遍历按对话隔离的引擎会话并回写对话表，
+    // Object.create 绕过了构造函数，这两个字段要显式注入。
+    Object.assign(runtime, {
+      db,
+      items,
+      projects,
+      permissions: perms,
+      askSessions: new Map(),
+      conversations: new ConversationStore(db),
+    });
 
     // 初始状态
     expect(runtime.askCaptureStatus()).toBe('enabled');
@@ -83,7 +93,11 @@ describe('A03 问答存档独立状态与显式开关控制', () => {
     const runtime = Object.create(AppRuntime.prototype) as unknown as Record<string, unknown> & {
       askCaptureStatus: () => 'enabled' | 'revoked';
       disableAskCapture: () => 'revoked';
-      ask: (projectId: string | null, question: string) => Promise<unknown>;
+      ask: (input: {
+        conversationId?: string | null;
+        projectId: string | null;
+        question: string;
+      }) => Promise<unknown>;
     };
     const items = new ItemService(db);
     const projects = new ProjectService(db);
@@ -139,14 +153,18 @@ describe('A03 问答存档独立状态与显式开关控制', () => {
       coding: { executorName: 'fake' },
       adapter: new HermesRuntimeAdapter(),
       broker: () => ({ invoke: async () => ({}) }),
+      // D4：提问走按对话隔离的会话，Object.create 绕过构造函数，显式注入。
+      askSessions: new Map(),
+      activeAskRuns: new Map(),
+      conversations: new ConversationStore(db),
     });
 
     // 显式撤销
     runtime.disableAskCapture();
     expect(runtime.askCaptureStatus()).toBe('revoked');
 
-    // 发起提问
-    await runtime.ask(null, '今天天气怎么样？');
+    // 发起提问（D4：ask 改为对象入参，不传 conversationId 时新建对话）
+    await runtime.ask({ conversationId: null, projectId: null, question: '今天天气怎么样？' });
 
     // 授权不得自动复活
     expect(runtime.askCaptureStatus()).toBe('revoked');

@@ -300,7 +300,9 @@ describe('Independent second re-audit of 93ecaed', () => {
       fastify: null,
       db: { close: vi.fn() },
       logger: { info: vi.fn() },
-      currentAsk: { invalidateContext },
+      // D4：长驻引擎上下文改为按对话隔离的 Map（原来是单个 currentAsk 字段）。
+      // 关机必须把每个对话的上下文都释放掉，不只是「当前那个」。
+      askSessions: new Map([['conv-1', { invalidateContext }]]),
     });
     await runtime.stop();
     expect(invalidateContext).toHaveBeenCalled();

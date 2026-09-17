@@ -199,6 +199,11 @@ export const correctItemInputSchema = z.object({
 export type CorrectItemInput = z.infer<typeof correctItemInputSchema>;
 
 export const askQuestionInputSchema = z.object({
+  /**
+   * D4：提问所属的对话。不传 = 新建一个对话。
+   * 没有「对话之外的提问」：每条消息都要有归属，重启后才找得回来。
+   */
+  conversationId: z.string().uuid().nullable().optional(),
   /** null = 个人视角（不强制选项目）；uuid = 项目视角 */
   projectId: z.string().uuid().nullable(),
   question: z.string().min(1).max(4000),
@@ -257,8 +262,71 @@ export const askAnswerSchema = z.object({
       }),
     )
     .optional(),
+  /** D4：本轮所属对话（不传 conversationId 提问时，这里返回新建的那个）。 */
+  conversationId: z.string(),
+  /** 本轮用户消息与回答消息的 id，供界面定位与后续流式更新。 */
+  userMessageId: z.string(),
+  messageId: z.string(),
 });
 export type AskAnswer = z.infer<typeof askAnswerSchema>;
+
+// --- D2/D4：对话与消息（迁移 26） ---
+
+export const conversationSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  projectId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archivedAt: z.string().nullable(),
+  /** 最近一次使用的引擎；engineSessionId 进程内有效，重启后为 null */
+  engine: z.string().nullable(),
+  engineSessionId: z.string().nullable(),
+  sourceId: z.string().nullable(),
+});
+export type Conversation = z.infer<typeof conversationSchema>;
+
+export const conversationSummarySchema = conversationSchema.extend({
+  messageCount: z.number().int(),
+  lastMessageAt: z.string().nullable(),
+  lastMessagePreview: z.string().nullable(),
+});
+export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+
+export const conversationMessageSchema = z.object({
+  id: z.string(),
+  conversationId: z.string(),
+  seq: z.number().int(),
+  role: z.enum(['user', 'assistant', 'system']),
+  content: z.string(),
+  /**
+   * cancelled / failed 必须在界面上看得见——半截回答和失败不能渲染成
+   * 空气泡，否则用户不知道发生了什么。
+   */
+  status: z.enum(['streaming', 'complete', 'failed', 'cancelled']),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  runId: z.string().nullable(),
+  engine: z.string().nullable(),
+  modelName: z.string().nullable(),
+  citations: z.array(citationSchema),
+  /** steps / notice / coverage / usedChars / proposedTasks 等渲染用元数据 */
+  meta: z.record(z.string(), z.unknown()),
+  errorMessage: z.string().nullable(),
+});
+export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
+
+export const createConversationInputSchema = z.object({
+  title: z.string().max(200).optional(),
+  projectId: z.string().uuid().nullable().optional(),
+});
+export type CreateConversationInput = z.infer<typeof createConversationInputSchema>;
+
+export const renameConversationInputSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1).max(200),
+});
+export type RenameConversationInput = z.infer<typeof renameConversationInputSchema>;
 
 export const restorePreviewSchema = z.object({
   manifestVersion: z.number(),
@@ -456,7 +524,22 @@ export interface IxaIpcApi {
   }): Promise<Array<Correction & { oldItem: Item; newItem: Item }>>;
   // 问答
   askQuestion(input: AskQuestionInput): Promise<AskAnswer>;
-  cancelAsk(): Promise<{ cancelled: boolean; runId: string | null }>;
+  /** 传 conversationId 只取消该对话；不传时仅当全局恰好一个回合在跑才生效。 */
+  cancelAsk(conversationId?: string | null): Promise<{ cancelled: boolean; runId: string | null }>;
+  // 对话（D2/D4）
+  listConversations(input?: {
+    includeArchived?: boolean;
+    limit?: number;
+  }): Promise<ConversationSummary[]>;
+  getConversation(id: string): Promise<{
+    conversation: Conversation;
+    messages: ConversationMessage[];
+  }>;
+  createConversation(input?: CreateConversationInput): Promise<Conversation>;
+  renameConversation(input: RenameConversationInput): Promise<Conversation>;
+  archiveConversation(id: string): Promise<Conversation>;
+  unarchiveConversation(id: string): Promise<Conversation>;
+  deleteConversation(id: string): Promise<{ deleted: true }>;
   getPersonalOverview(): Promise<{
     generatedAt: string;
     goals: Item[];

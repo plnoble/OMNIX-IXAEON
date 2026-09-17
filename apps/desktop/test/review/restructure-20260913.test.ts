@@ -19,6 +19,7 @@ import {
   Extractor,
   FakeProvider,
   SearchService,
+  ConversationStore,
   CodingOrchestrator,
   FakeCodingExecutor,
   CoreToolBroker,
@@ -301,13 +302,21 @@ describe('Core model disclosure boundaries', () => {
       getProvider: () => new FakeProvider(),
       getWebSearchExecutor: () => null,
       enqueueExtract: vi.fn(),
+      // D4：提问走按对话隔离的引擎会话；Object.create 绕过构造函数，显式注入。
+      askSessions: new Map(),
+      activeAskRuns: new Map(),
+      conversations: new ConversationStore(db),
     });
-    await app.ask(null, 'synthetic first question');
+    await app.ask({ conversationId: null, projectId: null, question: 'synthetic first question' });
     const permission = db
       .prepare("SELECT id FROM permissions WHERE locator='ask.ixaeon.local' AND status='active'")
       .get() as { id: string };
     permissions.revoke(permission.id);
-    await app.ask(null, 'synthetic second question after capture was revoked');
+    await app.ask({
+      conversationId: null,
+      projectId: null,
+      question: 'synthetic second question after capture was revoked',
+    });
     expect(
       db
         .prepare(
