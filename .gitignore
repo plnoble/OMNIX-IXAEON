@@ -11,6 +11,7 @@ build/release/
 # Test artifacts
 coverage/
 playwright-report/
+.playwright-out/
 test-results/
 .temp/
 tmp/

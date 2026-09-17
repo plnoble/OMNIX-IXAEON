@@ -1,0 +1,4 @@
+# 仓库统一 LF 行尾，与 .prettierrc.json 的 endOfLine: "lf" 一致。
+# 本机 core.autocrlf=true 会在检出时写 CRLF，导致切分支/重新检出后
+# prettier --check 整批失败（2026-09-17 整合 D5/D6 时实际撞上）。
+* text=auto eol=lf

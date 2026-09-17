@@ -375,6 +375,22 @@ export class ConversationStore {
     return result.changes;
   }
 
+  /**
+   * 启动时把上次运行遗留的 streaming 消息收尾为 failed。
+   * 回答开始前会先建一条 streaming 占位；应用在回答途中退出（崩溃、强关、
+   * 断电）时它会停在 streaming。新进程里不可能有回答正在进行，留着就是一个
+   * 永远在转圈的空气泡，而且会让人以为还在等。
+   */
+  failInterruptedMessages(reason: string): number {
+    const result = this.db
+      .prepare(
+        `UPDATE messages SET status = 'failed', error_message = ?, updated_at = ?
+         WHERE status = 'streaming'`,
+      )
+      .run(reason, new Date().toISOString());
+    return result.changes;
+  }
+
   setSourceId(conversationId: string, sourceId: string | null): void {
     this.get(conversationId);
     this.db

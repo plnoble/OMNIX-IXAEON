@@ -23,6 +23,10 @@ import {
   CodingOrchestrator,
   FakeCodingExecutor,
   FakeProvider,
+  ImportService,
+  PermissionService,
+  SourceStore,
+  Vault,
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
@@ -57,8 +61,12 @@ interface TestRuntime {
   activeAskRuns: Map<string, string>;
 }
 
-/** 构造一个只接了 ask() 所需依赖的 AppRuntime（仓库既有 a03 测试同款做法）。 */
-function makeRuntime(): TestRuntime {
+/**
+ * 构造一个只接了 ask() 所需依赖的 AppRuntime（仓库既有 a03 测试同款做法）。
+ * capture=true 时接上真实的问答存档链路（ImportService + 真实授权），
+ * 用来验证 D5 派生来源；默认关闭，D3/D4 的用例不掺和存档。
+ */
+function makeRuntime(opts: { capture?: boolean } = {}): TestRuntime {
   const runtime = Object.create(AppRuntime.prototype) as Record<string, unknown>;
   runtime['db'] = db;
   runtime['conversations'] = conversations;
@@ -72,8 +80,22 @@ function makeRuntime(): TestRuntime {
   runtime['hermesFound'] = () => false;
   runtime['getTinyFishFetcher'] = () => null;
   runtime['getWebSearchExecutor'] = () => null;
-  // 存档授权返回 null = 本轮不落 ask_session 来源（D5 的范围，这里不掺和）
-  runtime['ensureAskCapturePermission'] = () => null;
+  if (opts.capture === true) {
+    const permissions = new PermissionService(db);
+    runtime['permissions'] = permissions;
+    runtime['imports'] = new ImportService(
+      db,
+      new Vault(join(dir, 'vault')),
+      permissions,
+      new SourceStore(db),
+    );
+    runtime['enqueueExtract'] = () => undefined;
+    runtime['logger'] = { warn: () => undefined, info: () => undefined };
+    // 不覆盖 ensureAskCapturePermission：走原型上的真实授权逻辑
+  } else {
+    // 存档授权返回 null = 本轮不落 ask_session 来源
+    runtime['ensureAskCapturePermission'] = () => null;
+  }
   return runtime as unknown as TestRuntime;
 }
 
@@ -326,5 +348,71 @@ describe('D4 引擎会话按对话隔离', () => {
     runtime.activeAskRuns.set('conv-a', 'run-a');
     runtime.activeAskRuns.set('conv-b', 'run-b');
     expect(runtime.cancelAsk()).toEqual({ cancelled: false, runId: null });
+  });
+});
+
+describe('D5 派生来源与消息序号的对应（整合复核补充）', () => {
+  /** 某条来源当前有效的片段：external_node_id（= 消息 seq）→ 正文。 */
+  function activeSegments(sourceId: string): Map<string, string> {
+    const rows = db
+      .prepare(
+        `SELECT external_node_id, text FROM segments
+         WHERE source_id = ? AND is_active_branch = 1`,
+      )
+      .all(sourceId) as Array<{ external_node_id: string; text: string }>;
+    return new Map(rows.map((r) => [r.external_node_id, r.text]));
+  }
+
+  it('顺序连问：来源片段的节点号与消息 seq 一一对应', async () => {
+    const runtime = makeRuntime({ capture: true });
+    enqueueAnswer('第一答');
+    const first = await runtime.ask({ conversationId: null, projectId: null, question: '第一问' });
+    enqueueAnswer('第二答');
+    await runtime.ask({
+      conversationId: first.conversationId,
+      projectId: null,
+      question: '第二问',
+    });
+
+    const sourceId = conversations.get(first.conversationId).sourceId;
+    expect(sourceId).toBeTruthy();
+    const segments = activeSegments(sourceId!);
+    // 每个片段的节点号，都必须指向正文完全相同的那条消息
+    for (const message of conversations.messages(first.conversationId)) {
+      expect(segments.get(String(message.seq))).toBe(message.content);
+    }
+    expect(segments.size).toBe(4);
+  });
+
+  it('同一对话并发两问：两边的回答都完整留在来源里，谁也不覆盖谁', async () => {
+    // 回归：appRuntime.ask() 曾用 userMessage.seq + 1「预测」回答的序号。
+    // 两问并发时，A 的问题 seq=1、B 的问题 seq=2；A 预测自己的回答是 2——
+    // 实际上 2 是 B 的问题。随后 B 按节点 "2" 追加自己的问题时，
+    // appendCapturedTurns 会把 A 的回答当作「被编辑掉的旧版本」转为非活动，
+    // A 的回答就从资料里消失了。界面发送时会禁用按钮，但后端不能靠前端护着。
+    const runtime = makeRuntime({ capture: true });
+    const conv = conversations.create();
+    enqueueAnswer('A 的回答');
+    enqueueAnswer('B 的回答');
+
+    // 不逐个 await：两问的同步部分（落用户消息）先后执行，再各自等模型
+    const pa = runtime.ask({ conversationId: conv.id, projectId: null, question: 'A 的问题' });
+    const pb = runtime.ask({ conversationId: conv.id, projectId: null, question: 'B 的问题' });
+    await Promise.all([pa, pb]);
+
+    const sourceId = conversations.get(conv.id).sourceId;
+    expect(sourceId).toBeTruthy();
+    const segments = activeSegments(sourceId!);
+    const texts = [...segments.values()];
+
+    expect(texts).toContain('A 的问题');
+    expect(texts).toContain('A 的回答');
+    expect(texts).toContain('B 的问题');
+    expect(texts).toContain('B 的回答');
+
+    // 更强的约束：节点号必须指向正文相同的那条消息，不能错位
+    for (const message of conversations.messages(conv.id)) {
+      expect(segments.get(String(message.seq))).toBe(message.content);
+    }
   });
 });

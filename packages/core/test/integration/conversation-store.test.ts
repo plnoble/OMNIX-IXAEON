@@ -232,6 +232,32 @@ describe('D2 引擎会话与流式状态', () => {
     expect(turns.map((m) => m.content)).toEqual(['问4', '答4', '问5', '答5']);
   });
 
+  it('上次在回答途中退出：重启后遗留的 streaming 占位收尾为 failed，已完成的不受影响', () => {
+    const conv = store.create();
+    const done = store.appendMessage(conv.id, { role: 'assistant', content: '已完成的回答' });
+    const dangling = store.appendMessage(conv.id, {
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+    });
+    db.close();
+
+    // 重开同一个库文件 = 应用重启
+    const reopened = openDatabase(dbPath);
+    migrate(reopened);
+    const after = new ConversationStore(reopened);
+    expect(after.failInterruptedMessages('应用在回答过程中退出')).toBe(1);
+
+    expect(after.getMessage(dangling.id)).toMatchObject({
+      status: 'failed',
+      errorMessage: '应用在回答过程中退出',
+    });
+    expect(after.getMessage(done.id).status).toBe('complete');
+    // 幂等：再跑一次没有可收尾的
+    expect(after.failInterruptedMessages('应用在回答过程中退出')).toBe(0);
+    reopened.close();
+  });
+
   it('损坏的引用 JSON 不会让对话打不开', () => {
     const conv = store.create();
     const msg = store.appendMessage(conv.id, { role: 'assistant', content: '回答' });

@@ -153,6 +153,12 @@ export class AppRuntime {
     if (cleared > 0) {
       this.logger.info('清理上次运行遗留的引擎会话', { conversations: cleared });
     }
+    // 上次在回答途中退出时留下的 streaming 占位：新进程里不可能还在回答。
+    const interrupted =
+      this.conversations.failInterruptedMessages('应用在回答过程中退出，这一轮没有完成。');
+    if (interrupted > 0) {
+      this.logger.info('收尾上次运行中断的回答', { messages: interrupted });
+    }
   }
 
   static async create(): Promise<AppRuntime> {
@@ -829,37 +835,48 @@ export class AppRuntime {
       role: 'user',
       content: question,
     });
-
-    const broker = new CoreToolBroker(
-      this.db,
-      this.items,
-      this.search,
-      this.coding,
-      this.projects,
-      desktopResearchFetchDeps(() => this.getTinyFishFetcher() ?? undefined),
-      this.getWebSearchExecutor() ?? undefined,
-    );
-    // A06：同一对话复用 AgentSession（进而复用引擎侧 Hermes 会话）。
-    // D4：按 conversationId 取，不再是全局单例。
-    const session =
-      this.askSessions.get(conversationId) ??
-      new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider, {
-        // A06 & M1.1：以下工具已由 ixaeon MCP 服务注册给 Hermes（结果经 MCP 协议回交），
-        // 网关侧不再本地执行，防双写。
-        mcpBridgedTools: [
-          'record_observation',
-          'get_evidence',
-          'search_web',
-          'read_web',
-          'propose_task',
-          'get_task_status',
-        ],
-      });
+    // 紧跟着占住回答的位置（streaming 占位），再去等模型。
+    // 回答的 seq 必须是真实分配的，不能用 userMessage.seq + 1 去「预测」：
+    // 同一对话两问并发时，A 的问题是 1、B 的问题是 2，A 预测的「2」其实是
+    // B 的问题——派生来源里 A 的回答会被当成旧版本覆盖掉（整合复核时复现过）。
+    // 两次落库之间没有 await，所以问与答的 seq 必然相邻。
+    // 这也是第 2 周流式输出要的结构：分片直接追加到这条占位消息上。
+    const assistantMessage = this.conversations.appendMessage(conversationId, {
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+    });
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
-    this.askSessions.set(conversationId, session);
-    this.activeAskRuns.set(conversationId, runId);
+
     try {
+      const broker = new CoreToolBroker(
+        this.db,
+        this.items,
+        this.search,
+        this.coding,
+        this.projects,
+        desktopResearchFetchDeps(() => this.getTinyFishFetcher() ?? undefined),
+        this.getWebSearchExecutor() ?? undefined,
+      );
+      // A06：同一对话复用 AgentSession（进而复用引擎侧 Hermes 会话）。
+      // D4：按 conversationId 取，不再是全局单例。
+      const session =
+        this.askSessions.get(conversationId) ??
+        new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider, {
+          // A06 & M1.1：以下工具已由 ixaeon MCP 服务注册给 Hermes（结果经 MCP 协议回交），
+          // 网关侧不再本地执行，防双写。
+          mcpBridgedTools: [
+            'record_observation',
+            'get_evidence',
+            'search_web',
+            'read_web',
+            'propose_task',
+            'get_task_status',
+          ],
+        });
+      this.askSessions.set(conversationId, session);
+      this.activeAskRuns.set(conversationId, runId);
       const result = await session.run({ goal: question, projectId, runId, priorTurns });
       // 用户指示（2026-09-13）：所有问答内容都进 Core。
       // A03（审核 2026-09-13）：问答存档挂独立的启用/撤销状态——
@@ -867,32 +884,6 @@ export class AppRuntime {
       // 重启/再次提问都保持停用；恢复需要走显式入口（设置页 enableAskCapture）。
       // 有实际回答时把问答对存为 ask_session 来源并入队提取（走既有
       // 「提案→用户确认」管线）；存档/提取失败不吞掉回答，如实附注。
-      if (result.answer.trim().length > 0 && result.engine !== 'missing') {
-        const askPerm = this.ensureAskCapturePermission();
-        if (askPerm) {
-          try {
-            const captured = this.imports.captureAsk({
-              question,
-              answer: result.answer,
-              runId,
-              engine: result.engine,
-              model: result.modelName,
-              projectId,
-              permissionId: askPerm.id,
-            });
-            this.enqueueExtract(captured.source.id, false);
-            result.notice = `${result.notice}；问答已存入 IXAEON 记忆（日常偏好与事实自动沉淀生效；若有冲突或关键决策，将在「待讨论」等你确认）。`;
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            this.logger.warn('问答落 Core 失败', { runId, error: message });
-            recordAudit(this.db, 'ask.capture_failed', { runId, error: message.slice(0, 300) });
-            result.notice = `${result.notice}；注意：问答存档失败（${message.slice(0, 120)}）。`;
-          }
-        } else {
-          result.notice = `${result.notice}；问答存档已停用（授权曾被撤销）。如需恢复请在设置中开启「问答存档」。`;
-        }
-      }
-
       // P1-A：查询在本次提问运行期间生成的提议任务（如有），附带回交给原对话
       let proposedTasks: Array<{ id: string; goal: string; status: string; scope: string[] }> = [];
       try {
@@ -926,11 +917,42 @@ export class AppRuntime {
         // ignore
       }
 
-      // D3/D4：回答落库。取消的回合按 cancelled 记，不冒充完成——
+      if (result.answer.trim().length > 0 && result.engine !== 'missing') {
+        const askPerm = this.ensureAskCapturePermission();
+        if (askPerm) {
+          try {
+            const captured = this.imports.captureAsk({
+              question,
+              answer: result.answer,
+              conversationId,
+              userSeq: userMessage.seq,
+              assistantSeq: assistantMessage.seq,
+              runId,
+              engine: result.engine,
+              model: result.modelName,
+              projectId,
+              permissionId: askPerm.id,
+            });
+            if (captured.created) {
+              this.conversations.setSourceId(conversationId, captured.source.id);
+            }
+            this.enqueueExtract(captured.source.id, false);
+            result.notice = `${result.notice}；问答已存入 IXAEON 记忆（日常偏好与事实自动沉淀生效；若有冲突或关键决策，将在「待讨论」等你确认）。`;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.warn('问答落 Core 失败', { runId, error: message });
+            recordAudit(this.db, 'ask.capture_failed', { runId, error: message.slice(0, 300) });
+            result.notice = `${result.notice}；注意：问答存档失败（${message.slice(0, 120)}）。`;
+          }
+        } else {
+          result.notice = `${result.notice}；问答存档已停用（授权曾被撤销）。如需恢复请在设置中开启「问答存档」。`;
+        }
+      }
+
+      // D3/D4：回答收尾到占位消息上。取消的回合按 cancelled 记，不冒充完成——
       // 下一轮的 priorTurns 只取 complete，半截回答不会变成背景。
       const cancelled = result.notice?.includes('用户取消') === true;
-      const assistantMessage = this.conversations.appendMessage(conversationId, {
-        role: 'assistant',
+      this.conversations.finishMessage(assistantMessage.id, {
         content: result.answer,
         status: cancelled ? 'cancelled' : 'complete',
         runId,
@@ -961,15 +983,19 @@ export class AppRuntime {
         proposedTasks: proposedTasks.length > 0 ? proposedTasks : undefined,
       };
     } catch (err) {
-      // 失败也要在对话里留痕，否则用户看到的是一句话发出去然后什么都没有。
+      // 失败也要在对话里留痕：把占位消息收尾成 failed，否则用户看到的是
+      // 一句话发出去、然后一个永远在转圈的空气泡。
       const message = err instanceof Error ? err.message : String(err);
-      this.conversations.appendMessage(conversationId, {
-        role: 'assistant',
-        content: '',
-        status: 'failed',
-        runId,
-        errorMessage: message.slice(0, 500),
-      });
+      try {
+        this.conversations.finishMessage(assistantMessage.id, {
+          status: 'failed',
+          runId,
+          errorMessage: message.slice(0, 500),
+        });
+      } catch {
+        // 收尾本身失败（例如库已关闭）不能盖掉原始错误；
+        // 遗留的 streaming 占位由下次启动时的 failInterruptedMessages 清理。
+      }
       throw err;
     } finally {
       if (this.activeAskRuns.get(conversationId) === runId) {

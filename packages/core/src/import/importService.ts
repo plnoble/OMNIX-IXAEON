@@ -496,21 +496,28 @@ export class ImportService {
   /**
    * 问答对落 Core（用户 2026-09-13 指示：所有问答内容都进 Core）。
    *
-   * 桌面问答（Hermes 会话或 Core 有界循环）每次回答后，把问答对存为
-   * ask_session 来源（幂等：runId+内容哈希），走既有提取管线生成理解
-   * 候选（提案→用户确认）。授权：调用方传入问答面授权（ask.ixaeon.local
-   * 域授权）；用户在授权列表撤销后，该来源的提取/读取即被拒绝——
-   * 与其他来源同一套边界，不开特例。
+   * D5：一个对话一条 ask_session 来源。externalId = conversationId；
+   * 首轮新建，后续轮次走 SourceStore.appendCapturedTurns（按 message seq
+   * 去重/分支），不另写一套追加逻辑。runId 只进审计。
+   * 授权：调用方传入问答面授权（ask.ixaeon.local）；撤销后拒绝落库。
    */
   captureAsk(input: {
     question: string;
     answer: string;
-    runId: string;
+    conversationId: string;
+    userSeq: number;
+    assistantSeq: number;
+    runId?: string;
     engine: 'hermes' | 'core-bounded';
     model: string | null;
     projectId: string | null;
     permissionId: string;
-  }): { created: boolean; source: Source } {
+  }): {
+    created: boolean;
+    source: Source;
+    accepted?: number;
+    deduplicated?: number;
+  } {
     const question = input.question.trim();
     const answer = input.answer.trim();
     if (!question || !answer) {
@@ -521,25 +528,54 @@ export class ImportService {
       throw new IxaError(ErrorCodes.PERMISSION_REVOKED, '问答授权不可用，拒绝落库');
     }
     const now = new Date().toISOString();
+    const turns = [
+      { order: input.userSeq, role: 'user' as const, text: question },
+      { order: input.assistantSeq, role: 'assistant' as const, text: answer },
+    ];
+    const existing = this.db
+      .prepare(
+        `SELECT * FROM sources
+         WHERE provider = 'ask_session' AND account_namespace = 'local' AND external_id = ?
+         ORDER BY imported_at ASC`,
+      )
+      .get(input.conversationId) as Source | undefined;
+    if (existing) {
+      const appended = this.sources.appendCapturedTurns(existing.id, turns);
+      const source = this.sources.get(existing.id);
+      if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, `来源不存在: ${existing.id}`);
+      recordAudit(this.db, 'ask.captured_to_core', {
+        sourceId: source.id,
+        conversationId: input.conversationId,
+        runId: input.runId ?? null,
+        created: false,
+        engine: input.engine,
+        projectId: input.projectId,
+      });
+      return {
+        created: false,
+        source,
+        accepted: appended.accepted,
+        deduplicated: appended.deduplicated,
+      };
+    }
     const text = `用户：${question}\n\nIXAEON 助手：${answer}`;
     const contentHash = createHash('sha256').update(text, 'utf8').digest('hex');
     const stored = this.vault.store(text);
-    // raw_path 约定：vault 相对路径（sha256/xx/hash），与其他导入来源一致
     const rawPath = Vault.relativePathFor(stored.hash);
     const parsed: ParsedSource = {
       kind: 'conversation',
       provider: 'ask_session',
       accountNamespace: 'local',
-      externalId: input.runId,
+      externalId: input.conversationId,
       title: question.slice(0, 80),
       contentHash,
       capturedAt: now,
       importMethod: 'live_capture',
       segments: [
         {
-          sequence: 0,
+          sequence: input.userSeq,
           role: 'user',
-          externalNodeId: null,
+          externalNodeId: String(input.userSeq),
           externalParentId: null,
           isActiveBranch: true,
           occurredAt: now,
@@ -547,9 +583,9 @@ export class ImportService {
           metadata: {},
         },
         {
-          sequence: 1,
+          sequence: input.assistantSeq,
           role: 'assistant',
-          externalNodeId: null,
+          externalNodeId: String(input.assistantSeq),
           externalParentId: null,
           isActiveBranch: true,
           occurredAt: now,
@@ -570,7 +606,8 @@ export class ImportService {
     });
     recordAudit(this.db, 'ask.captured_to_core', {
       sourceId: result.source.id,
-      runId: input.runId,
+      conversationId: input.conversationId,
+      runId: input.runId ?? null,
       created: result.created,
       engine: input.engine,
       projectId: input.projectId,

@@ -1,194 +1,331 @@
-import { useState } from 'react';
-import { api, errMsg, type Project, type AskAnswer } from '../api.js';
-import { Button, Card, Empty, ErrorBanner, Spinner } from '../ui.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ConversationMessage, ConversationSummary } from '@ixaeon/contracts';
+import { api, errMsg, type Project } from '../api.js';
+import { Button, Empty, ErrorBanner } from '../ui.js';
+import { AskMessage } from './AskMessage.js';
 
-/** 问答页：个人视角（不强制选项目）或项目视角；回答带引用可展开核验。 */
+type ProposedTask = { id: string; goal: string; status: string; scope: string[] };
+
+function tasksOf(meta: Record<string, unknown>): ProposedTask[] {
+  const raw = meta['proposedTasks'];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((t): t is ProposedTask => {
+    if (!t || typeof t !== 'object') return false;
+    const o = t as Record<string, unknown>;
+    return typeof o['id'] === 'string' && typeof o['goal'] === 'string';
+  });
+}
+
+/**
+ * 每条回答的说明文字要不要直接露出：和上一条回答的说明不同才露出。
+ * 同一对话里每轮说明通常一字不差（走哪个引擎、存档是否生效），
+ * 首轮说一次就够；中途变了（存档失败、被停用、引擎切换）才需要再提醒。
+ */
+function noticeVisibility(messages: ConversationMessage[]): Map<string, boolean> {
+  const visible = new Map<string, boolean>();
+  let previous: string | null = null;
+  for (const m of messages) {
+    if (m.role !== 'assistant') continue;
+    const notice = typeof m.meta['notice'] === 'string' ? m.meta['notice'] : '';
+    visible.set(m.id, notice !== '' && notice !== previous);
+    if (notice !== '') previous = notice;
+  }
+  return visible;
+}
+
+/** 发送后、回答回来前先显示的本地消息（回来后整段从库里重新拉取替换）。 */
+function pendingMessage(
+  role: 'user' | 'assistant',
+  content: string,
+  seq: number,
+): ConversationMessage {
+  const now = new Date().toISOString();
+  return {
+    id: `pending-${role}-${seq}`,
+    conversationId: '',
+    seq,
+    role,
+    content,
+    status: role === 'user' ? 'complete' : 'streaming',
+    createdAt: now,
+    updatedAt: now,
+    runId: null,
+    engine: null,
+    modelName: null,
+    citations: [],
+    meta: {},
+    errorMessage: null,
+  };
+}
+
+/** 问答页：连续聊天（D6）。左侧对话列表，右侧消息流；引用/批准卡/引擎信息保留。 */
 export function AskPage({ projects }: { projects: Project[] }) {
-  const [projectId, setProjectId] = useState<string>('');
+  const [projectId, setProjectId] = useState('');
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
-  const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [list, setList] = useState<ConversationSummary[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [expandedRef, setExpandedRef] = useState<string | null>(null);
+  const stick = useRef(true);
+  const listEl = useRef<HTMLDivElement>(null);
+  const noticeShown = useMemo(() => noticeVisibility(messages), [messages]);
+
+  const reloadList = useCallback(async () => {
+    setList(await api.listConversations());
+  }, []);
+
+  const openConversation = useCallback(async (id: string) => {
+    const data = await api.getConversation(id);
+    setActiveId(id);
+    setMessages(data.messages);
+    stick.current = true;
+  }, []);
+
+  useEffect(() => {
+    void reloadList().catch((err) => setError(errMsg(err)));
+  }, [reloadList]);
+
+  useEffect(() => {
+    const el = listEl.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [messages, busy]);
 
   const ask = async () => {
-    if (question.trim().length === 0) return;
+    const text = question.trim();
+    if (text.length === 0 || busy) return;
     setBusy(true);
     setError(null);
-    setAnswer(null);
+    setQuestion('');
+    // 回答要等好几秒（真模型可能十几秒）。先把问题和「正在回答」气泡放上去，
+    // 否则输入框清空后屏幕上什么都没有，像是发出去就没了。
+    const lastSeq = messages.length > 0 ? messages[messages.length - 1]!.seq : 0;
+    const pendingAnswer = pendingMessage('assistant', '', lastSeq + 2);
+    setMessages((prev) => [...prev, pendingMessage('user', text, lastSeq + 1), pendingAnswer]);
+    stick.current = true;
     try {
       const result = await api.askQuestion({
+        conversationId: activeId,
         projectId: projectId.length > 0 ? projectId : null,
-        question: question.trim(),
+        question: text,
       });
-      setAnswer(result);
+      await openConversation(result.conversationId);
+      await reloadList();
     } catch (err) {
-      setError(errMsg(err));
+      const message = errMsg(err);
+      setError(message);
+      if (activeId) {
+        try {
+          // 后端已把这一轮收尾为 failed，从库里重新拉就能看到
+          await openConversation(activeId);
+        } catch {
+          /* 重载失败不覆盖提问错误 */
+        }
+      } else {
+        // 新对话里的第一问就失败：拿不到对话 id，本地把转圈改成失败，
+        // 别让气泡一直转；刷新列表后这个对话（含失败记录）会出现在左侧。
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === pendingAnswer.id ? { ...m, status: 'failed', errorMessage: message } : m,
+          ),
+        );
+        try {
+          await reloadList();
+        } catch {
+          /* 同上 */
+        }
+      }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const approve = async (taskId: string) => {
+    try {
+      await api.approveCodingTask(taskId);
+      setMessages((prev) =>
+        prev.map((m) => {
+          const next = tasksOf(m.meta).map((t) =>
+            t.id === taskId ? { ...t, status: 'queued' } : t,
+          );
+          return next.length === 0 ? m : { ...m, meta: { ...m.meta, proposedTasks: next } };
+        }),
+      );
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+
+  const actOnConv = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      const next = await api.listConversations();
+      setList(next);
+      if (activeId && !next.some((c) => c.id === activeId)) {
+        setActiveId(null);
+        setMessages([]);
+      }
+    } catch (err) {
+      setError(errMsg(err));
     }
   };
 
   return (
     <div data-testid="page-ask">
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
-      <Card title="问答" testId="ask-card">
-        <p className="muted">
-          提问会先探 Hermes。本机未装或会话未通时，走 Core
-          有界工具循环（读记忆、拒绝未配置搜索、编码须你批准）。不会把单轮检索写成 Hermes 已接通。
-        </p>
-        <div className="search-bar">
-          <select
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            data-testid="ask-project-select"
-          >
-            <option value="">个人视角（不选项目）</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <input
-            value={question}
-            placeholder="问一个关于自己或项目的问题（回答附引用，可核验）"
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void ask();
+      <div className="ask-layout">
+        <aside className="ask-sidebar">
+          <Button
+            kind="primary"
+            disabled={busy}
+            testId="conversation-new"
+            onClick={() => {
+              void actOnConv(async () => {
+                const created = await api.createConversation({
+                  projectId: projectId.length > 0 ? projectId : null,
+                });
+                await openConversation(created.id);
+              });
             }}
-            data-testid="ask-input"
-          />
-          <Button kind="primary" disabled={busy} onClick={ask} testId="ask-run">
-            {busy ? '思考中…' : '提问'}
+          >
+            新对话
           </Button>
-          {busy && (
-            <Button
-              kind="ghost"
-              onClick={() => {
-                void api.cancelAsk();
-              }}
-              testId="ask-cancel"
-            >
-              取消
-            </Button>
-          )}
-        </div>
-
-        {busy && <Spinner label="检索资料并生成回答…" />}
-
-        {answer && (
-          <div className="ask-answer" data-testid="ask-answer">
-            <pre className="answer-text">{answer.answer}</pre>
-            {answer.notice && <p className="warn">{answer.notice}</p>}
-            {answer.citations.length > 0 && (
-              <div className="citations">
-                <h4>引用（{answer.citations.length} 条，点击展开原文）</h4>
-                <ul data-testid="ask-citations">
-                  {answer.citations.map((c) => (
-                    <li key={c.ref}>
-                      <button
-                        type="button"
-                        className="citation-ref"
-                        onClick={() => setExpandedRef(expandedRef === c.ref ? null : c.ref)}
-                      >
-                        [{c.ref}] {c.sourceTitle}
-                        {c.isUserCorrection ? '（用户纠正）' : ''}
-                      </button>
-                      {expandedRef === c.ref && (
-                        <pre className="segment-text segment-focus">{c.excerpt}</pre>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {answer.proposedTasks && answer.proposedTasks.length > 0 && (
-              <div className="proposed-tasks" style={{ marginTop: 16 }}>
-                <h4>行动批准卡（Agent 提议的受控编码任务）</h4>
-                {answer.proposedTasks.map((t) => (
-                  <div
-                    key={t.id}
-                    className="card"
-                    style={{ margin: '8px 0', border: '1px solid #3b82f6', padding: 12 }}
+          <div className="ask-conv-list" data-testid="conversation-list">
+            {list.length === 0 ? (
+              <Empty>还没有对话。点「新对话」开始提问。</Empty>
+            ) : (
+              list.map((c) => (
+                <div
+                  key={c.id}
+                  className={c.id === activeId ? 'ask-conv-item active' : 'ask-conv-item'}
+                  data-testid="conversation-item"
+                  data-conversation-id={c.id}
+                  onClick={() => {
+                    if (!busy) void openConversation(c.id).catch((err) => setError(errMsg(err)));
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="ask-conv-main"
+                    disabled={busy}
+                    onClick={() =>
+                      void openConversation(c.id).catch((err) => setError(errMsg(err)))
+                    }
                   >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
+                    <strong>{c.title}</strong>
+                    <span className="muted">{c.lastMessagePreview ?? '（空对话）'}</span>
+                  </button>
+                  <div className="ask-conv-actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const title = window.prompt('对话标题', c.title);
+                        if (title)
+                          void actOnConv(() => api.renameConversation({ id: c.id, title }));
                       }}
                     >
-                      <div>
-                        <strong>目标：{t.goal}</strong>
-                        <p className="muted" style={{ margin: '4px 0', fontSize: '0.85em' }}>
-                          任务 ID: {t.id} · 文件范围: {t.scope.join(', ') || '受限'} · 状态:{' '}
-                          {t.status}
-                        </p>
-                      </div>
-                      <div>
-                        {t.status === 'draft' && (
-                          <Button
-                            kind="primary"
-                            disabled={busy}
-                            onClick={async () => {
-                              try {
-                                setBusy(true);
-                                await api.approveCodingTask(t.id);
-                                setAnswer((prev) =>
-                                  prev
-                                    ? {
-                                        ...prev,
-                                        proposedTasks: prev.proposedTasks?.map((item) =>
-                                          item.id === t.id ? { ...item, status: 'queued' } : item,
-                                        ),
-                                      }
-                                    : null,
-                                );
-                              } catch (err) {
-                                setError(errMsg(err));
-                              } finally {
-                                setBusy(false);
-                              }
-                            }}
-                          >
-                            批准并排队
-                          </Button>
-                        )}
-                        {t.status === 'queued' && (
-                          <span className="badge" style={{ color: '#10b981' }}>
-                            已排队执行
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                      改名
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void actOnConv(() => api.archiveConversation(c.id));
+                      }}
+                    >
+                      归档
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`删除对话「${c.title}」？消息会一起删掉。`)) {
+                          void actOnConv(() => api.deleteConversation(c.id));
+                        }
+                      }}
+                    >
+                      删除
+                    </button>
                   </div>
-                ))}
-              </div>
-            )}
-            <p className="muted">
-              引擎 {answer.engine ?? 'ask'} · 模型 {answer.modelName} · 使用 {answer.usedChars}{' '}
-              字符资料
-              {answer.coverage
-                ? ` · 覆盖项目 ${answer.coverage.includedProjects.join('、') || '无'} · 未分析来源 ${answer.coverage.unanalyzedSources}`
-                : ''}
-            </p>
-            {(answer.steps ?? []).length > 0 && (
-              <ul className="muted" data-testid="ask-steps">
-                {answer.steps!.map((s) => (
-                  <li key={`${s.round}-${s.tool}`}>
-                    第 {s.round} 步 {s.tool}
-                    {s.ok ? '' : '（失败）'}：{s.detail.slice(0, 160)}
-                  </li>
-                ))}
-              </ul>
+                </div>
+              ))
             )}
           </div>
-        )}
-        {!busy && !answer && !error && (
-          <Empty>例如：正式系统名是什么？为什么否决了手机方案？</Empty>
-        )}
-      </Card>
+        </aside>
+
+        <section className="ask-main">
+          <div
+            className="ask-messages"
+            data-testid="message-list"
+            ref={listEl}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+            }}
+          >
+            {messages.length === 0 && !busy ? (
+              <Empty>例如：正式系统名是什么？为什么否决了手机方案？</Empty>
+            ) : (
+              messages.map((m) => (
+                <AskMessage
+                  key={m.id}
+                  message={m}
+                  showNotice={noticeShown.get(m.id) ?? false}
+                  expandedRef={expandedRef}
+                  onToggleRef={(ref) => setExpandedRef(expandedRef === ref ? null : ref)}
+                  onApprove={(id) => void approve(id)}
+                />
+              ))
+            )}
+          </div>
+          <div className="ask-composer">
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              data-testid="ask-project-select"
+            >
+              <option value="">个人视角（不选项目）</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <textarea
+              value={question}
+              placeholder="问一个关于自己或项目的问题（回答附引用，可核验）"
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void ask();
+                }
+              }}
+              data-testid="ask-input"
+              rows={2}
+            />
+            <Button kind="primary" disabled={busy} onClick={() => void ask()} testId="ask-run">
+              {busy ? '思考中…' : '发送'}
+            </Button>
+            {busy && (
+              <Button
+                kind="ghost"
+                onClick={() => {
+                  void api.cancelAsk(activeId);
+                }}
+                testId="ask-cancel"
+              >
+                取消
+              </Button>
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

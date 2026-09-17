@@ -55,6 +55,9 @@ describe('问答落 Core（ask_session 来源）', () => {
     const result = imports.captureAsk({
       question: '帮我记一下：周三下午要去看牙',
       answer: '已帮你记下：本周三下午看牙。',
+      conversationId: 'conv-1',
+      userSeq: 1,
+      assistantSeq: 2,
       runId: 'run-1',
       engine: 'hermes',
       model: 'gemini-3.7-flash-tiered',
@@ -94,6 +97,9 @@ describe('问答落 Core（ask_session 来源）', () => {
     const input = {
       question: '今天天气如何？',
       answer: '晴天。',
+      conversationId: 'conv-2',
+      userSeq: 1,
+      assistantSeq: 2,
       runId: 'run-2',
       engine: 'core-bounded' as const,
       model: null,
@@ -117,6 +123,9 @@ describe('问答落 Core（ask_session 来源）', () => {
     const result = imports.captureAsk({
       question: '问题',
       answer: '回答',
+      conversationId: 'conv-3',
+      userSeq: 1,
+      assistantSeq: 2,
       runId: 'run-3',
       engine: 'hermes',
       model: null,
@@ -131,6 +140,9 @@ describe('问答落 Core（ask_session 来源）', () => {
       imports.captureAsk({
         question: '问题2',
         answer: '回答2',
+        conversationId: 'conv-4',
+        userSeq: 1,
+        assistantSeq: 2,
         runId: 'run-4',
         engine: 'hermes',
         model: null,

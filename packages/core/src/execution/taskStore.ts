@@ -91,6 +91,21 @@ export function approvalDigest(input: {
     .digest('hex');
 }
 
+/**
+ * 批准是从「未批准」到「已排队」的一次转换，只能从 draft 或 waiting_approval 发起。
+ * waiting_approval 覆盖两种合法情况：刚准备好工作区，以及批准后修改了任务
+ * （bumpVersion 会把状态改回 waiting_approval，旧批准随之失效）。
+ * 其余状态一律拒绝：已排队的不重复批准；执行中、待验收、已完成、失败、
+ * 未知的任务，工作区里是执行器产物或失败现场，不能被重新复制覆盖。
+ */
+function assertApprovable(task: CodingTask): void {
+  if (task.status === 'draft' || task.status === 'waiting_approval') return;
+  throw new IxaError(
+    ErrorCodes.CONFLICT,
+    `任务当前状态为 ${task.status}，不能再次批准。已批准的任务不重复批准；需要重新批准请先修改任务。`,
+  );
+}
+
 export class CodingTaskStore {
   constructor(private readonly db: CoreDatabase) {}
 
@@ -244,6 +259,9 @@ export class CodingTaskStore {
 
   prepareWorkspace(taskId: string, dataDir: string, now = new Date().toISOString()): CodingTask {
     const task = this.get(taskId);
+    // 准备工作区会把项目原文复制进去（覆盖同名文件）并把状态改回 waiting_approval。
+    // 对已执行过的任务这么做，执行器产物和失败现场就被项目原文盖掉了。
+    assertApprovable(task);
     const ws = resolve(join(dataDir, 'workspaces', taskId));
     mkdirSync(ws, { recursive: true });
     const project = this.db
@@ -296,6 +314,7 @@ export class CodingTaskStore {
     now?: string;
   }): CodingApproval {
     const task = this.get(input.taskId);
+    assertApprovable(task);
     if (!task.workspace_path) {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '批准前必须先准备隔离工作区');
     }

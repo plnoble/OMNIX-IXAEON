@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -324,5 +324,94 @@ describe('研究发现开草案', () => {
     });
     orch.store.setStatus(running.id, 'running');
     expect(() => orch.remove(running.id)).toThrow(/正在执行/);
+  });
+});
+
+describe('批准只能从未批准状态发起（D6 整合复核补充）', () => {
+  // 回归：approveAndQueue → prepareWorkspace 不检查任务状态，会把项目原文
+  // 重新复制进工作区（cpSync 覆盖），并无条件把状态改回 waiting_approval。
+  // 对已执行完的任务再点一次批准，执行器产物就被项目原文覆盖、任务重新排队。
+  // 旧问答页里批准卡问下一句就消失，这条路基本够不着；D6 把批准卡随消息
+  // 持久化，而卡片状态是提问那一刻的快照（永远是 draft），重开对话按钮就
+  // 又出现了。前端隐藏按钮不能当安全边界，守卫必须在后端。
+  function realProject(): string {
+    const root = join(dir, 'real-project');
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'note.txt'), '项目原文', 'utf8');
+    return projects.create({ name: '有目录的项目', rootPath: root, description: null }).id;
+  }
+
+  function approvalCount(taskId: string): number {
+    return (
+      db.prepare('SELECT COUNT(*) AS n FROM coding_approvals WHERE task_id = ?').get(taskId) as {
+        n: number;
+      }
+    ).n;
+  }
+
+  it('已执行完的任务不能再批准：拒绝，且执行器产物不被项目原文覆盖', async () => {
+    const orch = new CodingOrchestrator(
+      db,
+      new FakeCodingExecutor({ claimedSuccess: true, files: { 'note.txt': '执行器产物' } }),
+      dir,
+      async () => ({ argv: ['check'], exitCode: 0, output: 'PASS', ran: true }),
+    );
+    const task = orch.create({
+      projectId: realProject(),
+      goal: '改写说明',
+      scope: ['note.txt'],
+      allowedCommands: [['check']],
+    });
+    await orch.approveAndQueue(task.id);
+    const done = await orch.dispatch(task.id);
+    const output = join(done.workspace_path!, 'note.txt');
+    expect(readFileSync(output, 'utf8')).toBe('执行器产物');
+    const statusAfterRun = done.status;
+    const generationAfterRun = done.generation;
+
+    await expect(orch.approveAndQueue(task.id)).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+    });
+
+    expect(readFileSync(output, 'utf8')).toBe('执行器产物');
+    const after = new CodingTaskStore(db).get(task.id);
+    expect(after.status).toBe(statusAfterRun);
+    expect(after.generation).toBe(generationAfterRun);
+    expect(approvalCount(task.id)).toBe(1);
+  });
+
+  it('已排队的任务不能重复批准：不新增批准记录', async () => {
+    const orch = new CodingOrchestrator(db, new FakeCodingExecutor(), dir);
+    const task = orch.create({
+      projectId,
+      goal: '排队中',
+      scope: ['a.txt'],
+      allowedCommands: [['node', '-e', 'process.exit(0)']],
+    });
+    const queued = await orch.approveAndQueue(task.id);
+    expect(queued.status).toBe('queued');
+
+    await expect(orch.approveAndQueue(task.id)).rejects.toBeInstanceOf(IxaError);
+    expect(approvalCount(task.id)).toBe(1);
+    expect(new CodingTaskStore(db).get(task.id).status).toBe('queued');
+  });
+
+  it('对照：修改任务后回到 waiting_approval，可以正常重新批准', async () => {
+    const orch = new CodingOrchestrator(db, new FakeCodingExecutor(), dir);
+    const store = new CodingTaskStore(db);
+    const task = orch.create({
+      projectId,
+      goal: '原目标',
+      scope: ['a.txt'],
+      allowedCommands: [['node', '-e', 'process.exit(0)']],
+    });
+    await orch.approveAndQueue(task.id);
+    store.bumpVersion(task.id, { goal: '改过的目标' });
+    expect(store.get(task.id).status).toBe('waiting_approval');
+
+    const reapproved = await orch.approveAndQueue(task.id);
+    expect(reapproved.status).toBe('queued');
+    expect(approvalCount(task.id)).toBe(2);
+    expect(() => store.liveApproval(store.get(task.id))).not.toThrow();
   });
 });
