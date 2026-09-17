@@ -75,23 +75,3 @@ export const extensionStatusResponseSchema = z.object({
   serverTime: isoDateTimeSchema,
 });
 export type ExtensionStatusResponse = z.infer<typeof extensionStatusResponseSchema>;
-
-// --- P4：Door 设备 HTTP 入口（设备令牌鉴权） ---
-
-export const doorHeartbeatSchema = z.object({
-  deviceId: uuidSchema,
-  availableRamMb: z.number().int().nonnegative(),
-  batteryPct: z.number().min(0).max(100).nullable().optional(),
-  isCharging: z.boolean().nullable().optional(),
-  temperatureC: z.number().nullable().optional(),
-});
-export type DoorHeartbeatInput = z.infer<typeof doorHeartbeatSchema>;
-
-export const doorBenchmarkSchema = z.object({
-  deviceId: uuidSchema,
-  kind: z.enum(['ram_stress', 'inference_speed']),
-  resultValue: z.number(),
-  /** 实测结果生存期（毫秒）；过期后适任性评估要求重测 */
-  ttlMs: z.number().int().positive(),
-});
-export type DoorBenchmarkInput = z.infer<typeof doorBenchmarkSchema>;

@@ -727,6 +727,8 @@ WHERE last_error = 'auto_discovered';
     sql: `
 -- P4 自查审核修复（2026-09-16）：Door 设备身份、遥测、实测与任务租约持久化。
 -- 此前 DoorService 为内存 Map，重启即失，违背配对持久与心跳状态要求。
+-- 2026-09-17：Door 已降级为设计稿（见 docs/design/door-设备能力感知.md）。
+-- 这三张表保留不动（迁移只追加不改写），当前无代码读写。重新启用时复用。
 CREATE TABLE door_devices (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,

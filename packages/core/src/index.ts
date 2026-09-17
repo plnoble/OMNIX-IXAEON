@@ -198,32 +198,8 @@ export {
   type EvalCategory,
 } from './memory/evalScenarios.js';
 export {
-  DoorService,
-  type DoorDevice,
-  type DevicePlatform,
-  type DeviceStatus,
-  type DeviceTelemetry,
-  type DeviceBenchmark,
-  type SuitabilityReport,
-} from './door/doorService.js';
-export {
-  ModelPool,
-  type ModelDescriptor,
-  type ModelTier,
-  type ModelPrivacyScope,
-  type SupportedTask,
-  type ModelSelectionResult,
-  type ModelPoolConfig,
-} from './models/modelPool.js';
-export {
   ConnectorRegistry,
   type ConnectorRecord,
   type ConnectorPlatform,
   type CaptureMethod,
 } from './connectors/connectorRegistry.js';
-export {
-  RoleCoordinator,
-  type AgentRole,
-  type AutonomousBudget,
-  type RoleActionRequest,
-} from './orchestration/roleCoordinator.js';

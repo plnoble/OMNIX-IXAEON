@@ -119,15 +119,6 @@ const api: IxaIpcApi = {
     ipcRenderer.invoke('ixaeon:evaluateSkillWithEvidence', input),
   autoEvolveSkillCandidates: (input) =>
     ipcRenderer.invoke('ixaeon:autoEvolveSkillCandidates', input),
-
-  // --- P4：Door 设备管理 ---
-  listDoorDevices: () => ipcRenderer.invoke('ixaeon:listDoorDevices'),
-  pairDoorDevice: (input) => ipcRenderer.invoke('ixaeon:pairDoorDevice', input),
-  revokeDoorDevice: (input) => ipcRenderer.invoke('ixaeon:revokeDoorDevice', input),
-  evaluateDoorSuitability: (input) => ipcRenderer.invoke('ixaeon:evaluateDoorSuitability', input),
-  dispatchDoorTask: (input) => ipcRenderer.invoke('ixaeon:dispatchDoorTask', input),
-  getDoorTaskLease: (taskId) => ipcRenderer.invoke('ixaeon:getDoorTaskLease', taskId),
-  settleDoorTaskLease: (input) => ipcRenderer.invoke('ixaeon:settleDoorTaskLease', input),
 };
 
 /** 更新能力（独立于 IxaIpcApi：仅生产构建存在，开发运行为 no-op）。 */

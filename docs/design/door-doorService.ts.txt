@@ -1,3 +1,7 @@
+// 设计稿，不参与编译。
+// 对应迁移 24 的三张表（door_devices / door_benchmarks / door_task_leases）。
+// 2026-09-17 Door 已降级：主干不再引用本文件。重新启用时从这里取，复用上述表。
+// 设计原则见 docs/design/door-设备能力感知.md。
 import { randomUUID } from 'node:crypto';
 import type { CoreDatabase } from '../db/database.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
@@ -64,16 +68,10 @@ interface DeviceRow {
 }
 
 /**
- * P4: Door 设备能力感知与生命周期管理服务（迁移 24 起数据库持久化）。
- * 规范：
- * 1. 独立身份与受控凭证：配对只落凭证哈希，原文仅在配对响应返回一次，
- *    绝不写入日志或数据库明文；
- * 2. 区分静态规格、低负载遥测与主动实测（带 TTL 过期）；
- * 3. 任务适配依据真实实测与当前可用性（电量/内存），不凭型号猜测；
- * 4. 派发具备租约与幂等：同任务重复派发同设备幂等返回，
- *    换设备派发同任务直接冲突拒绝（断线不得盲目重派副作用工作）；
- * 5. 撤销后立即拒绝新交互与派发，状态持久保存。
- */
+ * P4: Door 璁惧鑳藉姏鎰熺煡涓庣敓鍛藉懆鏈熺鐞嗘湇鍔★紙杩佺Щ 24 璧锋暟鎹簱鎸佷箙鍖栵級銆? * 瑙勮寖锛? * 1. 鐙珛韬唤涓庡彈鎺у嚟璇侊細閰嶅鍙惤鍑瘉鍝堝笇锛屽師鏂囦粎鍦ㄩ厤瀵瑰搷搴旇繑鍥炰竴娆★紝
+ *    缁濅笉鍐欏叆鏃ュ織鎴栨暟鎹簱鏄庢枃锛? * 2. 鍖哄垎闈欐€佽鏍笺€佷綆璐熻浇閬ユ祴涓庝富鍔ㄥ疄娴嬶紙甯?TTL 杩囨湡锛夛紱
+ * 3. 浠诲姟閫傞厤渚濇嵁鐪熷疄瀹炴祴涓庡綋鍓嶅彲鐢ㄦ€э紙鐢甸噺/鍐呭瓨锛夛紝涓嶅嚟鍨嬪彿鐚滄祴锛? * 4. 娲惧彂鍏峰绉熺害涓庡箓绛夛細鍚屼换鍔￠噸澶嶆淳鍙戝悓璁惧骞傜瓑杩斿洖锛? *    鎹㈣澶囨淳鍙戝悓浠诲姟鐩存帴鍐茬獊鎷掔粷锛堟柇绾夸笉寰楃洸鐩噸娲惧壇浣滅敤宸ヤ綔锛夛紱
+ * 5. 鎾ら攢鍚庣珛鍗虫嫆缁濇柊浜や簰涓庢淳鍙戯紝鐘舵€佹寔涔呬繚瀛樸€? */
 export class DoorService {
   constructor(private readonly db: CoreDatabase) {}
 
@@ -109,7 +107,7 @@ export class DoorService {
     };
   }
 
-  /** 配对新设备，颁发独立凭证（原文只出现一次；库中仅存 sha256）。 */
+  /** 閰嶅鏂拌澶囷紝棰佸彂鐙珛鍑瘉锛堝師鏂囧彧鍑虹幇涓€娆★紱搴撲腑浠呭瓨 sha256锛夈€?*/
   pairDevice(input: {
     name: string;
     platform: DevicePlatform;
@@ -151,7 +149,7 @@ export class DoorService {
   getDevice(id: string): DoorDevice {
     const row = this.db.prepare('SELECT * FROM door_devices WHERE id = ?').get(id) as
       DeviceRow | undefined;
-    if (!row) throw new IxaError(ErrorCodes.NOT_FOUND, `设备不存在: ${id}`);
+    if (!row) throw new IxaError(ErrorCodes.NOT_FOUND, `璁惧涓嶅瓨鍦? ${id}`);
     return this.rowToDevice(row);
   }
 
@@ -162,14 +160,14 @@ export class DoorService {
     return rows.map((r) => this.getDevice(r.id));
   }
 
-  /** 设备心跳与低负载状态上报（凭证哈希比对；撤销后拒绝）。 */
+  /** 璁惧蹇冭烦涓庝綆璐熻浇鐘舵€佷笂鎶ワ紙鍑瘉鍝堝笇姣斿锛涙挙閿€鍚庢嫆缁濓級銆?*/
   heartbeat(id: string, token: string, telemetry?: DeviceTelemetry): DoorDevice {
     const dev = this.getDevice(id);
     if (dev.status === 'revoked') {
-      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '该设备已撤销授权，拒绝交互');
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '璇ヨ澶囧凡鎾ら攢鎺堟潈锛屾嫆缁濅氦浜?);
     }
     if (dev.tokenHash !== sha256(token)) {
-      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '设备凭证非法');
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '璁惧鍑瘉闈炴硶');
     }
 
     this.db
@@ -182,14 +180,14 @@ export class DoorService {
     return this.getDevice(id);
   }
 
-  /** 主动实测记录（单独授权实测结果，带 TTL；同种类覆盖旧记录）。 */
+  /** 涓诲姩瀹炴祴璁板綍锛堝崟鐙巿鏉冨疄娴嬬粨鏋滐紝甯?TTL锛涘悓绉嶇被瑕嗙洊鏃ц褰曪級銆?*/
   recordBenchmark(
     id: string,
     benchmark: { kind: DeviceBenchmark['kind']; resultValue: number; ttlMs: number },
   ): DoorDevice {
     const dev = this.getDevice(id);
     if (dev.status === 'revoked') {
-      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '该设备已撤销授权');
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '璇ヨ澶囧凡鎾ら攢鎺堟潈');
     }
 
     const now = Date.now();
@@ -213,7 +211,7 @@ export class DoorService {
     return this.getDevice(id);
   }
 
-  /** 评估设备对特定任务的适任性（依据硬件、低负载状态、实测和过期规则）。 */
+  /** 璇勪及璁惧瀵圭壒瀹氫换鍔＄殑閫備换鎬э紙渚濇嵁纭欢銆佷綆璐熻浇鐘舵€併€佸疄娴嬪拰杩囨湡瑙勫垯锛夈€?*/
   evaluateSuitability(
     id: string,
     input: {
@@ -226,7 +224,7 @@ export class DoorService {
     if (dev.status === 'revoked') {
       return {
         suitable: false,
-        reason: '设备已撤销',
+        reason: '璁惧宸叉挙閿€',
         estimatedResource: 'none',
         expiredEvaluation: false,
       };
@@ -234,14 +232,13 @@ export class DoorService {
     if (!dev.capabilities.includes(input.taskKind)) {
       return {
         suitable: false,
-        reason: `设备未获准或不支持该类任务（${input.taskKind}）`,
+        reason: `璁惧鏈幏鍑嗘垨涓嶆敮鎸佽绫讳换鍔★紙${input.taskKind}锛塦,
         estimatedResource: 'none',
         expiredEvaluation: false,
       };
     }
 
-    // 检查低负载遥测（电量与内存）
-    if (dev.telemetry) {
+    // 妫€鏌ヤ綆璐熻浇閬ユ祴锛堢數閲忎笌鍐呭瓨锛?    if (dev.telemetry) {
       if (
         dev.telemetry.batteryPct !== undefined &&
         dev.telemetry.batteryPct !== null &&
@@ -250,7 +247,7 @@ export class DoorService {
       ) {
         return {
           suitable: false,
-          reason: '设备电量过低（<20% 且未充电），避免耗尽电池',
+          reason: '璁惧鐢甸噺杩囦綆锛?20% 涓旀湭鍏呯數锛夛紝閬垮厤鑰楀敖鐢垫睜',
           estimatedResource: 'battery_constrained',
           expiredEvaluation: false,
         };
@@ -258,21 +255,20 @@ export class DoorService {
       if (dev.telemetry.availableRamMb < input.requiredRamMb) {
         return {
           suitable: false,
-          reason: `当前可用内存不足（剩余 ${dev.telemetry.availableRamMb} MB，需 ${input.requiredRamMb} MB）`,
+          reason: `褰撳墠鍙敤鍐呭瓨涓嶈冻锛堝墿浣?${dev.telemetry.availableRamMb} MB锛岄渶 ${input.requiredRamMb} MB锛塦,
           estimatedResource: 'ram_constrained',
           expiredEvaluation: false,
         };
       }
     }
 
-    // 检查实测有效性
-    let expired = false;
+    // 妫€鏌ュ疄娴嬫湁鏁堟€?    let expired = false;
     if (input.requiresActiveBenchmark) {
       const bm = dev.benchmarks.find((b) => b.kind === 'ram_stress');
       if (!bm) {
         return {
           suitable: false,
-          reason: '缺少主动压力实测记录，不能盲目下派密集型任务',
+          reason: '缂哄皯涓诲姩鍘嬪姏瀹炴祴璁板綍锛屼笉鑳界洸鐩笅娲惧瘑闆嗗瀷浠诲姟',
           estimatedResource: 'untested',
           expiredEvaluation: false,
         };
@@ -281,7 +277,7 @@ export class DoorService {
         expired = true;
         return {
           suitable: false,
-          reason: '实测评估已过期，设备状态可能已变化，需重新测量',
+          reason: '瀹炴祴璇勪及宸茶繃鏈燂紝璁惧鐘舵€佸彲鑳藉凡鍙樺寲锛岄渶閲嶆柊娴嬮噺',
           estimatedResource: 'expired',
           expiredEvaluation: true,
         };
@@ -290,24 +286,21 @@ export class DoorService {
 
     return {
       suitable: true,
-      reason: '设备资源与能力检查通过，适宜承担本任务',
-      estimatedResource: `需 RAM约 ${input.requiredRamMb}MB`,
+      reason: '璁惧璧勬簮涓庤兘鍔涙鏌ラ€氳繃锛岄€傚疁鎵挎媴鏈换鍔?,
+      estimatedResource: `闇€ RAM绾?${input.requiredRamMb}MB`,
       expiredEvaluation: expired,
     };
   }
 
   /**
-   * 派发任务给设备（带租约与幂等保护）。
-   * - 同任务重复派发到同一设备：幂等返回现有租约，不新建副作用；
-   * - 同任务换设备：CONFLICT 拒绝（断线后必须先查询原租约状态，不能盲目重派）。
-   */
+   * 娲惧彂浠诲姟缁欒澶囷紙甯︾绾︿笌骞傜瓑淇濇姢锛夈€?   * - 鍚屼换鍔￠噸澶嶆淳鍙戝埌鍚屼竴璁惧锛氬箓绛夎繑鍥炵幇鏈夌绾︼紝涓嶆柊寤哄壇浣滅敤锛?   * - 鍚屼换鍔℃崲璁惧锛欳ONFLICT 鎷掔粷锛堟柇绾垮悗蹇呴』鍏堟煡璇㈠師绉熺害鐘舵€侊紝涓嶈兘鐩茬洰閲嶆淳锛夈€?   */
   dispatchTask(
     deviceId: string,
     task: { taskId: string; leaseMs: number },
   ): { ok: boolean; leaseUntil: string } {
     const dev = this.getDevice(deviceId);
     if (dev.status === 'revoked') {
-      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '设备已撤销，禁止派发任务');
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '璁惧宸叉挙閿€锛岀姝㈡淳鍙戜换鍔?);
     }
 
     const existing = this.getTaskLease(task.taskId);
@@ -317,7 +310,7 @@ export class DoorService {
       }
       throw new IxaError(
         ErrorCodes.CONFLICT,
-        `任务 ${task.taskId} 已持有设备 ${existing.deviceId} 的租约，换设备重派必须先核销原租约`,
+        `浠诲姟 ${task.taskId} 宸叉寔鏈夎澶?${existing.deviceId} 鐨勭绾︼紝鎹㈣澶囬噸娲惧繀椤诲厛鏍搁攢鍘熺绾,
       );
     }
 
@@ -332,7 +325,7 @@ export class DoorService {
     return { ok: true, leaseUntil };
   }
 
-  /** 查询任务租约（断线恢复时先查原状态再决定动作）。 */
+  /** 鏌ヨ浠诲姟绉熺害锛堟柇绾挎仮澶嶆椂鍏堟煡鍘熺姸鎬佸啀鍐冲畾鍔ㄤ綔锛夈€?*/
   getTaskLease(
     taskId: string,
   ): { taskId: string; deviceId: string; leaseUntil: string; status: string } | null {
@@ -347,17 +340,17 @@ export class DoorService {
     };
   }
 
-  /** 结束租约（完成/取消后核销）。 */
+  /** 缁撴潫绉熺害锛堝畬鎴?鍙栨秷鍚庢牳閿€锛夈€?*/
   settleTaskLease(taskId: string, status: string): void {
     const info = this.db
       .prepare('UPDATE door_task_leases SET status = ? WHERE task_id = ?')
       .run(status, taskId);
     if (info.changes === 0) {
-      throw new IxaError(ErrorCodes.NOT_FOUND, `租约不存在: ${taskId}`);
+      throw new IxaError(ErrorCodes.NOT_FOUND, `绉熺害涓嶅瓨鍦? ${taskId}`);
     }
   }
 
-  /** 撤销设备（持久化；立即拒绝后续心跳、评测与派发）。 */
+  /** 鎾ら攢璁惧锛堟寔涔呭寲锛涚珛鍗虫嫆缁濆悗缁績璺炽€佽瘎娴嬩笌娲惧彂锛夈€?*/
   revokeDevice(id: string): void {
     this.getDevice(id);
     this.db.prepare("UPDATE door_devices SET status = 'revoked' WHERE id = ?").run(id);

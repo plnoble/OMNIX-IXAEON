@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
-import type { RoleActionRequest } from '../orchestration/roleCoordinator.js';
 
 export type SkillStatus = 'proposed' | 'evaluated' | 'approved' | 'rejected' | 'retired';
 
@@ -64,11 +63,7 @@ export function isOnlyPrintCommand(command: string[]): boolean {
 }
 
 export class SkillCandidateStore {
-  constructor(
-    private readonly db: CoreDatabase,
-    /** P6-A（自查审核修复 69.2-5）：批准路径接入角色隔离守卫（可选，向后兼容）。 */
-    private readonly roleGuard?: { checkPermission(req: RoleActionRequest): void },
-  ) {}
+  constructor(private readonly db: CoreDatabase) {}
 
   proposeFromFailure(input: {
     projectId: string | null;
@@ -487,13 +482,6 @@ export class SkillCandidateStore {
         ErrorCodes.VALIDATION_FAILED,
         '证据命令未实质检验失败产物或执行状态，不能作为批准依据',
       );
-    }
-    // P6-A（自查审核修复 69.2-5）：批准动作必须过角色隔离守卫——
-    // coder（生成方法的角色）不能自批自己的升级。skill 批准走 auditor
-    // 职责（评测后批准）或用户显式操作；此处断言 auditor 角色有权批准，
-    // 同一协调器内 coder 的自批已在 checkPermission 被一票否决。
-    if (this.roleGuard) {
-      this.roleGuard.checkPermission({ role: 'auditor', action: 'approve_upgrade' });
     }
     const now = new Date().toISOString();
     this.db
