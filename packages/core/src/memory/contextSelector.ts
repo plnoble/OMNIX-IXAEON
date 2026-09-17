@@ -22,6 +22,8 @@ export interface SelectedMemoryItem {
   origin: string;
   confirmation: string;
   score: number;
+  /** 这条是什么时候记下的（observed_at，退回 updated_at）。不是事情发生的日期。 */
+  recordedAt: string;
 }
 
 export interface ContextSelectionResult {
@@ -71,10 +73,12 @@ export class ContextSelector {
     state: string;
     origin: string;
     confirmation: string;
+    recordedAt: string;
   }> {
-    const rows = this.db
+    const raw = this.db
       .prepare(
         `SELECT i.id, i.type, i.statement, i.state, i.origin, i.updated_at,
+                COALESCE(i.observed_at, i.updated_at) AS recorded_at,
                 i.extracted_from_source_id, i.confirmation, i.project_id, i.scope, i.rationale
          FROM items i
          LEFT JOIN sources src_i ON src_i.id = i.extracted_from_source_id
@@ -93,7 +97,9 @@ export class ContextSelector {
       state: string;
       origin: string;
       confirmation: string;
+      recorded_at: string;
     }>;
+    const rows = raw.map((r) => ({ ...r, recordedAt: r.recorded_at }));
 
     if (audience === 'model') {
       return rows.filter((r) => modelMayReadItem(this.db, r.id));
@@ -144,6 +150,7 @@ export class ContextSelector {
         origin: x.item.origin,
         confirmation: x.item.confirmation,
         score: x.score,
+        recordedAt: x.item.recordedAt,
       }));
 
     if (selected.length === 0 && /目标|想做|理解我|目前|计划/.test(q)) {
@@ -163,6 +170,7 @@ export class ContextSelector {
           origin: x.item.origin,
           confirmation: x.item.confirmation,
           score: x.score,
+          recordedAt: x.item.recordedAt,
         }));
     }
 
@@ -180,23 +188,15 @@ export class ContextSelector {
           origin: x.item.origin,
           confirmation: x.item.confirmation,
           score: x.score,
+          recordedAt: x.item.recordedAt,
         }));
     } else {
       selected = selected.slice(0, maxItems);
     }
 
-    const promptLines = selected.map((item) => {
-      const originTag = item.origin === 'user' ? '用户指定' : '系统推断';
-      const stateTag = item.state === 'disputed' ? ' · disputed/争议未定' : '';
-      return `- [${item.type} · ${originTag}${stateTag}] ${item.statement}`;
-    });
-
-    const promptBlock =
-      promptLines.length > 0 ? `\n\n（IXAEON 记忆上下文：\n${promptLines.join('\n')}\n）` : '';
-
     return {
       items: selected,
-      promptBlock,
+      promptBlock: buildPromptBlock(selected),
       totalCandidates: candidates.length,
       selectedCount: selected.length,
     };
@@ -281,6 +281,7 @@ export class ContextSelector {
       origin: x.item.origin,
       confirmation: x.item.confirmation,
       score: Math.round(x.rank * 100),
+      recordedAt: x.item.recordedAt,
     });
     const notEphemeral = (x: (typeof scored)[number]) =>
       eventQ || !isEphemeralStatement(x.item.statement);
@@ -440,11 +441,36 @@ function longestCjkOverlap(question: string, statement: string): number {
   return best;
 }
 
+/** 本地日历日（YYYY-MM-DD）。不能用 toISOString：那是 UTC，晚上会差一天。 */
+export function localDay(at: Date | string): string {
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * 注入引擎的记忆段。
+ *
+ * 每条都带「记于」日期，段首写明今天是哪天：2026-09-18 真机反馈——7 月的门店开业
+ * 筹备被当成「当前核心主线」答了出来。条目本身不带任何时间，类型又是 goal，
+ * 模型只能当成现在的目标（Hermes 系统提示里有今天的日期，但没有记忆的日期，
+ * 两个时间对不上就无从判断）。
+ * 「记于」是把这条记下来的日子（多为导入分析那天），不是事情发生的日子——
+ * 标注必须说清楚，否则模型会把记录日期当成事件日期，错得更离谱。
+ */
 function buildPromptBlock(selected: Array<SelectedMemoryItem & { state: string }>): string {
+  if (selected.length === 0) return '';
   const lines = selected.map((item) => {
     const originTag = item.origin === 'user' ? '用户指定' : '系统推断';
     const stateTag = item.state === 'disputed' ? ' · disputed/争议未定' : '';
-    return `- [${item.type} · ${originTag}${stateTag}] ${item.statement}`;
+    const day = localDay(item.recordedAt);
+    const dateTag = day ? ` · 记于 ${day}` : '';
+    return `- [${item.type} · ${originTag}${stateTag}${dateTag}] ${item.statement}`;
   });
-  return lines.length > 0 ? `\n\n（IXAEON 记忆上下文：\n${lines.join('\n')}\n）` : '';
+  const header =
+    `IXAEON 记忆上下文（今天 ${localDay(new Date())}；` +
+    `「记于」是 IXAEON 记下这条的日期，不是事情发生的日期，` +
+    `早先记的事可能已经过去或不再成立）：`;
+  return `\n\n（${header}\n${lines.join('\n')}\n）`;
 }

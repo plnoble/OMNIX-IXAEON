@@ -116,7 +116,8 @@ export class AppRuntime {
    * IXAEON_EMBED_MODEL=none 关闭；Ollama 没开时聊天照常，预注入记忆退回关键词并如实说明。
    */
   readonly semanticIndex: SemanticIndex | null;
-  private semanticBackfillRunning = false;
+  /** 正在跑的补向量回合（同一时间只跑一个）；提问前会等它，见 awaitSemanticBackfill。 */
+  private semanticBackfillRun: Promise<void> | null = null;
   private semanticUnavailableLogged = false;
 
   private constructor(deps: {
@@ -856,8 +857,9 @@ export class AppRuntime {
       );
     }
 
-    // R2：新提炼出的记忆在后台补向量，不拖慢这一问；没补上的这一轮按关键词判断。
-    this.kickSemanticBackfill();
+    // R2：新提炼出的记忆先补向量。这里只是发起，等在下面——先把问题和占位回答落库，
+    // 界面立刻看得到这一问，再去等向量。
+    void this.kickSemanticBackfill();
 
     const conversation =
       input.conversationId != null && input.conversationId.length > 0
@@ -889,6 +891,8 @@ export class AppRuntime {
     const startedAt = new Date().toISOString();
 
     try {
+      // 选材前把向量补齐（有上限），别让第一问抢在补向量前面走关键词路径。
+      await this.awaitSemanticBackfill();
       const broker = new CoreToolBroker(
         this.db,
         this.items,
@@ -1054,11 +1058,11 @@ export class AppRuntime {
    * R2：后台给缺向量的记忆补向量。同一时间只跑一个；Ollama 没开或模型缺失时
    * 只记一次日志，不打扰使用（聊天会在说明里写明本轮按关键词选取）。
    */
-  kickSemanticBackfill(): void {
+  kickSemanticBackfill(): Promise<void> {
     const index = this.semanticIndex;
-    if (!index || this.semanticBackfillRunning) return;
-    this.semanticBackfillRunning = true;
-    void index
+    if (!index) return Promise.resolve();
+    if (this.semanticBackfillRun) return this.semanticBackfillRun;
+    const run = index
       .backfill({ batchSize: 16 })
       .then((r) => {
         this.semanticUnavailableLogged = false;
@@ -1081,8 +1085,32 @@ export class AppRuntime {
         }
       })
       .finally(() => {
-        this.semanticBackfillRunning = false;
+        this.semanticBackfillRun = null;
       });
+    this.semanticBackfillRun = run;
+    return run;
+  }
+
+  /**
+   * 提问前等补向量，最多等 timeoutMs。
+   *
+   * 2026-09-18 真机：应用启动 2 秒后就提问，向量还没补上（启动那次补向量还撞上
+   * Ollama 未就绪），那一问整轮按关键词选材，又把 7 月的门店开业资料塞了进去——
+   * 正是语义检索要解决的问题。没向量的条目按关键词判断是「补向量期间不变差」的
+   * 兜底，不该用在「第一问」这种最需要准的时候。
+   * 等不到就照常提问（说明里会写明本轮有多少条没走语义）。
+   */
+  private async awaitSemanticBackfill(timeoutMs = 30_000): Promise<void> {
+    const run = this.kickSemanticBackfill();
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      run,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
   }
 
   /**

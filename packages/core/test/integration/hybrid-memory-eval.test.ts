@@ -26,7 +26,11 @@ import {
   type CoreDatabase,
   type TextEmbedder,
 } from '../../src/index.js';
-import { conjunctSubQueries, isOverviewQuestion } from '../../src/memory/contextSelector.js';
+import {
+  conjunctSubQueries,
+  isOverviewQuestion,
+  localDay,
+} from '../../src/memory/contextSelector.js';
 
 let dir: string;
 let db: CoreDatabase;
@@ -246,6 +250,28 @@ describe('混合选材：规则（固定向量，不依赖模型）', () => {
       const r = await selector.selectForQuestionHybrid(q, null, { semantic: index });
       expect(r.items, q).toEqual([]);
     }
+  });
+
+  it('注入给模型的每条记忆都带「记于」日期，段首写明今天（2026-09-18 真机回归）', async () => {
+    // 真机：7 月的门店开业筹备被当成「当前核心主线」答出来。条目不带时间、类型是
+    // goal，模型只能当成现在的目标。记录日期是记下它的日子，不是事情发生的日子。
+    const id = aiPersonal('goal', '把周报汇总流程跑通', 60);
+    db.prepare('UPDATE items SET observed_at = ? WHERE id = ?').run('2026-07-20T02:00:00.000Z', id);
+    const embedder = new TableEmbedder(
+      { 把周报汇总流程跑通: [1, 0, 0, 0] },
+      { '我最近在忙什么？': [0, 0, 0, 1] },
+    );
+    const index = new SemanticIndex(db, embedder);
+    await index.backfill();
+    const r = await new ContextSelector(db).selectForQuestionHybrid('我最近在忙什么？', null, {
+      semantic: index,
+    });
+    expect(r.items[0]?.recordedAt).toBe('2026-07-20T02:00:00.000Z');
+    expect(r.promptBlock).toContain(`记于 ${localDay('2026-07-20T02:00:00.000Z')}`);
+    expect(r.promptBlock).toContain(`今天 ${localDay(new Date())}`);
+    // 关键词路径同样带（两条路径共用一个格式化函数）
+    const k = new ContextSelector(db).selectForQuestion('周报汇总怎么弄？', null);
+    expect(k.promptBlock).toContain('记于 ');
   });
 
   it('概览问题的判定从严', () => {
