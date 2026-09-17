@@ -109,8 +109,19 @@ function equalsPath(a: string, b: string): boolean {
  */
 export const HERMES_TUI_TOOLSETS = 'web,ixaeon';
 
-/** 网关子进程环境：HERMES_HOME + PYTHONPATH（仓库根）+ 不缓冲输出 + 工具集钉定。 */
-export function hermesSpawnEnv(locator: HermesLocator): Record<string, string> {
+/**
+ * 网关子进程环境：HERMES_HOME + PYTHONPATH（仓库根）+ 不缓冲输出 + 工具集钉定
+ * + 聊天模型。
+ *
+ * chatModel 经 HERMES_MODEL / HERMES_INFERENCE_MODEL 传入：Hermes 的
+ * _env_model_seed() 优先于 config.yaml 的 model:，且这个启动种子按其设计不会被
+ * 同步回配置文件（server.py 注释写明「避免被当成 /model 切换而全局持久化」）。
+ * 所以 IXAEON 决定聊天用哪个模型，不改用户的 Hermes 配置。空值 = 不干预。
+ */
+export function hermesSpawnEnv(
+  locator: HermesLocator,
+  opts: { chatModel?: string | null } = {},
+): Record<string, string> {
   const env: Record<string, string> = {};
   if (locator.home) env.HERMES_HOME = locator.home;
   if (locator.cwd) {
@@ -120,6 +131,11 @@ export function hermesSpawnEnv(locator: HermesLocator): Record<string, string> {
   env.PYTHONUNBUFFERED = '1';
   // 放在返回值里而不是依赖外部环境：spawn 时本值覆盖继承来的同名变量。
   env.HERMES_TUI_TOOLSETS = HERMES_TUI_TOOLSETS;
+  const chatModel = opts.chatModel?.trim();
+  if (chatModel) {
+    env.HERMES_MODEL = chatModel;
+    env.HERMES_INFERENCE_MODEL = chatModel;
+  }
   return env;
 }
 

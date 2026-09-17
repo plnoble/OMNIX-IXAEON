@@ -110,7 +110,12 @@ export function SettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
-  const [form, setForm] = useState({ modelName: '', apiBaseUrl: '', apiKey: '' });
+  const [form, setForm] = useState({
+    modelName: '',
+    chatModelName: '',
+    apiBaseUrl: '',
+    apiKey: '',
+  });
   const [models, setModels] = useState<Array<{ id: string }> | null>(null);
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
@@ -130,6 +135,7 @@ export function SettingsPage() {
       setEvents(e);
       setForm({
         modelName: v.config.modelName,
+        chatModelName: v.config.chatModelName ?? '',
         apiBaseUrl: v.config.apiBaseUrl,
         apiKey: '',
       });
@@ -173,10 +179,15 @@ export function SettingsPage() {
     try {
       await api.saveModelSettings({
         modelName: form.modelName.trim() || 'gpt-5.2',
+        chatModelName: form.chatModelName.trim(),
         apiBaseUrl: form.apiBaseUrl,
         apiKey: form.apiKey.trim() || undefined,
       });
-      setNotice('模型设置已保存');
+      setNotice(
+        view?.hermesFound === true
+          ? '模型设置已保存。聊天会在下一次提问时用新模型（正在进行的引擎会话已结束）。'
+          : '模型设置已保存',
+      );
       await reload();
     } catch (err) {
       setError(errMsg(err));
@@ -362,7 +373,7 @@ export function SettingsPage() {
       <Card title="模型接入" testId="settings-model">
         <p className="muted" data-testid="settings-model-scope">
           这里的模型用于后台分析资料，以及没装 Hermes 时的兜底问答。
-          {view.hermesFound ? '已装 Hermes，聊天用的是 Hermes 自己的模型（见上方）。' : ''}
+          {view.hermesFound ? '已装 Hermes；聊天用哪个模型见下面的「聊天模型」。' : ''}
           获取模型列表时 API Key 可以留空，会用已保存的 Key（仅限 API 地址没变）。
         </p>
         {/* RF08：旧明文密钥被清除时明确提示重新输入（可理解、可恢复，不静默） */}
@@ -414,6 +425,18 @@ export function SettingsPage() {
             />
           )}
         </Field>
+        <Field label="聊天模型">
+          <input
+            value={form.chatModelName}
+            placeholder="留空 = 跟随上面的模型名称"
+            onChange={(e) => setForm({ ...form, chatModelName: e.target.value })}
+            data-testid="settings-chat-model"
+          />
+        </Field>
+        <p className="muted" data-testid="settings-chat-model-hint">
+          聊天（Hermes）用哪个模型由这里决定，启动引擎时传过去，不会改写你的 Hermes
+          config.yaml。保存后下一次提问生效。留空则跟随上面的模型名称。
+        </p>
         <div className="wizard-nav">
           <Button disabled={fetchingModels} onClick={fetchModels} testId="settings-fetch-models">
             {fetchingModels ? '获取中…' : '获取可用模型'}

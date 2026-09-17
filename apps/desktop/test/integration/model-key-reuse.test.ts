@@ -154,3 +154,54 @@ describe('normalizeApiBase', () => {
     expect(normalizeApiBase(undefined)).toBe('');
   });
 });
+
+/**
+ * 2026-09-18 用户反馈：改聊天模型要去 Hermes 的 config.yaml，太麻烦。
+ * 设置页新增「聊天模型」，留空跟随分析用的模型；模型是网关启动参数，
+ * 改了必须丢掉在跑的引擎会话，否则下一问还在旧进程里、设置等于没生效。
+ */
+describe('聊天模型设置', () => {
+  interface ChatRuntime {
+    chatModelName(): string | null;
+    resetChatSessions(): number;
+  }
+  function runtimeForChat(
+    model: Record<string, unknown>,
+    sessions?: Map<string, { invalidateContext: () => void }>,
+    cleared?: { done: boolean },
+  ): ChatRuntime {
+    const rt = Object.create(AppRuntime.prototype) as Record<string, unknown>;
+    rt['config'] = { model };
+    rt['askSessions'] = sessions ?? new Map();
+    rt['conversations'] = {
+      clearEngineSessions: () => {
+        if (cleared) cleared.done = true;
+      },
+    };
+    return rt as unknown as ChatRuntime;
+  }
+
+  it('聊天模型优先，留空则跟随分析用的模型，都空则不干预 Hermes', () => {
+    expect(runtimeForChat({ modelName: 'grok-4.6', chatModelName: 'opus-5' }).chatModelName()).toBe(
+      'opus-5',
+    );
+    expect(runtimeForChat({ modelName: 'grok-4.6', chatModelName: '  ' }).chatModelName()).toBe(
+      'grok-4.6',
+    );
+    expect(runtimeForChat({ modelName: '', chatModelName: '' }).chatModelName()).toBeNull();
+  });
+
+  it('换模型后丢掉在跑的引擎会话：长驻网关退出，落库的引擎会话号清空', () => {
+    let invalidated = 0;
+    const sessions = new Map([
+      ['c1', { invalidateContext: () => invalidated++ }],
+      ['c2', { invalidateContext: () => invalidated++ }],
+    ]);
+    const cleared = { done: false };
+    const rt = runtimeForChat({ modelName: 'a', chatModelName: 'b' }, sessions, cleared);
+    expect(rt.resetChatSessions()).toBe(2);
+    expect(invalidated).toBe(2);
+    expect(sessions.size).toBe(0);
+    expect(cleared.done).toBe(true);
+  });
+});

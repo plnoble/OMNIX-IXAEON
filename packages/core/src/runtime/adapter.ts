@@ -73,6 +73,9 @@ export class HermesRuntimeAdapter {
    */
   private resident = new Map<string, TuiGatewaySession>();
 
+  /** contextRef → 该长驻会话启动时用的聊天模型（变了必须重开进程）。 */
+  private residentModel = new Map<string, string>();
+
   constructor(
     private readonly broker?: CoreToolBroker,
     private readonly transportFactory?: (
@@ -80,6 +83,8 @@ export class HermesRuntimeAdapter {
       args: string[],
       opts: TuiSpawnOptions,
     ) => TuiTransport,
+    /** 聊天用哪个模型（IXAEON 设置）。返回空 = 用 Hermes 自己 config.yaml 里的。 */
+    private readonly getChatModel?: () => string | null,
   ) {}
 
   probe(): RuntimeCapabilities {
@@ -118,15 +123,23 @@ export class HermesRuntimeAdapter {
       );
     }
     const args = hermesGatewayArgs();
+    const chatModel = this.getChatModel?.() ?? null;
     const opts: TuiSpawnOptions = {
       cwd: caps.locator.cwd,
-      env: hermesSpawnEnv(caps.locator),
+      env: hermesSpawnEnv(caps.locator, { chatModel }),
     };
     // A06 / D02（审核 2026-09-14）：同 contextRef 的长驻会话若存活且权限版本一致，优先复用。
     // 当权限版本变化时（撤权/纠正），旧会话上下文已过时，必须失效销毁并开新会话，防止泄漏。
+    // 模型是启动参数，换了模型必须重开网关进程——沿用旧进程等于设置没生效。
+    const modelKey = chatModel ?? '';
     const resident = this.resident.get(input.contextRef);
     let session: TuiGatewaySession;
-    if (resident && !resident.isDead && resident.permissionVersion === input.permissionVersion) {
+    if (
+      resident &&
+      !resident.isDead &&
+      resident.permissionVersion === input.permissionVersion &&
+      this.residentModel.get(input.contextRef) === modelKey
+    ) {
       session = resident;
       // 复用长驻进程内已有 session_id；调用方传来的 resumeSessionId 与之一致。
       session.setInput(input);
@@ -149,6 +162,7 @@ export class HermesRuntimeAdapter {
     }
     this.live.set(input.runId, session);
     this.resident.set(input.contextRef, session);
+    this.residentModel.set(input.contextRef, modelKey);
     try {
       const result = await session.run();
       if (session.isDead) {

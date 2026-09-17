@@ -18,6 +18,12 @@ export const appConfigSchema = z.object({
     apiKeyEncrypted: z.string().nullable(),
     /** 是否已经配置过 Key（用于 UI 状态展示） */
     apiKeyPresent: z.boolean(),
+    /**
+     * 聊天（Hermes 引擎）用的模型名。空串 = 跟随上面的 modelName。
+     * 启动网关时经 HERMES_MODEL 传给 Hermes——该变量优先于 Hermes 自己的
+     * config.yaml，且按 Hermes 的设计不会写回配置文件，所以不动用户的 Hermes 设置。
+     */
+    chatModelName: z.string().default(''),
   }),
   capture: z.object({
     /** ChatGPT 网页采集总开关 */
@@ -62,6 +68,7 @@ export function defaultAppConfig(): AppConfig {
     model: {
       provider: 'openai',
       modelName: '',
+      chatModelName: '',
       apiBaseUrl: '',
       apiKeyEncrypted: null,
       apiKeyPresent: false,

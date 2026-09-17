@@ -906,23 +906,29 @@ export class AppRuntime {
       // D4：按 conversationId 取，不再是全局单例。
       const session =
         this.askSessions.get(conversationId) ??
-        new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider, {
-          semantic: this.semanticIndex,
-          // F1（记忆桥）等网关换 HTTPS 后再做，在那之前 Hermes 配置里没有 ixaeon 服务，
-          // 不让模型去调 record_observation。
-          memoryBridge: false,
-          // A06 & M1.1：记忆桥接上后，以下工具由 ixaeon MCP 服务注册给 Hermes（结果经
-          // MCP 协议回交），网关侧不本地执行，防双写。接上之前 Hermes 没有这些工具，
-          // 名单只影响账本里的执行方标注。
-          mcpBridgedTools: [
-            'record_observation',
-            'get_evidence',
-            'search_web',
-            'read_web',
-            'propose_task',
-            'get_task_status',
-          ],
-        });
+        new AgentSession(
+          this.db,
+          new HermesRuntimeAdapter(broker, undefined, () => this.chatModelName()),
+          broker,
+          provider,
+          {
+            semantic: this.semanticIndex,
+            // F1（记忆桥）等网关换 HTTPS 后再做，在那之前 Hermes 配置里没有 ixaeon 服务，
+            // 不让模型去调 record_observation。
+            memoryBridge: false,
+            // A06 & M1.1：记忆桥接上后，以下工具由 ixaeon MCP 服务注册给 Hermes（结果经
+            // MCP 协议回交），网关侧不本地执行，防双写。接上之前 Hermes 没有这些工具，
+            // 名单只影响账本里的执行方标注。
+            mcpBridgedTools: [
+              'record_observation',
+              'get_evidence',
+              'search_web',
+              'read_web',
+              'propose_task',
+              'get_task_status',
+            ],
+          },
+        );
       this.askSessions.set(conversationId, session);
       this.activeAskRuns.set(conversationId, runId);
       const result = await session.run({ goal: question, projectId, runId, priorTurns });
@@ -1052,6 +1058,27 @@ export class AppRuntime {
         this.activeAskRuns.delete(conversationId);
       }
     }
+  }
+
+  /**
+   * 聊天（Hermes）用哪个模型：设置页的「聊天模型」，留空则跟随分析用的模型。
+   * 都为空时返回 null —— 不干预，用 Hermes 自己 config.yaml 里的。
+   */
+  chatModelName(): string | null {
+    const m = this.config.model;
+    return m.chatModelName?.trim() || m.modelName?.trim() || null;
+  }
+
+  /**
+   * 换了聊天模型后，丢掉在跑的引擎会话：模型是网关启动参数，旧进程不会改模型。
+   * 先 invalidateContext 让长驻网关进程退出，再清空映射，下一问从新进程开始。
+   */
+  resetChatSessions(): number {
+    const n = this.askSessions.size;
+    for (const session of this.askSessions.values()) session.invalidateContext();
+    this.askSessions.clear();
+    this.conversations.clearEngineSessions();
+    return n;
   }
 
   /**

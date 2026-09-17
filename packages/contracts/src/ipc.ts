@@ -348,6 +348,8 @@ export type RestoreDataInput = z.infer<typeof restoreDataInputSchema>;
 export const settingsViewSchema = z.object({
   config: z.object({
     modelName: z.string(),
+    /** 聊天用的模型名；空串 = 跟随 modelName */
+    chatModelName: z.string().default(''),
     apiBaseUrl: z.string().default(''),
     apiKeyPresent: z.boolean(),
     captureEnabled: z.boolean(),
@@ -649,6 +651,8 @@ export interface IxaIpcApi {
   getSettings(): Promise<SettingsView>;
   saveModelSettings(input: {
     modelName: string;
+    /** 聊天用的模型名；空串 = 跟随 modelName。不传 = 保持原值 */
+    chatModelName?: string;
     /** OpenAI 兼容 API 地址；空串表示官方默认 */
     apiBaseUrl?: string;
     apiKey?: string;

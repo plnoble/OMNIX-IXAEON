@@ -535,6 +535,7 @@ export function registerIpc(runtime: AppRuntime): void {
       return {
         config: {
           modelName: config.model.modelName,
+          chatModelName: config.model.chatModelName ?? '',
           apiBaseUrl: config.model.apiBaseUrl,
           apiKeyPresent: config.model.apiKeyPresent,
           captureEnabled: config.capture.enabled,
@@ -557,17 +558,23 @@ export function registerIpc(runtime: AppRuntime): void {
       };
     },
     saveModelSettings: async (input) => {
+      const before = runtime.chatModelName();
       runtime.updateConfig((c) => ({
         ...c,
         model: {
           ...c.model,
           modelName: input.modelName,
+          ...(input.chatModelName !== undefined
+            ? { chatModelName: input.chatModelName.trim() }
+            : {}),
           ...(input.apiBaseUrl !== undefined ? { apiBaseUrl: input.apiBaseUrl.trim() } : {}),
           ...(input.apiKey !== undefined && input.apiKey.length > 0
             ? { apiKeyEncrypted: encryptApiKey(input.apiKey), apiKeyPresent: true }
             : {}),
         },
       }));
+      // 模型是网关的启动参数：旧进程不会改模型，必须让下一问从新进程开始。
+      if (runtime.chatModelName() !== before) runtime.resetChatSessions();
       return { ok: true as const };
     },
     // 设置向导/设置页「获取可用模型」：上游拉取，Key 仅本次请求内存使用
