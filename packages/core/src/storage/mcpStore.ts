@@ -16,6 +16,7 @@ import {
   assertSourceAuthorized,
   assertCodingClientMayReadItem,
   assertCodingClientMayReadSegment,
+  codingClientMayReadSegment,
 } from '../access.js';
 import { sanitizePublicQuery } from '../memory/querySanitize.js';
 
@@ -455,7 +456,7 @@ export class McpService {
          JOIN sources src ON src.id = sg.source_id
          LEFT JOIN projects p ON p.id = src.project_id
          WHERE segments_fts MATCH ?
-         ${projectId !== null ? 'AND src.project_id = ?' : ''}
+         ${projectId !== null ? 'AND src.project_id = ?' : 'AND src.project_id IS NOT NULL'}
          ORDER BY rank LIMIT ?`,
       )
       .all(ftsQuery, ...(projectId !== null ? [projectId] : []), input.limit) as Array<{
@@ -476,6 +477,11 @@ export class McpService {
       } catch {
         continue;
       }
+      // 受众隔离（与 get_source_excerpt 同一道检查）：个人/未整理来源的原文、
+      // 以及支撑着不可分享条目的原文，不交给编码客户端。未绑定项目的来源已在
+      // SQL 里排除（避免个人原文占满前 N 条把项目资料挤掉），这里补其余规则。
+      // 此前搜索路径漏了这道检查，不带 project_ref 即可搜到个人聊天原文。
+      if (!codingClientMayReadSegment(this.db, row.id)) continue;
       results.push({
         ref: row.id,
         kind: 'segment',

@@ -159,6 +159,16 @@ export function modelMayReadItem(db: CoreDatabase, itemId: string): boolean {
 
 /** 片段若支撑个人/未整理条目，编码客户端须有对应分享。 */
 export function codingClientMayReadSegment(db: CoreDatabase, segmentId: string): boolean {
+  // 与 modelMayReadSegment 同一条底线：来源未绑定项目（个人/未整理原文）一律不给。
+  // 此前只看「该片段支撑的条目是否可读」，还没分析出条目的个人原文因此被放行——
+  // 2026-09-17 整合 F1 时实测：编码客户端不带 project_ref 调 search_context，
+  // 搜到了个人资料原文。不能靠「是否已提取成个人卡片」决定隐私。
+  const seg = db
+    .prepare(
+      'SELECT s.project_id AS project_id FROM segments sg JOIN sources s ON s.id = sg.source_id WHERE sg.id = ?',
+    )
+    .get(segmentId) as { project_id: string | null } | undefined;
+  if (!seg || seg.project_id === null) return false;
   const rows = db
     .prepare(
       `SELECT DISTINCT i.id AS item_id

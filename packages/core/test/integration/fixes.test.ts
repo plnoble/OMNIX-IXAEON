@@ -129,12 +129,17 @@ describe('P1-4 FTS 搜索修复与项目隔离', () => {
     expect(allA.some((s) => s.includes('SECRETMARK-BBB'))).toBe(false);
     expect(allA.some((s) => s.includes('SECRETMARK-UNASSIGNED'))).toBe(false);
 
-    // 全局搜索（不指定项目）包含未分配资料 —— 规则记录于 docs/privacy-model.md
+    // 全局搜索（不指定项目）：各项目资料可见，未分配资料不可见。
+    // 规则变更（2026-09-17）：本断言原为「包含未分配资料」，写于 9-05 单项目时期，
+    // 注释当时引用的是 docs/privacy-model.md 旧版。现行文档已规定 MCP 编码客户端对
+    // personal / unassigned 需单独授权，条目层早已照此实现，但原文片段层漏了——
+    // 实测不带 project_ref 即可搜到个人聊天原文（见 mcp-personal-boundary.test.ts）。
+    // 这里的「未分配」资料原文本身就写着「私人内容……不应混入项目」。
     const outAll = mcp.searchContext({ query: 'SECRETMARK', limit: 20 });
     const allText = outAll.results.map((r) => JSON.stringify(r)).join('\n');
     expect(allText).toContain('SECRETMARK-AAA');
     expect(allText).toContain('SECRETMARK-BBB');
-    expect(allText).toContain('SECRETMARK-UNASSIGNED');
+    expect(allText).not.toContain('SECRETMARK-UNASSIGNED');
   });
 
   it('中英文、引号、连字符等输入不造成 FTS SQL 错误', () => {
@@ -230,7 +235,9 @@ describe('P1-5 核心层授权链（无 allowedPaths 自授权）', () => {
     await expect(extractor2.extractSource(sourceId)).rejects.toThrowError(/撤销/);
     // 8) 删除与撤销相互独立：来源仍在列表中（撤销不自动删除）
     expect(sources.list({ projectId: null }).some((s) => s.source.id === sourceId)).toBe(true);
-    expect(sources.list({ projectId: null }).find((s) => s.source.id === sourceId)!.permissionStatus).toBe('revoked');
+    expect(
+      sources.list({ projectId: null }).find((s) => s.source.id === sourceId)!.permissionStatus,
+    ).toBe('revoked');
   });
 
   it('目录授权范围内的文件可读；符号链接指向范围外拒绝', () => {
