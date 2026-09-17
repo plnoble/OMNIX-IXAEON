@@ -5,6 +5,7 @@ import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import type { AskResult } from '../storage/askStore.js';
 import { ContextSelector } from '../memory/contextSelector.js';
+import type { SemanticIndex } from '../memory/semanticIndex.js';
 import { getDisclosureEpoch } from '../access.js';
 import { type HermesRuntimeAdapter } from './adapter.js';
 import { CORE_TOOL_NAMES, type CoreToolBroker, type CoreToolName } from './broker.js';
@@ -92,15 +93,28 @@ export class AgentSession {
    * 通知不再本地执行，防同一动作双执行。
    */
   private mcpBridgedTools: string[] = [];
+  /** R1：本机语义索引；为 null 时预注入记忆按关键词选取（并如实说明）。 */
+  private readonly semantic: SemanticIndex | null;
+  /**
+   * 记忆桥（三周任务单 F1）是否已接上：Hermes 配置里真的注册并启用了 ixaeon MCP 服务。
+   * 没接上时 Hermes 手里没有 record_observation，不能让模型去调一个不存在的工具。
+   */
+  private readonly memoryBridge: boolean;
 
   constructor(
     private readonly db: CoreDatabase,
     private readonly adapter: HermesRuntimeAdapter,
     private readonly broker: CoreToolBroker,
     private readonly provider: ModelProvider | null,
-    opts: { mcpBridgedTools?: string[] } = {},
+    opts: {
+      mcpBridgedTools?: string[];
+      semantic?: SemanticIndex | null;
+      memoryBridge?: boolean;
+    } = {},
   ) {
     if (opts.mcpBridgedTools) this.mcpBridgedTools = opts.mcpBridgedTools;
+    this.semantic = opts.semantic ?? null;
+    this.memoryBridge = opts.memoryBridge ?? false;
   }
 
   /** A06：声明哪些工具已由 MCP 桥接执行（桌面启动时按实际注册情况设置）。 */
@@ -166,13 +180,17 @@ export class AgentSession {
         // A07（审核 2026-09-13）：生产与评测共用 ContextSelector 服务——
         // 针对问句在模型获准边界内精选最相关记忆注入引擎，取代粗粒度字段拼装。
         let contextBlock = '';
+        let retrievalNotice: string | null = null;
         try {
+          // R1：本机语义 + 关键词混合选材；语义不可用时内部退回关键词并给出说明。
           const selector = new ContextSelector(this.db);
-          const selection = selector.selectForQuestion(goal, input.projectId, {
+          const selection = await selector.selectForQuestionHybrid(goal, input.projectId, {
             audience: 'model',
             maxItems: 8,
+            semantic: this.semantic,
           });
           contextBlock = selection.promptBlock;
+          retrievalNotice = selection.retrievalNotice;
         } catch {
           /* 选材降级，不编造 */
         }
@@ -202,7 +220,13 @@ export class AgentSession {
         // 工具，用户日程落进 Hermes 记忆库而不是 IXAEON Core——违背「Hermes
         // 可替换、Core 资料独立保存」）。派发目标附带本约定，引导写入 Core；
         // 运行记录仍保存用户原始问题。
-        const dispatchedGoal = `${goal}${contextBlock}${priorBlock}\n\n（IXAEON 约定：凡需要记住用户告诉你的内容，请调用 record_observation 工具写入 IXAEON 记忆，不要使用你自带的 memory 工具。）`;
+        // 只在记忆桥接上时附带：聊天工具集钉定为 web,ixaeon（HERMES_TUI_TOOLSETS），
+        // ixaeon 未注册时被 Hermes 丢弃，自带 memory 也不在钉定范围内——此时这句话
+        // 只会让模型每一轮都去找一个不存在的工具。
+        const memoryRoute = this.memoryBridge
+          ? '\n\n（IXAEON 约定：凡需要记住用户告诉你的内容，请调用 record_observation 工具写入 IXAEON 记忆，不要使用你自带的 memory 工具。）'
+          : '';
+        const dispatchedGoal = `${goal}${contextBlock}${priorBlock}${memoryRoute}`;
         const hermes = await this.adapter.start(
           {
             runId,
@@ -231,12 +255,15 @@ export class AgentSession {
             : hermes.status === 'failed'
               ? 'failed'
               : 'succeeded';
-        const notice =
+        const engineNotice =
           hermes.status === 'terminal'
             ? '本轮经 Hermes TUI gateway（stdio JSON-RPC）。不是单轮检索。'
             : hermes.status === 'cancelled'
               ? '用户取消 Hermes 会话'
               : 'Hermes 会话失败，未假装完成。';
+        // 记忆是怎么选出来的也要说清：语义检索没开或连不上时，用户要知道
+        // 这一轮的预注入记忆只是关键词匹配。
+        const notice = retrievalNotice ? `${engineNotice} ${retrievalNotice}` : engineNotice;
         this.finish(runId, goal, input.projectId, 'hermes', status, steps, notice, now);
         this.unwireEventLedger();
         return {

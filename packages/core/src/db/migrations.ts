@@ -841,6 +841,33 @@ CREATE INDEX idx_messages_conversation ON messages(conversation_id, seq);
 CREATE INDEX idx_conversations_updated ON conversations(archived_at, updated_at DESC);
 `,
   },
+  {
+    id: 27,
+    name: 'item-embeddings',
+    sql: `
+-- 三周任务单 R1（2026-09-17）：本机语义检索的向量表。
+-- 起因：首次真机使用时，聊天预注入的记忆靠关键词两字片段匹配，「正式系统名」
+-- 里的「正式」撞上了「正式开业」，注入了毫不相干的资料。
+--
+-- 设计决定：
+-- 1. 向量是可重建的派生数据，权威仍是 items；丢了重算即可，不参与导出恢复的正确性。
+-- 2. 按（条目, 模型）存：换模型后旧向量不被误用，自动视为缺失。
+-- 3. text_hash 记录生成向量时的原文指纹：原文变了即过期重算。
+-- 4. 不引入向量数据库：1 万到 10 万条规模暴力计算余弦足够快，
+--    多一个索引只会多一份需要对账的状态（原 LanceDB 欠项据此结清）。
+-- 5. 检索时的权限过滤不在这张表上做，沿用候选条目查询的既有规则——
+--    有向量不代表可以被取用。
+CREATE TABLE item_embeddings (
+  item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  text_hash TEXT NOT NULL,
+  dim INTEGER NOT NULL,
+  vector BLOB NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (item_id, model)
+);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

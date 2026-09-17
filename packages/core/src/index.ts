@@ -184,9 +184,19 @@ export {
 export { sanitizePublicQuery, type SanitizedQuery } from './memory/querySanitize.js';
 export {
   ContextSelector,
+  SEMANTIC_THRESHOLDS,
   type SelectedMemoryItem,
   type ContextSelectionResult,
+  type SemanticThresholds,
 } from './memory/contextSelector.js';
+export {
+  OllamaEmbedder,
+  isLoopbackUrl,
+  cosine,
+  normalize,
+  type TextEmbedder,
+} from './memory/embedder.js';
+export { SemanticIndex } from './memory/semanticIndex.js';
 export {
   createTinyFishFetcher,
   isSpaOrDynamicSkeleton,
@@ -197,6 +207,7 @@ export {
 export {
   MEMORY_EVAL_SCENARIOS,
   runDeterministicMemoryEval,
+  runHybridMemoryEval,
   type MemoryEvalScenario,
   type MemoryEvalReport,
   type MemoryEvalCategoryResult,

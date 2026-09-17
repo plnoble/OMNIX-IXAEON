@@ -2,7 +2,8 @@ import type { CoreDatabase } from '../db/database.js';
 import { ProjectService } from '../projects.js';
 import { ItemService } from '../storage/itemStore.js';
 import { modelMayReadItem } from '../access.js';
-import { ContextSelector } from './contextSelector.js';
+import { ContextSelector, type SemanticThresholds } from './contextSelector.js';
+import type { SemanticIndex } from './semanticIndex.js';
 
 /**
  * 计划 §9.1 记忆质量评测的起始门槛（B0 固定，B2 扩展）。
@@ -29,6 +30,11 @@ export interface MemoryEvalScenario {
   expectRecallKeys: string[];
   expectSilentKeys: string[];
   note?: string;
+  /**
+   * 语义检索下的正确期望。只用于词法期望本身记录的是关键词局限、
+   * 而非正确答案的场景（注释里写明了「已知词法限制」）。
+   */
+  semanticExpectation?: { recall: string[]; silent: string[] };
 }
 
 export interface MemoryEvalFailure {
@@ -498,6 +504,9 @@ export const MEMORY_EVAL_SCENARIOS: MemoryEvalScenario[] = [
     expectRecallKeys: ['b1'],
     expectSilentKeys: ['a1', 'c1'],
     note: '健身与马拉松无词法重叠：已知词法限制，语义召回待模型/LanceDB',
+    // 问题同时问到花园与健身：半程马拉松目标本就该被召回，
+    // 上面的 c1 静默期望记录的是关键词做不到，不是正确答案。
+    semanticExpectation: { recall: ['b1', 'c1'], silent: ['a1'] },
   },
   {
     id: 'x9',
@@ -691,7 +700,74 @@ export function loadModelVisibleItems(
  */
 export function runDeterministicMemoryEval(db: CoreDatabase): MemoryEvalReport {
   const { statementByKey, projectIds } = seedCorpus(db);
+  return scoreScenarios(
+    statementByKey,
+    projectIds,
+    (question, projectId) =>
+      new ContextSelector(db).selectForQuestion(question, projectId, {
+        audience: 'model',
+        maxItems: 24,
+      }).items,
+    (s) => ({ recall: s.expectRecallKeys, silent: s.expectSilentKeys }),
+    '本报告只覆盖确定性子集（检索选择器/降格/权限/纠正链）。≥90% 召回、≥95% 不侵入等门槛需真实模型独立三轮，尚未运行，不冒充达成。',
+  );
+}
 
+/**
+ * 混合检索（本机语义 + 关键词）评测：与生产同一个 selectForQuestionHybrid。
+ * 语义期望优先用 semanticExpectation，其余沿用词法期望。
+ */
+export async function runHybridMemoryEval(
+  db: CoreDatabase,
+  semantic: SemanticIndex,
+  thresholds?: SemanticThresholds,
+): Promise<MemoryEvalReport & { selections: Record<string, string[]> }> {
+  const { statementByKey, projectIds } = seedCorpus(db);
+  await semantic.backfill();
+  const selector = new ContextSelector(db);
+  const picked = new Map<string, Array<{ statement: string }>>();
+  for (const scenario of MEMORY_EVAL_SCENARIOS) {
+    const projectId =
+      scenario.perspective !== null
+        ? (projectIds[scenario.perspective as 'A' | 'B' | 'C'] ?? null)
+        : null;
+    const result = await selector.selectForQuestionHybrid(scenario.question, projectId, {
+      audience: 'model',
+      maxItems: 24,
+      semantic,
+      ...(thresholds ? { thresholds } : {}),
+    });
+    if (result.retrieval !== 'hybrid') {
+      throw new Error(`场景 ${scenario.id} 没有走语义检索：${result.retrievalNotice ?? ''}`);
+    }
+    picked.set(scenario.id, result.items);
+  }
+  const report = scoreScenarios(
+    statementByKey,
+    projectIds,
+    (_q, _p, scenario) => picked.get(scenario.id) ?? [],
+    (s) => s.semanticExpectation ?? { recall: s.expectRecallKeys, silent: s.expectSilentKeys },
+    `混合检索（${semantic.modelId}）在合成语料上的选材结果；不代表模型回答质量。`,
+  );
+  return {
+    ...report,
+    selections: Object.fromEntries(
+      [...picked].map(([id, items]) => [id, items.map((i) => i.statement)]),
+    ),
+  };
+}
+
+function scoreScenarios(
+  statementByKey: Map<string, string>,
+  projectIds: Record<'A' | 'B' | 'C', string>,
+  select: (
+    question: string,
+    projectId: string | null,
+    scenario: MemoryEvalScenario,
+  ) => Array<{ statement: string }>,
+  expectationOf: (s: MemoryEvalScenario) => { recall: string[]; silent: string[] },
+  modelRunNote: string,
+): MemoryEvalReport {
   const byCategory = new Map<EvalCategory, MemoryEvalCategoryResult>();
   for (const scenario of MEMORY_EVAL_SCENARIOS) {
     if (!byCategory.has(scenario.category)) {
@@ -709,16 +785,14 @@ export function runDeterministicMemoryEval(db: CoreDatabase): MemoryEvalReport {
         ? (projectIds[scenario.perspective as 'A' | 'B' | 'C'] ?? null)
         : null;
     // A07：评测直接调用与生产同源的 ContextSelector 服务
-    const selector = new ContextSelector(db);
-    const selection = selector.selectForQuestion(scenario.question, projectId, {
-      audience: 'model',
-      maxItems: 24,
-    });
-    const selectedStatements = new Set(selection.items.map((s) => s.statement));
-    const missing = scenario.expectRecallKeys
+    const selectedStatements = new Set(
+      select(scenario.question, projectId, scenario).map((s) => s.statement),
+    );
+    const expected = expectationOf(scenario);
+    const missing = expected.recall
       .map((k) => statementByKey.get(k) ?? k)
       .filter((stmt) => !selectedStatements.has(stmt));
-    const intruded = scenario.expectSilentKeys
+    const intruded = expected.silent
       .map((k) => statementByKey.get(k) ?? k)
       .filter((stmt) => selectedStatements.has(stmt));
     if (missing.length === 0 && intruded.length === 0) {
@@ -734,7 +808,6 @@ export function runDeterministicMemoryEval(db: CoreDatabase): MemoryEvalReport {
     corpusCount: statementByKey.size,
     categories: [...byCategory.values()],
     knownLimitations: MEMORY_EVAL_SCENARIOS.filter((s) => s.note).map((s) => `${s.id}: ${s.note}`),
-    modelRunNote:
-      '本报告只覆盖确定性子集（检索选择器/降格/权限/纠正链）。≥90% 召回、≥95% 不侵入等门槛需真实模型独立三轮，尚未运行，不冒充达成。',
+    modelRunNote,
   };
 }

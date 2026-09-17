@@ -19,6 +19,8 @@ import {
   HermesRuntimeAdapter,
   AgentSession,
   ConversationStore,
+  OllamaEmbedder,
+  SemanticIndex,
   SkillCandidateStore,
   CoreToolBroker,
   OpenAIResponsesProvider,
@@ -109,6 +111,13 @@ export class AppRuntime {
   private readonly askSessions = new Map<string, AgentSession>();
   /** 每个对话当前在跑的 runId（用于按对话取消）。 */
   private readonly activeAskRuns = new Map<string, string>();
+  /**
+   * R1：本机语义索引（Ollama + qwen3-embedding:0.6b，用户 2026-09-17 批准）。
+   * IXAEON_EMBED_MODEL=none 关闭；Ollama 没开时聊天照常，预注入记忆退回关键词并如实说明。
+   */
+  readonly semanticIndex: SemanticIndex | null;
+  private semanticBackfillRunning = false;
+  private semanticUnavailableLogged = false;
 
   private constructor(deps: {
     dataDir: string;
@@ -147,6 +156,11 @@ export class AppRuntime {
     this.logger = deps.logger;
     this.localServer = deps.localServer;
     this.conversations = new ConversationStore(deps.db);
+    const embedModel = (process.env.IXAEON_EMBED_MODEL ?? 'qwen3-embedding:0.6b').trim();
+    this.semanticIndex =
+      embedModel === '' || embedModel === 'none'
+        ? null
+        : new SemanticIndex(deps.db, new OllamaEmbedder({ model: embedModel }));
     // D4：引擎会话活在引擎进程里，上一次运行留下的 engine_session_id 早已失效。
     // 启动时清空，避免重开旧对话时去续一个不存在的会话。
     const cleared = this.conversations.clearEngineSessions();
@@ -302,6 +316,8 @@ export class AppRuntime {
       logger.warn('扩展同步失败（不影响其它功能）', { error: String(err) });
     }
     await runtime.startServer();
+    // R2：启动后在后台补齐记忆向量（不阻塞启动；Ollama 没开时只记一次日志）
+    runtime.kickSemanticBackfill();
     return runtime;
   }
 
@@ -840,6 +856,9 @@ export class AppRuntime {
       );
     }
 
+    // R2：新提炼出的记忆在后台补向量，不拖慢这一问；没补上的这一轮按关键词判断。
+    this.kickSemanticBackfill();
+
     const conversation =
       input.conversationId != null && input.conversationId.length > 0
         ? this.conversations.get(input.conversationId)
@@ -884,8 +903,13 @@ export class AppRuntime {
       const session =
         this.askSessions.get(conversationId) ??
         new AgentSession(this.db, new HermesRuntimeAdapter(broker), broker, provider, {
-          // A06 & M1.1：以下工具已由 ixaeon MCP 服务注册给 Hermes（结果经 MCP 协议回交），
-          // 网关侧不再本地执行，防双写。
+          semantic: this.semanticIndex,
+          // F1（记忆桥）等网关换 HTTPS 后再做，在那之前 Hermes 配置里没有 ixaeon 服务，
+          // 不让模型去调 record_observation。
+          memoryBridge: false,
+          // A06 & M1.1：记忆桥接上后，以下工具由 ixaeon MCP 服务注册给 Hermes（结果经
+          // MCP 协议回交），网关侧不本地执行，防双写。接上之前 Hermes 没有这些工具，
+          // 名单只影响账本里的执行方标注。
           mcpBridgedTools: [
             'record_observation',
             'get_evidence',
@@ -1024,6 +1048,41 @@ export class AppRuntime {
         this.activeAskRuns.delete(conversationId);
       }
     }
+  }
+
+  /**
+   * R2：后台给缺向量的记忆补向量。同一时间只跑一个；Ollama 没开或模型缺失时
+   * 只记一次日志，不打扰使用（聊天会在说明里写明本轮按关键词选取）。
+   */
+  kickSemanticBackfill(): void {
+    const index = this.semanticIndex;
+    if (!index || this.semanticBackfillRunning) return;
+    this.semanticBackfillRunning = true;
+    void index
+      .backfill({ batchSize: 16 })
+      .then((r) => {
+        this.semanticUnavailableLogged = false;
+        if (r.embedded > 0) {
+          this.logger.info('语义索引已补向量', { embedded: r.embedded, remaining: r.remaining });
+        }
+      })
+      .catch((err: unknown) => {
+        if (!this.semanticUnavailableLogged) {
+          this.semanticUnavailableLogged = true;
+          const msg = err instanceof Error ? err.message : '';
+          this.logger.info('语义索引暂不可用，聊天记忆按关键词选取', {
+            model: index.modelId,
+            reasonCode: /还没有模型/.test(msg)
+              ? 'model_missing'
+              : /连不上/.test(msg)
+                ? 'service_unreachable'
+                : 'error',
+          });
+        }
+      })
+      .finally(() => {
+        this.semanticBackfillRunning = false;
+      });
   }
 
   /**

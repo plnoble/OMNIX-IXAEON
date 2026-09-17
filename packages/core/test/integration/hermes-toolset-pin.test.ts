@@ -14,8 +14,22 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
-import { HERMES_TUI_TOOLSETS, hermesSpawnEnv, locateHermes } from '../../src/index.js';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import {
+  AgentSession,
+  CodingOrchestrator,
+  CoreToolBroker,
+  FakeCodingExecutor,
+  HERMES_TUI_TOOLSETS,
+  HermesRuntimeAdapter,
+  ItemService,
+  ProjectService,
+  SearchService,
+  hermesSpawnEnv,
+  locateHermes,
+  migrate,
+  openDatabase,
+} from '../../src/index.js';
 
 describe('Hermes 工具集钉定：启动环境', () => {
   it('每次启动都带上 web,ixaeon，不依赖外部环境', () => {
@@ -106,4 +120,67 @@ describe.skipIf(!canResolve)('Hermes 工具集钉定：本机 Hermes 真实解�
     expect(fallback).not.toBeNull();
     expect(fallback).toEqual(expect.arrayContaining(['terminal', 'file']));
   }, 120_000);
+});
+
+describe('记忆路由约定：只在记忆桥接上时发给模型', () => {
+  // 上面的真实解析说明：记忆桥没接上时，聊天里的 Hermes 既没有 record_observation，
+  // 也没有自带 memory。这时还让模型「调用 record_observation」，只会让它每一轮
+  // 都去找一个不存在的工具（首次真机那轮就空转了几次工具调用）。
+  async function dispatchedGoal(memoryBridge?: boolean): Promise<string> {
+    const dir = mkdtempSync(join(tmpdir(), 'ixaeon-route-'));
+    const db = openDatabase(join(dir, 'ixaeon.db'));
+    try {
+      migrate(db);
+      const broker = new CoreToolBroker(
+        db,
+        new ItemService(db),
+        new SearchService(db),
+        new CodingOrchestrator(db, new FakeCodingExecutor(), dir),
+        new ProjectService(db),
+      );
+      const adapter = new HermesRuntimeAdapter(broker);
+      vi.spyOn(adapter, 'probe').mockReturnValue({
+        locator: { found: true, exe: 'hermes.exe', cwd: null, home: null, reason: 'test' },
+        engine: 'hermes',
+        session: true,
+        stop: true,
+        toolAllowlist: false,
+        usage: false,
+        resume: true,
+        streaming: true,
+        probedAt: new Date().toISOString(),
+      });
+      const start = vi.spyOn(adapter, 'start').mockResolvedValue({
+        events: [],
+        answer: '记下了',
+        status: 'terminal',
+        modelName: 'fake',
+        providerName: 'fake',
+        sessionId: 's-route',
+      });
+      const session = new AgentSession(
+        db,
+        adapter,
+        broker,
+        null,
+        memoryBridge === undefined ? {} : { memoryBridge },
+      );
+      await session.run({ goal: '记住：我周三下午去看牙', projectId: null });
+      expect(start).toHaveBeenCalledTimes(1);
+      return start.mock.calls[0]![0].goal;
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('默认（记忆桥未接）：不让模型调 record_observation', async () => {
+    const goal = await dispatchedGoal();
+    expect(goal).toContain('记住：我周三下午去看牙');
+    expect(goal).not.toContain('record_observation');
+  });
+
+  it('记忆桥接上后：附带约定，引导写入 IXAEON 而不是 Hermes 自带记忆', async () => {
+    expect(await dispatchedGoal(true)).toContain('record_observation');
+  });
 });

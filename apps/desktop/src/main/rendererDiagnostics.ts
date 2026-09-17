@@ -18,7 +18,7 @@ interface DiagnosticsLogger {
  */
 export function errorSignature(message: string): string {
   return message
-    .replace(/[　-〿㐀-鿿豈-﫿＀-￯]+/g, '…')
+    .replace(/[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]+/g, '…')
     .replace(/(["'`])[^"'`]{41,}\1/g, '$1…$1')
     .replace(/\s+/g, ' ')
     .trim()
