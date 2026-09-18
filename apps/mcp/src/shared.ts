@@ -370,3 +370,78 @@ export function registerTools(
     },
   );
 }
+
+// --- 记忆桥（F1）：给聊天里的 Hermes 的工具，受众 model，只有三个 ---
+
+export const HERMES_BRIDGE_INSTRUCTIONS =
+  '你正在和用户聊天，IXAEON（析衍）是用户自己的记忆系统。' +
+  '需要了解用户的情况、之前说过或做过的事时，用 search_memory 查；' +
+  '用户告诉你需要记住的事，用 record_observation 写入（写入的是待用户确认的记录，不会直接成为用户的目标或决定）。' +
+  '每条记忆带「记于」日期，那是记下它的日期，不是事情发生的日期——早先记的事可能已经过去，回答时要结合今天的日期判断。' +
+  '查不到就如实说查不到，不要编。';
+
+export const hermesSearchMemoryShape = {
+  query: z.string().min(1).max(500).describe('要查什么，用自然语言写，如「用户最近在忙什么」'),
+  limit: z.number().int().min(1).max(12).default(8).describe('最多返回几条（默认 8）'),
+};
+export const hermesGetEvidenceShape = {
+  itemId: z.string().min(1).max(100).describe('search_memory 结果里的条目 id'),
+};
+export const hermesRecordObservationShape = {
+  statement: z.string().min(1).max(2000).describe('要记下的事，写成一句完整的话'),
+};
+
+/**
+ * 记忆桥模式（IXAEON_MCP_PROFILE=hermes）下只注册这三个工具，全部转给桌面端
+ * /api/hermes/tool——那里只认 Hermes 专用令牌，按模型受众取材（与聊天注入同一套规则）。
+ */
+export function registerHermesBridgeTools(
+  server: McpServer,
+  call: <T>(name: string, args: Record<string, unknown>) => Promise<T>,
+): void {
+  const reply = async (name: string, args: Record<string, unknown>) => {
+    try {
+      const result = await call(name, args);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: errMessage(err) }], isError: true };
+    }
+  };
+  server.registerTool(
+    'search_memory',
+    {
+      description:
+        '查用户在 IXAEON 里的记忆（目标、决定、偏好、待办等）。与聊天自动附带的记忆是同一套选材规则。' +
+        '每条带「记于」日期：那是记下它的日期，不是事情发生的日期。',
+      inputSchema: hermesSearchMemoryShape,
+    },
+    async (args) => reply('search_memory', args),
+  );
+  server.registerTool(
+    'get_evidence',
+    {
+      description:
+        '看一条记忆的出处与原话（用 search_memory 结果里的 id）。未获准给模型看的会被拒绝。',
+      inputSchema: hermesGetEvidenceShape,
+    },
+    async (args) => reply('get_evidence', args),
+  );
+  server.registerTool(
+    'record_observation',
+    {
+      description:
+        '把用户告诉你、需要记住的事写入 IXAEON 记忆。写入的是待用户确认的记录，不会直接成为用户的目标或决定。',
+      inputSchema: hermesRecordObservationShape,
+    },
+    async (args) => reply('record_observation', args),
+  );
+}
+
+/** 调用桌面端记忆桥入口；非 2xx 时抛 IxaError（与 callDesktop 同样的错误形状）。 */
+export async function callHermesBridge<T>(
+  name: string,
+  args: Record<string, unknown>,
+  token: string,
+): Promise<T> {
+  return callDesktop<T>('/api/hermes/tool', { name, args }, token);
+}

@@ -58,6 +58,18 @@ export const appConfigSchema = z.object({
       apiKeyPresent: z.boolean().default(false),
     })
     .default({ provider: 'none', apiKeyEncrypted: null, apiKeyPresent: false }),
+  /**
+   * 记忆桥（三周任务单 F1）：让聊天里的 Hermes 经 MCP 查 IXAEON 记忆。默认关闭。
+   * token 是 Hermes 专用的服务端凭证，与 localToken 分开——受众等同聊天注入
+   * （含个人结论、不含个人聊天原文），Codex 等编码客户端拿不到。
+   * 关闭时 token 置空：旧进程手里的令牌立即作废。
+   */
+  hermesBridge: z
+    .object({
+      enabled: z.boolean().default(false),
+      token: z.string().nullable().default(null),
+    })
+    .default({ enabled: false, token: null }),
 });
 export type AppConfig = z.infer<typeof appConfigSchema>;
 
@@ -82,6 +94,7 @@ export function defaultAppConfig(): AppConfig {
     extension: { token: null, pairedAt: null },
     localToken: null,
     webSearch: { provider: 'none', apiKeyEncrypted: null, apiKeyPresent: false },
+    hermesBridge: { enabled: false, token: null },
   };
 }
 

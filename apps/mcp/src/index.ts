@@ -1,7 +1,18 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { MCP_SERVER_INSTRUCTIONS } from '@ixaeon/contracts';
-import { resolveToken, callDesktop, registerTools } from './shared.js';
+import {
+  HERMES_BRIDGE_MCP_TOKEN_ENV,
+  HERMES_BRIDGE_SERVER,
+  MCP_SERVER_INSTRUCTIONS,
+} from '@ixaeon/contracts';
+import {
+  HERMES_BRIDGE_INSTRUCTIONS,
+  callDesktop,
+  callHermesBridge,
+  registerHermesBridgeTools,
+  registerTools,
+  resolveToken,
+} from './shared.js';
 
 /**
  * IXAEON MCP 服务·安装包入口（名称固定为 ixaeon）。
@@ -16,7 +27,34 @@ import { resolveToken, callDesktop, registerTools } from './shared.js';
  * 不 import @ixaeon/core（原生模块打包问题，见 shared.ts 头注）。
  * 直连数据库模式在仓库场景用 dist/direct.mjs（开发/验证用）。
  */
+/**
+ * 记忆桥模式（IXAEON_MCP_PROFILE=hermes，由 Hermes 的 mcp_servers.ixaeon 启动）。
+ * 令牌只从 IXAEON_HERMES_TOKEN 取，**绝不回退**到 config.json 的 localToken——
+ * 那是编码客户端的凭证（受众 coding_client），不能落到聊天引擎手里。
+ * Hermes 配置里写的是 ${IXAEON_HERMES_BRIDGE_TOKEN} 占位符：记忆桥关着时 IXAEON 不传
+ * 这个变量，占位符原样到这里，直接拒绝启动。
+ */
+async function mainHermesBridge(): Promise<void> {
+  const token = (process.env[HERMES_BRIDGE_MCP_TOKEN_ENV] ?? '').trim();
+  if (!token || token.includes('${')) {
+    process.stderr.write(
+      '[ixaeon-mcp] 记忆桥未开启（没有拿到 Hermes 专用令牌）。在 IXAEON 设置页打开「记忆桥」后重开对话。\n',
+    );
+    process.exit(1);
+  }
+  const server = new McpServer(
+    { name: HERMES_BRIDGE_SERVER, version: '0.3.0' },
+    { instructions: HERMES_BRIDGE_INSTRUCTIONS },
+  );
+  registerHermesBridgeTools(server, <T>(name: string, args: Record<string, unknown>) =>
+    callHermesBridge<T>(name, args, token),
+  );
+  await server.connect(new StdioServerTransport());
+  process.stderr.write('[ixaeon-mcp] 记忆桥已启动（STDIO，转发 127.0.0.1:43191）\n');
+}
+
 async function main(): Promise<void> {
+  if (process.env.IXAEON_MCP_PROFILE === 'hermes') return mainHermesBridge();
   const token = resolveToken();
   if (!token) {
     process.stderr.write(

@@ -1,4 +1,4 @@
-import { randomBytes, randomInt, randomUUID, createHash } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import type { CoreDatabase } from '@ixaeon/core';
 import {
   type PermissionService,
@@ -24,7 +24,9 @@ import {
   readWebInputSchema,
   proposeTaskInputSchema,
   getTaskStatusInputSchema,
+  HERMES_BRIDGE_TOOLS,
   type AppConfig,
+  type HermesBridgeToolName,
   type CaptureBatch,
   type CaptureBatchResponse,
   type ExtensionStatusResponse,
@@ -74,6 +76,8 @@ interface LocalServerDeps {
   getWebSearchExecutor?: () => WebSearchExecutor | null;
   fetchWebPage?: (url: string) => Promise<{ finalUrl: string; status: number; excerpt: string }>;
   getCodingOrchestrator?: () => CodingOrchestrator;
+  /** 记忆桥（F1）：Hermes 经 MCP 调来的工具，受众 model。未提供时入口如实报不可用。 */
+  hermesTool?: (name: HermesBridgeToolName, args: Record<string, unknown>) => Promise<unknown>;
 }
 
 export class LocalServer {
@@ -137,6 +141,28 @@ export class LocalServer {
       throw new IxaError(
         ErrorCodes.INVALID_TOKEN,
         'MCP 端点需要本地令牌（IXAEON_DATA_DIR/config.json 的 localToken）',
+      );
+    }
+  }
+
+  /**
+   * 记忆桥入口专用：只认 Hermes 专用令牌，且只在记忆桥开着时有效。
+   * localToken（编码客户端，受众 coding_client）和扩展令牌都进不来；
+   * 反过来 Hermes 令牌也进不了 /api/mcp/*（那里只认 localToken）。
+   */
+  private requireHermesBridgeToken(authorization: unknown): void {
+    const bridge = this.deps.getConfig().hermesBridge;
+    if (!bridge?.enabled || !bridge.token) {
+      throw new IxaError(ErrorCodes.INVALID_TOKEN, '记忆桥未开启（IXAEON 设置页可以打开）');
+    }
+    const header = typeof authorization === 'string' ? authorization : '';
+    const token = /^Bearer\s+(.+)$/i.exec(header.trim())?.[1] ?? '';
+    const a = Buffer.from(token);
+    const b = Buffer.from(bridge.token);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new IxaError(
+        ErrorCodes.INVALID_TOKEN,
+        '记忆桥令牌无效（可能已关闭后重开，请重开对话）',
       );
     }
   }
@@ -503,6 +529,34 @@ export class LocalServer {
           const mcp = new McpService(this.deps.db);
           const result = mcp.getTaskStatus(parsed.data.task_id, (id) => coding.store.get(id));
           return reply.send(result);
+        } catch (err) {
+          return this.sendError(reply, err);
+        }
+      },
+    });
+
+    // --- 记忆桥端点（F1：Hermes 专用令牌；受众 model，与聊天注入同一套规则） ---
+    app.post('/api/hermes/tool', {
+      config: { bodyLimit: 64 * 1024 },
+      handler: async (request, reply) => {
+        try {
+          this.requireHermesBridgeToken(request.headers.authorization);
+          const body = (request.body ?? {}) as { name?: unknown; args?: unknown };
+          const name = typeof body.name === 'string' ? body.name : '';
+          if (!(HERMES_BRIDGE_TOOLS as readonly string[]).includes(name)) {
+            return reply.code(400).send({
+              code: ErrorCodes.VALIDATION_FAILED,
+              message: `记忆桥不提供工具「${name.slice(0, 40)}」`,
+            });
+          }
+          if (!this.deps.hermesTool) {
+            throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '记忆桥尚未就绪');
+          }
+          const args =
+            body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+              ? (body.args as Record<string, unknown>)
+              : {};
+          return reply.send(await this.deps.hermesTool(name as HermesBridgeToolName, args));
         } catch (err) {
           return this.sendError(reply, err);
         }

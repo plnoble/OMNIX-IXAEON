@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { HERMES_BRIDGE_TOKEN_ENV } from '@ixaeon/contracts';
 
 export interface HermesLocator {
   found: boolean;
@@ -120,7 +121,7 @@ export const HERMES_TUI_TOOLSETS = 'web,ixaeon';
  */
 export function hermesSpawnEnv(
   locator: HermesLocator,
-  opts: { chatModel?: string | null } = {},
+  opts: { chatModel?: string | null; bridgeToken?: string | null } = {},
 ): Record<string, string> {
   const env: Record<string, string> = {};
   if (locator.home) env.HERMES_HOME = locator.home;
@@ -136,6 +137,10 @@ export function hermesSpawnEnv(
     env.HERMES_MODEL = chatModel;
     env.HERMES_INFERENCE_MODEL = chatModel;
   }
+  // 记忆桥（F1）：只在开着时传。Hermes 配置里的 ${IXAEON_HERMES_BRIDGE_TOKEN} 由它展开，
+  // 关着时占位符原样保留，MCP 服务拿着一串占位符去连桌面端，必然被拒。
+  const bridgeToken = opts.bridgeToken?.trim();
+  if (bridgeToken) env[HERMES_BRIDGE_TOKEN_ENV] = bridgeToken;
   return env;
 }
 

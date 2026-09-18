@@ -150,7 +150,10 @@ describe('聊天模型由 IXAEON 决定', () => {
   it('提问时把设置里的模型交给网关进程', async () => {
     process.env.IXAEON_HERMES_EXE = fakeHermesExe();
     const { spawns, factory } = spawnRecorder();
-    const adapter = new HermesRuntimeAdapter(undefined, factory as never, () => 'grok-4.6');
+    const adapter = new HermesRuntimeAdapter(undefined, factory as never, () => ({
+      chatModel: 'grok-4.6',
+      bridgeToken: null,
+    }));
     const started = adapter.start(runInput('run-1'));
     await waitMethod(spawns[0]!.outbound, 'session.create');
     await completeTurn(spawns[0]!, 's1');
@@ -164,7 +167,10 @@ describe('聊天模型由 IXAEON 决定', () => {
     process.env.IXAEON_HERMES_EXE = fakeHermesExe();
     const { spawns, factory } = spawnRecorder();
     let model = 'grok-4.6';
-    const adapter = new HermesRuntimeAdapter(undefined, factory as never, () => model);
+    const adapter = new HermesRuntimeAdapter(undefined, factory as never, () => ({
+      chatModel: model,
+      bridgeToken: null,
+    }));
 
     const first = adapter.start(runInput('run-1'));
     await completeTurn(spawns[0]!, 's1');
@@ -197,6 +203,40 @@ describe('聊天模型由 IXAEON 决定', () => {
     await third;
     expect(spawns).toHaveLength(2);
     expect(spawns[1]!.env.HERMES_MODEL).toBe('claude-opus-5');
+    adapter.disposeAll();
+  });
+});
+
+describe('记忆桥令牌随网关启动传入（F1）', () => {
+  it('开着才传令牌；关着不传，Hermes 配置里的占位符原样保留、连接必被拒', () => {
+    const locator = { found: true, exe: 'python.exe', cwd: 'repo', home: 'home', reason: 't' };
+    expect(hermesSpawnEnv(locator, { bridgeToken: 'tok-123' }).IXAEON_HERMES_BRIDGE_TOKEN).toBe(
+      'tok-123',
+    );
+    for (const bridgeToken of [null, '', '  ']) {
+      expect(hermesSpawnEnv(locator, { bridgeToken }).IXAEON_HERMES_BRIDGE_TOKEN).toBeUndefined();
+    }
+  });
+
+  it('开关记忆桥：下一问开新网关进程（旧进程手里的是旧令牌）', async () => {
+    process.env.IXAEON_HERMES_EXE = fakeHermesExe();
+    const { spawns, factory } = spawnRecorder();
+    let bridgeToken: string | null = null;
+    const adapter = new HermesRuntimeAdapter(undefined, factory as never, () => ({
+      chatModel: 'grok-4.6',
+      bridgeToken,
+    }));
+    const first = adapter.start(runInput('run-1'));
+    await completeTurn(spawns[0]!, 's1');
+    await first;
+    expect(spawns[0]!.env.IXAEON_HERMES_BRIDGE_TOKEN).toBeUndefined();
+
+    bridgeToken = 'tok-on';
+    const second = adapter.start(runInput('run-2'));
+    await completeTurn(spawns[1]!, 's2');
+    await second;
+    expect(spawns).toHaveLength(2);
+    expect(spawns[1]!.env.IXAEON_HERMES_BRIDGE_TOKEN).toBe('tok-on');
     adapter.disposeAll();
   });
 });

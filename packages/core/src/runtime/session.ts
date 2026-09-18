@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { ErrorCodes, IxaError } from '@ixaeon/contracts';
+import { ErrorCodes, HERMES_BRIDGE_SERVER, IxaError } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import type { AskResult } from '../storage/askStore.js';
@@ -223,8 +223,11 @@ export class AgentSession {
         // 只在记忆桥接上时附带：聊天工具集钉定为 web,ixaeon（HERMES_TUI_TOOLSETS），
         // ixaeon 未注册时被 Hermes 丢弃，自带 memory 也不在钉定范围内——此时这句话
         // 只会让模型每一轮都去找一个不存在的工具。
+        // Hermes 把 MCP 工具注册为 mcp__<服务名>__<工具名>，约定里必须写模型真正看得到的名字。
+        const tool = (name: string) => `mcp__${HERMES_BRIDGE_SERVER}__${name}`;
         const memoryRoute = this.memoryBridge
-          ? '\n\n（IXAEON 约定：凡需要记住用户告诉你的内容，请调用 record_observation 工具写入 IXAEON 记忆，不要使用你自带的 memory 工具。）'
+          ? `\n\n（IXAEON 约定：需要了解用户的情况、之前说过或做过的事时，调用 ${tool('search_memory')} 查 IXAEON 记忆；` +
+            `用户告诉你需要记住的事，调用 ${tool('record_observation')} 写入 IXAEON 记忆。）`
           : '';
         const dispatchedGoal = `${goal}${contextBlock}${priorBlock}${memoryRoute}`;
         const hermes = await this.adapter.start(

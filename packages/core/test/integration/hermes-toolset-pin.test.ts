@@ -181,6 +181,9 @@ describe('记忆路由约定：只在记忆桥接上时发给模型', () => {
   });
 
   it('记忆桥接上后：附带约定，引导写入 IXAEON 而不是 Hermes 自带记忆', async () => {
-    expect(await dispatchedGoal(true)).toContain('record_observation');
+    // 必须是模型在 Hermes 里真正看到的名字：mcp__<服务名>__<工具名>
+    const goal = await dispatchedGoal(true);
+    expect(goal).toContain('mcp__ixaeon__record_observation');
+    expect(goal).toContain('mcp__ixaeon__search_memory');
   });
 });

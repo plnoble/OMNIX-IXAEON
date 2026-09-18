@@ -662,6 +662,15 @@ export interface IxaIpcApi {
     apiKey?: string;
   }): Promise<{ ok: true }>;
   /** 保存网页搜索设置（B3）。Key 用 safeStorage 加密落盘，留空表示保持不变。 */
+  /** 记忆桥（F1）当前状态：开着没有；关着的话能不能开、为什么不能。 */
+  getHermesBridgeStatus(): Promise<{ enabled: boolean; blockedReason: string | null }>;
+  /**
+   * 开关记忆桥。开之前检查 Hermes 的模型网关是否 HTTPS；会在 Hermes 的 config.yaml 里
+   * 登记/停用 mcp_servers.ixaeon（先备份，令牌不写进去）。
+   */
+  setHermesBridge(
+    enabled: boolean,
+  ): Promise<{ enabled: boolean; backupPath: string | null; warning: string | null }>;
   saveWebSearchSettings(input: {
     provider: 'none' | 'brave' | 'tavily' | 'tinyfish';
     apiKey?: string;

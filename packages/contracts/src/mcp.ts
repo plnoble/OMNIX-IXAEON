@@ -284,3 +284,33 @@ export const MCP_SERVER_INSTRUCTIONS = `你是与本机 IXAEON（析衍）项目
 8. 简报的 coverage 标明依据截至哪个内容/分析版本；hasUnanalyzedContent=true 表示
    项目有新内容尚未分析，简报可能落后于最新对话——需要最新信息时用 search_context 复核。
 9. 未运行的测试必须如实写 not_run/skipped；不要把 agent 自报成功写成用户验收通过。`;
+
+// --- 记忆桥（三周任务单 F1，2026-09-18）：聊天里的 Hermes 经 MCP 查 IXAEON 记忆 ---
+
+/**
+ * Hermes 可调用的 IXAEON 工具，只有这三个。编码类工具（prepare_task /
+ * record_work_result 等）不给聊天引擎；受众是 model（等同聊天注入），不是 coding_client。
+ */
+export const HERMES_BRIDGE_TOOLS = ['search_memory', 'get_evidence', 'record_observation'] as const;
+export type HermesBridgeToolName = (typeof HERMES_BRIDGE_TOOLS)[number];
+
+/** Hermes 里的 MCP 服务名，也是 config.yaml 里 mcp_servers 下的键。 */
+export const HERMES_BRIDGE_SERVER = 'ixaeon';
+
+/**
+ * Hermes 把 MCP 工具注册为 mcp__<服务名>__<工具名>（其 tools/mcp_tool_schema.py），
+ * 模型看到、网关事件里报的都是这个名字。账本比对与给模型的约定都要用它。
+ */
+export const HERMES_BRIDGE_TOOL_WIRE_NAMES: readonly string[] = HERMES_BRIDGE_TOOLS.map(
+  (t) => `mcp__${HERMES_BRIDGE_SERVER}__${t}`,
+);
+
+/**
+ * 网关进程里承载桥令牌的环境变量。Hermes 配置里写 `${IXAEON_HERMES_BRIDGE_TOKEN}`
+ * （Hermes 加载 mcp_servers 时展开），令牌本身不写进 config.yaml；记忆桥关着时
+ * IXAEON 不传这个变量，占位符原样保留，连接必然被拒——失败即关闭。
+ */
+export const HERMES_BRIDGE_TOKEN_ENV = 'IXAEON_HERMES_BRIDGE_TOKEN';
+
+/** MCP 服务里读桥令牌的环境变量（与编码客户端的 IXAEON_LOCAL_TOKEN 分开，不互相回退）。 */
+export const HERMES_BRIDGE_MCP_TOKEN_ENV = 'IXAEON_HERMES_TOKEN';

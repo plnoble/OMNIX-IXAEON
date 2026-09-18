@@ -185,6 +185,7 @@ export { sanitizePublicQuery, type SanitizedQuery } from './memory/querySanitize
 export {
   ContextSelector,
   SEMANTIC_THRESHOLDS,
+  localDay,
   type SelectedMemoryItem,
   type ContextSelectionResult,
   type SemanticThresholds,

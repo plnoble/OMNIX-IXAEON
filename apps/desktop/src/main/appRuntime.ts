@@ -44,6 +44,10 @@ import {
   createWebSearchExecutor,
   runControlledVerifyCommand,
   fetchApprovedSource,
+  ContextSelector,
+  localDay,
+  locateHermes,
+  type HermesLocator,
   type AskResult,
   type CoreDatabase,
   type ModelProvider,
@@ -53,7 +57,9 @@ import {
   ErrorCodes,
   IxaError,
   LOCAL_HTTP_PORT,
+  HERMES_BRIDGE_TOOL_WIRE_NAMES,
   type AppConfig,
+  type HermesBridgeToolName,
   type ExportResult,
   type Permission,
   type Project,
@@ -63,6 +69,7 @@ import {
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
+import { bridgeBlockedReason, bridgeEntry, writeHermesBridgeEntry } from './hermesBridge.js';
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
 import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './researchFetch.js';
 import type { TinyFishFetcher } from '@ixaeon/core';
@@ -264,6 +271,11 @@ export class AppRuntime {
         const rt = runtimeRef.current;
         if (!rt) throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '运行时不可用');
         return rt.coding;
+      },
+      hermesTool: (name, args) => {
+        const rt = runtimeRef.current;
+        if (!rt) throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '运行时不可用');
+        return rt.hermesTool(name, args);
       },
     });
 
@@ -917,25 +929,20 @@ export class AppRuntime {
         this.askSessions.get(conversationId) ??
         new AgentSession(
           this.db,
-          new HermesRuntimeAdapter(broker, undefined, () => this.chatModelName()),
+          new HermesRuntimeAdapter(broker, undefined, () => ({
+            chatModel: this.chatModelName(),
+            bridgeToken: this.hermesBridgeToken(),
+          })),
           broker,
           provider,
           {
             semantic: this.semanticIndex,
-            // F1（记忆桥）等网关换 HTTPS 后再做，在那之前 Hermes 配置里没有 ixaeon 服务，
-            // 不让模型去调 record_observation。
-            memoryBridge: false,
-            // A06 & M1.1：记忆桥接上后，以下工具由 ixaeon MCP 服务注册给 Hermes（结果经
-            // MCP 协议回交），网关侧不本地执行，防双写。接上之前 Hermes 没有这些工具，
-            // 名单只影响账本里的执行方标注。
-            mcpBridgedTools: [
-              'record_observation',
-              'get_evidence',
-              'search_web',
-              'read_web',
-              'propose_task',
-              'get_task_status',
-            ],
+            // F1 记忆桥：开着时才让模型调 IXAEON 的记忆工具（关着时 Hermes 里没有这些工具）。
+            memoryBridge: this.hermesBridgeToken() !== null,
+            // 记忆桥工具由 Hermes 经 MCP 执行（结果经协议回交），网关侧不在本地重复执行；
+            // 名字是 Hermes 里的真名 mcp__ixaeon__<工具>，账本据此标注执行方。
+            mcpBridgedTools:
+              this.hermesBridgeToken() !== null ? [...HERMES_BRIDGE_TOOL_WIRE_NAMES] : [],
           },
         );
       this.askSessions.set(conversationId, session);
@@ -1076,6 +1083,106 @@ export class AppRuntime {
   chatModelName(): string | null {
     const m = this.config.model;
     return m.chatModelName?.trim() || m.modelName?.trim() || null;
+  }
+
+  /** 记忆桥开着时的 Hermes 专用令牌；关着返回 null（启动网关时就不传）。 */
+  hermesBridgeToken(): string | null {
+    // 测试里用 Object.create 搭的运行时可能没有 config：当作记忆桥关着
+    const b = (this.config as AppConfig | undefined)?.hermesBridge;
+    return b?.enabled === true && b.token ? b.token : null;
+  }
+
+  /**
+   * 记忆桥（F1）：Hermes 经 MCP 调来的工具。受众一律是 model——与聊天自动附带的记忆
+   * 同一套规则（含个人结论、不含个人聊天原文）。编码类工具不在此列，由 localServer
+   * 的白名单挡在外面。
+   */
+  async hermesTool(name: HermesBridgeToolName, args: Record<string, unknown>): Promise<unknown> {
+    recordAudit(this.db, 'hermes_bridge.tool', { name });
+    if (name === 'search_memory') {
+      const query = String(args.query ?? '').trim();
+      if (!query) throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'search_memory 需要 query');
+      const limit = Math.min(12, Math.max(1, Math.trunc(Number(args.limit ?? 8)) || 8));
+      await this.awaitSemanticBackfill();
+      const r = await new ContextSelector(this.db).selectForQuestionHybrid(query, null, {
+        audience: 'model',
+        maxItems: limit,
+        semantic: this.semanticIndex,
+      });
+      return {
+        today: localDay(new Date()),
+        items: r.items.map((i) => ({
+          id: i.id,
+          type: i.type,
+          statement: i.statement,
+          origin: i.origin === 'user' ? '用户指定' : '系统推断',
+          recordedAt: localDay(i.recordedAt),
+        })),
+        notice: r.retrievalNotice ?? (r.items.length === 0 ? '没有找到相关记忆。' : null),
+      };
+    }
+    const broker = new CoreToolBroker(this.db, this.items, this.search, this.coding, this.projects);
+    const ctx = { audience: 'model' as const, runId: 'hermes-bridge', projectId: null };
+    if (name === 'get_evidence') return broker.invoke('get_evidence', { itemId: args.itemId }, ctx);
+    return broker.invoke('record_observation', { statement: args.statement }, ctx);
+  }
+
+  /** 记忆桥当前状态（设置页用）：开着没有；关着的话现在能不能开、不能开为什么。 */
+  hermesBridgeStatus(locate: () => HermesLocator = locateHermes): {
+    enabled: boolean;
+    blockedReason: string | null;
+  } {
+    const enabled = this.hermesBridgeToken() !== null;
+    return { enabled, blockedReason: enabled ? null : bridgeBlockedReason(locate()) };
+  }
+
+  /**
+   * 开关记忆桥（F1）。
+   * - 开：Hermes 的模型网关必须是 HTTPS → 在 Hermes 配置里登记 mcp_servers.ixaeon
+   *   （先备份）→ 生成新令牌。登记失败就不开。
+   * - 关：**先作废令牌**（旧网关进程手里的立即失效），再把 Hermes 配置改成
+   *   enabled: false——改配置失败也已经关上了，只提示一句。
+   * 两种情况都丢掉在跑的引擎会话：令牌是网关的启动参数。
+   * deps 仅供测试替换（真实 Hermes 的写入另有测试覆盖）。
+   */
+  async setHermesBridge(
+    enabled: boolean,
+    deps: {
+      locate?: () => HermesLocator;
+      write?: typeof writeHermesBridgeEntry;
+      execPath?: string;
+    } = {},
+  ): Promise<{ enabled: boolean; backupPath: string | null; warning: string | null }> {
+    const locator = (deps.locate ?? locateHermes)();
+    const write = deps.write ?? writeHermesBridgeEntry;
+    const execPath = deps.execPath ?? process.execPath;
+    if (enabled) {
+      const blocked = bridgeBlockedReason(locator);
+      if (blocked) throw new IxaError(ErrorCodes.VALIDATION_FAILED, blocked);
+      const backupPath = await write(locator, bridgeEntry(execPath, true));
+      this.updateConfig((c) => ({
+        ...c,
+        hermesBridge: { enabled: true, token: randomBytes(32).toString('hex') },
+      }));
+      this.resetChatSessions();
+      recordAudit(this.db, 'hermes_bridge.enabled', {});
+      return { enabled: true, backupPath, warning: null };
+    }
+    this.updateConfig((c) => ({ ...c, hermesBridge: { enabled: false, token: null } }));
+    this.resetChatSessions();
+    recordAudit(this.db, 'hermes_bridge.disabled', {});
+    try {
+      const backupPath = await write(locator, bridgeEntry(execPath, false));
+      return { enabled: false, backupPath, warning: null };
+    } catch (err) {
+      return {
+        enabled: false,
+        backupPath: null,
+        warning:
+          '记忆桥已关闭（令牌已作废，Hermes 查不到记忆了），但 Hermes 配置没能改成停用：' +
+          (err instanceof Error ? err.message : String(err)),
+      };
+    }
   }
 
   /**

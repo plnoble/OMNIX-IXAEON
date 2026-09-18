@@ -102,6 +102,100 @@ function UpdateCard() {
   );
 }
 
+/** 记忆桥（三周任务单 F1）：让聊天里的 Hermes 能查 IXAEON 记忆。默认关闭。 */
+function HermesBridgeCard() {
+  const [status, setStatus] = useState<{ enabled: boolean; blockedReason: string | null } | null>(
+    null,
+  );
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'note' | 'warn'; text: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api.getHermesBridgeStatus());
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const r = await api.setHermesBridge(enabled);
+      setMessage(
+        r.warning
+          ? { tone: 'warn', text: r.warning }
+          : {
+              tone: 'note',
+              text: enabled
+                ? '记忆桥已开启，下一次提问时生效（会开一个新的引擎会话）。'
+                : '记忆桥已关闭，Hermes 查不到你的记忆了。',
+            },
+      );
+      await load();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card title="记忆桥（让 Hermes 查你的记忆）" testId="settings-bridge">
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      <p className="muted">
+        开启后，聊天里的 Hermes 可以主动查你的 IXAEON
+        记忆，也能把你让它记住的事记下来（记成待你确认的记录，
+        不会直接当成你的目标）。它能看到的范围和聊天时自动附带的记忆一样：含你允许给模型看的个人结论，
+        不含个人聊天原文。编码工具（如 Codex）拿不到这个权限。
+      </p>
+      <p className="muted">
+        开启时会在 Hermes 的 config.yaml 里登记 ixaeon（改之前先备份），通行令牌不写进配置文件。
+        要求 Hermes 的模型网关是 HTTPS——否则查到的记忆会随对话明文发出去。
+      </p>
+      {status && (
+        <p
+          className={status.enabled ? 'note' : status.blockedReason ? 'warn' : 'muted'}
+          data-testid="settings-bridge-status"
+        >
+          {status.enabled
+            ? '当前：已开启'
+            : status.blockedReason
+              ? `当前：关闭。暂时不能开启——${status.blockedReason}`
+              : '当前：关闭'}
+        </p>
+      )}
+      {message && (
+        <p className={message.tone} data-testid="settings-bridge-message">
+          {message.text}
+        </p>
+      )}
+      <div className="wizard-nav">
+        {status?.enabled ? (
+          <Button disabled={busy} onClick={() => void toggle(false)} testId="settings-bridge-off">
+            {busy ? '处理中…' : '关闭记忆桥'}
+          </Button>
+        ) : (
+          <Button
+            kind="primary"
+            disabled={busy || status === null || status.blockedReason !== null}
+            onClick={() => void toggle(true)}
+            testId="settings-bridge-on"
+          >
+            {busy ? '处理中…' : '开启记忆桥'}
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 /** 设置页：模型接入、采集开关、扩展配对、MCP 接入片段、导出恢复、最近操作。 */
 export function SettingsPage() {
   const [view, setView] = useState<SettingsView | null>(null);
@@ -363,12 +457,15 @@ export function SettingsPage() {
           {view.hermesNotice || '尚未探测 Hermes。'}
         </p>
         <p className="muted" data-testid="settings-hermes-scope">
-          「问答」页的聊天由 Hermes 运行，<strong>用的是 Hermes 自己配置的模型</strong>
-          （Hermes 目录下的 config.yaml），下面「模型接入」里的设置不会改变聊天用的模型；
-          每条回答下方会显示实际用了哪个模型。聊天时 Hermes 只能联网搜索和查 IXAEON
-          记忆（记忆接入开启后），不能读写本机文件、不能执行命令。
+          「问答」页的聊天由 Hermes 运行，
+          <strong>用哪个模型由下面「模型接入」里的「聊天模型」决定</strong>
+          （留空则跟随模型名称），IXAEON 启动 Hermes 时传过去，不改 Hermes 自己的配置文件；
+          每条回答下方会显示实际用了哪个模型。聊天时 Hermes 只能联网搜索，以及在记忆桥开着时查
+          IXAEON 记忆，不能读写本机文件、不能执行命令。
         </p>
       </Card>
+
+      <HermesBridgeCard />
 
       <Card title="模型接入" testId="settings-model">
         <p className="muted" data-testid="settings-model-scope">

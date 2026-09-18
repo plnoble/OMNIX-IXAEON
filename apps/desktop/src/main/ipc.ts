@@ -592,6 +592,9 @@ export function registerIpc(runtime: AppRuntime): void {
       if (runtime.chatModelName() !== before) runtime.resetChatSessions();
       return { ok: true as const };
     },
+    // 记忆桥（F1）：状态与开关（开之前查 HTTPS；改 Hermes 配置前先备份）
+    getHermesBridgeStatus: async () => runtime.hermesBridgeStatus(),
+    setHermesBridge: async (enabled: boolean) => runtime.setHermesBridge(enabled === true),
     // 设置向导/设置页「获取可用模型」：上游拉取，Key 仅本次请求内存使用
     listAvailableModels: async (input) => runtime.listAvailableModels(input),
     // B3 受控网页搜索：保存（Key safeStorage 加密落盘）与真实测试
