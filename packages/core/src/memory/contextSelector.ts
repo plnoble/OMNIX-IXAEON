@@ -1,3 +1,4 @@
+import { isUnadoptedAiAdvice } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { modelMayReadItem } from '../access.js';
 import { isEphemeralStatement, questionLooksEventSpecific } from './ephemeral.js';
@@ -29,6 +30,8 @@ export interface SelectedMemoryItem {
   pastDay?: string | null;
   /** E1：这件事已经结束（日期已过，或用户确认已结束；用户说还没结束的为 false）。 */
   over?: boolean;
+  /** E3：谁说的（ai = AI 在对话里说的建议；null = 文档、手工等没有对话说话人）。 */
+  saidBy?: 'user' | 'ai' | null;
 }
 
 export interface ContextSelectionResult {
@@ -81,11 +84,12 @@ export class ContextSelector {
     recordedAt: string;
     pastDay: string | null;
     over: boolean;
+    saidBy: 'user' | 'ai' | null;
   }> {
     const raw = this.db
       .prepare(
         `SELECT i.id, i.type, i.statement, i.state, i.origin, i.updated_at,
-                COALESCE(i.observed_at, i.updated_at) AS recorded_at, i.time_status,
+                COALESCE(i.observed_at, i.updated_at) AS recorded_at, i.time_status, i.said_by,
                 i.extracted_from_source_id, i.confirmation, i.project_id, i.scope, i.rationale
          FROM items i
          LEFT JOIN sources src_i ON src_i.id = i.extracted_from_source_id
@@ -106,6 +110,7 @@ export class ContextSelector {
       confirmation: string;
       recorded_at: string;
       time_status: 'ongoing' | 'ended' | null;
+      said_by: 'user' | 'ai' | null;
     }>;
     // E1：按内容里写的日期判断这件事过没过去（条目时间戳是导入分析的日期，不能用）；
     // 用户说过「还没结束 / 已结束」的以用户为准。
@@ -116,6 +121,7 @@ export class ContextSelector {
         recordedAt: r.recorded_at,
         pastDay,
         over: r.time_status === 'ended' || pastDay !== null,
+        saidBy: r.said_by,
       };
     });
 
@@ -171,6 +177,7 @@ export class ContextSelector {
         recordedAt: x.item.recordedAt,
         pastDay: x.item.pastDay,
         over: x.item.over,
+        saidBy: x.item.saidBy,
       }));
 
     if (selected.length === 0 && /目标|想做|理解我|目前|计划/.test(q)) {
@@ -193,6 +200,7 @@ export class ContextSelector {
           recordedAt: x.item.recordedAt,
           pastDay: x.item.pastDay,
           over: x.item.over,
+          saidBy: x.item.saidBy,
         }));
     }
 
@@ -213,6 +221,7 @@ export class ContextSelector {
           recordedAt: x.item.recordedAt,
           pastDay: x.item.pastDay,
           over: x.item.over,
+          saidBy: x.item.saidBy,
         }));
     } else {
       selected = selected.slice(0, maxItems);
@@ -291,6 +300,8 @@ export class ContextSelector {
           : sim >= t.relevant || strong || (weak && sim >= t.weakConfirm);
       let rank = (sim ?? 0) + (strong ? 0.3 : 0) + (weak ? 0.05 : 0);
       if (item.origin === 'user') rank += 0.05;
+      // E3：同样相关时，用户自己说的排在 AI 当时的建议前面
+      if (unadoptedAdvice(item)) rank -= 0.02;
       if (item.type === 'goal' || item.type === 'constraint' || item.type === 'preference') {
         rank += 0.02;
       }
@@ -308,6 +319,7 @@ export class ContextSelector {
       recordedAt: x.item.recordedAt,
       pastDay: x.item.pastDay,
       over: x.item.over,
+      saidBy: x.item.saidBy,
     });
     const notEphemeral = (x: (typeof scored)[number]) =>
       eventQ || !isEphemeralStatement(x.item.statement);
@@ -341,8 +353,10 @@ export class ContextSelector {
       const byId = new Map(scored.map((x) => [x.item.id, x]));
       // candidates 已按「用户指定优先、最近更新优先」排序；E1：仍然成立的排在前面，
       // 已经结束的（内容日期已过或用户确认）放后面、带「已过」标注，不当作眼下在忙的事
+      // E3：AI 当时的建议（用户没采纳）不是用户在忙的事，不列
       selected = candidates
         .filter((c) => c.type === 'goal' || c.type === 'open_loop')
+        .filter((c) => !unadoptedAdvice(c))
         .map((c) => byId.get(c.id)!)
         .filter(notEphemeral)
         .sort((a, b) => Number(a.item.over) - Number(b.item.over))
@@ -487,10 +501,41 @@ export function localDay(at: Date | string): string {
  * 「记于」是把这条记下来的日子（多为导入分析那天），不是事情发生的日子——
  * 标注必须说清楚，否则模型会把记录日期当成事件日期，错得更离谱。
  */
+/** E3：AI 当时的建议、用户没采纳（候选条目用 saidBy 字段名）。 */
+function unadoptedAdvice(item: {
+  origin: string;
+  saidBy?: 'user' | 'ai' | null;
+  confirmation: string;
+}): boolean {
+  return isUnadoptedAiAdvice({
+    origin: item.origin,
+    said_by: item.saidBy,
+    confirmation: item.confirmation,
+  });
+}
+
+/**
+ * 注入聊天时这条记忆的出处标签。E3：AI 在对话里说的要标明，
+ * 否则聊天模型会把 AI 当时的建议当成用户的决定、偏好说出来。
+ */
+export function memoryOriginTag(item: {
+  origin: string;
+  saidBy?: 'user' | 'ai' | null;
+  confirmation: string;
+}): string {
+  if (item.origin === 'user') return '用户指定';
+  if (item.saidBy === 'ai' || item.origin === 'assistant_suggestion') {
+    return item.confirmation === 'confirmed'
+      ? '用户采纳的 AI 建议'
+      : 'AI 当时的建议，不是用户的决定';
+  }
+  return '系统推断';
+}
+
 function buildPromptBlock(selected: Array<SelectedMemoryItem & { state: string }>): string {
   if (selected.length === 0) return '';
   const lines = selected.map((item) => {
-    const originTag = item.origin === 'user' ? '用户指定' : '系统推断';
+    const originTag = memoryOriginTag(item);
     const stateTag = item.state === 'disputed' ? ' · disputed/争议未定' : '';
     const day = localDay(item.recordedAt);
     const dateTag = day ? ` · 记于 ${day}` : '';

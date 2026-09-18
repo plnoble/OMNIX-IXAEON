@@ -923,6 +923,33 @@ DELETE FROM items WHERE id IN (SELECT id FROM ask_echoes);
 DROP TABLE ask_echoes;
 `,
   },
+  {
+    id: 31,
+    name: 'item-said-by',
+    sql: `
+-- 三周任务单 E3（用户 2026-09-18 定做法 B：AI 给的建议有用，要留，但记在 AI 名下）。
+-- 真机：从导入聊天提炼出的 91 条里 58 条依据全是 ChatGPT 的回答，却被记成用户的决定、偏好、约束。
+-- said_by = 这条是谁说的：user = 用户的原话；ai = AI 在对话里说的（建议、方案、说法）；
+-- NULL = 没有对话说话人（文档、手工条目、纠正等）。按依据片段的说话人确定，不由模型判断。
+ALTER TABLE items ADD COLUMN said_by TEXT CHECK (said_by IS NULL OR said_by IN ('user', 'ai'));
+UPDATE items SET said_by = 'user'
+WHERE origin = 'ai' AND EXISTS (
+  SELECT 1 FROM item_evidence e JOIN segments g ON g.id = e.segment_id
+  WHERE e.item_id = items.id AND g.role = 'user');
+UPDATE items SET said_by = 'ai'
+WHERE origin = 'ai' AND said_by IS NULL AND EXISTS (
+  SELECT 1 FROM item_evidence e JOIN segments g ON g.id = e.segment_id
+  WHERE e.item_id = items.id AND g.role = 'assistant');
+-- AI 的建议不是用户的决定，不再要用户逐条确认「对不对」：只去掉 unconfirmed 这一个待处理原因，
+-- 其余原因（缺项目、冲突、用户要求继续待处理）原样保留。想用哪条，在记忆页「采纳」。
+UPDATE items
+SET needs_reasons = trim(replace(',' || needs_reasons || ',', ',unconfirmed,', ','), ','),
+    needs_review = CASE
+      WHEN trim(replace(',' || needs_reasons || ',', ',unconfirmed,', ','), ',') = '' THEN 0
+      ELSE 1 END
+WHERE said_by = 'ai' AND (',' || needs_reasons || ',') LIKE '%,unconfirmed,%';
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

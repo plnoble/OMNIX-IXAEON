@@ -11,7 +11,9 @@ import type { CoreDatabase } from '../db/database.js';
  *                记忆不再产生 no_project。
  * - unconfirmed  派生：重要 AI 决定类（decision/rejected_option/
  *                project_summary）尚未确认；agent 自报 open_loop 候选
- *                （origin=work_result）同样待用户确认。
+ *                （origin=work_result）同样待用户确认。AI 在对话里说的
+ *                （said_by=ai，E3）不算：那是 AI 的建议，不是需要用户核对的
+ *                「用户的决定」，想用就采纳。
  * - conflict     持久：与人工决定相似（提取器判定）或双方 disputed
  *                （markDisputed）。只能被用户动作（确认/不采纳/纠正/
  *                明确解除）清掉，绝不被归属操作清掉。
@@ -32,6 +34,8 @@ export interface NeedsReviewFacts {
   origin: string;
   state: string;
   confirmation: string;
+  /** E3：谁说的（ai = AI 在对话里说的建议，不进「待确认」） */
+  said_by?: string | null;
 }
 
 /** 按当前事实计算派生原因（不含 manual / conflict）。 */
@@ -42,6 +46,7 @@ export function derivedNeedsReasons(facts: NeedsReviewFacts): Set<NeedsReason> {
   if (scope === 'unassigned') out.add('no_project');
   const importantAi =
     facts.origin === 'ai' &&
+    facts.said_by !== 'ai' &&
     facts.state === 'current' &&
     facts.confirmation === 'none' &&
     (facts.type === 'decision' ||
@@ -75,7 +80,9 @@ function serialize(reasons: Set<NeedsReason>): string {
 
 function factsOf(db: CoreDatabase, itemId: string): NeedsReviewFacts | undefined {
   const row = db
-    .prepare(`SELECT project_id, scope, type, origin, state, confirmation FROM items WHERE id = ?`)
+    .prepare(
+      `SELECT project_id, scope, type, origin, state, confirmation, said_by FROM items WHERE id = ?`,
+    )
     .get(itemId) as NeedsReviewFacts | undefined;
   return row ?? undefined;
 }

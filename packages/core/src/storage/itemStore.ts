@@ -45,6 +45,7 @@ function toItem(row: Record<string, unknown>): Item {
     confirmation_at: (row['confirmation_at'] as string | null) ?? null,
     manual_project: (row['manual_project'] as number) === 1,
     time_status: (row['time_status'] as Item['time_status']) ?? null,
+    said_by: (row['said_by'] as Item['said_by']) ?? null,
   };
 }
 

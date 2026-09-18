@@ -181,8 +181,26 @@ export const itemSchema = z.object({
   manual_project: z.boolean().default(false),
   /** E1：用户对「这件事结束没有」的判断；null = 按内容里的日期自动判断。 */
   time_status: z.enum(['ongoing', 'ended']).nullable().default(null),
+  /**
+   * E3：这条是谁说的——user = 用户的原话；ai = AI 在对话里说的（建议、方案、说法），
+   * 不是用户的决定，用户「采纳」（confirmation=confirmed）后才算用户的；
+   * null = 没有对话说话人（文档、手工条目、纠正等）。按依据片段的说话人确定。
+   */
+  said_by: z.enum(['user', 'ai']).nullable().default(null),
 });
 export type Item = z.infer<typeof itemSchema>;
+
+/** E3：AI 说的、用户还没采纳的——不能当成用户的目标、决定、偏好、约束。 */
+export function isUnadoptedAiAdvice(item: {
+  origin: string;
+  said_by?: string | null;
+  confirmation: string;
+}): boolean {
+  return (
+    (item.said_by === 'ai' || item.origin === 'assistant_suggestion') &&
+    item.confirmation !== 'confirmed'
+  );
+}
 
 // ---------------------------------------------------------------------------
 // item_links：条目与项目/主题的关联（不复制原文、不等于共享权限）

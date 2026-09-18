@@ -5,8 +5,11 @@
  * v2（2026-09-08）：补输出格式说明 —— /chat/completions 端点（DeepSeek 等）
  * 只有 json_object 模式，模型必须从提示得知目标 JSON 结构。
  * v3（2026-09-12）：一次性/当场要求不得写成 goal/constraint/preference。
+ * v4（2026-09-18，E3）：分清说话人——用户的目标/决定/偏好/约束只能来自用户说的话；
+ * AI 回答里的建议照样提取，但写明是 AI 的说法。记在谁名下由代码按依据片段的说话人决定，
+ * 这里只管措辞，让注入聊天和记忆页读起来不会被误当成用户的事。
  */
-export const EXTRACT_PROMPT_VERSION = 'v3';
+export const EXTRACT_PROMPT_VERSION = 'v4';
 
 /** 提取系统提示词（声明资料是数据、禁止执行——计划 5.3.3）。 */
 export const EXTRACT_SYSTEM_PROMPT = [
@@ -30,6 +33,15 @@ export const EXTRACT_SYSTEM_PROMPT = [
   '- confidence 是你对"确实提取自原文"的把握（0-1），不是对结论永恒正确的评价。',
   '- 宁缺毋滥：没有清晰依据就不要输出该条。',
   '- 一次性/当场要求（这次会议、仅本次、今天先）不要写成 goal/constraint/preference，用 open_loop。',
+  '',
+  '说话人（片段编号后的括号里标明）：',
+  '- （user）是用户本人说的；（assistant）是 AI 助手当时的回答。',
+  '- 用户的目标、决定、偏好、约束只能来自（user）片段；不要把 AI 的建议写成用户的决定或偏好。',
+  '- （assistant）片段里对用户有用的建议、方案、结论也要提取：statement 写明是 AI 的说法，' +
+    '如「AI 建议……」「AI 认为……」，segment_ref 指向那段 assistant 片段。',
+  '- 用户明确采纳了 AI 的建议（如「就按这个来」）时，另记一条用户的决定，写明采纳的内容，' +
+    'segment_ref 指向用户那句话。',
+  '- AI 回答里的客套、泛泛常识、对用户原话的复述不要提取。',
 ].join('\n');
 
 /** 问答系统提示词（引用编号 + 冲突声明——计划 5.6）。 */

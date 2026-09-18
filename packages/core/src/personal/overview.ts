@@ -1,5 +1,11 @@
 import type { CoreDatabase } from '../db/database.js';
-import type { Item, Project, ProjectRelation, ResearchFinding } from '@ixaeon/contracts';
+import {
+  isUnadoptedAiAdvice,
+  type Item,
+  type Project,
+  type ProjectRelation,
+  type ResearchFinding,
+} from '@ixaeon/contracts';
 import { RelationService } from '../orchestration/relationStore.js';
 import { isEphemeralStatement } from '../memory/ephemeral.js';
 import { mentionedDays, pastEventDay } from '../memory/temporal.js';
@@ -89,6 +95,7 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
     confirmation_at: (row['confirmation_at'] as string | null) ?? null,
     manual_project: (row['manual_project'] as number) === 1,
     time_status: (row['time_status'] as Item['time_status']) ?? null,
+    said_by: (row['said_by'] as Item['said_by']) ?? null,
   });
   const all = items.map(toItem);
   // E1：已经结束的事不当作「目标」列出（用户说还没结束的除外）。条目时间戳是导入分析的
@@ -152,12 +159,17 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
         !isEphemeralStatement(i.statement) &&
         !isOver(i),
     ),
+    // E3：AI 在对话里给的建议（用户没采纳）不是用户的约束，也不是用户要处理的事
     constraints: all.filter(
-      (i) => i.type === 'constraint' && (i.scope === 'personal' || i.project_id === null),
+      (i) =>
+        i.type === 'constraint' &&
+        (i.scope === 'personal' || i.project_id === null) &&
+        !isUnadoptedAiAdvice(i),
     ),
     unknowns: all.filter((i) => {
       if (i.state === 'disputed') return true;
       if (!i.needs_review) return false;
+      if (isUnadoptedAiAdvice(i)) return false;
       // 普通未整理/未确认提取可在理解页查看，不刷成首页作业。
       return (
         i.type === 'decision' ||
@@ -184,7 +196,9 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
           !isEphemeralStatement(i.statement) &&
           !isOver(i),
       ),
-      constraints: all.filter((i) => i.project_id === p.id && i.type === 'constraint'),
+      constraints: all.filter(
+        (i) => i.project_id === p.id && i.type === 'constraint' && !isUnadoptedAiAdvice(i),
+      ),
     })),
     relations: new RelationService(db).list({ includeStale: true }),
     researchFollowUps: db

@@ -4,7 +4,7 @@
  * 真机：一次聊天被错误注入了旧资料，模型在回答里复述，提炼又把复述当成新结论
  * 存了回来——同一批旧内容多了 8 份副本（回声）。
  * - 提炼 ask_session 来源时只把用户的原话交给模型，模型的回答看都看不到；
- * - 导入的聊天（ChatGPT 导出等）这次不变（怎么处理待用户定）；
+ * - 导入的聊天（ChatGPT 导出等）问和答都提炼，AI 说的记在 AI 名下（E3，见 e3-said-by）；
  * - 迁移 30 清掉已经存回来的：依据全部来自模型回答、没经过用户处理的 AI 条目。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -133,7 +133,7 @@ describe('提炼聊天存档', () => {
     expect(rows).toEqual([{ statement: '周报用中文写', role: 'user' }]);
   });
 
-  it('导入的聊天这次不变：问和答都照旧交给模型（怎么处理待用户定）', async () => {
+  it('导入的聊天：问和答都交给模型（AI 说的记在 AI 名下，见 E3）', async () => {
     const d = open('ixaeon.db');
     const src = chat(d, 'conv-1', 'chatgpt_export');
     const fake = new FakeProvider().enqueueStructured({ items: [] });

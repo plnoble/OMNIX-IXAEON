@@ -185,6 +185,8 @@ function ItemRow({
   disputed?: boolean;
 }) {
   const [shelved, setShelved] = useState(item.shelved_at !== null);
+  // E3：AI 在对话里说的——是 AI 当时的建议，不是你的决定；「采纳」后才算你的
+  const aiSaid = item.said_by === 'ai';
   return (
     <article
       className={`item-row ${disputed ? 'item-disputed' : ''}`}
@@ -193,9 +195,18 @@ function ItemRow({
       <header>
         {disputed && <span className="badge badge-paused">冲突</span>}
         {item.origin === 'user' && <span className="badge badge-active">用户确认</span>}
+        {aiSaid && (
+          <span
+            className="badge badge-muted"
+            data-testid={`ai-advice-${item.id}`}
+            title="AI 在对话里给的建议或说法，不是你说的；采纳后才算你的决定"
+          >
+            AI 建议
+          </span>
+        )}
         {item.confirmation === 'confirmed' && (
           <span className="badge badge-active" data-testid={`confirmed-${item.id}`}>
-            用户已确认
+            {aiSaid ? '已采纳' : '用户已确认'}
           </span>
         )}
         {item.confirmation === 'rejected' && (
@@ -219,7 +230,7 @@ function ItemRow({
               }}
               testId={`confirm-${item.id}`}
             >
-              确认正确
+              {aiSaid ? '采纳' : '确认正确'}
             </Button>
             <Button
               kind="ghost"

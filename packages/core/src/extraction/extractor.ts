@@ -169,6 +169,12 @@ export class Extractor {
       conflictsWithProtected: boolean;
     };
     const textById = new Map(pool.map((s) => [s.id, s.text]));
+    // E3：谁说的按依据片段的说话人定（不由模型判断）：AI 的回答记在 AI 名下
+    const roleById = new Map(pool.map((s) => [s.id, s.role]));
+    const saidByOf = (segmentId: string): 'user' | 'ai' | null => {
+      const role = roleById.get(segmentId);
+      return role === 'user' ? 'user' : role === 'assistant' ? 'ai' : null;
+    };
     const blocks = this.buildBlocks(pool);
 
     const runModelPass = async (): Promise<{
@@ -301,8 +307,8 @@ export class Extractor {
     const insertItem = this.db.prepare(
       `INSERT INTO items (id, project_id, scope, type, statement, rationale, state, confidence,
          origin, observed_at, created_at, updated_at, extracted_from_source_id,
-         prompt_version, model_name, needs_review, suggested_project_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'current', ?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?)`,
+         prompt_version, model_name, needs_review, suggested_project_id, said_by)
+       VALUES (?, ?, ?, ?, ?, ?, 'current', ?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertEvidence = this.db.prepare(
       `INSERT INTO item_evidence (item_id, segment_id, excerpt, relevance)
@@ -356,14 +362,15 @@ export class Extractor {
         // G4：与人工决定相似的新结论 → 待讨论（可见冲突，不替用户选边）
         if (conflictsWithProtected) needsReview = 1;
         // G6：重要决定类（decision/rejected_option/project_summary）未经用户确认
-        // → 进入待讨论；「属于哪个项目」与「是否需要确认」是两个维度
-        if (
-          row.type === 'decision' ||
-          row.type === 'rejected_option' ||
-          row.type === 'project_summary'
-        ) {
-          needsReview = 1;
-        }
+        // → 进入待讨论；「属于哪个项目」与「是否需要确认」是两个维度。
+        // E3：AI 在对话里说的不算——那是 AI 的建议，不是要用户核对的「用户的决定」
+        const saidBy = saidByOf(segmentId);
+        const unconfirmed =
+          saidBy !== 'ai' &&
+          (row.type === 'decision' ||
+            row.type === 'rejected_option' ||
+            row.type === 'project_summary');
+        if (unconfirmed) needsReview = 1;
         const storedType = demoteEphemeralType(row.type, row.statement);
         insertItem.run(
           itemId,
@@ -381,19 +388,14 @@ export class Extractor {
           this.provider.modelName,
           needsReview,
           suggestedProjectId,
+          saidBy,
         );
         insertEvidence.run(itemId, segmentId, row.excerpt, row.confidence);
         // F01：待处理状态按原因落库 —— 缺项目/人工约束冲突是持久原因，
         // 归属操作只解除「缺项目」，冲突必须留给用户处理。
         if (!projectId) addNeedsReason(this.db, itemId, 'no_project');
         if (conflictsWithProtected) addNeedsReason(this.db, itemId, 'conflict');
-        if (
-          row.type === 'decision' ||
-          row.type === 'rejected_option' ||
-          row.type === 'project_summary'
-        ) {
-          addNeedsReason(this.db, itemId, 'unconfirmed');
-        }
+        if (unconfirmed) addNeedsReason(this.db, itemId, 'unconfirmed');
         stats.inserted++;
         if (needsReview) stats.needsReview++;
       }
