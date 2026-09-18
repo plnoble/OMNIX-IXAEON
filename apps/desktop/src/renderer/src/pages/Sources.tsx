@@ -20,6 +20,13 @@ import {
 
 const PAGE_SIZE = 50;
 
+function minutesUntil(iso: string | null): string {
+  if (!iso) return '马上';
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms < 60_000) return '马上';
+  return `${Math.round(ms / 60_000)} 分钟后`;
+}
+
 /**
  * M1.2：把来源的真实状态数据翻译成普通人能读懂的文案。
  * 依据：版本差（content > analyzed = 还有内容未分析）、最近任务状态、授权状态。
@@ -41,6 +48,13 @@ export function analysisStatus(
   }
   if (a.lastJobStatus === 'running') return { text: '正在分析…', tone: 'muted' };
   if (a.lastJobStatus === 'queued') {
+    if (a.lastJobRetryCount > 0) {
+      const wait = minutesUntil(a.lastJobNextAt);
+      return {
+        text: `模型网关暂时不通，第 ${a.lastJobRetryCount} 次自动重试，${wait === '马上' ? '马上' : `约 ${wait}`}`,
+        tone: 'muted',
+      };
+    }
     return {
       text: a.analyzedRevision > 0 ? '有新内容排队等待分析' : '已收到，等待分析',
       tone: 'muted',
@@ -495,7 +509,17 @@ export function SourcesPage({
                     <td>{item.projectName ?? '未归属'}</td>
                     <td>{sourceKindLabel(item.source.kind)}</td>
                     <td data-testid={`source-status-${item.source.id}`}>
-                      <span className={status.tone}>{status.text}</span>
+                      <span
+                        className={status.tone}
+                        data-testid={
+                          item.analysis.lastJobStatus === 'queued' &&
+                          item.analysis.lastJobRetryCount > 0
+                            ? `source-retry-${item.source.id}`
+                            : undefined
+                        }
+                      >
+                        {status.text}
+                      </span>
                       {status.detail && (
                         <div className="muted" style={{ fontSize: 11 }}>
                           {status.detail}

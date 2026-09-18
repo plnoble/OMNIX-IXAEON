@@ -130,6 +130,8 @@ export type SourceAnalysisStatusView = {
   /** 任务成功但有话要说（如「本次丢弃 N 条依据对不上的结论」） */
   lastJobNote: string | null;
   lastJobAt: string | null;
+  lastJobRetryCount: number;
+  lastJobNextAt: string | null;
 };
 
 export type SourceListItem = {

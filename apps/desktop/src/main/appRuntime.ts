@@ -329,6 +329,10 @@ export class AppRuntime {
     //（保持可理解可恢复：用户在设置页重新输入），两种路径都不把
     // 可解码原文继续留在磁盘上。
     runtime.migrateLegacyPlainApiKey();
+    const requeued = jobs.requeueNetworkFailures();
+    if (requeued > 0) {
+      logger.info('已把因网络失败的分析任务重新排队', { count: requeued });
+    }
     jobs.start();
     // C02：启动阶段先恢复上一运行代次真正遗留的 running 任务
     //（此时队列必空闲，running 记录没有执行者），再扫描欠分析来源
@@ -1737,6 +1741,10 @@ export class AppRuntime {
       vault,
     });
     this.registerJobHandlers();
+    const requeued = jobs.requeueNetworkFailures();
+    if (requeued > 0) {
+      this.logger.info('已把因网络失败的分析任务重新排队', { count: requeued });
+    }
     jobs.start();
     this.startResearchScheduler();
     this.coding.store.markUnknownRunning();
