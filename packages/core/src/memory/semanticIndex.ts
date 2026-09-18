@@ -62,6 +62,17 @@ export class SemanticIndex {
   }
 
   /**
+   * 丢掉当前模型的向量再补一遍；其它模型的行不动。
+   * 先确认向量服务可用再删：Ollama 没开时点重建，不能把现有向量删光却补不回来
+   *（那样聊天选记忆会整体退回关键词）。
+   */
+  async rebuild(): Promise<{ embedded: number; remaining: number }> {
+    await this.embedder.embedQuery('重建前确认向量服务可用');
+    this.db.prepare('DELETE FROM item_embeddings WHERE model = ?').run(this.embedder.modelId);
+    return this.backfill();
+  }
+
+  /**
    * 问题与指定条目的余弦相似度。传多个问题（如并列问题的子问题）时每条取最高。
    * 没有当前有效向量的条目不出现在结果里，由调用方决定怎么对待
    *（不能把「没算过」当成「不相关」）。

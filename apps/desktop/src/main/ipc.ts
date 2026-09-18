@@ -124,7 +124,7 @@ export function registerIpc(runtime: AppRuntime): void {
     return jobIds;
   };
 
-  const handlers: IxaIpcApi = {
+  const handlers: Omit<IxaIpcApi, 'onAskDelta'> = {
     // --- 应用状态 ---
     getState: async (): Promise<AppState> => runtime.state,
     completeSetup: async (input) => runtime.completeSetup(input),
@@ -545,6 +545,8 @@ export function registerIpc(runtime: AppRuntime): void {
     listWorkRuns: async (input) => runtime.listWorkRuns(input.projectId, input.limit),
 
     // --- 设置 ---
+    getSemanticIndexStatus: async () => runtime.getSemanticIndexStatus(),
+    rebuildSemanticIndex: async () => runtime.rebuildSemanticIndex(),
     getSettings: async () => {
       const config = runtime.getConfig();
       return {

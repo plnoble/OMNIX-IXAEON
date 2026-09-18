@@ -155,6 +155,8 @@ export class AgentSession {
      * 取，AgentSession 不自己查库——它不该知道对话表的存在。
      */
     priorTurns?: PriorTurn[];
+    /** S1：Hermes 回答正文分段（payload.delta）；思考过程不转。 */
+    onDelta?: (text: string) => void;
   }): Promise<AgentSessionResult> {
     const goal = input.goal.trim();
     if (!goal) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '问题不能为空');
@@ -178,7 +180,7 @@ export class AgentSession {
         'Hermes 回合进行中',
         now,
       );
-      this.wireEventLedger(runId);
+      this.wireEventLedger(runId, input.onDelta);
       try {
         // A07（审核 2026-09-13）：生产与评测共用 ContextSelector 服务——
         // 针对问句在模型获准边界内精选最相关记忆注入引擎，取代粗粒度字段拼装。
@@ -475,8 +477,15 @@ export class AgentSession {
    * A06：运行事件实时落账本（事件到达即写库，断电前的动作留在
    * runtime_runs.events_json）。失败不中断回合（网关侧兜底记录）。
    */
-  private wireEventLedger(runId: string): void {
+  private wireEventLedger(runId: string, onDelta?: (text: string) => void): void {
     this.adapter.setEventSink((event) => {
+      if (event.kind === 'text' && typeof event.payload.delta === 'string') {
+        try {
+          onDelta?.(event.payload.delta);
+        } catch {
+          /* 调用方处理分段出错不能打断 Hermes 的事件流与账本 */
+        }
+      }
       try {
         const row = this.db
           .prepare('SELECT events_json FROM runtime_runs WHERE id = ?')

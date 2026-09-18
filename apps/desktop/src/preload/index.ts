@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { IxaIpcApi } from '@ixaeon/contracts';
+import type { AskDeltaEvent, IxaIpcApi } from '@ixaeon/contracts';
 
 /**
  * preload：暴露 window.ixaeon 的完整 IPC 通道。
@@ -122,6 +122,13 @@ const api: IxaIpcApi = {
     ipcRenderer.invoke('ixaeon:evaluateSkillWithEvidence', input),
   autoEvolveSkillCandidates: (input) =>
     ipcRenderer.invoke('ixaeon:autoEvolveSkillCandidates', input),
+  getSemanticIndexStatus: () => ipcRenderer.invoke('ixaeon:getSemanticIndexStatus'),
+  rebuildSemanticIndex: () => ipcRenderer.invoke('ixaeon:rebuildSemanticIndex'),
+  onAskDelta: (listener: (e: AskDeltaEvent) => void): (() => void) => {
+    const handler = (_e: unknown, event: AskDeltaEvent) => listener(event);
+    ipcRenderer.on('ixaeon:ask-delta', handler);
+    return () => ipcRenderer.removeListener('ixaeon:ask-delta', handler);
+  },
 };
 
 /** 更新能力（独立于 IxaIpcApi：仅生产构建存在，开发运行为 no-op）。 */

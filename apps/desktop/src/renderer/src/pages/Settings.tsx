@@ -196,6 +196,76 @@ function HermesBridgeCard() {
   );
 }
 
+/** R2：本机语义检索的索引状态与重建（设置页）。 */
+function SemanticIndexCard() {
+  const [status, setStatus] = useState<{
+    enabled: boolean;
+    model: string | null;
+    indexed: number;
+    total: number;
+    lastError: string | null;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setStatus(await api.getSemanticIndexStatus());
+  }, []);
+
+  useEffect(() => {
+    void reload().catch((err) => setError(errMsg(err)));
+  }, [reload]);
+
+  const rebuild = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.rebuildSemanticIndex();
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+      try {
+        await reload();
+      } catch {
+        /* 重建失败仍尽量刷新状态 */
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card title="语义检索（本机）" testId="settings-semantic">
+      <p className="note">
+        {status
+          ? status.enabled
+            ? `已建 ${status.indexed} / ${status.total} 条${status.model ? ` · ${status.model}` : ''}`
+            : '语义检索已关闭（IXAEON_EMBED_MODEL=none）。聊天按关键词选记忆。'
+          : '加载中…'}
+      </p>
+      {status?.lastError && (
+        <>
+          <p className="warn" data-testid="settings-semantic-error">
+            {status.lastError}
+          </p>
+          <p className="muted">
+            本机向量服务没开时，聊天会退回按关键词选记忆。开着 Ollama 后点重建。
+          </p>
+        </>
+      )}
+      {error && <p className="warn">{error}</p>}
+      <Button
+        kind="default"
+        disabled={busy || status?.enabled === false}
+        onClick={() => void rebuild()}
+        testId="settings-semantic-rebuild"
+      >
+        {busy ? '正在重建…' : '重建'}
+      </Button>
+    </Card>
+  );
+}
+
 /** 设置页：模型接入、采集开关、扩展配对、MCP 接入片段、导出恢复、最近操作。 */
 export function SettingsPage() {
   const [view, setView] = useState<SettingsView | null>(null);
@@ -466,6 +536,8 @@ export function SettingsPage() {
       </Card>
 
       <HermesBridgeCard />
+
+      <SemanticIndexCard />
 
       <Card title="模型接入" testId="settings-model">
         <p className="muted" data-testid="settings-model-scope">

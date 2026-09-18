@@ -22,8 +22,8 @@ const DEFAULT_VERIFY =
   `if(!fs.existsSync(p))process.exit(2);if(!String(fs.readFileSync(p,'utf8')).trim())process.exit(3);"`;
 
 /** 引号感知的命令行拆分：双引号内的空格不切分（如 node -e "代码 含空格"）。 */
-export function splitCommandLine(line: string): string[] {
-  const out: string[] = [];
+export function splitCommandLine(line: string): { argv: string[]; unclosed: boolean } {
+  const argv: string[] = [];
   let cur = '';
   let inQuote = false;
   for (const ch of line.trim()) {
@@ -32,14 +32,14 @@ export function splitCommandLine(line: string): string[] {
       continue;
     }
     if (ch === ' ' && !inQuote) {
-      if (cur) out.push(cur);
+      if (cur) argv.push(cur);
       cur = '';
       continue;
     }
     cur += ch;
   }
-  if (cur) out.push(cur);
-  return out;
+  if (cur) argv.push(cur);
+  return { argv, unclosed: inQuote };
 }
 
 export function TasksPage({ projects }: { projects: Project[] }) {
@@ -145,7 +145,7 @@ export function TasksPage({ projects }: { projects: Project[] }) {
                       .split(',')
                       .map((s) => s.trim())
                       .filter(Boolean),
-                    allowedCommands: [splitCommandLine(verify)],
+                    allowedCommands: [splitCommandLine(verify).argv],
                   }),
                 )
               }
@@ -299,22 +299,13 @@ export function TasksPage({ projects }: { projects: Project[] }) {
               )}
               <div className="card-actions" style={{ marginTop: 8 }}>
                 {s.status !== 'approved' && s.status !== 'retired' && (
-                  <Button
-                    kind="default"
+                  <SkillEvalForm
+                    skillId={s.id}
+                    method={s.method}
+                    tasks={tasks}
                     disabled={busy}
-                    onClick={() => {
-                      // 原实现连续调用三次 window.prompt 收集任务 ID、验证命令与收益说明；
-                      // Electron 不支持 prompt，第一下就抛错，这个按钮在真实应用里从未生效
-                      //（自动化测试直接调接口，没点过按钮）。页面内表单尚未实现，
-                      // 先如实说明，不静默失败。见三周任务单「已知未通的入口」。
-                      setError(
-                        '「运行受控对照验证」需要填写任务、验证命令和收益说明，这个输入表单还没做。' +
-                          '原先的弹窗输入在桌面应用里不可用（点了会直接报错），已记入待办。',
-                      );
-                    }}
-                  >
-                    运行受控对照验证
-                  </Button>
+                    onDone={reload}
+                  />
                 )}
                 {s.status === 'evaluated' && s.eval_evidence_json && (
                   <Button
@@ -341,6 +332,126 @@ export function TasksPage({ projects }: { projects: Project[] }) {
           ))
         )}
       </Card>
+    </div>
+  );
+}
+
+/**
+ * K1：技能候选的受控对照验证表单（卡片内展开）。原实现用 window.prompt 收集参数，
+ * Electron 不支持 prompt，这个入口在真实应用里从未生效过。
+ */
+function SkillEvalForm({
+  skillId,
+  method,
+  tasks,
+  disabled,
+  onDone,
+}: {
+  skillId: string;
+  method: string;
+  tasks: CodingTask[];
+  disabled: boolean;
+  onDone: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [taskId, setTaskId] = useState('');
+  const [command, setCommand] = useState('');
+  const [benefit, setBenefit] = useState('');
+  const [running, setRunning] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const split = splitCommandLine(command);
+  const canRun =
+    !disabled && !running && split.argv.length > 0 && !split.unclosed && benefit.trim().length > 0;
+
+  if (!open) {
+    return (
+      <Button
+        kind="default"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        testId="skill-eval-open"
+      >
+        运行受控对照验证
+      </Button>
+    );
+  }
+
+  return (
+    <div data-testid={`skill-eval-form-${skillId}`} style={{ flex: 1 }}>
+      <Field label="关联任务（可选）">
+        <select
+          value={taskId}
+          onChange={(e) => setTaskId(e.target.value)}
+          data-testid="skill-eval-task"
+        >
+          <option value="">不指定任务工作区</option>
+          {tasks.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.goal}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="验证命令">
+        <input
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+          data-testid="skill-eval-command"
+        />
+      </Field>
+      <p className="muted" data-testid="skill-eval-preview">
+        {split.unclosed
+          ? '引号未闭合，无法运行'
+          : split.argv.length === 0
+            ? '按空格拆成参数，双引号内的空格不拆'
+            : split.argv.join(' · ')}
+      </p>
+      <Field label="收益说明">
+        <textarea
+          value={benefit}
+          onChange={(e) => setBenefit(e.target.value)}
+          data-testid="skill-eval-benefit"
+          rows={3}
+        />
+      </Field>
+      {formError && (
+        <p className="warn" data-testid="skill-eval-error">
+          {formError}
+        </p>
+      )}
+      <div className="card-actions" style={{ marginTop: 8 }}>
+        <Button
+          kind="primary"
+          disabled={!canRun}
+          testId="skill-eval-run"
+          onClick={() => {
+            void (async () => {
+              setRunning(true);
+              setFormError(null);
+              try {
+                await api.evaluateSkillWithEvidence({
+                  id: skillId,
+                  method,
+                  command: split.argv,
+                  taskId: taskId.length > 0 ? taskId : null,
+                  benefit: benefit.trim(),
+                });
+                setOpen(false);
+                await onDone();
+              } catch (err) {
+                setFormError(errMsg(err));
+              } finally {
+                setRunning(false);
+              }
+            })();
+          }}
+        >
+          {running ? '正在验证…' : '运行'}
+        </Button>
+        <Button kind="ghost" disabled={running} onClick={() => setOpen(false)}>
+          取消
+        </Button>
+      </div>
     </div>
   );
 }

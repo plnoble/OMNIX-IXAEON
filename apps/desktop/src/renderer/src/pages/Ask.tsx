@@ -75,6 +75,12 @@ export function AskPage({ projects }: { projects: Project[] }) {
   const renameCancelled = useRef(false);
   const stick = useRef(true);
   const listEl = useRef<HTMLDivElement>(null);
+  // S2：正在等的那一轮。pendingId 是本地占位气泡的临时 id，第一段分段到达后换成真实 messageId。
+  const waiting = useRef<{ conversationId: string; pendingId: string; cancelled: boolean } | null>(
+    null,
+  );
+  // 当前显示的对话。分段只写进它：切到别的对话时不往那边塞，切回来时从库里重新加载。
+  const shownId = useRef<string | null>(null);
   const noticeShown = useMemo(() => noticeVisibility(messages), [messages]);
 
   const reloadList = useCallback(async () => {
@@ -93,6 +99,34 @@ export function AskPage({ projects }: { projects: Project[] }) {
   }, [reloadList]);
 
   useEffect(() => {
+    shownId.current = activeId;
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!api.onAskDelta) return;
+    const off = api.onAskDelta((e) => {
+      const w = waiting.current;
+      if (!w || w.cancelled || e.conversationId !== w.conversationId) return;
+      if (shownId.current !== e.conversationId) return;
+      setMessages((prev) => {
+        // 按 id 认这一轮的那条消息，不按「最后一个在转圈的」去猜
+        const idx = prev.findIndex((m) => m.id === e.messageId || m.id === w.pendingId);
+        if (idx < 0) return prev;
+        const target = prev[idx]!;
+        const next = [...prev];
+        next[idx] = {
+          ...target,
+          id: e.messageId,
+          conversationId: e.conversationId,
+          content: target.content + e.delta,
+        };
+        return next;
+      });
+    });
+    return () => off();
+  }, []);
+
+  useEffect(() => {
     const el = listEl.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [messages, busy]);
@@ -109,37 +143,49 @@ export function AskPage({ projects }: { projects: Project[] }) {
     const pendingAnswer = pendingMessage('assistant', '', lastSeq + 2);
     setMessages((prev) => [...prev, pendingMessage('user', text, lastSeq + 1), pendingAnswer]);
     stick.current = true;
+    let conversationId = activeId;
     try {
+      // 先建对话再发：分段到来时要知道属于哪个对话（新对话的 id 原本要等回答结束才拿得到）。
+      if (!conversationId) {
+        const created = await api.createConversation({
+          projectId: projectId.length > 0 ? projectId : null,
+        });
+        conversationId = created.id;
+        shownId.current = created.id;
+        setActiveId(created.id);
+      }
+      waiting.current = { conversationId, pendingId: pendingAnswer.id, cancelled: false };
       const result = await api.askQuestion({
-        conversationId: activeId,
+        conversationId,
         projectId: projectId.length > 0 ? projectId : null,
         question: text,
       });
+      waiting.current = null;
       await openConversation(result.conversationId);
       await reloadList();
     } catch (err) {
       const message = errMsg(err);
       setError(message);
-      if (activeId) {
+      waiting.current = null;
+      if (conversationId) {
         try {
-          // 后端已把这一轮收尾为 failed，从库里重新拉就能看到
-          await openConversation(activeId);
+          // 后端已把这一轮收尾为 failed（已答出的半截也在），从库里重新拉就能看到
+          await openConversation(conversationId);
         } catch {
           /* 重载失败不覆盖提问错误 */
         }
       } else {
-        // 新对话里的第一问就失败：拿不到对话 id，本地把转圈改成失败，
-        // 别让气泡一直转；刷新列表后这个对话（含失败记录）会出现在左侧。
+        // 连对话都没建成：本地把转圈改成失败，别让气泡一直转
         setMessages((prev) =>
           prev.map((m) =>
             m.id === pendingAnswer.id ? { ...m, status: 'failed', errorMessage: message } : m,
           ),
         );
-        try {
-          await reloadList();
-        } catch {
-          /* 同上 */
-        }
+      }
+      try {
+        await reloadList();
+      } catch {
+        /* 列表刷新失败不覆盖提问错误 */
       }
     } finally {
       setBusy(false);
@@ -351,6 +397,7 @@ export function AskPage({ projects }: { projects: Project[] }) {
               <Button
                 kind="ghost"
                 onClick={() => {
+                  if (waiting.current) waiting.current.cancelled = true;
                   void api.cancelAsk(activeId);
                 }}
                 testId="ask-cancel"

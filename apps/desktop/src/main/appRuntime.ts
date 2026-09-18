@@ -59,6 +59,7 @@ import {
   LOCAL_HTTP_PORT,
   HERMES_BRIDGE_TOOL_WIRE_NAMES,
   type AppConfig,
+  type AskDeltaEvent,
   type HermesBridgeToolName,
   type ExportResult,
   type Permission,
@@ -126,6 +127,12 @@ export class AppRuntime {
   /** 正在跑的补向量回合（同一时间只跑一个）；提问前会等它，见 awaitSemanticBackfill。 */
   private semanticBackfillRun: Promise<void> | null = null;
   private semanticUnavailableLogged = false;
+  /** R2：最近一次补向量失败原因（给人看的中文）；成功后清空。 */
+  private semanticLastError: string | null = null;
+  /** S1：把回答分段推到当前窗口。 */
+  private askDeltaSink: ((e: AskDeltaEvent) => void) | null = null;
+  /** S1：取消后丢掉迟到的分段，不再写库、不再发事件。 */
+  private cancelledAskRuns = new Set<string>();
 
   private constructor(deps: {
     dataDir: string;
@@ -562,6 +569,8 @@ export class AppRuntime {
         disputed: stats.disputed,
         needsReview: stats.needsReview,
       });
+      // R2：新提炼出的记忆立刻补向量，不等下一问。
+      void this.kickSemanticBackfill();
     });
   }
 
@@ -875,6 +884,7 @@ export class AppRuntime {
     question: string;
   }): Promise<AskResult & { conversationId: string; userMessageId: string; messageId: string }> {
     const { projectId, question } = input;
+    this.cancelledAskRuns ??= new Set();
     // A06（审核 2026-09-13）：Hermes 引擎不依赖 IXAEON 的模型配置（那是
     // core-bounded 兜底循环用的）。真 Hermes 可用时即使未配 key 也要放行——
     // 否则「装了引擎却用不上」。两者都没有才如实拒绝。
@@ -924,6 +934,47 @@ export class AppRuntime {
     // 紧挨着 try 获取、在 finally 释放——中间出任何错都不会让后台分析永远停着。
     const releaseJobs = (this.jobs as JobQueue | undefined)?.hold() ?? (() => undefined);
 
+    // S1：回答分段。推给界面是即时的；写库合并成每 200ms 一次（≤5 次/秒），
+    // 结束或失败时把剩下的写掉——失败时用户也能看到已经答出的那半截。
+    // 推送或写库出错只记下、不往外抛：分段是锦上添花，不能把 Hermes 的事件流打断。
+    let pendingDelta = '';
+    let lastDeltaWrite = 0;
+    let deltaTimer: NodeJS.Timeout | null = null;
+    const flushDeltas = (): void => {
+      if (deltaTimer) {
+        clearTimeout(deltaTimer);
+        deltaTimer = null;
+      }
+      if (this.cancelledAskRuns.has(runId) || pendingDelta.length === 0) {
+        pendingDelta = '';
+        return;
+      }
+      const chunk = pendingDelta;
+      pendingDelta = '';
+      lastDeltaWrite = Date.now();
+      try {
+        this.conversations.appendContent(assistantMessage.id, chunk);
+      } catch {
+        /* 库已关闭等：最终内容由 finishMessage 写入，这里丢一段不影响结果 */
+      }
+    };
+    const onDelta = (text: string): void => {
+      if (this.cancelledAskRuns.has(runId) || text.length === 0) return;
+      pendingDelta += text;
+      try {
+        this.askDeltaSink?.({ conversationId, messageId: assistantMessage.id, delta: text });
+      } catch {
+        /* 窗口已关闭等：界面收不到分段，回答照常完成 */
+      }
+      const wait = 200 - (Date.now() - lastDeltaWrite);
+      if (wait <= 0) {
+        flushDeltas();
+      } else if (!deltaTimer) {
+        deltaTimer = setTimeout(flushDeltas, wait);
+        deltaTimer.unref?.();
+      }
+    };
+
     try {
       // 选材前把向量补齐（有上限），别让第一问抢在补向量前面走关键词路径。
       await this.awaitSemanticBackfill();
@@ -960,7 +1011,14 @@ export class AppRuntime {
         );
       this.askSessions.set(conversationId, session);
       this.activeAskRuns.set(conversationId, runId);
-      const result = await session.run({ goal: question, projectId, runId, priorTurns });
+      const result = await session.run({
+        goal: question,
+        projectId,
+        runId,
+        priorTurns,
+        onDelta,
+      });
+      flushDeltas();
       // 用户指示（2026-09-13）：所有问答内容都进 Core。
       // A03（审核 2026-09-13）：问答存档挂独立的启用/撤销状态——
       // 用户在授权列表撤销过 ask.ixaeon.local 后，普通提问**不再隐式重建授权**，
@@ -1067,7 +1125,8 @@ export class AppRuntime {
       };
     } catch (err) {
       // 失败也要在对话里留痕：把占位消息收尾成 failed，否则用户看到的是
-      // 一句话发出去、然后一个永远在转圈的空气泡。
+      // 一句话发出去、然后一个永远在转圈的空气泡。已经答出的那半截先写进去。
+      flushDeltas();
       const message = err instanceof Error ? err.message : String(err);
       try {
         this.conversations.finishMessage(assistantMessage.id, {
@@ -1087,6 +1146,7 @@ export class AppRuntime {
         // 连续性，不是执行状态残留）；这里只清掉「在跑」的标记。
         this.activeAskRuns.delete(conversationId);
       }
+      this.cancelledAskRuns.delete(runId);
     }
   }
 
@@ -1222,15 +1282,17 @@ export class AppRuntime {
     const run = index
       .backfill({ batchSize: 16 })
       .then((r) => {
+        this.semanticLastError = null;
         this.semanticUnavailableLogged = false;
         if (r.embedded > 0) {
           this.logger.info('语义索引已补向量', { embedded: r.embedded, remaining: r.remaining });
         }
       })
       .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.semanticLastError = msg;
         if (!this.semanticUnavailableLogged) {
           this.semanticUnavailableLogged = true;
-          const msg = err instanceof Error ? err.message : '';
           this.logger.info('语义索引暂不可用，聊天记忆按关键词选取', {
             model: index.modelId,
             reasonCode: /还没有模型/.test(msg)
@@ -1275,6 +1337,7 @@ export class AppRuntime {
    *（多个对话同时在跑时不传 id 属于调用方错误，如实拒绝，不随便挑一个杀）。
    */
   cancelAsk(conversationId?: string | null): { cancelled: boolean; runId: string | null } {
+    this.cancelledAskRuns ??= new Set();
     let target = conversationId ?? null;
     if (target === null) {
       if (this.activeAskRuns.size !== 1) return { cancelled: false, runId: null };
@@ -1284,7 +1347,46 @@ export class AppRuntime {
     const session = this.askSessions.get(target);
     if (!runId || !session) return { cancelled: false, runId: null };
     session.cancel(runId);
+    this.cancelledAskRuns.add(runId);
     return { cancelled: true, runId };
+  }
+
+  setAskDeltaSink(fn: ((e: AskDeltaEvent) => void) | null): void {
+    this.askDeltaSink = fn;
+  }
+
+  getSemanticIndexStatus(): {
+    enabled: boolean;
+    model: string | null;
+    indexed: number;
+    total: number;
+    lastError: string | null;
+  } {
+    const index = this.semanticIndex;
+    if (!index) {
+      return { enabled: false, model: null, indexed: 0, total: 0, lastError: null };
+    }
+    const cov = index.coverage();
+    return {
+      enabled: true,
+      model: index.modelId,
+      indexed: cov.indexed,
+      total: cov.total,
+      lastError: this.semanticLastError ?? null,
+    };
+  }
+
+  async rebuildSemanticIndex(): Promise<{ embedded: number; remaining: number }> {
+    const index = this.semanticIndex;
+    if (!index) return { embedded: 0, remaining: 0 };
+    try {
+      const result = await index.rebuild();
+      this.semanticLastError = null;
+      return result;
+    } catch (err: unknown) {
+      this.semanticLastError = err instanceof Error ? err.message : String(err);
+      throw err;
+    }
   }
 
   personalOverview() {

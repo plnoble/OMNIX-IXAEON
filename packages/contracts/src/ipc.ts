@@ -272,6 +272,13 @@ export const askAnswerSchema = z.object({
 });
 export type AskAnswer = z.infer<typeof askAnswerSchema>;
 
+/** S1/S2：回答正文的一段增量（不含思考过程）。 */
+export interface AskDeltaEvent {
+  conversationId: string;
+  messageId: string;
+  delta: string;
+}
+
 // --- D2/D4：对话与消息（迁移 26） ---
 
 export const conversationSchema = z.object({
@@ -532,6 +539,8 @@ export interface IxaIpcApi {
   askQuestion(input: AskQuestionInput): Promise<AskAnswer>;
   /** 传 conversationId 只取消该对话；不传时仅当全局恰好一个回合在跑才生效。 */
   cancelAsk(conversationId?: string | null): Promise<{ cancelled: boolean; runId: string | null }>;
+  /** S1/S2：回答正文分段；返回取消订阅。 */
+  onAskDelta(listener: (e: AskDeltaEvent) => void): () => void;
   // 对话（D2/D4）
   listConversations(input?: {
     includeArchived?: boolean;
@@ -653,6 +662,14 @@ export interface IxaIpcApi {
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置
   getSettings(): Promise<SettingsView>;
+  getSemanticIndexStatus(): Promise<{
+    enabled: boolean;
+    model: string | null;
+    indexed: number;
+    total: number;
+    lastError: string | null;
+  }>;
+  rebuildSemanticIndex(): Promise<{ embedded: number; remaining: number }>;
   saveModelSettings(input: {
     modelName: string;
     /** 聊天用的模型名；空串 = 跟随 modelName。不传 = 保持原值 */
