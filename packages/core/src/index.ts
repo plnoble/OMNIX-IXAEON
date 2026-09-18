@@ -2,6 +2,7 @@
 export { ErrorCodes, IxaError, toApiError } from '@ixaeon/contracts';
 export { openDatabase, type CoreDatabase } from './db/database.js';
 export { migrate, currentMigrationVersion, MIGRATIONS } from './db/migrations.js';
+export { backupBeforeMigrate } from './db/backup.js';
 export { Vault, sha256 } from './vault.js';
 export { normalizeLocalPath, isPathInside, assertInside, safeJoin } from './paths.js';
 export {
