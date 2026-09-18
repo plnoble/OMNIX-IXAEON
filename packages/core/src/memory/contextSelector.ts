@@ -2,6 +2,7 @@ import type { CoreDatabase } from '../db/database.js';
 import { modelMayReadItem } from '../access.js';
 import { isEphemeralStatement, questionLooksEventSpecific } from './ephemeral.js';
 import type { SemanticIndex } from './semanticIndex.js';
+import { pastEventDay } from './temporal.js';
 
 /**
  * A07（审核 2026-09-13）：生产与评测共用的上下文选材服务。
@@ -24,6 +25,10 @@ export interface SelectedMemoryItem {
   score: number;
   /** 这条是什么时候记下的（observed_at，退回 updated_at）。不是事情发生的日期。 */
   recordedAt: string;
+  /** E1：内容里写的日期已经过去时，最晚那天（YYYY-MM-DD）。 */
+  pastDay?: string | null;
+  /** E1：这件事已经结束（日期已过，或用户确认已结束；用户说还没结束的为 false）。 */
+  over?: boolean;
 }
 
 export interface ContextSelectionResult {
@@ -74,11 +79,13 @@ export class ContextSelector {
     origin: string;
     confirmation: string;
     recordedAt: string;
+    pastDay: string | null;
+    over: boolean;
   }> {
     const raw = this.db
       .prepare(
         `SELECT i.id, i.type, i.statement, i.state, i.origin, i.updated_at,
-                COALESCE(i.observed_at, i.updated_at) AS recorded_at,
+                COALESCE(i.observed_at, i.updated_at) AS recorded_at, i.time_status,
                 i.extracted_from_source_id, i.confirmation, i.project_id, i.scope, i.rationale
          FROM items i
          LEFT JOIN sources src_i ON src_i.id = i.extracted_from_source_id
@@ -98,8 +105,19 @@ export class ContextSelector {
       origin: string;
       confirmation: string;
       recorded_at: string;
+      time_status: 'ongoing' | 'ended' | null;
     }>;
-    const rows = raw.map((r) => ({ ...r, recordedAt: r.recorded_at }));
+    // E1：按内容里写的日期判断这件事过没过去（条目时间戳是导入分析的日期，不能用）；
+    // 用户说过「还没结束 / 已结束」的以用户为准。
+    const rows = raw.map((r) => {
+      const pastDay = r.time_status === 'ongoing' ? null : pastEventDay(r.statement, r.recorded_at);
+      return {
+        ...r,
+        recordedAt: r.recorded_at,
+        pastDay,
+        over: r.time_status === 'ended' || pastDay !== null,
+      };
+    });
 
     if (audience === 'model') {
       return rows.filter((r) => modelMayReadItem(this.db, r.id));
@@ -151,6 +169,8 @@ export class ContextSelector {
         confirmation: x.item.confirmation,
         score: x.score,
         recordedAt: x.item.recordedAt,
+        pastDay: x.item.pastDay,
+        over: x.item.over,
       }));
 
     if (selected.length === 0 && /目标|想做|理解我|目前|计划/.test(q)) {
@@ -171,6 +191,8 @@ export class ContextSelector {
           confirmation: x.item.confirmation,
           score: x.score,
           recordedAt: x.item.recordedAt,
+          pastDay: x.item.pastDay,
+          over: x.item.over,
         }));
     }
 
@@ -189,6 +211,8 @@ export class ContextSelector {
           confirmation: x.item.confirmation,
           score: x.score,
           recordedAt: x.item.recordedAt,
+          pastDay: x.item.pastDay,
+          over: x.item.over,
         }));
     } else {
       selected = selected.slice(0, maxItems);
@@ -282,6 +306,8 @@ export class ContextSelector {
       confirmation: x.item.confirmation,
       score: Math.round(x.rank * 100),
       recordedAt: x.item.recordedAt,
+      pastDay: x.item.pastDay,
+      over: x.item.over,
     });
     const notEphemeral = (x: (typeof scored)[number]) =>
       eventQ || !isEphemeralStatement(x.item.statement);
@@ -313,11 +339,13 @@ export class ContextSelector {
     // 概览问题与具体条目的语义相似度天然偏低且平坦（真实资料上最高 0.369），不能靠语义阈值。
     if (selected.length === 0 && isOverviewQuestion(question)) {
       const byId = new Map(scored.map((x) => [x.item.id, x]));
-      // candidates 已按「用户指定优先、最近更新优先」排序
+      // candidates 已按「用户指定优先、最近更新优先」排序；E1：仍然成立的排在前面，
+      // 已经结束的（内容日期已过或用户确认）放后面、带「已过」标注，不当作眼下在忙的事
       selected = candidates
         .filter((c) => c.type === 'goal' || c.type === 'open_loop')
         .map((c) => byId.get(c.id)!)
         .filter(notEphemeral)
+        .sort((a, b) => Number(a.item.over) - Number(b.item.over))
         .slice(0, maxItems)
         .map(toSelected);
     }
@@ -466,7 +494,13 @@ function buildPromptBlock(selected: Array<SelectedMemoryItem & { state: string }
     const stateTag = item.state === 'disputed' ? ' · disputed/争议未定' : '';
     const day = localDay(item.recordedAt);
     const dateTag = day ? ` · 记于 ${day}` : '';
-    return `- [${item.type} · ${originTag}${stateTag}${dateTag}] ${item.statement}`;
+    // E1：事情本身已经过去——说明哪天过的（按内容里的日期），或用户确认已结束
+    const overTag = item.pastDay
+      ? ` · 所述日期 ${item.pastDay} 已过`
+      : item.over
+        ? ' · 用户确认已结束'
+        : '';
+    return `- [${item.type} · ${originTag}${stateTag}${dateTag}${overTag}] ${item.statement}`;
   });
   const header =
     `IXAEON 记忆上下文（今天 ${localDay(new Date())}；` +

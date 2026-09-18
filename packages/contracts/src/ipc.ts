@@ -560,12 +560,24 @@ export interface IxaIpcApi {
   archiveConversation(id: string): Promise<Conversation>;
   unarchiveConversation(id: string): Promise<Conversation>;
   deleteConversation(id: string): Promise<{ deleted: true }>;
+  /** E1：用户对「这件事结束没有」的判断；null = 回到按内容日期自动判断。 */
+  setItemTimeStatus(input: { id: string; status: 'ongoing' | 'ended' | null }): Promise<Item>;
   getPersonalOverview(): Promise<{
     generatedAt: string;
     goals: Item[];
     constraints: Item[];
     unknowns: Item[];
     conflicts: Item[];
+    /** E1：看起来已经结束的事（内容里的日期已过、用户还没表态）。 */
+    pastSuggestions: Array<{ item: Item; day: string }>;
+    /** E1：整份资料里的事看起来都已结束，建议整份归档为过往的事。 */
+    pastSources: Array<{
+      sourceId: string;
+      title: string;
+      lastDay: string;
+      pastItems: number;
+      totalItems: number;
+    }>;
     projects: Array<{ project: Project; goals: Item[]; constraints: Item[] }>;
     relations: ProjectRelation[];
     researchFollowUps: Array<{

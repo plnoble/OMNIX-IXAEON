@@ -1181,6 +1181,8 @@ export class AppRuntime {
           statement: i.statement,
           origin: i.origin === 'user' ? '用户指定' : '系统推断',
           recordedAt: localDay(i.recordedAt),
+          // E1：事情本身已经过去（内容日期已过或用户确认已结束），别当成眼下的事
+          ...(i.over ? { over: i.pastDay ? `所述日期 ${i.pastDay} 已过` : '用户确认已结束' } : {}),
         })),
         notice: r.retrievalNotice ?? (r.items.length === 0 ? '没有找到相关记忆。' : null),
       };

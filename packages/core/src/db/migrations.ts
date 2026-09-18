@@ -879,6 +879,18 @@ CREATE TABLE item_embeddings (
 ALTER TABLE jobs ADD COLUMN note TEXT;
 `,
   },
+  {
+    id: 29,
+    name: 'item-time-status',
+    sql: `
+-- 三周任务单 E1（2026-09-18）：已结束的事自动退场。
+-- 「过没过去」由内容里写的日期自动判断（memory/temporal.ts），不落库；这里只存用户的判断，
+-- 用来盖过自动判断：ongoing = 用户说还没结束（自动判断认错了，以后别再当成过去的事）；
+-- ended = 用户确认已结束（内容里没日期也算过去）。NULL = 按内容日期自动判断。
+-- 不用「搁置」：搁置会让条目从记忆里整个消失，而结束了的事问到时仍要能查到（当历史）。
+ALTER TABLE items ADD COLUMN time_status TEXT CHECK (time_status IS NULL OR time_status IN ('ongoing', 'ended'));
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

@@ -424,6 +424,12 @@ export function registerIpc(runtime: AppRuntime): void {
       return { deleted: true as const };
     },
     getPersonalOverview: async () => runtime.personalOverview(),
+    setItemTimeStatus: async (input) => {
+      const item = runtime.items.setTimeStatus(input.id, input.status);
+      // 记忆的「过没过去」变了：长驻的引擎会话里注入过的旧说法要作废
+      runtime.invalidateContext();
+      return item;
+    },
     listProjectRelations: async (input) => runtime.relations.list(input),
     proposeProjectRelations: async () => runtime.proposeRelations(),
     acceptProjectRelation: async (id) => runtime.relations.accept(id),

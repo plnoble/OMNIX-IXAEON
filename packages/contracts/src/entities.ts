@@ -179,6 +179,8 @@ export const itemSchema = z.object({
   confirmation_at: z.string().nullable().default(null),
   /** G5：人工单独归属标记（来源级批量重绑不搬动） */
   manual_project: z.boolean().default(false),
+  /** E1：用户对「这件事结束没有」的判断；null = 按内容里的日期自动判断。 */
+  time_status: z.enum(['ongoing', 'ended']).nullable().default(null),
 });
 export type Item = z.infer<typeof itemSchema>;
 

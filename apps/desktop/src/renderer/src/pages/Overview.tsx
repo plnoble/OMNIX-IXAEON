@@ -9,6 +9,15 @@ interface OverviewData {
   constraints: Item[];
   unknowns: Item[];
   conflicts: Item[];
+  /** E1：看起来已经结束的事（内容里的日期已过、你还没表态）。 */
+  pastSuggestions: Array<{ item: Item; day: string }>;
+  pastSources: Array<{
+    sourceId: string;
+    title: string;
+    lastDay: string;
+    pastItems: number;
+    totalItems: number;
+  }>;
   projects: Array<{ project: { id: string; name: string }; goals: Item[]; constraints: Item[] }>;
   relations: ProjectRelation[];
   researchFollowUps: Array<{
@@ -55,6 +64,93 @@ function ItemList({ items }: { items: Item[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * E1：看起来已经结束的事。按内容里写的日期判断（条目时间戳是导入分析的日期，不是
+ * 事情发生的日期），所以可能认错——每条都让你一键确认或纠正，确认过的不再出现。
+ */
+function PastSuggestions({
+  suggestions,
+  sources,
+  onChanged,
+}: {
+  suggestions: Array<{ item: Item; day: string }>;
+  sources: OverviewData['pastSources'];
+  onChanged: () => Promise<void>;
+}) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (suggestions.length === 0 && sources.length === 0) return <p className="muted">暂无</p>;
+  // 整份资料归档：那份资料的提炼结果退出「当前记忆」，只留一段经验摘要；可在「资料」页恢复
+  const archive = async (sourceId: string) => {
+    setPending(sourceId);
+    setError(null);
+    try {
+      await api.archiveSource({ sourceId, summary: null });
+      await onChanged();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setPending(null);
+    }
+  };
+  const mark = async (id: string, status: 'ongoing' | 'ended') => {
+    setPending(id);
+    setError(null);
+    try {
+      await api.setItemTimeStatus({ id, status });
+      await onChanged();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setPending(null);
+    }
+  };
+  return (
+    <>
+      {error && <p className="warn">{error}</p>}
+      {sources.map((src) => (
+        <p key={src.sourceId} data-testid="overview-past-source">
+          《{src.title}》里写了日期的 {src.pastItems} 件事都已过去（最晚 {src.lastDay}），
+          这份资料共 {src.totalItems} 条记忆，有些没写日期但说的是同一件事。{' '}
+          <Button
+            kind="ghost"
+            disabled={pending === src.sourceId}
+            onClick={() => void archive(src.sourceId)}
+            testId="overview-past-archive"
+          >
+            整份归档为过往的事
+          </Button>
+          <span className="muted">（可在「资料」页恢复）</span>
+        </p>
+      ))}
+      <ul>
+        {suggestions.map(({ item, day }) => (
+          <li key={item.id} data-testid="overview-past-item">
+            {item.statement}
+            <span className="muted">（内容里的日期 {day} 已过）</span>{' '}
+            <Button
+              kind="ghost"
+              disabled={pending === item.id}
+              onClick={() => void mark(item.id, 'ended')}
+              testId="overview-past-ended"
+            >
+              确认已结束
+            </Button>
+            <Button
+              kind="ghost"
+              disabled={pending === item.id}
+              onClick={() => void mark(item.id, 'ongoing')}
+              testId="overview-past-ongoing"
+            >
+              还没结束
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -123,6 +219,16 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
       </Card>
       <Card title="我想做什么" testId="overview-goals">
         <ItemList items={data?.goals ?? []} />
+      </Card>
+      <Card title="看起来已经结束的事" testId="overview-past">
+        <p className="muted">
+          这些事内容里写的日期已经过去。聊天时它们不会再被当成眼下在忙的事，问到时仍能查到（当作历史）。
+        </p>
+        <PastSuggestions
+          suggestions={data?.pastSuggestions ?? []}
+          sources={data?.pastSources ?? []}
+          onChanged={reload}
+        />
       </Card>
       <Card title="约束" testId="overview-constraints">
         <ItemList items={data?.constraints ?? []} />

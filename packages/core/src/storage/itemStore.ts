@@ -10,6 +10,7 @@ import {
   type MemoryScope,
 } from '@ixaeon/contracts';
 import { assertSourceAuthorized } from '../access.js';
+import { recordAudit } from '../audit.js';
 import {
   addNeedsReason,
   clearNeedsReasons,
@@ -43,6 +44,7 @@ function toItem(row: Record<string, unknown>): Item {
     confirmation: (row['confirmation'] as Item['confirmation']) ?? 'none',
     confirmation_at: (row['confirmation_at'] as string | null) ?? null,
     manual_project: (row['manual_project'] as number) === 1,
+    time_status: (row['time_status'] as Item['time_status']) ?? null,
   };
 }
 
@@ -329,6 +331,20 @@ export class ItemService {
     this.db
       .prepare('UPDATE items SET shelved_at = ?, updated_at = ? WHERE id = ?')
       .run(shelved ? new Date().toISOString() : null, new Date().toISOString(), itemId);
+    return this.get(itemId);
+  }
+
+  /**
+   * E1：用户对「这件事结束没有」的判断，盖过按内容日期的自动判断。
+   * ongoing = 还没结束；ended = 确认已结束；null = 回到自动判断。不搁置、不删：
+   * 结束了的事问到时仍要能查到（当历史）。
+   */
+  setTimeStatus(itemId: string, status: 'ongoing' | 'ended' | null): Item {
+    this.get(itemId); // 不存在就报错
+    this.db
+      .prepare('UPDATE items SET time_status = ?, updated_at = ? WHERE id = ?')
+      .run(status, new Date().toISOString(), itemId);
+    recordAudit(this.db, 'item.time_status', { itemId, status });
     return this.get(itemId);
   }
 

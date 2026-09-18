@@ -2,6 +2,7 @@ import type { CoreDatabase } from '../db/database.js';
 import type { Item, Project, ProjectRelation, ResearchFinding } from '@ixaeon/contracts';
 import { RelationService } from '../orchestration/relationStore.js';
 import { isEphemeralStatement } from '../memory/ephemeral.js';
+import { mentionedDays, pastEventDay } from '../memory/temporal.js';
 
 export interface PersonalOverview {
   generatedAt: string;
@@ -9,6 +10,23 @@ export interface PersonalOverview {
   constraints: Item[];
   unknowns: Item[];
   conflicts: Item[];
+  /**
+   * E1：看起来已经结束的事——内容里写的日期已经过去，用户还没表态。
+   * 首页给一键「确认已结束 / 还没结束」；表过态的不再出现在这里。
+   */
+  pastSuggestions: Array<{ item: Item; day: string }>;
+  /**
+   * E1：整份资料里写了日期的事都已经过去、也没有还没到的日期——建议整份归档为过往的事。
+   * 单条判断会漏掉「同一件事、但这句没写日期」的条目（真机：同一次出差的安排里，
+   * 好几条事项都没写日期），整份归档让它们一起退场，只留一段经验摘要。
+   */
+  pastSources: Array<{
+    sourceId: string;
+    title: string;
+    lastDay: string;
+    pastItems: number;
+    totalItems: number;
+  }>;
   projects: Array<{
     project: Project;
     goals: Item[];
@@ -70,8 +88,45 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
     confirmation: (row['confirmation'] as Item['confirmation']) ?? 'none',
     confirmation_at: (row['confirmation_at'] as string | null) ?? null,
     manual_project: (row['manual_project'] as number) === 1,
+    time_status: (row['time_status'] as Item['time_status']) ?? null,
   });
   const all = items.map(toItem);
+  // E1：已经结束的事不当作「目标」列出（用户说还没结束的除外）。条目时间戳是导入分析的
+  // 日期，不是事情发生的日期——看内容里写的日期（memory/temporal.ts）。
+  const pastDay = (i: Item): string | null =>
+    i.time_status === 'ongoing' ? null : pastEventDay(i.statement, i.observed_at ?? i.created_at);
+  const isOver = (i: Item): boolean => i.time_status === 'ended' || pastDay(i) !== null;
+
+  // 按来源汇总：写了日期的全都过去（至少 2 条）、没有还没到的日期、用户也没说过哪条还没结束。
+  // 问答存档（ask_session）不参与：那是聊天本身，之后还可能继续同一个对话。
+  const bySource = new Map<string, Item[]>();
+  for (const i of all) {
+    if (!i.extracted_from_source_id) continue;
+    const list = bySource.get(i.extracted_from_source_id) ?? [];
+    list.push(i);
+    bySource.set(i.extracted_from_source_id, list);
+  }
+  const sourceInfo = db.prepare('SELECT title, provider, archived_at FROM sources WHERE id = ?');
+  const pastSources: PersonalOverview['pastSources'] = [];
+  for (const [sourceId, list] of bySource) {
+    const src = sourceInfo.get(sourceId) as
+      { title: string; provider: string; archived_at: string | null } | undefined;
+    if (!src || src.archived_at || src.provider === 'ask_session') continue;
+    if (list.some((i) => i.time_status === 'ongoing')) continue;
+    const days = list.map((i) => pastDay(i)).filter((d): d is string => d !== null);
+    const upcoming = list.some(
+      (i) =>
+        pastDay(i) === null && mentionedDays(i.statement, i.observed_at ?? i.created_at).length > 0,
+    );
+    if (days.length < 2 || upcoming) continue;
+    pastSources.push({
+      sourceId,
+      title: src.title,
+      lastDay: days.reduce((a, b) => (a > b ? a : b)),
+      pastItems: days.length,
+      totalItems: list.length,
+    });
+  }
   const projects = db.prepare('SELECT * FROM projects ORDER BY created_at').all() as Project[];
   const analyzed = (
     db
@@ -94,7 +149,8 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
         i.type === 'goal' &&
         (i.scope === 'personal' || i.project_id === null) &&
         (i.origin === 'user' || i.confirmation === 'confirmed') &&
-        !isEphemeralStatement(i.statement),
+        !isEphemeralStatement(i.statement) &&
+        !isOver(i),
     ),
     constraints: all.filter(
       (i) => i.type === 'constraint' && (i.scope === 'personal' || i.project_id === null),
@@ -111,6 +167,13 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
       );
     }),
     conflicts: all.filter((i) => i.state === 'disputed'),
+    pastSuggestions: all
+      .filter((i) => i.time_status === null)
+      .map((item) => ({ item, day: pastDay(item) }))
+      .filter((x): x is { item: Item; day: string } => x.day !== null)
+      .sort((a, b) => (a.day < b.day ? 1 : -1))
+      .slice(0, 20),
+    pastSources: pastSources.sort((a, b) => (a.lastDay < b.lastDay ? 1 : -1)),
     projects: projects.map((p) => ({
       project: p,
       goals: all.filter(
@@ -118,7 +181,8 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
           i.project_id === p.id &&
           i.type === 'goal' &&
           (i.origin === 'user' || i.confirmation === 'confirmed') &&
-          !isEphemeralStatement(i.statement),
+          !isEphemeralStatement(i.statement) &&
+          !isOver(i),
       ),
       constraints: all.filter((i) => i.project_id === p.id && i.type === 'constraint'),
     })),
