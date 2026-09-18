@@ -106,4 +106,86 @@ describe('ImportService.importFolder', () => {
     ).toThrow();
     f.db.close();
   });
+
+  it('E4：ChatGPT 导出包只导对话，附带文件（账号资料、设置、导出清单等）不导', () => {
+    const f = fixture();
+    const root = join(f.dir, 'export');
+    mkdirSync(join(root, 'notes'), { recursive: true });
+    const conversation = {
+      title: '合成对话',
+      create_time: 1_700_000_000,
+      conversation_id: 'e4-conv',
+      current_node: 'a',
+      mapping: {
+        root: { id: 'root', message: null, parent: null, children: ['q'] },
+        q: {
+          id: 'q',
+          message: {
+            id: 'q',
+            author: { role: 'user' },
+            create_time: 1_700_000_000,
+            content: { content_type: 'text', parts: ['合成问题'] },
+          },
+          parent: 'root',
+          children: ['a'],
+        },
+        a: {
+          id: 'a',
+          message: {
+            id: 'a',
+            author: { role: 'assistant' },
+            create_time: 1_700_000_001,
+            content: { content_type: 'text', parts: ['合成回答'] },
+          },
+          parent: 'q',
+          children: [],
+        },
+      },
+    };
+    writeFileSync(join(root, 'conversations.json'), JSON.stringify([conversation]));
+    for (const name of [
+      'user.json',
+      'user_settings.json',
+      'ads.json',
+      'export_manifest.json',
+      'library_files.json',
+      'shared_conversations.json',
+      'conversation_asset_file_names.json',
+    ]) {
+      writeFileSync(join(root, name), '{"synthetic": true}');
+    }
+    writeFileSync(join(root, 'my-note.md'), '# 自己放进来的笔记\n\n内容');
+    writeFileSync(join(root, 'group_chats.json'), '{"synthetic": "新版导出里没见过的文件"}');
+    // 子目录不是导出包：同名文件照常导入
+    writeFileSync(join(root, 'notes', 'user.json'), '{"synthetic": "自己的文件"}');
+
+    const permission = f.permissions.grantFolder(root);
+    const result = f.imports.importFolder(root, {
+      projectId: f.project.id,
+      permissionId: permission.id,
+    });
+
+    expect(result.skipped.map((p) => p.slice(root.length + 1).replace(/\\/g, '/')).sort()).toEqual([
+      'ads.json',
+      'conversation_asset_file_names.json',
+      'export_manifest.json',
+      'library_files.json',
+      'shared_conversations.json',
+      'user.json',
+      'user_settings.json',
+    ]);
+    expect(result.failed).toEqual([]);
+    const created = result.created.map((s) => [s.provider, s.title]).sort();
+    expect(created).toEqual([
+      ['chatgpt_export', '合成对话'],
+      ['local_file', 'group_chats.json'],
+      ['local_file', 'my-note.md'],
+      ['local_file', 'user.json'],
+    ]);
+    const audit = f.db
+      .prepare(`SELECT detail_json FROM audit_events WHERE kind = 'import.folder'`)
+      .get() as { detail_json: string };
+    expect(JSON.parse(audit.detail_json).skippedExportMetadata).toBe(7);
+    f.db.close();
+  });
 });

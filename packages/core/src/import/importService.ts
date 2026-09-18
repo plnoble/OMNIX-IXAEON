@@ -352,6 +352,7 @@ export class ImportService {
    *  （与项目目录快照同一套规则，用户不会一次性导入敏感内容）；
    * - 单文件失败（过大/二进制/空文件）只记录，不阻塞其他文件；
    * - conversations.json 在目录里按 ChatGPT 导出处理（一个文件多对话）；
+   * - ChatGPT 导出包里的附带文件（账号资料、设置、导出清单等）不导入（E4）；
    * - 文件数量上限 500，超出部分记录跳过（防误选巨大目录拖垮机器）。
    */
   importFolder(
@@ -363,6 +364,7 @@ export class ImportService {
     pendingExtraction: Source[];
     failed: Array<{ path: string; message: string }>;
     scanned: number;
+    skipped: string[];
   } {
     // 先验证 folder 授权存在且覆盖根路径（子路径在 importFile 内逐个复核）
     this.requirePermission(opts.permissionId, absPath);
@@ -392,8 +394,16 @@ export class ImportService {
       created: created.length,
       deduplicated: deduplicated.length,
       failed: failed.length,
+      skippedExportMetadata: files.skipped.length,
     });
-    return { created, deduplicated, pendingExtraction, failed, scanned: files.files.length };
+    return {
+      created,
+      deduplicated,
+      pendingExtraction,
+      failed,
+      scanned: files.files.length,
+      skipped: files.skipped,
+    };
   }
 
   /** 显式按 ChatGPT 导出解析（同样要求传入可信授权 ID）。 */
@@ -654,15 +664,41 @@ const FOLDER_SKIP_NAME_RE =
   /^(\.env.*|.*\.pem|.*\.key|.*\.p12|.*\.pfx|id_rsa.*|id_ed25519.*|.*\.cookie|.*cookie.*\.json|.*token.*|.*secret.*|.*credential.*)$/i;
 
 /**
+ * ChatGPT 导出包的标志文件：目录里有它们之一，就当成一个导出包（三周任务单 E4）。
+ * conversations.json 与 Claude 导出同名，但下面的附带文件名单只有 ChatGPT 用，不误伤 Claude。
+ */
+const CHATGPT_PACKAGE_MARKERS = new Set(['conversations.json', 'export_manifest.json']);
+
+/**
+ * ChatGPT 导出包里的附带文件：账号资料、设置、广告、反馈、导出清单等，不是聊天内容。
+ * 2026-09-18 真机：导入整个导出目录时这 8 个被当成文档导入，分析为空，却挂在资料库里。
+ * 只跳过认识的名字；新版导出包里出现的陌生 JSON 照常导入（宁可多导，不能漏掉聊天）。
+ */
+const CHATGPT_EXPORT_METADATA = new Set([
+  'user.json',
+  'user_settings.json',
+  'ads.json',
+  'message_feedback.json',
+  'model_comparisons.json',
+  'shared_conversations.json',
+  'conversation_asset_file_names.json',
+  'export_manifest.json',
+  'library_files.json',
+]);
+
+/**
  * 递归列出文件夹内可导入的文本文件（白名单 + 排除规则 + 数量上限）。
  * 超限与无法读取的条目记录为 failed，不中断遍历。
  */
 function listFolderTextFiles(root: string): {
   files: string[];
   failed: Array<{ path: string; message: string }>;
+  /** 认出是 ChatGPT 导出包附带文件而跳过的（E4） */
+  skipped: string[];
 } {
   const files: string[] = [];
   const failed: Array<{ path: string; message: string }> = [];
+  const skipped: string[] = [];
   const walk = (dir: string, depth: number): void => {
     if (depth > FOLDER_MAX_DEPTH) return;
     let entries;
@@ -671,6 +707,9 @@ function listFolderTextFiles(root: string): {
     } catch {
       return; // 无法读取的目录跳过（无权限等）
     }
+    const chatgptPackage = entries.some(
+      (e) => e.isFile() && CHATGPT_PACKAGE_MARKERS.has(e.name.toLowerCase()),
+    );
     for (const e of entries) {
       const full = join(dir, e.name);
       if (e.isDirectory()) {
@@ -679,6 +718,10 @@ function listFolderTextFiles(root: string): {
       } else if (e.isFile()) {
         if (FOLDER_SKIP_NAME_RE.test(e.name)) continue;
         if (!FOLDER_TEXT_RE.test(e.name)) continue;
+        if (chatgptPackage && CHATGPT_EXPORT_METADATA.has(e.name.toLowerCase())) {
+          skipped.push(full);
+          continue;
+        }
         if (files.length >= FOLDER_MAX_FILES) {
           failed.push({ path: full, message: `超过单目录 ${FOLDER_MAX_FILES} 个文件上限，已跳过` });
           continue;
@@ -688,5 +731,5 @@ function listFolderTextFiles(root: string): {
     }
   };
   walk(root, 0);
-  return { files, failed };
+  return { files, failed, skipped };
 }
