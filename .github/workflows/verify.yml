@@ -39,8 +39,17 @@ jobs:
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-${{ runner.os }}-
 
-      - name: 安装依赖
-        run: pnpm install --frozen-lockfile
+      # better-sqlite3 13 包里自带各平台的预编译 N-API 二进制（Node 与 Electron 通用，
+      # 加载时优先用它），不需要现编。不跳过安装脚本的话，它会默认跑 node-gyp 现编，
+      # 而 windows-latest 上的 Visual Studio 版本 node-gyp 认不出（2026-09-18 第一次 CI 在这一步失败）。
+      - name: 安装依赖（不跑安装脚本）
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: 下载 Electron（界面测试要用）
+        env:
+          # .npmrc 里的镜像是给国内开发机用的；CI 在海外，直接从 GitHub 下
+          ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+        run: pnpm rebuild electron
 
       - name: 门禁（与本机 node scripts/verify.mjs 相同）
         run: node scripts/verify.mjs
