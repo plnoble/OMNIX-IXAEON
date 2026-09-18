@@ -279,6 +279,14 @@ export interface AskDeltaEvent {
   delta: string;
 }
 
+/** P2：等待回答时的阶段（事件里不带思考内容）。 */
+export type AskPhase = 'preparing' | 'thinking' | 'answering';
+export interface AskProgressEvent {
+  conversationId: string;
+  messageId: string;
+  phase: AskPhase;
+}
+
 // --- D2/D4：对话与消息（迁移 26） ---
 
 export const conversationSchema = z.object({
@@ -546,6 +554,8 @@ export interface IxaIpcApi {
   prewarmChat(input: { projectId: string | null }): Promise<{ warmed: boolean }>;
   /** S1/S2：回答正文分段；返回取消订阅。 */
   onAskDelta(listener: (e: AskDeltaEvent) => void): () => void;
+  /** P2：等待阶段；返回取消订阅。 */
+  onAskProgress(listener: (e: AskProgressEvent) => void): () => void;
   // 对话（D2/D4）
   listConversations(input?: {
     includeArchived?: boolean;

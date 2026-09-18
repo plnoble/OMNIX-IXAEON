@@ -62,6 +62,8 @@ import {
   HERMES_BRIDGE_TOOL_WIRE_NAMES,
   type AppConfig,
   type AskDeltaEvent,
+  type AskPhase,
+  type AskProgressEvent,
   type HermesBridgeToolName,
   type ExportResult,
   type Permission,
@@ -133,6 +135,8 @@ export class AppRuntime {
   private semanticLastError: string | null = null;
   /** S1：把回答分段推到当前窗口。 */
   private askDeltaSink: ((e: AskDeltaEvent) => void) | null = null;
+  /** P2：把等待阶段推到当前窗口。 */
+  private askProgressSink: ((e: AskProgressEvent) => void) | null = null;
   /** S1：取消后丢掉迟到的分段，不再写库、不再发事件。 */
   private cancelledAskRuns = new Set<string>();
   /** P1：预热好的空闲问答会话（最多一个），见 prewarmChat。 */
@@ -966,6 +970,19 @@ export class AppRuntime {
         /* 库已关闭等：最终内容由 finishMessage 写入，这里丢一段不影响结果 */
       }
     };
+    const emitProgress = (phase: AskPhase): void => {
+      if (this.cancelledAskRuns.has(runId)) return;
+      try {
+        this.askProgressSink?.({
+          conversationId,
+          messageId: assistantMessage.id,
+          phase,
+        });
+      } catch {
+        /* 窗口已关闭等：界面收不到进度，回答照常完成 */
+      }
+    };
+    emitProgress('preparing');
     const onDelta = (text: string): void => {
       if (this.cancelledAskRuns.has(runId) || text.length === 0) return;
       pendingDelta += text;
@@ -1001,6 +1018,7 @@ export class AppRuntime {
         runId,
         priorTurns,
         onDelta,
+        onProgress: (phase) => emitProgress(phase),
       });
       flushDeltas();
       // 用户指示（2026-09-13）：所有问答内容都进 Core。
@@ -1437,6 +1455,10 @@ export class AppRuntime {
 
   setAskDeltaSink(fn: ((e: AskDeltaEvent) => void) | null): void {
     this.askDeltaSink = fn;
+  }
+
+  setAskProgressSink(fn: ((e: AskProgressEvent) => void) | null): void {
+    this.askProgressSink = fn;
   }
 
   getSemanticIndexStatus(): {

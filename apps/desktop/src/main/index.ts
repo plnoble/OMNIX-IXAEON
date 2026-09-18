@@ -72,6 +72,9 @@ if (!gotSingleInstanceLock) {
     runtime?.setAskDeltaSink((e) => {
       mainWindow?.webContents.send('ixaeon:ask-delta', e);
     });
+    runtime?.setAskProgressSink((e) => {
+      mainWindow?.webContents.send('ixaeon:ask-progress', e);
+    });
     // GitHub 发版自动更新：仅生产构建启用（开发运行无更新元数据）
     startAutoUpdater();
     app.on('activate', () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ConversationMessage, ConversationSummary } from '@ixaeon/contracts';
+import type { AskPhase, ConversationMessage, ConversationSummary } from '@ixaeon/contracts';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Empty, ErrorBanner } from '../ui.js';
 import { AskMessage } from './AskMessage.js';
@@ -76,11 +76,18 @@ export function AskPage({ projects }: { projects: Project[] }) {
   const stick = useRef(true);
   const listEl = useRef<HTMLDivElement>(null);
   // S2：正在等的那一轮。pendingId 是本地占位气泡的临时 id，第一段分段到达后换成真实 messageId。
-  const waiting = useRef<{ conversationId: string; pendingId: string; cancelled: boolean } | null>(
-    null,
-  );
+  const waiting = useRef<{
+    conversationId: string;
+    pendingId: string;
+    cancelled: boolean;
+    /** P2：这一轮第一条进度事件带来的助手消息 id；之后只认它 */
+    messageId?: string;
+  } | null>(null);
   // 当前显示的对话。分段只写进它：切到别的对话时不往那边塞，切回来时从库里重新加载。
   const shownId = useRef<string | null>(null);
+  const [askPhase, setAskPhase] = useState<AskPhase | null>(null);
+  const [waitSeconds, setWaitSeconds] = useState(0);
+  const waitStarted = useRef<number | null>(null);
   const noticeShown = useMemo(() => noticeVisibility(messages), [messages]);
 
   const reloadList = useCallback(async () => {
@@ -109,6 +116,38 @@ export function AskPage({ projects }: { projects: Project[] }) {
   useEffect(() => {
     shownId.current = activeId;
   }, [activeId]);
+
+  useEffect(() => {
+    if (askPhase === null) {
+      waitStarted.current = null;
+      return;
+    }
+    if (waitStarted.current == null) waitStarted.current = Date.now();
+    const timer = setInterval(() => {
+      const started = waitStarted.current;
+      if (started == null) return;
+      setWaitSeconds(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [askPhase]);
+
+  useEffect(() => {
+    if (!api.onAskProgress) return;
+    const off = api.onAskProgress((e) => {
+      const w = waiting.current;
+      if (!w || w.cancelled || e.conversationId !== w.conversationId) return;
+      if (shownId.current !== e.conversationId) return;
+      // 只认这一轮：第一条进度事件定下助手消息 id，别的消息的迟到事件不算
+      if (w.messageId !== undefined && e.messageId !== w.messageId) return;
+      w.messageId = e.messageId;
+      setAskPhase((prev) => {
+        if (prev === 'answering') return prev;
+        if (e.phase === 'thinking' && prev === 'thinking') return prev;
+        return e.phase;
+      });
+    });
+    return () => off();
+  }, []);
 
   useEffect(() => {
     if (!api.onAskDelta) return;
@@ -151,6 +190,9 @@ export function AskPage({ projects }: { projects: Project[] }) {
     const pendingAnswer = pendingMessage('assistant', '', lastSeq + 2);
     setMessages((prev) => [...prev, pendingMessage('user', text, lastSeq + 1), pendingAnswer]);
     stick.current = true;
+    waitStarted.current = Date.now();
+    setWaitSeconds(0);
+    setAskPhase('preparing');
     let conversationId = activeId;
     try {
       // 先建对话再发：分段到来时要知道属于哪个对话（新对话的 id 原本要等回答结束才拿得到）。
@@ -169,12 +211,14 @@ export function AskPage({ projects }: { projects: Project[] }) {
         question: text,
       });
       waiting.current = null;
+      setAskPhase(null);
       await openConversation(result.conversationId);
       await reloadList();
     } catch (err) {
       const message = errMsg(err);
       setError(message);
       waiting.current = null;
+      setAskPhase(null);
       if (conversationId) {
         try {
           // 后端已把这一轮收尾为 failed（已答出的半截也在），从库里重新拉就能看到
@@ -368,6 +412,17 @@ export function AskPage({ projects }: { projects: Project[] }) {
                   expandedRef={expandedRef}
                   onToggleRef={(ref) => setExpandedRef(expandedRef === ref ? null : ref)}
                   onApprove={(id) => void approve(id)}
+                  waitLabel={
+                    // askPhase 为空 = 这一页没有在等的提问（如重开时库里还在写的一轮）：
+                    // 不知道阶段，也不知道等了多久，沿用「正在回答…」，不显示停住的秒数
+                    m.status !== 'streaming' || askPhase === null
+                      ? undefined
+                      : askPhase === 'answering'
+                        ? '正在回答…'
+                        : askPhase === 'thinking'
+                          ? `正在思考…（${waitSeconds} 秒）`
+                          : `正在准备…（${waitSeconds} 秒）`
+                  }
                 />
               ))
             )}
@@ -406,6 +461,7 @@ export function AskPage({ projects }: { projects: Project[] }) {
                 kind="ghost"
                 onClick={() => {
                   if (waiting.current) waiting.current.cancelled = true;
+                  setAskPhase(null);
                   void api.cancelAsk(activeId);
                 }}
                 testId="ask-cancel"

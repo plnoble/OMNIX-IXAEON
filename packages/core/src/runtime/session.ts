@@ -157,6 +157,8 @@ export class AgentSession {
     priorTurns?: PriorTurn[];
     /** S1：Hermes 回答正文分段（payload.delta）；思考过程不转。 */
     onDelta?: (text: string) => void;
+    /** P2：思考/开始吐字；每阶段每轮最多一次，只进不退。 */
+    onProgress?: (phase: 'thinking' | 'answering') => void;
   }): Promise<AgentSessionResult> {
     const goal = input.goal.trim();
     if (!goal) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '问题不能为空');
@@ -164,6 +166,17 @@ export class AgentSession {
     const now = new Date().toISOString();
     const caps = this.adapter.probe();
     const priorTurns = input.priorTurns ?? [];
+    let progressPhase: 'thinking' | 'answering' | null = null;
+    const reportProgress = (phase: 'thinking' | 'answering'): void => {
+      if (progressPhase === 'answering') return;
+      if (phase === 'thinking' && progressPhase === 'thinking') return;
+      progressPhase = phase;
+      try {
+        input.onProgress?.(phase);
+      } catch {
+        /* 进度回调出错不能打断回合 */
+      }
+    };
 
     /** Hermes 进程/会话没起来时的原因（带进 Core 兜底的说明里，不再被覆盖掉）。 */
     let hermesStartupFailure: string | null = null;
@@ -180,7 +193,7 @@ export class AgentSession {
         'Hermes 回合进行中',
         now,
       );
-      this.wireEventLedger(runId, input.onDelta);
+      this.wireEventLedger(runId, input.onDelta, reportProgress);
       try {
         // A07（审核 2026-09-13）：生产与评测共用 ContextSelector 服务——
         // 针对问句在模型获准边界内精选最相关记忆注入引擎，取代粗粒度字段拼装。
@@ -340,6 +353,7 @@ export class AgentSession {
     // D3：Core 兜底循环没有任何引擎侧记忆，历史轮次每次都要注入，
     // 否则「那我刚才说的呢」在没装 Hermes 时永远答不上来。
     let transcript = `用户问题：${goal}${formatPriorTurns(priorTurns)}\n项目：${input.projectId ?? '个人视角'}\n${notice}`;
+    reportProgress('thinking');
     // A06：hermes 失败落 Core 循环 = 同一 run 的第二次尝试——已预插的
     // running 行 upsert 复用（保留 hermes 失败痕迹于 notice/events），不二次 INSERT。
     const existing = this.db
@@ -477,13 +491,34 @@ export class AgentSession {
    * A06：运行事件实时落账本（事件到达即写库，断电前的动作留在
    * runtime_runs.events_json）。失败不中断回合（网关侧兜底记录）。
    */
-  private wireEventLedger(runId: string, onDelta?: (text: string) => void): void {
+  private wireEventLedger(
+    runId: string,
+    onDelta?: (text: string) => void,
+    onProgress?: (phase: 'thinking' | 'answering') => void,
+  ): void {
     this.adapter.setEventSink((event) => {
       if (event.kind === 'text' && typeof event.payload.delta === 'string') {
         try {
           onDelta?.(event.payload.delta);
         } catch {
           /* 调用方处理分段出错不能打断 Hermes 的事件流与账本 */
+        }
+        try {
+          onProgress?.('answering');
+        } catch {
+          /* 进度回调出错不能打断回合 */
+        }
+      }
+      const thinking =
+        event.payload.phase === 'message.start' ||
+        event.payload.unhandled === 'thinking.delta' ||
+        event.payload.unhandled === 'reasoning.delta' ||
+        event.payload.unhandled === 'reasoning.available';
+      if (thinking) {
+        try {
+          onProgress?.('thinking');
+        } catch {
+          /* 进度回调出错不能打断回合 */
         }
       }
       try {

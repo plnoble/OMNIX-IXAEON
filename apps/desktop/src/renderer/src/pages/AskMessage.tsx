@@ -34,6 +34,7 @@ export function AskMessage({
   expandedRef,
   onToggleRef,
   onApprove,
+  waitLabel,
 }: {
   message: ConversationMessage;
   /**
@@ -46,6 +47,7 @@ export function AskMessage({
   expandedRef: string | null;
   onToggleRef: (ref: string) => void;
   onApprove: (taskId: string) => void;
+  waitLabel?: string;
 }) {
   const tasks = tasksOf(m.meta);
   const coverage = coverageOf(m.meta);
@@ -64,7 +66,7 @@ export function AskMessage({
         className={m.role === 'assistant' ? 'ask-answer' : undefined}
         data-testid={m.role === 'assistant' ? 'ask-answer' : undefined}
       >
-        {m.status === 'streaming' && <Spinner label="正在回答…" />}
+        {m.status === 'streaming' && <Spinner label={waitLabel ?? '正在回答…'} />}
         {m.status === 'failed' && <p className="warn">失败：{m.errorMessage ?? '未知错误'}</p>}
         {m.status === 'cancelled' && <p className="warn">已取消</p>}
         {m.content ? <pre className="answer-text">{m.content}</pre> : null}

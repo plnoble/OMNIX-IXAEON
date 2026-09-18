@@ -124,7 +124,7 @@ export function registerIpc(runtime: AppRuntime): void {
     return jobIds;
   };
 
-  const handlers: Omit<IxaIpcApi, 'onAskDelta'> = {
+  const handlers: Omit<IxaIpcApi, 'onAskDelta' | 'onAskProgress'> = {
     // --- 应用状态 ---
     getState: async (): Promise<AppState> => runtime.state,
     completeSetup: async (input) => runtime.completeSetup(input),

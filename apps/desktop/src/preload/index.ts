@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AskDeltaEvent, IxaIpcApi } from '@ixaeon/contracts';
+import type { AskDeltaEvent, AskProgressEvent, IxaIpcApi } from '@ixaeon/contracts';
 
 /**
  * preload：暴露 window.ixaeon 的完整 IPC 通道。
@@ -130,6 +130,11 @@ const api: IxaIpcApi = {
     const handler = (_e: unknown, event: AskDeltaEvent) => listener(event);
     ipcRenderer.on('ixaeon:ask-delta', handler);
     return () => ipcRenderer.removeListener('ixaeon:ask-delta', handler);
+  },
+  onAskProgress: (listener: (e: AskProgressEvent) => void): (() => void) => {
+    const handler = (_e: unknown, event: AskProgressEvent) => listener(event);
+    ipcRenderer.on('ixaeon:ask-progress', handler);
+    return () => ipcRenderer.removeListener('ixaeon:ask-progress', handler);
   },
 };
 
