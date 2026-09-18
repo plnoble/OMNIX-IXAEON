@@ -1,0 +1,28 @@
+{
+  "tasks": [
+    {
+      "id": "A1",
+      "title": "分析失败耐心重试",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/a1-patient-retry.test.ts": "c60e4d06e8984db61c5ff73d6ab2d6907648cd0ddf798f3fa7faa2d3446d1456"
+      }
+    },
+    {
+      "id": "A2",
+      "title": "迁移前自动备份",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/a2-backup-before-migrate.test.ts": "b91f40f9fd52f19c2756fcff46da46299d977f2e4c09e5f9baeedad25bde0b18"
+      }
+    },
+    {
+      "id": "A3",
+      "title": "记忆桥出处标签",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/a3-bridge-origin-tag.test.ts": "a3af25500f3c146f2acf4f3fe59d6a9fed91a86953e5293bf4d28377484d03f1"
+      }
+    }
+  ]
+}

@@ -194,6 +194,7 @@ export {
   ContextSelector,
   SEMANTIC_THRESHOLDS,
   localDay,
+  memoryOriginTag,
   type SelectedMemoryItem,
   type ContextSelectionResult,
   type SemanticThresholds,

@@ -71,6 +71,21 @@ results.push(
   ]),
 );
 
+// 委派流水线（AGENTS.md）：锁定的验收测试不许改；已完成任务的验收测试进门禁
+results.push(
+  run('acceptance-lock（锁定的验收测试没被改）', [
+    resolve(root, 'scripts', 'acceptance.mjs'),
+    'check',
+  ]),
+);
+
+results.push(
+  run('acceptance（已完成任务的锁定验收测试）', [
+    resolve(root, 'scripts', 'acceptance.mjs'),
+    'run-done',
+  ]),
+);
+
 results.push(run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]));
 
 results.push(

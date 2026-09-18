@@ -1,0 +1,46 @@
+# 委派流水线（见 AGENTS.md）：每次推送、每个合并请求都跑完整门禁，绿了才能合并。
+# 与本机 `node scripts/verify.mjs` 是同一套检查，不靠任何一方口头说「全绿」。
+# 用 Windows：与开发机一致（Electron 界面测试、better-sqlite3 原生模块、路径写法）。
+name: verify
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 启用 pnpm（版本取 package.json 的 packageManager）
+        run: corepack enable
+
+      - name: 取 pnpm 缓存目录
+        id: pnpm-store
+        shell: bash
+        run: echo "dir=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 门禁（与本机 node scripts/verify.mjs 相同）
+        run: node scripts/verify.mjs

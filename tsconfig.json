@@ -33,6 +33,8 @@
     "**/dist/**",
     "**/out/**",
     "**/node_modules/**",
-    "apps/desktop/test/review/restructure-20260913.test.ts"
+    "apps/desktop/test/review/restructure-20260913.test.ts",
+    "packages/*/test/acceptance/**",
+    "apps/*/test/acceptance/**"
   ]
 }
