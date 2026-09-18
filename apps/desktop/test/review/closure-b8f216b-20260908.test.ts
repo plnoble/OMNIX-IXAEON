@@ -80,10 +80,12 @@ it('C01: migration 10 retires only historical pending rows, retaining history an
         : previous;
     // 迁移 11 追加 scope：有项目 → project，空归属 → unassigned；不改纠正链。
     // 迁移 29 追加 time_status：旧数据一律 NULL（按内容里的日期自动判断），不改其余字段。
+    // 迁移 31 追加 said_by：这些合成条目没有对话依据，一律 NULL。
     expect(row(f.db, previous.id as string)).toEqual({
       ...expected,
       scope: previous.project_id ? 'project' : 'unassigned',
       time_status: null,
+      said_by: null,
     });
   }
   expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: before.length });
