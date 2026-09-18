@@ -891,6 +891,38 @@ ALTER TABLE jobs ADD COLUMN note TEXT;
 ALTER TABLE items ADD COLUMN time_status TEXT CHECK (time_status IS NULL OR time_status IN ('ongoing', 'ended'));
 `,
   },
+  {
+    id: 30,
+    name: 'remove-ask-session-echoes',
+    sql: `
+-- 三周任务单 E2（用户 2026-09-18 定：聊天存档只从我说的话里提炼）。
+-- 之前 IXAEON 自己的聊天存档（ask_session）连同模型的回答一起提炼：模型在回答里复述了
+-- 注入给它的旧记忆，提炼又把复述当成新结论存了回来（回声）。提炼已改为只看用户的原话
+-- （extraction/extractor.ts），本迁移清掉已经存回来的：依据全部来自模型回答的 AI 条目。
+-- 只清没经过用户处理的——未确认也未否决、没单独改过项目、不在纠正链上，
+-- 与重新提炼时替换旧理解的范围一致（extractor.ts 的 deleteOld）。
+-- 依据、向量、披露授权随外键级联删除；删了哪几条记进审计。
+CREATE TEMP TABLE ask_echoes AS
+SELECT i.id FROM items i
+WHERE i.origin = 'ai' AND i.state = 'current' AND i.confirmation = 'none' AND i.manual_project = 0
+  AND i.extracted_from_source_id IN (SELECT id FROM sources WHERE provider = 'ask_session')
+  AND EXISTS (
+    SELECT 1 FROM item_evidence e JOIN segments g ON g.id = e.segment_id
+    WHERE e.item_id = i.id AND g.role = 'assistant')
+  AND NOT EXISTS (
+    SELECT 1 FROM item_evidence e JOIN segments g ON g.id = e.segment_id
+    WHERE e.item_id = i.id AND g.role = 'user')
+  AND NOT EXISTS (SELECT 1 FROM corrections c WHERE c.old_item_id = i.id OR c.new_item_id = i.id)
+  AND NOT EXISTS (SELECT 1 FROM items x WHERE x.supersedes_item_id = i.id);
+INSERT INTO audit_events (id, kind, detail_json, created_at)
+SELECT lower(hex(randomblob(16))), 'migration.ask_echoes_removed',
+       (SELECT json_object('count', COUNT(*), 'itemIds', json_group_array(id)) FROM ask_echoes),
+       strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE EXISTS (SELECT 1 FROM ask_echoes);
+DELETE FROM items WHERE id IN (SELECT id FROM ask_echoes);
+DROP TABLE ask_echoes;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

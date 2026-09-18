@@ -89,11 +89,12 @@ export class Extractor {
     };
     ensureContinuing();
     const source = this.db
-      .prepare('SELECT id, title, project_id, archived_at FROM sources WHERE id = ?')
+      .prepare('SELECT id, title, provider, project_id, archived_at FROM sources WHERE id = ?')
       .get(sourceId) as
       | {
           id: string;
           title: string;
+          provider: string;
           project_id: string | null;
           archived_at: string | null;
         }
@@ -128,7 +129,13 @@ export class Extractor {
 
     // 默认只用当前活动分支提取理解；原文完整保留（计划 4.4）
     const active = segments.filter((s) => s.is_active_branch !== 0);
-    const pool = active.length > 0 ? active : segments;
+    const branch = active.length > 0 ? active : segments;
+    // E2（用户 2026-09-18 定）：IXAEON 自己的聊天存档只从用户说的话里提炼。
+    // 模型的回答不交给提炼：回答里常复述注入给它的旧记忆，提炼会把复述当成新结论
+    // 存回来（真机上同一批旧内容多了 8 份副本），模型说错、编造的内容也会被记成用户的事。
+    // 代价：「就按你刚才那个方案」这类采纳记不下方案内容——要记就把内容说出来。
+    const pool =
+      source.provider === 'ask_session' ? branch.filter((s) => s.role === 'user') : branch;
 
     // M2/G4/RF01/RF02 人工改口保护集：
     // 1) RF02 —— 从当前来源相关条目出发，沿 corrections 递归遍历整条纠正链
