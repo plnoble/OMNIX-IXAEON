@@ -95,6 +95,10 @@ export class TuiGatewaySession {
   }
 
   private lastActivityAt = Date.now();
+  /** Hermes 自己报的失败原因（如模型网关 429）；为空时才用笼统的「会话失败」。 */
+  private failureReason: string | null = null;
+  /** 回合是否已交给 Hermes（prompt.submit 已确认）。之后的失败是模型侧的，不是启动失败。 */
+  private submitted = false;
 
   /** A06：长驻会话在复用前更新当前回合的输入参数（runId/goal/budget 等）。 */
   setInput(input: RuntimeRunInput): void {
@@ -210,6 +214,7 @@ export class TuiGatewaySession {
     modelName: string | null;
     providerName: string | null;
     sessionId: string | null;
+    failureReason: string | null;
   }> {
     try {
       // A06：复用会话时不重复 session.create——直接向既有会话提交回合。
@@ -229,6 +234,7 @@ export class TuiGatewaySession {
         session_id: this.sessionId,
         text: this.currentInput.goal,
       });
+      this.submitted = true;
       if (this.status !== 'running') {
         return this.snapshot();
       }
@@ -240,6 +246,11 @@ export class TuiGatewaySession {
       }
       this.push('failed', { error: err instanceof Error ? err.message : String(err) });
       this.status = 'failed';
+      // 标出失败发生在哪一段：startup = 进程/会话没起来（值得换 Core 兜底）；
+      // turn = 回合已交给 Hermes 后模型侧出错（限流、超时、模型报错——换引擎重跑只会再等一遍）
+      if (err && typeof err === 'object') {
+        (err as { hermesStage?: string }).hermesStage = this.submitted ? 'turn' : 'startup';
+      }
       throw err;
     }
   }
@@ -251,6 +262,7 @@ export class TuiGatewaySession {
     modelName: string | null;
     providerName: string | null;
     sessionId: string | null;
+    failureReason: string | null;
   } {
     const status = this.status === 'running' ? 'failed' : this.status;
     return {
@@ -260,6 +272,7 @@ export class TuiGatewaySession {
       modelName: this.modelName,
       providerName: this.providerName,
       sessionId: this.sessionId,
+      failureReason: status === 'failed' ? this.failureReason : null,
     };
   }
 
@@ -282,7 +295,12 @@ export class TuiGatewaySession {
     return new Promise((resolve, reject) => {
       if (this.status !== 'running') {
         if (this.status === 'failed') {
-          reject(new IxaError(ErrorCodes.SERVER_UNAVAILABLE, 'TUI gateway 会话失败'));
+          reject(
+            new IxaError(
+              ErrorCodes.SERVER_UNAVAILABLE,
+              this.failureReason ?? 'TUI gateway 会话失败',
+            ),
+          );
         } else resolve();
         return;
       }
@@ -319,7 +337,12 @@ export class TuiGatewaySession {
         clearTimeout(timer);
         clearInterval(watchdog);
         if (status === 'failed') {
-          reject(new IxaError(ErrorCodes.SERVER_UNAVAILABLE, 'TUI gateway 会话失败'));
+          reject(
+            new IxaError(
+              ErrorCodes.SERVER_UNAVAILABLE,
+              this.failureReason ?? 'TUI gateway 会话失败',
+            ),
+          );
         } else resolve();
       };
     });
@@ -369,10 +392,8 @@ export class TuiGatewaySession {
         if (text.length > 0) this.answerParts = [text];
         this.push('text', { complete: true, text, status });
         if (status === 'error') {
-          this.push('failed', {
-            error: String(p.error ?? p.message ?? 'Hermes 回合失败'),
-            status,
-          });
+          this.failureReason = String(p.error ?? p.message ?? text ?? 'Hermes 回合失败');
+          this.push('failed', { error: this.failureReason, status });
           this.end('failed');
         } else {
           this.end('terminal');

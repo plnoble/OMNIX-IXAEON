@@ -27,6 +27,8 @@ export class JobQueue {
   private currentJobId: string | null = null;
   private currentSettled: Promise<void> = Promise.resolve();
   private settleCurrentRun: (() => void) | null = null;
+  /** 前台让路计数（聊天进行中）：大于 0 时不开始新的后台任务。 */
+  private holds = 0;
   private readonly logger: Pick<Logger, 'warn' | 'info'>;
   /** 暂时性失败的自动重试上限与退避间隔（毫秒；测试可覆盖） */
   private readonly maxAutoRetries: number;
@@ -89,13 +91,36 @@ export class JobQueue {
     this.currentAbort?.abort();
   }
 
+  /**
+   * 前台让路：聊天进行时不开始新的后台任务，正在跑的任务在两次模型调用之间让路
+   * （处理器用 isHeld() 判断，抛出带 jobPreempted 标记的错误，任务回到排队）。
+   * 2026-09-18 真机：后台分析与聊天共用同一个模型网关账号，账号有并发上限——
+   * 后台占着名额，聊天就被 429 拒绝，重试加兜底等了 5 分钟才报错。
+   * 返回释放函数；可嵌套，最后一个释放时恢复。
+   */
+  hold(): () => void {
+    this.holds += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.holds = Math.max(0, this.holds - 1);
+      if (this.holds === 0) this.kick();
+    };
+  }
+
+  /** 是否正在给前台让路。 */
+  isHeld(): boolean {
+    return this.holds > 0;
+  }
+
   /** 立即尝试执行一个排队任务（导入等用户等待的操作用）。 */
   kick(): void {
     void this.tick();
   }
 
   private async tick(): Promise<void> {
-    if (this.running) return;
+    if (this.running || this.holds > 0) return;
     this.running = true;
     try {
       const nowIso = new Date().toISOString();
@@ -152,6 +177,16 @@ export class JobQueue {
         }
         // currentStatus 已是 cancelled 等：外部已落终态，本执行不改写
       } catch (err) {
+        // 给前台（聊天）让路而中止：不是失败也不是取消，回到排队稍后接着做，不计重试次数。
+        if ((err as { jobPreempted?: boolean }).jobPreempted === true) {
+          this.db
+            .prepare(
+              "UPDATE jobs SET status = 'queued', not_before = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(new Date(Date.now() + 2_000).toISOString(), new Date().toISOString(), job.id);
+          this.logger.info('后台任务给聊天让路，稍后继续', { jobId: job.id, kind: job.kind });
+          return;
+        }
         // 修复 F4 要求 5：取消/暂停类中止必须有可见状态，不得伪装成成功或普通失败。
         // 处理器抛出带 jobCancelled 标记的错误时，任务以 cancelled 落库（可重试）。
         const cancelled = (err as { jobCancelled?: boolean }).jobCancelled === true;

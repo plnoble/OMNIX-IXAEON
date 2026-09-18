@@ -513,9 +513,18 @@ export class AppRuntime {
       // 修复 G1：把队列的真实取消信号（ctx.signal）与自动任务的开关/暂停检查
       // 组合 —— 手动与自动任务都受取消约束；取消发生在模型等待期间时，
       // 已发出的网络请求无法收回，但不再发送后续块、不提交结果、不推进版本。
-      const stats = await extractor.extractSource(payload.sourceId, {
-        shouldContinue: () => !ctx.signal.aborted && autoGuardSatisfied(),
-      });
+      // 聊天优先：提问期间队列处于让路状态，本任务在下一次模型调用之前停下，
+      // 回到排队稍后重做（提取是整份替换，半途的结果不提交）。
+      const stats = await extractor
+        .extractSource(payload.sourceId, {
+          shouldContinue: () => !ctx.signal.aborted && autoGuardSatisfied() && !this.jobs.isHeld(),
+        })
+        .catch((err: unknown) => {
+          if ((err as { jobCancelled?: boolean }).jobCancelled && this.jobs.isHeld()) {
+            (err as { jobPreempted?: boolean }).jobPreempted = true;
+          }
+          throw err;
+        });
       if (ctx.signal.aborted) {
         // 提交后队列会按 abort 落 cancelled；此处不再推进 analyzed 版本
         const cancelledErr = new IxaError(
@@ -910,6 +919,10 @@ export class AppRuntime {
     });
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
+    // 聊天优先：后台分析与聊天共用同一个模型网关账号（有并发上限），提问期间让后台
+    // 分析让路，答完再继续（2026-09-18 真机：两边抢名额，聊天被 429 拒到超时）。
+    // 紧挨着 try 获取、在 finally 释放——中间出任何错都不会让后台分析永远停着。
+    const releaseJobs = (this.jobs as JobQueue | undefined)?.hold() ?? (() => undefined);
 
     try {
       // 选材前把向量补齐（有上限），别让第一问抢在补向量前面走关键词路径。
@@ -1068,6 +1081,7 @@ export class AppRuntime {
       }
       throw err;
     } finally {
+      releaseJobs();
       if (this.activeAskRuns.get(conversationId) === runId) {
         // A06：正常终态保留会话引用供复用（复用是引擎侧同 session_id 的
         // 连续性，不是执行状态残留）；这里只清掉「在跑」的标记。

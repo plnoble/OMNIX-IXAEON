@@ -58,6 +58,8 @@ export interface HermesRunResult {
   providerName: string | null;
   /** 本回合使用的引擎会话 id（A06：同 AgentSession 实例复用）。 */
   sessionId: string | null;
+  /** status=failed 时 Hermes 自己报的原因（如模型网关 429）；没有则 null。 */
+  failureReason?: string | null;
 }
 
 /**

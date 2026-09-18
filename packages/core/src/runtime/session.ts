@@ -9,6 +9,7 @@ import type { SemanticIndex } from '../memory/semanticIndex.js';
 import { getDisclosureEpoch } from '../access.js';
 import { type HermesRuntimeAdapter } from './adapter.js';
 import { CORE_TOOL_NAMES, type CoreToolBroker, type CoreToolName } from './broker.js';
+import { explainModelFailure } from './modelErrors.js';
 
 const MAX_ROUNDS = 4;
 
@@ -162,6 +163,8 @@ export class AgentSession {
     const caps = this.adapter.probe();
     const priorTurns = input.priorTurns ?? [];
 
+    /** Hermes 进程/会话没起来时的原因（带进 Core 兜底的说明里，不再被覆盖掉）。 */
+    let hermesStartupFailure: string | null = null;
     if (caps.locator.found) {
       // A06：账本先插 running 行——引擎回合期间的每个事件实时落库，
       // 断电/崩溃前的实际动作留在 runtime_runs 里，不再「结束后才插」。
@@ -246,24 +249,26 @@ export class AgentSession {
           this.mcpBridgedTools,
         );
         if (hermes.sessionId) this.hermesSessionId = hermes.sessionId;
+        // Hermes 的失败事件比 prompt.submit 的应答先到时，会以「正常返回、状态失败」的
+        // 形式回来。与抛错那条路一样处理：带着原因如实报错，不给一句笼统的「会话失败」。
+        if (hermes.status === 'failed') {
+          const reason = hermes.failureReason ?? 'Hermes 回合失败（没有给出原因）';
+          const err = new Error(reason) as Error & { hermesStage: string };
+          err.hermesStage = 'turn';
+          throw err;
+        }
         const steps: AgentStep[] = hermes.events.map((ev, i) => ({
           round: i + 1,
           tool: ev.kind,
           ok: ev.kind !== 'failed',
           detail: JSON.stringify(ev.payload).slice(0, 400),
         }));
-        const status =
-          hermes.status === 'cancelled'
-            ? 'cancelled'
-            : hermes.status === 'failed'
-              ? 'failed'
-              : 'succeeded';
+        // failed 已在上面按报错处理，走到这里只有正常结束与用户取消两种
+        const status = hermes.status === 'cancelled' ? 'cancelled' : 'succeeded';
         const engineNotice =
-          hermes.status === 'terminal'
-            ? '本轮经 Hermes TUI gateway（stdio JSON-RPC）。不是单轮检索。'
-            : hermes.status === 'cancelled'
-              ? '用户取消 Hermes 会话'
-              : 'Hermes 会话失败，未假装完成。';
+          hermes.status === 'cancelled'
+            ? '用户取消 Hermes 会话'
+            : '本轮经 Hermes TUI gateway（stdio JSON-RPC）。不是单轮检索。';
         // 记忆是怎么选出来的也要说清：语义检索没开或连不上时，用户要知道
         // 这一轮的预注入记忆只是关键词匹配。
         const notice = retrievalNotice ? `${engineNotice} ${retrievalNotice}` : engineNotice;
@@ -289,6 +294,17 @@ export class AgentSession {
           now,
         );
         this.unwireEventLedger();
+        // 回合已经交给 Hermes 之后才失败（模型限流、超时、模型报错）：如实报错，不再换
+        // Core 整轮重跑。2026-09-18 真机：后台分析占满网关并发，Hermes 撞 429 重试到超时，
+        // Core 兜底用同一个网关账号又撞 429，两遍加起来等了 5 分钟才报错。
+        // 只有 Hermes 进程/会话根本没起来时，才值得换 Core 兜底。
+        if ((err as { hermesStage?: string }).hermesStage === 'turn') {
+          throw new IxaError(
+            ErrorCodes.MODEL_CALL_FAILED,
+            `这一轮没答完：${explainModelFailure(detail)}`,
+          );
+        }
+        hermesStartupFailure = detail;
         /* 可执行文件在、会话未通：落到 Core 循环，不假装 Hermes 已完成。 */
       }
     }
@@ -316,7 +332,7 @@ export class AgentSession {
 
     const engine: AgentSessionResult['engine'] = 'core-bounded';
     const notice = caps.locator.found
-      ? 'Hermes 可执行文件存在，但 stdio 会话未探针通过，本轮走 Core 有界循环，不是完整 Hermes。'
+      ? `Hermes 这一轮没能启动，本轮走 Core 有界循环，不是完整 Hermes。${hermesStartupFailure ? `（原因：${hermesStartupFailure.slice(0, 160)}）` : ''}`
       : `Hermes 未安装，本轮走 Core 有界工具循环（不是 Hermes）。${caps.locator.reason}`;
     const steps: AgentStep[] = [];
     // D3：Core 兜底循环没有任何引擎侧记忆，历史轮次每次都要注入，
@@ -387,7 +403,11 @@ export class AgentSession {
           now,
         );
         return {
-          ...this.asAsk(`模型动作失败：${detail}`, notice, this.provider.modelName),
+          ...this.asAsk(
+            `模型动作失败：${explainModelFailure(detail)}`,
+            notice,
+            this.provider.modelName,
+          ),
           engine,
           runId,
           steps,
