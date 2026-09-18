@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from './model/provider.js';
-import { EXTRACT_PROMPT_VERSION, EXTRACT_SYSTEM_PROMPT } from './prompts.js';
+import { EXTRACT_PROMPT_VERSION, EXTRACT_SYSTEM_PROMPT, askSessionPreface } from './prompts.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { assertSourceAuthorized } from '../access.js';
 import { addNeedsReason } from '../storage/needsReview.js';
@@ -44,10 +44,33 @@ export interface ExtractStats {
   skippedPreserved: number;
   disputed: number;
   needsReview: number;
+  /** E5：聊天存档里认出是复述已注入记忆（回声）而没存的 AI 建议数 */
+  skippedEcho: number;
 }
 
 /** 发送给模型的每块字符上限（含编号、角色、提示包装后的完整 user 文本）。 */
 export const MAX_BLOCK_CHARS = 8000;
+
+/** E5：聊天存档每块前「本轮看过的记忆」说明的字符上限（从块上限里预留）。 */
+const ASK_PREFACE_BUDGET = 1500;
+
+/**
+ * E5：与本轮注入的某条记忆语义相似度达到它，就当回声（本机 qwen3-embedding，文档对文档）。
+ * 2026-09-18 真机：24 条回声对已有记忆的最高相似度一半在 0.75 以上；导入聊天里 58 条
+ * 真正的 AI 建议到 0.8 的只有 2 条。取 0.8：宁可漏掉一些回声（提炼模型那道关先拦），不误删新建议。
+ */
+const ECHO_SEMANTIC_THRESHOLD = 0.8;
+
+/** E5：没有向量服务时的字面兜底——去掉「AI 建议」「用户」等套话后的字符二元组重合率。 */
+const ECHO_LEXICAL_THRESHOLD = 0.6;
+
+export interface ExtractorOptions {
+  /**
+   * E5：每段文字与一组参照文字的最高语义相似度（通常是 SemanticIndex.maxSimilarity）。
+   * 用来认出聊天存档里 AI 复述已注入记忆的回声；不传或调用失败时只做字面比对。
+   */
+  similarity?: (texts: string[], references: string[]) => Promise<number[]>;
+}
 
 /**
  * 提取器：把一个来源的片段交给模型，得到有出处的结构化结论。
@@ -67,6 +90,7 @@ export class Extractor {
   constructor(
     private readonly db: CoreDatabase,
     private readonly provider: ModelProvider,
+    private readonly opts: ExtractorOptions = {},
   ) {}
 
   /** 对一个来源执行提取（原子替换：模型全部成功前不删旧理解）。 */
@@ -89,12 +113,15 @@ export class Extractor {
     };
     ensureContinuing();
     const source = this.db
-      .prepare('SELECT id, title, provider, project_id, archived_at FROM sources WHERE id = ?')
+      .prepare(
+        'SELECT id, title, provider, external_id, project_id, archived_at FROM sources WHERE id = ?',
+      )
       .get(sourceId) as
       | {
           id: string;
           title: string;
           provider: string;
+          external_id: string | null;
           project_id: string | null;
           archived_at: string | null;
         }
@@ -124,18 +151,41 @@ export class Extractor {
     if (segments.length === 0) {
       // 没有片段：视为成功空提取（保留旧行为），但清空旧理解需谨慎——
       // 无片段说明数据异常，保守起见不删除旧理解，直接返回
-      return { inserted: 0, skippedBadRef: 0, skippedPreserved: 0, disputed: 0, needsReview: 0 };
+      return {
+        inserted: 0,
+        skippedBadRef: 0,
+        skippedPreserved: 0,
+        disputed: 0,
+        needsReview: 0,
+        skippedEcho: 0,
+      };
     }
 
     // 默认只用当前活动分支提取理解；原文完整保留（计划 4.4）
     const active = segments.filter((s) => s.is_active_branch !== 0);
     const branch = active.length > 0 ? active : segments;
-    // E2（用户 2026-09-18 定）：IXAEON 自己的聊天存档只从用户说的话里提炼。
-    // 模型的回答不交给提炼：回答里常复述注入给它的旧记忆，提炼会把复述当成新结论
-    // 存回来（真机上同一批旧内容多了 8 份副本），模型说错、编造的内容也会被记成用户的事。
-    // 代价：「就按你刚才那个方案」这类采纳记不下方案内容——要记就把内容说出来。
-    const pool =
-      source.provider === 'ask_session' ? branch.filter((s) => s.role === 'user') : branch;
+    // IXAEON 自己的聊天存档（E2 → E5，用户 2026-09-18 定）：
+    // AI 的回答里常复述注入给它的旧记忆，直接提炼会把复述当成新结论存回来（E2 的回声）。
+    // E5：AI 这一轮新给的建议照样提炼（记成 AI 建议），但只收记下了「本轮注入了哪些记忆」
+    // 的 Hermes 回答——有这份记录才认得出哪些话是在复述。E5 之前的旧回答、Core 兜底的
+    // 回答（只依据记忆作答，给不出新建议）仍只提炼用户的话。
+    const injectedByNode =
+      source.provider === 'ask_session' ? this.injectedMemoryByTurn(source.external_id) : null;
+    const pool = injectedByNode
+      ? branch.filter(
+          (s) =>
+            s.role === 'user' ||
+            (s.role === 'assistant' && injectedByNode.has(s.external_node_id ?? '')),
+        )
+      : branch;
+    /** 助手片段 → 这一轮注入的记忆原文（认回声用） */
+    const injectedBySegment = new Map<string, string[]>();
+    if (injectedByNode) {
+      for (const s of pool) {
+        const injected = injectedByNode.get(s.external_node_id ?? '');
+        if (s.role === 'assistant' && injected) injectedBySegment.set(s.id, injected);
+      }
+    }
 
     // M2/G4/RF01/RF02 人工改口保护集：
     // 1) RF02 —— 从当前来源相关条目出发，沿 corrections 递归遍历整条纠正链
@@ -162,6 +212,7 @@ export class Extractor {
       skippedPreserved: 0,
       disputed: 0,
       needsReview: 0,
+      skippedEcho: 0,
     };
     type Collected = {
       row: z.infer<typeof extractionOutputSchema>['items'][number];
@@ -175,7 +226,20 @@ export class Extractor {
       const role = roleById.get(segmentId);
       return role === 'user' ? 'user' : role === 'assistant' ? 'ai' : null;
     };
-    const blocks = this.buildBlocks(pool);
+    // E5：聊天存档里有 AI 回答的块，前面附上这些回答看过的记忆和不收什么——
+    // 回声主要靠提炼模型自己认（真机：回声多是改写、合并过的复述，字面比对只认得出 2/24）
+    const blocks =
+      injectedBySegment.size > 0
+        ? this.buildBlocks(pool, MAX_BLOCK_CHARS - ASK_PREFACE_BUDGET).map((b) => {
+            const segIds = [...b.refMap.values()];
+            if (!segIds.some((id) => injectedBySegment.has(id))) return b;
+            const seen = [...new Set(segIds.flatMap((id) => injectedBySegment.get(id) ?? []))];
+            return {
+              ...b,
+              userText: `${askSessionPreface(seen, ASK_PREFACE_BUDGET)}\n\n${b.userText}`,
+            };
+          })
+        : this.buildBlocks(pool);
 
     const runModelPass = async (): Promise<{
       collected: Collected[];
@@ -237,7 +301,7 @@ export class Extractor {
       pass = await runModelPass();
     }
 
-    const collected = pass.collected;
+    let collected = pass.collected;
     stats.skippedBadRef = pass.problems.length;
     stats.skippedPreserved += pass.skippedPreserved;
 
@@ -261,6 +325,13 @@ export class Extractor {
         kept: collected.length,
         refs: pass.problems.slice(0, 8).map((p) => p.segmentRef),
       });
+    }
+    // E5：确定性兜底——提炼出的 AI 建议与这一轮注入的某条记忆几乎同义，就是回声，不存
+    const echoes = await this.findEchoes(collected, injectedBySegment);
+    if (echoes.size > 0) {
+      stats.skippedEcho = echoes.size;
+      recordAudit(this.db, 'extract.echoes_dropped', { sourceId, dropped: echoes.size });
+      collected = collected.filter((c) => !echoes.has(c));
     }
     if (collected.length === 0) {
       // 合法分析结果为空：模型确认没有可提取结论 —— 旧理解保持不变
@@ -404,6 +475,71 @@ export class Extractor {
     })();
 
     return stats;
+  }
+
+  /**
+   * E5：聊天存档对应的对话里，每条 Hermes 回答注入过的记忆原文，按消息序号
+   *（= 片段的 external_node_id）。只收记下了 memoryUsed 的完整回答——
+   * E5 之前的旧回答、Core 兜底的回答、失败或取消的回答不在里面。
+   */
+  private injectedMemoryByTurn(conversationId: string | null): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    if (!conversationId) return out;
+    const rows = this.db
+      .prepare(
+        `SELECT seq, engine, meta_json FROM messages
+         WHERE conversation_id = ? AND role = 'assistant' AND status = 'complete'`,
+      )
+      .all(conversationId) as Array<{ seq: number; engine: string | null; meta_json: string }>;
+    for (const r of rows) {
+      if (r.engine !== 'hermes') continue;
+      let used: unknown;
+      try {
+        used = (JSON.parse(r.meta_json) as { memoryUsed?: unknown }).memoryUsed;
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(used)) continue;
+      out.set(
+        String(r.seq),
+        used
+          .map((m) => (m as { statement?: unknown }).statement)
+          .filter((s): s is string => typeof s === 'string' && s.length > 0),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * E5：认出回声——引用 AI 回答、且与那一轮注入的某条记忆几乎同义的候选。
+   * 有向量服务时看语义相似度，同时做字面比对（近乎照抄的一定算）；向量服务不可用时只做字面比对。
+   */
+  private async findEchoes<T extends { row: { statement: string }; segmentId: string }>(
+    collected: T[],
+    injectedBySegment: Map<string, string[]>,
+  ): Promise<Set<T>> {
+    const echoes = new Set<T>();
+    for (const [segmentId, injected] of injectedBySegment) {
+      if (injected.length === 0) continue;
+      const group = collected.filter((c) => c.segmentId === segmentId);
+      if (group.length === 0) continue;
+      let sims: number[] | null = null;
+      if (this.opts.similarity) {
+        try {
+          sims = await this.opts.similarity(
+            group.map((c) => c.row.statement),
+            injected,
+          );
+        } catch {
+          sims = null; // 向量服务没开：退回字面比对，不因此让整份提炼失败
+        }
+      }
+      group.forEach((c, i) => {
+        const semantic = sims !== null && (sims[i] ?? 0) >= ECHO_SEMANTIC_THRESHOLD;
+        if (semantic || lexicalEcho(c.row.statement, injected)) echoes.add(c);
+      });
+    }
+    return echoes;
   }
 
   /**
@@ -581,6 +717,27 @@ function bigrams(text: string): Set<string> {
   const out = new Set<string>();
   for (let i = 0; i < text.length - 1; i++) out.add(text.slice(i, i + 2));
   return out;
+}
+
+/** E5：比对回声前去掉「AI 建议：」「用户」「你」这类套话和标点，只留内容。 */
+function echoKey(statement: string): string {
+  return statement
+    .replace(/^\s*AI\s*(建议|认为|提到|指出|推荐|表示|说)?[：:，,\s]*/i, '')
+    .replace(/用户|你的|你/g, '')
+    .replace(/[\s，。、；：“”‘’！？,.;:!?（）()《》「」【】\-—]/g, '');
+}
+
+/** E5：字面回声——与某条注入记忆的字符二元组重合率（按较短一方算）达到阈值。 */
+function lexicalEcho(statement: string, injected: string[]): boolean {
+  const a = bigrams(echoKey(statement));
+  if (a.size === 0) return false;
+  return injected.some((m) => {
+    const b = bigrams(echoKey(m));
+    if (b.size === 0) return false;
+    let inter = 0;
+    for (const x of a) if (b.has(x)) inter++;
+    return inter / Math.min(a.size, b.size) >= ECHO_LEXICAL_THRESHOLD;
+  });
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {

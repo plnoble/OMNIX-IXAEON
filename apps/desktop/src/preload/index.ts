@@ -99,6 +99,9 @@ const api: IxaIpcApi = {
   getSettings: () => ipcRenderer.invoke('ixaeon:getSettings'),
   saveModelSettings: (input) => ipcRenderer.invoke('ixaeon:saveModelSettings', input),
   saveWebSearchSettings: (input) => ipcRenderer.invoke('ixaeon:saveWebSearchSettings', input),
+  getPersonalMemoryToChat: () => ipcRenderer.invoke('ixaeon:getPersonalMemoryToChat'),
+  setPersonalMemoryToChat: (enabled) =>
+    ipcRenderer.invoke('ixaeon:setPersonalMemoryToChat', enabled),
   getHermesBridgeStatus: () => ipcRenderer.invoke('ixaeon:getHermesBridgeStatus'),
   setHermesBridge: (enabled) => ipcRenderer.invoke('ixaeon:setHermesBridge', enabled),
   testWebSearch: (input) => ipcRenderer.invoke('ixaeon:testWebSearch', input),

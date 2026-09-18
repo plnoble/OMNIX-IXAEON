@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { ErrorCodes, HERMES_BRIDGE_SERVER, IxaError } from '@ixaeon/contracts';
+import { ErrorCodes, HERMES_BRIDGE_SERVER, IxaError, type MemoryUsedItem } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import type { AskResult } from '../storage/askStore.js';
-import { ContextSelector } from '../memory/contextSelector.js';
+import { ContextSelector, memoryOriginTag } from '../memory/contextSelector.js';
 import type { SemanticIndex } from '../memory/semanticIndex.js';
 import { getDisclosureEpoch } from '../access.js';
 import { type HermesRuntimeAdapter } from './adapter.js';
@@ -57,6 +57,8 @@ export interface AgentSessionResult extends AskResult {
   engine: 'hermes' | 'core-bounded' | 'missing';
   runId: string;
   steps: AgentStep[];
+  /** E5：Hermes 这一轮回答前注入的记忆（Core 兜底路径不填，它的依据在 citations 里）。 */
+  memoryUsed?: MemoryUsedItem[];
 }
 
 const SYSTEM = [
@@ -199,6 +201,7 @@ export class AgentSession {
         // 针对问句在模型获准边界内精选最相关记忆注入引擎，取代粗粒度字段拼装。
         let contextBlock = '';
         let retrievalNotice: string | null = null;
+        let memoryUsed: MemoryUsedItem[] = [];
         try {
           // R1：本机语义 + 关键词混合选材；语义不可用时内部退回关键词并给出说明。
           const selector = new ContextSelector(this.db);
@@ -209,6 +212,11 @@ export class AgentSession {
           });
           contextBlock = selection.promptBlock;
           retrievalNotice = selection.retrievalNotice;
+          memoryUsed = selection.items.map((i) => ({
+            id: i.id,
+            statement: i.statement,
+            tag: memoryOriginTag(i),
+          }));
         } catch {
           /* 选材降级，不编造 */
         }
@@ -294,6 +302,7 @@ export class AgentSession {
           engine: 'hermes',
           runId,
           steps,
+          memoryUsed,
         };
       } catch (err) {
         // A06：失败也落账本（原始 Hermes 错误如实保留，不吞成静默降级）。

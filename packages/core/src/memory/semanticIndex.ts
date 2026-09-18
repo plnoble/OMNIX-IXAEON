@@ -98,6 +98,19 @@ export class SemanticIndex {
     return result;
   }
 
+  /**
+   * E5：每段文字与一组参照文字的最高余弦相似度（都按文档向量算，对称）。
+   * 用来认出 AI 回答里的「复述」：提炼出的一句若与这一轮注入的某条记忆几乎同义，就是回声。
+   * 参照为空时全部返回 0；向量服务不可用时抛错，由调用方退回字面比对。
+   */
+  async maxSimilarity(texts: string[], references: string[]): Promise<number[]> {
+    if (texts.length === 0) return [];
+    if (references.length === 0) return texts.map(() => 0);
+    const vecs = await this.embedder.embedDocuments([...texts, ...references]);
+    const refs = vecs.slice(texts.length);
+    return vecs.slice(0, texts.length).map((v) => Math.max(...refs.map((r) => cosine(v, r))));
+  }
+
   private pendingItems(limit?: number): Array<{ id: string; text: string; hash: string }> {
     const rows = this.db
       .prepare(

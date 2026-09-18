@@ -87,6 +87,30 @@ function factsOf(db: CoreDatabase, itemId: string): NeedsReviewFacts | undefined
   return row ?? undefined;
 }
 
+/**
+ * E6（用户 2026-09-18：不想导入一份资料就逐句审核）：真正需要用户拍板的条目——
+ * 冲突（两份资料说法相反）、用户自己要求继续待处理的、编码代理报回来的结果。
+ * 其余待处理原因（未确认、没归项目）只是「还没整理」：不列成作业，用的时候觉得不对当场点掉。
+ * SQL 与 JS 两种写法必须同义（列表查询用 SQL，总览用 JS）。
+ */
+export const NEEDS_USER_SQL = `(state = 'disputed' OR origin = 'work_result'
+  OR (',' || needs_reasons || ',') LIKE '%,conflict,%'
+  OR (',' || needs_reasons || ',') LIKE '%,manual,%')`;
+
+export function needsUserAttention(row: {
+  state: string;
+  origin: string;
+  needs_reasons: string;
+}): boolean {
+  const reasons = parse(row.needs_reasons);
+  return (
+    row.state === 'disputed' ||
+    row.origin === 'work_result' ||
+    reasons.has('conflict') ||
+    reasons.has('manual')
+  );
+}
+
 /** 读当前原因集合。 */
 export function getNeedsReasons(db: CoreDatabase, itemId: string): Set<NeedsReason> {
   const row = db.prepare('SELECT needs_reasons FROM items WHERE id = ?').get(itemId) as

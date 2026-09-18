@@ -1,6 +1,7 @@
 import type { CoreDatabase } from './db/database.js';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { MemoryScope } from '@ixaeon/contracts';
+import { personalMemoryToChat, settingsEpoch } from './settings.js';
 
 /**
  * D02 / S2-03（审核 2026-09-14、2026-09-15）：计算当前有效权限与披露的纪元版本号（Epoch）。
@@ -33,7 +34,8 @@ export function getDisclosureEpoch(
       "SELECT COUNT(*) AS c, COALESCE(MAX(updated_at), '') AS t FROM items WHERE state IN ('current', 'disputed')",
     )
     .get() as { c: number; t: string };
-  return `${p.c}:${p.t}|${d.c}:${d.t}|${i.c}:${i.t}`;
+  // E6：「个人记忆给聊天用」开关一变，带着旧可见范围的长驻会话必须失效
+  return `${p.c}:${p.t}|${d.c}:${d.t}|${i.c}:${i.t}|${settingsEpoch(db)}`;
 }
 
 /**
@@ -139,7 +141,10 @@ export function codingClientMayReadItem(db: CoreDatabase, itemId: string): boole
   return isItemDisclosedTo(db, itemId, 'coding_client');
 }
 
-/** 模型外发：project 默认可发；personal/unassigned 需有效 model 分享。 */
+/**
+ * 模型外发：project 默认可发；personal/unassigned 需有效 model 分享，
+ * 或用户打开了「个人记忆给聊天用」（E6，一次决定，不必逐条分享）。
+ */
 export function modelMayReadItem(db: CoreDatabase, itemId: string): boolean {
   const scope = itemScope(db, itemId);
   if (scope === null) return false;
@@ -154,6 +159,8 @@ export function modelMayReadItem(db: CoreDatabase, itemId: string): boolean {
   ) {
     return true;
   }
+  // E6：只放宽 model 受众（IXAEON 自己的聊天）；编码客户端仍须逐条分享
+  if (personalMemoryToChat(db)) return true;
   return isItemDisclosedTo(db, itemId, 'model');
 }
 

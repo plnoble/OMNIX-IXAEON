@@ -199,6 +199,16 @@ describe('用 AI 的建议时标明出处', () => {
     expect(line('预算控制在一万以内')).toContain('系统推断');
     expect(line('优先选大机箱')).toContain('AI 当时的建议，不是用户的决定');
     expect(line('32G 内存')).toContain('用户采纳的 AI 建议');
+    // 用户 2026-09-18：AI 的方案只是当时合适，不要当成定论让后面的 AI 照做（采纳过的也一样）
+    expect(r.promptBlock).toContain('是当时的看法，不是定论');
+  });
+
+  it('没有 AI 建议时不加这段说明', () => {
+    const { d, add } = setup();
+    add('台式机预算控制在一万以内', 'constraint', 'user');
+    const r = new ContextSelector(d).selectForQuestion('台式机预算多少？', null);
+    expect(r.promptBlock).toContain('预算控制在一万以内');
+    expect(r.promptBlock).not.toContain('不是定论');
   });
 
   it('首页：没采纳的 AI 建议不算你的约束，也不算你要处理的事；采纳后算', () => {

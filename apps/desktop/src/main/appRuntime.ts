@@ -49,6 +49,8 @@ import {
   getDisclosureEpoch,
   localDay,
   locateHermes,
+  personalMemoryToChat,
+  setPersonalMemoryToChat,
   type HermesLocator,
   type AskResult,
   type CoreDatabase,
@@ -524,7 +526,11 @@ export class AppRuntime {
           'IXA0010 模型未配置：请在设置中填写 OpenAI API Key 与模型名称后重试该提取任务',
         );
       }
-      const extractor = new Extractor(this.db, provider);
+      // E5：本机向量服务用来认出聊天存档里 AI 复述已注入记忆的回声（没开时只做字面比对）
+      const index = this.semanticIndex;
+      const extractor = new Extractor(this.db, provider, {
+        similarity: index ? (texts, refs) => index.maxSimilarity(texts, refs) : undefined,
+      });
       // 修复 M0.2 第 6 条：任务以「开始执行时的内容版本」为目标版本 ——
       // 执行期间的新内容不会混入本次结果，由完成后的滞后检查补分析。
       const targetRevision = this.sources.getRevisions(payload.sourceId).content;
@@ -1108,6 +1114,9 @@ export class AppRuntime {
           coverage: result.coverage,
           steps: result.steps,
           proposedTasks: proposedTasks.length > 0 ? proposedTasks : undefined,
+          // E5：这一轮给模型看了哪些记忆——回答下面列出来供当场纠正；
+          // 提炼这段回答时据此认出复述（回声）。空数组也要存：表示「这一轮一条都没给」。
+          memoryUsed: result.memoryUsed,
         },
       });
       // 引擎会话 id 落库：仅用于显示「这个对话上次用的是哪个引擎会话」。
@@ -1209,6 +1218,30 @@ export class AppRuntime {
     const ctx = { audience: 'model' as const, runId: 'hermes-bridge', projectId: null };
     if (name === 'get_evidence') return broker.invoke('get_evidence', { itemId: args.itemId }, ctx);
     return broker.invoke('record_observation', { statement: args.statement }, ctx);
+  }
+
+  /** E6：个人记忆给聊天用的开关状态，以及没归项目的记忆有多少条（设置页用）。 */
+  personalMemoryToChatStatus(): { enabled: boolean; personalItems: number } {
+    const personalItems = (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM items
+           WHERE scope != 'project' AND state IN ('current', 'disputed')
+             AND shelved_at IS NULL AND confirmation != 'rejected'`,
+        )
+        .get() as { n: number }
+    ).n;
+    return { enabled: personalMemoryToChat(this.db), personalItems };
+  }
+
+  /**
+   * E6：开关「个人记忆给聊天用」。只影响 IXAEON 自己的聊天（model 受众）；
+   * 编码客户端仍须逐条分享。开关一变，带着旧可见范围的会话（含预热的）一并作废。
+   */
+  setPersonalMemoryToChat(enabled: boolean): { enabled: boolean; personalItems: number } {
+    setPersonalMemoryToChat(this.db, enabled);
+    this.invalidateContext();
+    return this.personalMemoryToChatStatus();
   }
 
   /** 记忆桥当前状态（设置页用）：开着没有；关着的话现在能不能开、不能开为什么。 */

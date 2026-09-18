@@ -279,6 +279,18 @@ export interface AskDeltaEvent {
   delta: string;
 }
 
+/**
+ * E5：这一轮回答前注入给模型的一条记忆（存在助手消息的 meta.memoryUsed 里）。
+ * 两个用处：回答下面列出「用到的记忆」，觉得不对当场点掉；提炼这段回答时
+ * 认出哪些话只是在复述这些记忆（回声），不再存一遍。
+ */
+export interface MemoryUsedItem {
+  id: string;
+  statement: string;
+  /** 出处标签，如「用户指定」「系统推断」「AI 当时的建议，不是用户的决定」 */
+  tag: string;
+}
+
 /** P2：等待回答时的阶段（事件里不带思考内容）。 */
 export type AskPhase = 'preparing' | 'thinking' | 'answering';
 export interface AskProgressEvent {
@@ -481,6 +493,8 @@ export interface IxaIpcApi {
     /** N01：Inbox 可处理范围排除已被替代的历史条目（默认 false 不排除） */
     excludeSuperseded?: boolean;
     scope?: 'personal' | 'project' | 'unassigned';
+    /** E6：true = 只要需要用户拍板的（冲突、要求继续待处理、编码结果）；false = 其余 */
+    needsUser?: boolean;
   }): Promise<Item[]>;
   getItemEvidence(itemId: string): Promise<ItemEvidenceView[]>;
   previewCorrection(input: { itemId: string; userText: string }): Promise<CorrectionPreview>;
@@ -706,6 +720,12 @@ export interface IxaIpcApi {
     apiKey?: string;
   }): Promise<{ ok: true }>;
   /** 保存网页搜索设置（B3）。Key 用 safeStorage 加密落盘，留空表示保持不变。 */
+  /**
+   * E6：个人记忆给 IXAEON 自己的聊天用（默认关）。personalItems = 没归到项目下、
+   * 当前有效的记忆条数（关着时它们进不了聊天）。编码客户端不受这个开关影响。
+   */
+  getPersonalMemoryToChat(): Promise<{ enabled: boolean; personalItems: number }>;
+  setPersonalMemoryToChat(enabled: boolean): Promise<{ enabled: boolean; personalItems: number }>;
   /** 记忆桥（F1）当前状态：开着没有；关着的话能不能开、为什么不能。 */
   getHermesBridgeStatus(): Promise<{ enabled: boolean; blockedReason: string | null }>;
   /**

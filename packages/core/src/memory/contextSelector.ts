@@ -551,5 +551,12 @@ function buildPromptBlock(selected: Array<SelectedMemoryItem & { state: string }
     `IXAEON 记忆上下文（今天 ${localDay(new Date())}；` +
     `「记于」是 IXAEON 记下这条的日期，不是事情发生的日期，` +
     `早先记的事可能已经过去或不再成立）：`;
-  return `\n\n（${header}\n${lines.join('\n')}\n）`;
+  // 用户 2026-09-18：AI 给的方案只是当时合适，之后可能有更好的办法、当时也可能想得不全，
+  // 不要当成「完全确定」的规矩让后面的 AI 照做——采纳过的也一样。
+  const hasAdvice = selected.some((i) => i.saidBy === 'ai' || i.origin === 'assistant_suggestion');
+  const adviceNote = hasAdvice
+    ? '\n标为「AI 当时的建议」或「用户采纳的 AI 建议」的，是当时的看法，不是定论：' +
+      '之后可能有更好的做法，当时也可能考虑不全；有更好的方案就直接提出来，不必照旧执行。'
+    : '';
+  return `\n\n（${header}${adviceNote}\n${lines.join('\n')}\n）`;
 }

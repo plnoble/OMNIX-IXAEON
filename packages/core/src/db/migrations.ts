@@ -950,6 +950,20 @@ SET needs_reasons = trim(replace(',' || needs_reasons || ',', ',unconfirmed,', '
 WHERE said_by = 'ai' AND (',' || needs_reasons || ',') LIKE '%,unconfirmed,%';
 `,
   },
+  {
+    id: 32,
+    name: 'app-settings',
+    sql: `
+-- 三周任务单 E6（2026-09-18）：核心层要读的少量全局设置（键值）。
+-- 第一项 memory.personal_to_chat：个人记忆给 IXAEON 自己的聊天用（默认没有这一行 = 关闭）。
+-- 放数据库而不是 config.json：权限判断在核心层（access.ts），各个读记忆的入口要看到同一个值。
+CREATE TABLE app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

@@ -348,6 +348,7 @@ export function registerIpc(runtime: AppRuntime): void {
           ? { excludeSuperseded: input.excludeSuperseded }
           : {}),
         ...(input.scope !== undefined ? { scope: input.scope } : {}),
+        ...(input.needsUser !== undefined ? { needsUser: input.needsUser } : {}),
       }),
     getItemEvidence: async (itemId) => runtime.items.getEvidence(itemId),
     previewCorrection: async (input) => {
@@ -602,6 +603,9 @@ export function registerIpc(runtime: AppRuntime): void {
       return { ok: true as const };
     },
     // 记忆桥（F1）：状态与开关（开之前查 HTTPS；改 Hermes 配置前先备份）
+    getPersonalMemoryToChat: async () => runtime.personalMemoryToChatStatus(),
+    setPersonalMemoryToChat: async (enabled: boolean) =>
+      runtime.setPersonalMemoryToChat(enabled === true),
     getHermesBridgeStatus: async () => runtime.hermesBridgeStatus(),
     setHermesBridge: async (enabled: boolean) => runtime.setHermesBridge(enabled === true),
     // 设置向导/设置页「获取可用模型」：上游拉取，Key 仅本次请求内存使用

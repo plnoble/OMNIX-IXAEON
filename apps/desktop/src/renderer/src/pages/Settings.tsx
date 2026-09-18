@@ -196,6 +196,69 @@ function HermesBridgeCard() {
   );
 }
 
+/**
+ * E6：个人记忆给聊天用（用户 2026-09-18：不想导入一份资料就逐句审核）。
+ * 一次决定，代替逐条「分享给模型」。
+ */
+function PersonalMemoryCard() {
+  const [status, setStatus] = useState<{ enabled: boolean; personalItems: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getPersonalMemoryToChat()
+      .then(setStatus)
+      .catch((err) => setError(errMsg(err)));
+  }, []);
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await api.setPersonalMemoryToChat(enabled));
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card title="个人记忆给聊天用" testId="settings-personal-memory">
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      <p className="muted">
+        没归到项目下的记忆（多来自你导入的个人聊天）默认不进聊天。打开后，IXAEON
+        自己的聊天就能用上它们——会随提问经你的模型网关发给你选的云端模型。 Codex、Claude
+        等编码工具照样拿不到。
+      </p>
+      {status && (
+        <p className={status.enabled ? 'note' : 'muted'} data-testid="settings-personal-status">
+          {status.enabled
+            ? `当前：已打开（${status.personalItems} 条个人记忆可以进聊天）`
+            : `当前：关闭（${status.personalItems} 条个人记忆进不了聊天）`}
+        </p>
+      )}
+      <div className="wizard-nav">
+        {status?.enabled ? (
+          <Button disabled={busy} onClick={() => void toggle(false)} testId="settings-personal-off">
+            {busy ? '处理中…' : '关闭'}
+          </Button>
+        ) : (
+          <Button
+            kind="primary"
+            disabled={busy || status === null}
+            onClick={() => void toggle(true)}
+            testId="settings-personal-on"
+          >
+            {busy ? '处理中…' : '打开'}
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 /** R2：本机语义检索的索引状态与重建（设置页）。 */
 function SemanticIndexCard() {
   const [status, setStatus] = useState<{
@@ -535,6 +598,7 @@ export function SettingsPage() {
         </p>
       </Card>
 
+      <PersonalMemoryCard />
       <HermesBridgeCard />
 
       <SemanticIndexCard />

@@ -26,6 +26,13 @@ export {
 } from './dataDir.js';
 export { Logger, redactValue, type LogLevel } from './logging/logger.js';
 export { recordAudit, listAuditEvents } from './audit.js';
+export {
+  PERSONAL_MEMORY_TO_CHAT,
+  getSetting,
+  setSetting,
+  personalMemoryToChat,
+  setPersonalMemoryToChat,
+} from './settings.js';
 export { loadConfig, saveConfig } from './config.js';
 export { PermissionService } from './permissions.js';
 export { ProjectService } from './projects.js';

@@ -17,6 +17,7 @@ import {
   syncDerivedNeedsReasons,
   setNeedsReasons,
   getNeedsReasons,
+  NEEDS_USER_SQL,
 } from './needsReview.js';
 
 /** row → camelCase。 */
@@ -67,6 +68,11 @@ export class ItemService {
     excludeSuperseded?: boolean;
     /** S1：按语义范围过滤；不传则不过滤 */
     scope?: MemoryScope;
+    /**
+     * E6：true = 只要真正需要用户拍板的（冲突、用户要求继续待处理、编码代理报回的结果）；
+     * false = 只要其余的（未确认、没归项目等自动整理的，照常使用、不必逐条看）。
+     */
+    needsUser?: boolean;
   }): Item[] {
     const where: string[] = [];
     const args: unknown[] = [];
@@ -95,6 +101,9 @@ export class ItemService {
     if (filter.type) {
       where.push('type = ?');
       args.push(filter.type);
+    }
+    if (filter.needsUser !== undefined) {
+      where.push(filter.needsUser ? NEEDS_USER_SQL : `NOT ${NEEDS_USER_SQL}`);
     }
     const sql = `SELECT * FROM items ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                  ORDER BY updated_at DESC LIMIT ?`;

@@ -1,4 +1,6 @@
-import type { ConversationMessage } from '@ixaeon/contracts';
+import { useState } from 'react';
+import type { ConversationMessage, MemoryUsedItem } from '@ixaeon/contracts';
+import { api, errMsg } from '../api.js';
 import { Button, Spinner } from '../ui.js';
 
 type ProposedTask = { id: string; goal: string; status: string; scope: string[] };
@@ -28,6 +30,70 @@ function coverageOf(meta: Record<string, unknown>): {
   };
 }
 
+function memoryUsedOf(meta: Record<string, unknown>): MemoryUsedItem[] {
+  const raw = meta['memoryUsed'];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((m): m is MemoryUsedItem => {
+    if (!m || typeof m !== 'object') return false;
+    const o = m as Record<string, unknown>;
+    return typeof o['id'] === 'string' && typeof o['statement'] === 'string';
+  });
+}
+
+/**
+ * E6：这一轮用到的记忆，当场纠正（用户 2026-09-18：不想导入一份资料就逐句审核）。
+ * 记忆默认直接用；用的时候看到不对或过时，在这里点一下，之后就不再这样用。
+ */
+function MemoryUsedList({ items }: { items: MemoryUsedItem[] }) {
+  const [marked, setMarked] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const mark = async (id: string, action: 'wrong' | 'ended') => {
+    try {
+      if (action === 'wrong') await api.rejectItem(id);
+      else await api.setItemTimeStatus({ id, status: 'ended' });
+      setMarked((prev) => ({
+        ...prev,
+        [id]: action === 'wrong' ? '已标记不对，之后不再用' : '已标记过时，之后当作过去的事',
+      }));
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+  return (
+    <details className="ask-memory-used" data-testid="ask-memory-used">
+      <summary className="muted">用到的记忆（{items.length} 条）· 不对或过时的可以当场点掉</summary>
+      {error && <p className="warn">{error}</p>}
+      <ul>
+        {items.map((m) => (
+          <li key={m.id} data-testid={`memory-used-${m.id}`}>
+            <span>{m.statement}</span> <span className="muted">（{m.tag}）</span>
+            {marked[m.id] ? (
+              <span className="muted"> · {marked[m.id]}</span>
+            ) : (
+              <>
+                <Button
+                  kind="ghost"
+                  onClick={() => void mark(m.id, 'wrong')}
+                  testId={`memory-wrong-${m.id}`}
+                >
+                  不对
+                </Button>
+                <Button
+                  kind="ghost"
+                  onClick={() => void mark(m.id, 'ended')}
+                  testId={`memory-ended-${m.id}`}
+                >
+                  过时了
+                </Button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function AskMessage({
   message: m,
   showNotice,
@@ -50,6 +116,7 @@ export function AskMessage({
   waitLabel?: string;
 }) {
   const tasks = tasksOf(m.meta);
+  const memoryUsed = memoryUsedOf(m.meta);
   const coverage = coverageOf(m.meta);
   const notice = typeof m.meta['notice'] === 'string' ? m.meta['notice'] : '';
   const steps = Array.isArray(m.meta['steps'])
@@ -92,6 +159,9 @@ export function AskMessage({
               ))}
             </ul>
           </div>
+        )}
+        {m.role === 'assistant' && m.status !== 'streaming' && memoryUsed.length > 0 && (
+          <MemoryUsedList items={memoryUsed} />
         )}
         {tasks.length > 0 && (
           <div className="proposed-tasks">

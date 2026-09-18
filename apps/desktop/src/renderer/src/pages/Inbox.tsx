@@ -6,23 +6,36 @@ import { Button, Card, Empty, ErrorBanner, Spinner } from '../ui.js';
 export function InboxPage({ projects }: { projects: Project[] }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [shelvedItems, setShelvedItems] = useState<Item[] | null>(null);
+  /** E6：自动整理、照常使用的条数（未确认、没归项目），不列成作业 */
+  const [autoCount, setAutoCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
       // N01：可处理范围排除已被替代的历史条目（纠正后旧条目不再占据列表）
       // N02：搁置的条目移入下方「已搁置」区，可随时恢复
-      const [pending, shelved] = await Promise.all([
+      // E6（用户 2026-09-18：不想导入一份资料就逐句审核）：这里只列真正要你拍板的——
+      // 冲突、你要求继续待处理的、编码代理报回的结果；其余自动整理，照常使用
+      const [pending, shelved, auto] = await Promise.all([
         api.listItems({
           projectId: null,
           needsReview: true,
           shelved: false,
           excludeSuperseded: true,
+          needsUser: true,
         }),
-        api.listItems({ projectId: null, needsReview: true, shelved: true }),
+        api.listItems({ projectId: null, needsReview: true, shelved: true, needsUser: true }),
+        api.listItems({
+          projectId: null,
+          needsReview: true,
+          shelved: false,
+          excludeSuperseded: true,
+          needsUser: false,
+        }),
       ]);
       setItems(pending);
       setShelvedItems(shelved);
+      setAutoCount(auto.length);
     } catch (err) {
       setError(errMsg(err));
     }
@@ -66,8 +79,14 @@ export function InboxPage({ projects }: { projects: Project[] }) {
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       <Card title="待讨论（Inbox）" testId="inbox-card">
         <p className="note">
-          冲突、重要决定、编码结果仍需要你拍板。普通提取会自动形成暂定理解，可在「理解」页查看或纠正，不必把每条都当作业。
+          这里只放要你拍板的：两份资料说法冲突的、你要求继续待处理的、编码代理报回的结果。
         </p>
+        {autoCount !== null && autoCount > 0 && (
+          <p className="muted" data-testid="inbox-auto-count">
+            另有 {autoCount}{' '}
+            条自动整理的理解（还没确认或没归项目），不用逐条看。聊天时觉得哪条不对，在回答下面「用到的记忆」里点掉即可，也可以到「理解」页整理；没归项目的，要在设置里打开「个人记忆给聊天用」才会进聊天。
+          </p>
+        )}
         {items === null ? (
           <Spinner />
         ) : items.length === 0 ? (

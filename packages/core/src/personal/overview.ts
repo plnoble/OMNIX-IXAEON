@@ -9,6 +9,7 @@ import {
 import { RelationService } from '../orchestration/relationStore.js';
 import { isEphemeralStatement } from '../memory/ephemeral.js';
 import { mentionedDays, pastEventDay } from '../memory/temporal.js';
+import { needsUserAttention } from '../storage/needsReview.js';
 
 export interface PersonalOverview {
   generatedAt: string;
@@ -98,6 +99,18 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
     said_by: (row['said_by'] as Item['said_by']) ?? null,
   });
   const all = items.map(toItem);
+  // E6：首页「要你拍板」只放真正需要用户的（冲突、要求继续待处理、编码结果），与待讨论页同一规则
+  const needsUser = new Set(
+    items
+      .filter((r) =>
+        needsUserAttention({
+          state: String(r['state']),
+          origin: String(r['origin']),
+          needs_reasons: String(r['needs_reasons'] ?? ''),
+        }),
+      )
+      .map((r) => String(r['id'])),
+  );
   // E1：已经结束的事不当作「目标」列出（用户说还没结束的除外）。条目时间戳是导入分析的
   // 日期，不是事情发生的日期——看内容里写的日期（memory/temporal.ts）。
   const pastDay = (i: Item): string | null =>
@@ -170,13 +183,8 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
       if (i.state === 'disputed') return true;
       if (!i.needs_review) return false;
       if (isUnadoptedAiAdvice(i)) return false;
-      // 普通未整理/未确认提取可在理解页查看，不刷成首页作业。
-      return (
-        i.type === 'decision' ||
-        i.type === 'rejected_option' ||
-        i.origin === 'work_result' ||
-        i.origin === 'user'
-      );
+      // 普通未整理/未确认提取可在理解页查看，不刷成首页作业（E6：只放真正要用户拍板的）
+      return needsUser.has(i.id);
     }),
     conflicts: all.filter((i) => i.state === 'disputed'),
     pastSuggestions: all

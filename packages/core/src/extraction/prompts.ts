@@ -8,8 +8,35 @@
  * v4（2026-09-18，E3）：分清说话人——用户的目标/决定/偏好/约束只能来自用户说的话；
  * AI 回答里的建议照样提取，但写明是 AI 的说法。记在谁名下由代码按依据片段的说话人决定，
  * 这里只管措辞，让注入聊天和记忆页读起来不会被误当成用户的事。
+ * v5（2026-09-18，E5）：提炼 IXAEON 自己的聊天存档时，块前附「AI 回答前看过的记忆」
+ * 与不收什么（askSessionPreface）；系统提示词本身不变。
  */
-export const EXTRACT_PROMPT_VERSION = 'v4';
+export const EXTRACT_PROMPT_VERSION = 'v5';
+
+/**
+ * E5：提炼 IXAEON 自己的聊天存档时，每块前附的说明。
+ * AI 回答前看过的用户记忆列在这里：回答里复述、总结它们的话是回声，不要提取
+ *（2026-09-17 真机：一次聊天的回答复述了注入的旧资料，被当成新结论存回 8 份副本）。
+ * 这段不是资料片段，不能被引用——引用必须指向片段编号，摘录必须出自片段原文。
+ */
+export function askSessionPreface(seenMemories: string[], maxChars: number): string {
+  const head = [
+    '（说明，不是资料、不能引用：下面是 IXAEON 自己的聊天记录。',
+    '- AI 回答前看过下面这些用户已有的记忆；回答里复述、总结它们的话不要提取。',
+    '- AI 介绍自己或 IXAEON、说明缺少什么信息、反问用户的话，不要提取。',
+    '- 只提取 AI 这一轮新给出的、对用户有用的建议、方案或调研结论，每段回答最多 3 条。）',
+  ];
+  if (seenMemories.length === 0) return [...head, 'AI 回答前看过的记忆：无'].join('\n');
+  const lines = [...head, 'AI 回答前看过的记忆：'];
+  let used = lines.join('\n').length;
+  for (const memory of seenMemories) {
+    const line = `- ${memory.replace(/\s+/g, ' ').slice(0, 200)}`;
+    if (used + line.length + 1 > maxChars) break;
+    lines.push(line);
+    used += line.length + 1;
+  }
+  return lines.join('\n');
+}
 
 /** 提取系统提示词（声明资料是数据、禁止执行——计划 5.3.3）。 */
 export const EXTRACT_SYSTEM_PROMPT = [
