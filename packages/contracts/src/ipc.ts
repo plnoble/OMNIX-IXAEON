@@ -539,6 +539,11 @@ export interface IxaIpcApi {
   askQuestion(input: AskQuestionInput): Promise<AskAnswer>;
   /** 传 conversationId 只取消该对话；不传时仅当全局恰好一个回合在跑才生效。 */
   cancelAsk(conversationId?: string | null): Promise<{ cancelled: boolean; runId: string | null }>;
+  /**
+   * P1：预热聊天会话（打开问答页、切换项目时调用）。提前建好 Hermes 会话，新对话第一问
+   * 省掉 5–9 秒组装。没装 Hermes、正在答题、已经备好时直接返回。失败不影响提问。
+   */
+  prewarmChat(input: { projectId: string | null }): Promise<{ warmed: boolean }>;
   /** S1/S2：回答正文分段；返回取消订阅。 */
   onAskDelta(listener: (e: AskDeltaEvent) => void): () => void;
   // 对话（D2/D4）

@@ -110,6 +110,23 @@ export class TuiGatewaySession {
     this.status = 'running';
     this.executedCalls.clear();
     this.toolSideEffects = 0;
+    // 失败原因与「已提交」都是单回合状态：复用会话时不能带着上一轮的
+    this.failureReason = null;
+    this.submitted = false;
+  }
+
+  /**
+   * 只建会话、不提问（P1 预热）。Hermes 建会话时当场就在后台组装助手
+   * （tui_gateway 的 session.create 末尾调度 _schedule_agent_build），
+   * 所以提前建好，第一问来时组装多半已经完成。已有会话时什么都不做。
+   */
+  async open(): Promise<void> {
+    if (this.sessionId) return;
+    const created = (await this.transport.rpc.request('session.create', {
+      cols: 80,
+    })) as { session_id?: string } | null;
+    this.sessionId = created?.session_id ?? this.currentInput.runId;
+    this.push('text', { phase: 'session.create', sessionId: this.sessionId });
   }
 
   configureEventSink(sink: ((event: RuntimeEvent) => void) | null): void {
@@ -221,11 +238,7 @@ export class TuiGatewaySession {
       if (this.sessionId) {
         this.push('text', { phase: 'session.resume', sessionId: this.sessionId });
       } else {
-        const created = (await this.transport.rpc.request('session.create', {
-          cols: 80,
-        })) as { session_id?: string } | null;
-        this.sessionId = created?.session_id ?? this.currentInput.runId;
-        this.push('text', { phase: 'session.create', sessionId: this.sessionId });
+        await this.open();
       }
       if (this.status !== 'running') {
         return this.snapshot();

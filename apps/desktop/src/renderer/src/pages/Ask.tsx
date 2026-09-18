@@ -98,6 +98,14 @@ export function AskPage({ projects }: { projects: Project[] }) {
     void reloadList().catch((err) => setError(errMsg(err)));
   }, [reloadList]);
 
+  // P1：一打开问答页（或换了项目）就让主进程在后台建好 Hermes 会话，新对话第一问
+  // 省掉 5–9 秒的组装空等。失败无所谓，提问时照常冷启动。
+  useEffect(() => {
+    void api
+      .prewarmChat?.({ projectId: projectId.length > 0 ? projectId : null })
+      .catch(() => undefined);
+  }, [projectId]);
+
   useEffect(() => {
     shownId.current = activeId;
   }, [activeId]);

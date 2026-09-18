@@ -130,44 +130,16 @@ export class HermesRuntimeAdapter {
         `Hermes 未安装：${caps.locator.reason} 目标=${input.goal.slice(0, 80)}`,
       );
     }
-    const args = hermesGatewayArgs();
     const launch = this.getLaunchOptions?.() ?? { chatModel: null, bridgeToken: null };
-    const opts: TuiSpawnOptions = {
-      cwd: caps.locator.cwd,
-      env: hermesSpawnEnv(caps.locator, launch),
-    };
-    // A06 / D02（审核 2026-09-14）：同 contextRef 的长驻会话若存活且权限版本一致，优先复用。
-    // 当权限版本变化时（撤权/纠正），旧会话上下文已过时，必须失效销毁并开新会话，防止泄漏。
-    // 模型与记忆桥令牌都是启动参数，变了必须重开网关进程——沿用旧进程等于设置没生效
-    //（关掉记忆桥后旧进程若还活着，手里的旧令牌已作废，但也不该继续挂着桥）。
     const launchKey = JSON.stringify([launch.chatModel ?? '', launch.bridgeToken ?? '']);
-    const resident = this.resident.get(input.contextRef);
-    let session: TuiGatewaySession;
-    if (
-      resident &&
-      !resident.isDead &&
-      resident.permissionVersion === input.permissionVersion &&
-      this.residentLaunchKey.get(input.contextRef) === launchKey
-    ) {
-      session = resident;
-      // 复用长驻进程内已有 session_id；调用方传来的 resumeSessionId 与之一致。
+    let session = this.reusableResident(input, launchKey);
+    if (session) {
+      // 复用长驻进程内已有 session_id（含预热建好的会话）；调用方传来的 resumeSessionId 与之一致。
       session.setInput(input);
       session.configureEventSink((event) => this.eventSink?.(event));
       session.setMcpBridgedTools(mcpBridgedTools ?? []);
     } else {
-      if (resident) {
-        resident.dispose();
-        this.resident.delete(input.contextRef);
-      }
-      const transport = this.transportFactory
-        ? this.transportFactory(caps.locator.exe, args, opts)
-        : TuiGatewaySession.spawnProcess(caps.locator.exe, args, opts);
-      session = new TuiGatewaySession(transport, input, this.broker, {
-        // 新进程：只能从 session.create 开始（旧 session_id 不属于新进程）
-        resumeSessionId: null,
-        onEvent: (event) => this.eventSink?.(event),
-        mcpBridgedTools: mcpBridgedTools ?? [],
-      });
+      session = this.spawnSession(caps.locator, input, launch, mcpBridgedTools ?? []);
     }
     this.live.set(input.runId, session);
     this.resident.set(input.contextRef, session);
@@ -185,6 +157,73 @@ export class HermesRuntimeAdapter {
     } finally {
       this.live.delete(input.runId);
     }
+  }
+
+  /**
+   * P1 会话预热：先把网关进程起好、会话建好，登记为该 contextRef 的长驻会话。
+   * Hermes 建会话时当场就在后台组装助手（发现工具、查模型信息，实测 5–9 秒），
+   * 提前建好，第一问来时直接复用，省掉这段空等。
+   * 已有可复用的长驻会话（同启动参数、同权限版本）就什么都不做。返回是否已就绪。
+   * 预热失败只影响预热本身：第一问照常冷启动。
+   */
+  async prewarm(input: RuntimeRunInput): Promise<boolean> {
+    const caps = this.probe();
+    if (!caps.locator.found || !caps.locator.exe) return false;
+    const launch = this.getLaunchOptions?.() ?? { chatModel: null, bridgeToken: null };
+    const launchKey = JSON.stringify([launch.chatModel ?? '', launch.bridgeToken ?? '']);
+    if (this.reusableResident(input, launchKey)) return true;
+    const session = this.spawnSession(caps.locator, input, launch, []);
+    this.resident.set(input.contextRef, session);
+    this.residentLaunchKey.set(input.contextRef, launchKey);
+    try {
+      await session.open();
+      return true;
+    } catch (err) {
+      session.dispose();
+      if (this.resident.get(input.contextRef) === session) this.resident.delete(input.contextRef);
+      throw err;
+    }
+  }
+
+  /**
+   * A06 / D02（审核 2026-09-14）：同 contextRef 的长驻会话若存活且权限版本一致，可以复用。
+   * 权限版本变了（撤权/纠正），旧会话上下文已过时，必须销毁重开，防止泄漏。
+   * 模型与记忆桥令牌都是启动参数，变了也必须重开网关进程——沿用旧进程等于设置没生效
+   *（关掉记忆桥后旧进程若还活着，手里的旧令牌已作废，但也不该继续挂着桥）。
+   * 不能复用时顺手销毁旧的，返回 null。
+   */
+  private reusableResident(input: RuntimeRunInput, launchKey: string): TuiGatewaySession | null {
+    const resident = this.resident.get(input.contextRef);
+    if (!resident) return null;
+    if (
+      !resident.isDead &&
+      resident.permissionVersion === input.permissionVersion &&
+      this.residentLaunchKey.get(input.contextRef) === launchKey
+    ) {
+      return resident;
+    }
+    resident.dispose();
+    this.resident.delete(input.contextRef);
+    return null;
+  }
+
+  /** 起一个新的网关进程与会话对象（新进程只能从 session.create 开始，旧 session_id 不属于它）。 */
+  private spawnSession(
+    locator: HermesLocator,
+    input: RuntimeRunInput,
+    launch: { chatModel: string | null; bridgeToken: string | null },
+    mcpBridgedTools: string[],
+  ): TuiGatewaySession {
+    const args = hermesGatewayArgs();
+    const opts: TuiSpawnOptions = { cwd: locator.cwd, env: hermesSpawnEnv(locator, launch) };
+    const transport = this.transportFactory
+      ? this.transportFactory(locator.exe!, args, opts)
+      : TuiGatewaySession.spawnProcess(locator.exe!, args, opts);
+    return new TuiGatewaySession(transport, input, this.broker, {
+      resumeSessionId: null,
+      onEvent: (event) => this.eventSink?.(event),
+      mcpBridgedTools,
+    });
   }
 
   /** A06：清理所有长驻会话（应用退出时）。 */

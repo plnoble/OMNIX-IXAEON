@@ -45,6 +45,8 @@ import {
   runControlledVerifyCommand,
   fetchApprovedSource,
   ContextSelector,
+  CORE_TOOL_NAMES,
+  getDisclosureEpoch,
   localDay,
   locateHermes,
   type HermesLocator,
@@ -133,6 +135,11 @@ export class AppRuntime {
   private askDeltaSink: ((e: AskDeltaEvent) => void) | null = null;
   /** S1：取消后丢掉迟到的分段，不再写库、不再发事件。 */
   private cancelledAskRuns = new Set<string>();
+  /** P1：预热好的空闲问答会话（最多一个），见 prewarmChat。 */
+  private warm: { session: AgentSession; contextRef: string; timer: NodeJS.Timeout } | null = null;
+  private warming = false;
+  /** 这一问用掉了预热会话：答完再备一个。 */
+  private rewarmAfterAsk = false;
 
   private constructor(deps: {
     dataDir: string;
@@ -842,6 +849,7 @@ export class AppRuntime {
       session.invalidateContext(contextRef);
     }
     this.askSessions.clear();
+    this.disposeWarmSession();
   }
 
   /** 显式停用入口（设置页）：撤销问答存档授权；已存记录保留但不新增。 */
@@ -978,37 +986,13 @@ export class AppRuntime {
     try {
       // 选材前把向量补齐（有上限），别让第一问抢在补向量前面走关键词路径。
       await this.awaitSemanticBackfill();
-      const broker = new CoreToolBroker(
-        this.db,
-        this.items,
-        this.search,
-        this.coding,
-        this.projects,
-        desktopResearchFetchDeps(() => this.getTinyFishFetcher() ?? undefined),
-        this.getWebSearchExecutor() ?? undefined,
-      );
       // A06：同一对话复用 AgentSession（进而复用引擎侧 Hermes 会话）。
       // D4：按 conversationId 取，不再是全局单例。
+      // P1：对话还没有会话时，先接过预热好的那个（省掉 5–9 秒组装），没有才新建。
       const session =
         this.askSessions.get(conversationId) ??
-        new AgentSession(
-          this.db,
-          new HermesRuntimeAdapter(broker, undefined, () => ({
-            chatModel: this.chatModelName(),
-            bridgeToken: this.hermesBridgeToken(),
-          })),
-          broker,
-          provider,
-          {
-            semantic: this.semanticIndex,
-            // F1 记忆桥：开着时才让模型调 IXAEON 的记忆工具（关着时 Hermes 里没有这些工具）。
-            memoryBridge: this.hermesBridgeToken() !== null,
-            // 记忆桥工具由 Hermes 经 MCP 执行（结果经协议回交），网关侧不在本地重复执行；
-            // 名字是 Hermes 里的真名 mcp__ixaeon__<工具>，账本据此标注执行方。
-            mcpBridgedTools:
-              this.hermesBridgeToken() !== null ? [...HERMES_BRIDGE_TOOL_WIRE_NAMES] : [],
-          },
-        );
+        this.adoptWarmSession(projectId) ??
+        this.newAskSession().session;
       this.askSessions.set(conversationId, session);
       this.activeAskRuns.set(conversationId, runId);
       const result = await session.run({
@@ -1141,6 +1125,12 @@ export class AppRuntime {
       throw err;
     } finally {
       releaseJobs();
+      if (this.rewarmAfterAsk) {
+        // 刚用掉了预热的会话：这一问答完后再备一个，下一个新对话也不用等组装
+        this.rewarmAfterAsk = false;
+        const t = setTimeout(() => void this.prewarmChat(projectId), 1_000);
+        t.unref?.();
+      }
       if (this.activeAskRuns.get(conversationId) === runId) {
         // A06：正常终态保留会话引用供复用（复用是引擎侧同 session_id 的
         // 连续性，不是执行状态残留）；这里只清掉「在跑」的标记。
@@ -1268,7 +1258,99 @@ export class AppRuntime {
     for (const session of this.askSessions.values()) session.invalidateContext();
     this.askSessions.clear();
     this.conversations.clearEngineSessions();
+    this.disposeWarmSession();
     return n;
+  }
+
+  /** 新建一个问答会话（含它自己的 Hermes 适配器）。提问与预热共用，两条路建出来的完全一样。 */
+  private newAskSession(): { session: AgentSession; adapter: HermesRuntimeAdapter } {
+    const broker = new CoreToolBroker(
+      this.db,
+      this.items,
+      this.search,
+      this.coding,
+      this.projects,
+      desktopResearchFetchDeps(() => this.getTinyFishFetcher() ?? undefined),
+      this.getWebSearchExecutor() ?? undefined,
+    );
+    const adapter = new HermesRuntimeAdapter(broker, undefined, () => ({
+      chatModel: this.chatModelName(),
+      bridgeToken: this.hermesBridgeToken(),
+    }));
+    const bridged = this.hermesBridgeToken() !== null;
+    const session = new AgentSession(this.db, adapter, broker, this.getProvider(), {
+      semantic: this.semanticIndex,
+      // F1 记忆桥：开着时才让模型调 IXAEON 的记忆工具（关着时 Hermes 里没有这些工具）。
+      memoryBridge: bridged,
+      // 记忆桥工具由 Hermes 经 MCP 执行（结果经协议回交），网关侧不在本地重复执行；
+      // 名字是 Hermes 里的真名 mcp__ixaeon__<工具>，账本据此标注执行方。
+      mcpBridgedTools: bridged ? [...HERMES_BRIDGE_TOOL_WIRE_NAMES] : [],
+    });
+    return { session, adapter };
+  }
+
+  /**
+   * P1 会话预热：备一个已经建好 Hermes 会话的空闲问答会话，新对话第一问直接接过去用。
+   *
+   * 2026-09-18 真机时间线：新会话建好后，Hermes 要花 5–9 秒组装助手（发现工具、查模型
+   * 信息），期间没有任何输出——用户每开一个新对话都要白等这一段。Hermes 在建会话时就
+   * 在后台组装，所以提前建好即可。
+   *
+   * 只备一个；有问题正在答时不预热（Hermes 组装时也会访问模型网关，别和正在进行的提问
+   * 抢网关账号的并发名额）；20 分钟没被用掉就释放（空闲的 Hermes 进程占内存）。
+   * 预热失败什么都不影响：第一问照常冷启动。
+   */
+  async prewarmChat(projectId: string | null): Promise<{ warmed: boolean }> {
+    if (!this.hermesFound()) return { warmed: false };
+    if (this.activeAskRuns.size > 0) return { warmed: false };
+    const contextRef = projectId ?? 'personal';
+    if (this.warm?.contextRef === contextRef) return { warmed: true };
+    if (this.warming) return { warmed: false };
+    this.disposeWarmSession();
+    const { session, adapter } = this.newAskSession();
+    this.warming = true;
+    try {
+      const ready = await adapter.prewarm({
+        runId: `prewarm-${randomUUID()}`,
+        goal: '',
+        contextRef,
+        allowedTools: [...CORE_TOOL_NAMES],
+        permissionVersion: getDisclosureEpoch(this.db),
+        budget: { maxToolCalls: 4, timeoutMs: 120_000 },
+        idempotencyKey: `prewarm-${contextRef}`,
+      });
+      if (!ready) return { warmed: false };
+      const timer = setTimeout(() => this.disposeWarmSession(), 20 * 60_000);
+      timer.unref?.();
+      this.warm = { session, contextRef, timer };
+      return { warmed: true };
+    } catch (err) {
+      session.invalidateContext();
+      this.logger.info('会话预热失败，第一问照常冷启动', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { warmed: false };
+    } finally {
+      this.warming = false;
+    }
+  }
+
+  /** 接过预热好的会话（同一个 contextRef 才接）。接走后腾出位置，等这一问结束再备下一个。 */
+  private adoptWarmSession(projectId: string | null): AgentSession | null {
+    const warm = this.warm;
+    if (!warm || warm.contextRef !== (projectId ?? 'personal')) return null;
+    clearTimeout(warm.timer);
+    this.warm = null;
+    this.rewarmAfterAsk = true;
+    return warm.session;
+  }
+
+  private disposeWarmSession(): void {
+    const warm = this.warm;
+    if (!warm) return;
+    clearTimeout(warm.timer);
+    this.warm = null;
+    warm.session.invalidateContext();
   }
 
   /**

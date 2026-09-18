@@ -546,6 +546,7 @@ export function registerIpc(runtime: AppRuntime): void {
 
     // --- 设置 ---
     getSemanticIndexStatus: async () => runtime.getSemanticIndexStatus(),
+    prewarmChat: async (input) => runtime.prewarmChat(input?.projectId ?? null),
     rebuildSemanticIndex: async () => runtime.rebuildSemanticIndex(),
     getSettings: async () => {
       const config = runtime.getConfig();

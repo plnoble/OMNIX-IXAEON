@@ -15,6 +15,7 @@ export {
   assertCodingClientMayReadSegment,
   modelMayReadItem,
   isItemDisclosedTo,
+  getDisclosureEpoch,
 } from './access.js';
 export {
   defaultDataDir,
