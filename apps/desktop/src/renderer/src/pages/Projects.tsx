@@ -18,12 +18,44 @@ const testResultLabel: Record<WorkTest['result'], string> = {
   not_run: '未运行',
 };
 
+function toResult(v: unknown): WorkTest['result'] {
+  return v === 'passed' || v === 'failed' ? v : 'not_run';
+}
+
+/**
+ * tests_json 有两种写入方，形状不同：
+ * - record_work_result（外部编码工具）写 [{ name, result }]；
+ * - 编码任务执行器写 { verify_status, verify_exit_code }（skills.ts 靠它取退出码，不能改写）。
+ * 界面两种都认；认不出的形状当作没有测试记录。
+ * 2026-09-18 真机：唯一一条工作记录是后一种，`tests.filter is not a function`
+ * 让整个项目页崩掉（9-17 用户看到的黑屏很可能就是它）。
+ */
+export function parseWorkTests(json: string | null | undefined): WorkTest[] {
+  const v = parseWorkJson<unknown>(json, null);
+  if (Array.isArray(v)) {
+    return v
+      .filter((t): t is { name: unknown; result: unknown } => !!t && typeof t === 'object')
+      .map((t) => ({ name: String(t.name ?? '未命名'), result: toResult(t.result) }));
+  }
+  if (v && typeof v === 'object' && 'verify_status' in v) {
+    const s = v as { verify_status?: unknown; verify_exit_code?: unknown };
+    const code = typeof s.verify_exit_code === 'number' ? `（退出码 ${s.verify_exit_code}）` : '';
+    return [{ name: `独立验证${code}`, result: toResult(s.verify_status) }];
+  }
+  return [];
+}
+
+export function parseWorkStrings(json: string | null | undefined): string[] {
+  const v = parseWorkJson<unknown>(json, []);
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
 /** 单条工作记录：摘要行 + 可展开详情（RF06：失败测试/未完成事项必须在界面可见）。 */
 function WorkRunRow({ run }: { run: WorkRun }) {
   const [open, setOpen] = useState(false);
-  const tests = parseWorkJson<WorkTest[]>(run.tests_json, []);
-  const loops = parseWorkJson<string[]>(run.open_loops_json, []);
-  const changes = parseWorkJson<string[]>(run.changes_json, []);
+  const tests = parseWorkTests(run.tests_json);
+  const loops = parseWorkStrings(run.open_loops_json);
+  const changes = parseWorkStrings(run.changes_json);
   const failedTests = tests.filter((t) => t.result === 'failed');
 
   return (

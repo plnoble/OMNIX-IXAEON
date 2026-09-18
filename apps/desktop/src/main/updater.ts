@@ -44,8 +44,24 @@ function pushStatus(): void {
 }
 
 export function startAutoUpdater(logger?: { info: (m: string, e?: unknown) => void }): void {
-  if (started || !app.isPackaged) return;
+  if (started) return;
   started = true;
+  if (!app.isPackaged) {
+    // 开发运行没有更新元数据，不连 GitHub；但界面照样会查更新状态——
+    // 此前这里整个提前返回，接口一个都没注册，开发运行时每次打开页面终端里
+    // 都刷「No handler registered for 'ixaeon:get-update-status'」。
+    ipcMain.handle('ixaeon:get-update-status', () => ({ ...status }));
+    ipcMain.handle('ixaeon:check-update', () => ({
+      ...status,
+      state: 'error' as const,
+      error: '开发运行没有更新信息（只有安装版会检查更新）',
+    }));
+    ipcMain.handle('ixaeon:install-update', () => ({
+      ok: false as const,
+      reason: 'not-ready' as const,
+    }));
+    return;
+  }
 
   // electron-builder publish 配置指向 GitHub；不自动下载安装（用户批准制）
   autoUpdater.autoDownload = true;
