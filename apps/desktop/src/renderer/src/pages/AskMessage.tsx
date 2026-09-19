@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ConversationMessage, MemoryUsedItem } from '@ixaeon/contracts';
+import type { ConversationMessage, MemoryUsedItem, TodoStatus } from '@ixaeon/contracts';
 import { api, errMsg } from '../api.js';
 import { Button, Spinner } from '../ui.js';
 
@@ -94,6 +94,32 @@ function MemoryUsedList({ items }: { items: MemoryUsedItem[] }) {
   );
 }
 
+const RESULT: Record<TodoStatus, string> = {
+  proposed: '等你拍板',
+  accepted: '要做',
+  done: '已完成',
+  rejected: '不做',
+};
+
+function proposedOf(meta: Record<string, unknown>): Array<{ id: string; title: string }> {
+  const raw = meta['proposedTodos'];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((t): t is { id: string; title: string } => {
+    if (!t || typeof t !== 'object') return false;
+    const o = t as Record<string, unknown>;
+    return typeof o.id === 'string' && typeof o.title === 'string';
+  });
+}
+
+function userTodoOf(meta: Record<string, unknown>): { id: string; title: string } | null {
+  const raw = meta['userTodo'];
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  return typeof o.id === 'string' && typeof o.title === 'string'
+    ? { id: o.id, title: o.title }
+    : null;
+}
+
 export function AskMessage({
   message: m,
   showNotice,
@@ -101,6 +127,8 @@ export function AskMessage({
   onToggleRef,
   onApprove,
   waitLabel,
+  todoStatus,
+  onDecideTodo,
 }: {
   message: ConversationMessage;
   /**
@@ -114,8 +142,12 @@ export function AskMessage({
   onToggleRef: (ref: string) => void;
   onApprove: (taskId: string) => void;
   waitLabel?: string;
+  todoStatus?: Record<string, TodoStatus>;
+  onDecideTodo?: (id: string, decision: 'accept' | 'reject') => void;
 }) {
   const tasks = tasksOf(m.meta);
+  const proposedTodos = proposedOf(m.meta);
+  const userTodo = userTodoOf(m.meta);
   const memoryUsed = memoryUsedOf(m.meta);
   const coverage = coverageOf(m.meta);
   const notice = typeof m.meta['notice'] === 'string' ? m.meta['notice'] : '';
@@ -162,6 +194,43 @@ export function AskMessage({
         )}
         {m.role === 'assistant' && m.status !== 'streaming' && memoryUsed.length > 0 && (
           <MemoryUsedList items={memoryUsed} />
+        )}
+        {proposedTodos.length > 0 && (
+          <div className="todo-cards">
+            {proposedTodos.map((t) => {
+              const status = todoStatus?.[t.id] ?? 'proposed';
+              return (
+                <div key={t.id} className="card" data-testid={`todo-card-${t.id}`}>
+                  <span>{t.title}</span>
+                  {status === 'proposed' ? (
+                    <>
+                      <Button
+                        kind="primary"
+                        testId={`todo-card-accept-${t.id}`}
+                        onClick={() => onDecideTodo?.(t.id, 'accept')}
+                      >
+                        要做
+                      </Button>
+                      <Button
+                        kind="ghost"
+                        testId={`todo-card-reject-${t.id}`}
+                        onClick={() => onDecideTodo?.(t.id, 'reject')}
+                      >
+                        不做
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="muted">{RESULT[status]}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {userTodo && (
+          <p className="muted" data-testid="user-todo-note">
+            已加到待办：{userTodo.title}
+          </p>
         )}
         {tasks.length > 0 && (
           <div className="proposed-tasks">

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AskPhase, ConversationMessage, ConversationSummary } from '@ixaeon/contracts';
+import type {
+  AskPhase,
+  ConversationMessage,
+  ConversationSummary,
+  TodoStatus,
+} from '@ixaeon/contracts';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Empty, ErrorBanner } from '../ui.js';
 import { AskMessage } from './AskMessage.js';
@@ -92,6 +97,7 @@ export function AskPage({
   // 当前显示的对话。分段只写进它：切到别的对话时不往那边塞，切回来时从库里重新加载。
   const shownId = useRef<string | null>(null);
   const [askPhase, setAskPhase] = useState<AskPhase | null>(null);
+  const [todoStatus, setTodoStatus] = useState<Record<string, TodoStatus>>({});
   const [waitSeconds, setWaitSeconds] = useState(0);
   const waitStarted = useRef<number | null>(null);
   const noticeShown = useMemo(() => noticeVisibility(messages), [messages]);
@@ -100,12 +106,24 @@ export function AskPage({
     setList(await api.listConversations());
   }, []);
 
-  const openConversation = useCallback(async (id: string) => {
-    const data = await api.getConversation(id);
-    setActiveId(id);
-    setMessages(data.messages);
-    stick.current = true;
+  const reloadTodoStatus = useCallback(async () => {
+    if (!api.listTodos) return;
+    const rows = await api.listTodos();
+    const next: Record<string, TodoStatus> = {};
+    for (const t of rows) next[t.id] = t.status;
+    setTodoStatus(next);
   }, []);
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      const data = await api.getConversation(id);
+      setActiveId(id);
+      setMessages(data.messages);
+      stick.current = true;
+      await reloadTodoStatus();
+    },
+    [reloadTodoStatus],
+  );
 
   useEffect(() => {
     if (!openConversationId) return;
@@ -423,6 +441,18 @@ export function AskPage({
                   expandedRef={expandedRef}
                   onToggleRef={(ref) => setExpandedRef(expandedRef === ref ? null : ref)}
                   onApprove={(id) => void approve(id)}
+                  todoStatus={todoStatus}
+                  onDecideTodo={(id, decision) => {
+                    void (async () => {
+                      try {
+                        if (decision === 'accept') await api.acceptTodo(id);
+                        else await api.rejectTodo(id);
+                        await reloadTodoStatus();
+                      } catch (err) {
+                        setError(errMsg(err));
+                      }
+                    })();
+                  }}
                   waitLabel={
                     // askPhase 为空 = 这一页没有在等的提问（如重开时库里还在写的一轮）：
                     // 不知道阶段，也不知道等了多久，沿用「正在回答…」，不显示停住的秒数

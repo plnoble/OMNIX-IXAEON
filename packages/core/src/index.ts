@@ -243,3 +243,8 @@ export {
   type ConnectorPlatform,
   type CaptureMethod,
 } from './connectors/connectorRegistry.js';
+export {
+  SUGGESTED_TODOS_INSTRUCTION,
+  extractSuggestedTodos,
+  parseUserTodo,
+} from './runtime/suggestedTodos.js';
