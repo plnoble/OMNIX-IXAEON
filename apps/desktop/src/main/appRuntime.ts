@@ -33,6 +33,7 @@ import {
   ProjectService,
   SearchService,
   SourceStore,
+  TodoStore,
   Vault,
   ensureDataDirLayout,
   loadConfig,
@@ -76,6 +77,9 @@ import {
   type Project,
   type RestorePreview,
   type SetupInput,
+  type Todo,
+  type TodoStatus,
+  type TodoView,
   type WorkRun,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
@@ -106,6 +110,7 @@ export class AppRuntime {
   jobs: JobQueue;
   /** D2/D4：对话与消息的权威记录。 */
   readonly conversations: ConversationStore;
+  todos: TodoStore;
   readonly logger: Logger;
   readonly localServer: LocalServer;
   private readonly fakeProvider = new FakeProvider('fake-model-v1');
@@ -188,6 +193,7 @@ export class AppRuntime {
     this.logger = deps.logger;
     this.localServer = deps.localServer;
     this.conversations = new ConversationStore(deps.db);
+    this.todos = new TodoStore(deps.db);
     const embedModel = (process.env.IXAEON_EMBED_MODEL ?? 'qwen3-embedding:0.6b').trim();
     this.semanticIndex =
       embedModel === '' || embedModel === 'none'
@@ -1503,6 +1509,23 @@ export class AppRuntime {
     this.askProgressSink = fn;
   }
 
+  // 待办（T3；T2b 会在 accept / reject 里接编码任务，现在先直接调存取）
+  listTodos(input?: { status?: TodoStatus[] }): TodoView[] {
+    return this.todos.list(input);
+  }
+  addTodo(title: string): Todo {
+    return this.todos.add({ title });
+  }
+  async acceptTodo(id: string): Promise<Todo> {
+    return this.todos.accept(id);
+  }
+  async rejectTodo(id: string): Promise<Todo> {
+    return this.todos.reject(id);
+  }
+  completeTodo(id: string): Todo {
+    return this.todos.complete(id);
+  }
+
   getSemanticIndexStatus(): {
     enabled: boolean;
     model: string | null;
@@ -1722,6 +1745,7 @@ export class AppRuntime {
     const coding = new CodingOrchestrator(db, createCodingExecutor(), this.dataDir);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;
+    this.todos = new TodoStore(db);
     this.vault = vault;
     this.permissions = permissions;
     this.sources = sources;

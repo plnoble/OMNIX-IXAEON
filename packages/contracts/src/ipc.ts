@@ -13,6 +13,9 @@ import type {
   ResearchTopic,
   Segment,
   Source,
+  Todo,
+  TodoStatus,
+  TodoView,
   WorkRun,
   SkillCandidate,
 } from './entities.js';
@@ -586,6 +589,12 @@ export interface IxaIpcApi {
   archiveConversation(id: string): Promise<Conversation>;
   unarchiveConversation(id: string): Promise<Conversation>;
   deleteConversation(id: string): Promise<{ deleted: true }>;
+  /** T3：待办列表（带底下编码任务的实时状态）；不传 status = 全部 */
+  listTodos(input?: { status?: TodoStatus[] }): Promise<TodoView[]>;
+  addTodo(input: { title: string }): Promise<Todo>;
+  acceptTodo(id: string): Promise<Todo>;
+  rejectTodo(id: string): Promise<Todo>;
+  completeTodo(id: string): Promise<Todo>;
   /** E1：用户对「这件事结束没有」的判断；null = 回到按内容日期自动判断。 */
   setItemTimeStatus(input: { id: string; status: 'ongoing' | 'ended' | null }): Promise<Item>;
   getPersonalOverview(): Promise<{
