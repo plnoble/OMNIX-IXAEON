@@ -10,6 +10,7 @@ import { RelationService } from '../orchestration/relationStore.js';
 import { isEphemeralStatement } from '../memory/ephemeral.js';
 import { mentionedDays, pastEventDay } from '../memory/temporal.js';
 import { needsUserAttention } from '../storage/needsReview.js';
+import { OVERVIEW_FINDINGS_SEEN_AT, getSetting, setSetting } from '../settings.js';
 
 export interface PersonalOverview {
   generatedAt: string;
@@ -47,6 +48,15 @@ export interface PersonalOverview {
       'id' | 'title' | 'url' | 'excerpt' | 'action_reason' | 'related_project_id'
     >
   >;
+  /** W1b：已启用研究主题最近 7 天的发现，最新在前，最多 10 条。 */
+  recentFindings: Array<{
+    id: string;
+    title: string;
+    url: string;
+    topicQuestion: string;
+    fetchedAt: string;
+    isNew: boolean;
+  }>;
   coverage: {
     projectCount: number;
     analyzedSources: number;
@@ -221,6 +231,7 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
         'id' | 'title' | 'url' | 'excerpt' | 'action_reason' | 'related_project_id'
       >
     >,
+    recentFindings: listRecentFindings(db),
     coverage: {
       projectCount: projects.length,
       analyzedSources: analyzed,
@@ -228,4 +239,34 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
       unassignedItems: all.filter((i) => i.scope === 'unassigned').length,
     },
   };
+}
+
+function listRecentFindings(db: CoreDatabase): PersonalOverview['recentFindings'] {
+  const cutoff = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+  const seenAt = getSetting(db, OVERVIEW_FINDINGS_SEEN_AT)?.value ?? null;
+  const rows = db
+    .prepare(
+      `SELECT f.id, f.title, f.url, t.question AS topicQuestion, f.fetched_at AS fetchedAt
+         FROM research_findings f
+         JOIN research_topics t ON t.id = f.topic_id
+        WHERE t.enabled = 1 AND f.fetched_at >= ?
+        ORDER BY f.fetched_at DESC
+        LIMIT 10`,
+    )
+    .all(cutoff) as Array<{
+    id: string;
+    title: string;
+    url: string;
+    topicQuestion: string;
+    fetchedAt: string;
+  }>;
+  return rows.map((row) => ({
+    ...row,
+    isNew: seenAt === null || row.fetchedAt > seenAt,
+  }));
+}
+
+/** W1b：把「上次看过」设为现在。IPC markFindingsSeen 走这里。 */
+export function markOverviewFindingsSeen(db: CoreDatabase, at = new Date().toISOString()): void {
+  setSetting(db, OVERVIEW_FINDINGS_SEEN_AT, at);
 }

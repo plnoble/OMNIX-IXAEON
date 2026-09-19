@@ -29,6 +29,7 @@ export { Logger, redactValue, type LogLevel } from './logging/logger.js';
 export { recordAudit, listAuditEvents } from './audit.js';
 export {
   PERSONAL_MEMORY_TO_CHAT,
+  OVERVIEW_FINDINGS_SEEN_AT,
   getSetting,
   setSetting,
   personalMemoryToChat,
@@ -129,7 +130,11 @@ export {
   type OrchestratorResult,
   type OrchestratorStep,
 } from './orchestration/orchestrator.js';
-export { buildPersonalOverview, type PersonalOverview } from './personal/overview.js';
+export {
+  buildPersonalOverview,
+  markOverviewFindingsSeen,
+  type PersonalOverview,
+} from './personal/overview.js';
 export { ResearchStore } from './research/researchStore.js';
 export {
   ResearchChecker,

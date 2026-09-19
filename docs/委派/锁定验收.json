@@ -102,6 +102,15 @@
       "files": {
         "apps/desktop/test/acceptance/r1-rebuild-conversations-semantic.test.ts": "562f09395cdfd5810b9a7b27587e410c6b81c921417247757b8dec120d86d86a"
       }
+    },
+    {
+      "id": "W1b",
+      "title": "概览页新发现",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/w1b-recent-findings.test.ts": "e1ec77dd89aeb3dad3ab2eaf6591d96cd493cb28a72e7002527e3afb01c50d43",
+        "apps/desktop/test/acceptance/w1b-overview-findings-page.test.ts": "56e18c105d7bfcbda14c4bf5e94341216550f13ed991583c25cd123dc85384d2"
+      }
     }
   ]
 }
