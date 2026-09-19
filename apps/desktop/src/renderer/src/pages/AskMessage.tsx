@@ -135,9 +135,9 @@ export function AskMessage({
   showNotice,
   expandedRef,
   onToggleRef,
-  onApprove,
   waitLabel,
   todoStatus,
+  todoCoding,
   onDecideTodo,
 }: {
   message: ConversationMessage;
@@ -150,9 +150,12 @@ export function AskMessage({
   showNotice: boolean;
   expandedRef: string | null;
   onToggleRef: (ref: string) => void;
-  onApprove: (taskId: string) => void;
+  /** T2b 起旧「行动批准卡」只展示历史消息，批准统一走待办卡；保留字段兼容旧调用 */
+  onApprove?: (taskId: string) => void;
   waitLabel?: string;
   todoStatus?: Record<string, TodoStatus>;
+  /** T2b：底下是编码任务的待办卡，标「编码任务」小标签 */
+  todoCoding?: Record<string, boolean>;
   onDecideTodo?: (id: string, decision: 'accept' | 'reject') => void;
 }) {
   const tasks = tasksOf(m.meta);
@@ -214,7 +217,10 @@ export function AskMessage({
               const status = todoStatus?.[t.id] ?? 'proposed';
               return (
                 <div key={t.id} className="card ask-todo-card" data-testid={`todo-card-${t.id}`}>
-                  <span>{t.title}</span>
+                  <span>
+                    {t.title}
+                    {todoCoding?.[t.id] && <span className="badge">编码任务</span>}
+                  </span>
                   {status === 'proposed' ? (
                     <>
                       <Button
@@ -254,11 +260,7 @@ export function AskMessage({
                 <p className="muted">
                   任务 ID: {t.id} · 文件范围: {t.scope.join(', ') || '受限'} · 状态: {t.status}
                 </p>
-                {t.status === 'draft' && (
-                  <Button kind="primary" onClick={() => onApprove(t.id)}>
-                    批准并排队
-                  </Button>
-                )}
+                {t.status === 'draft' && <span className="muted">到待办页处理</span>}
                 {t.status === 'queued' && <span className="badge">已排队执行</span>}
               </div>
             ))}

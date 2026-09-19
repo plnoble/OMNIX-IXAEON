@@ -1057,35 +1057,30 @@ export class AppRuntime {
       // 重启/再次提问都保持停用；恢复需要走显式入口（设置页 enableAskCapture）。
       // 有实际回答时把问答对存为 ask_session 来源并入队提取（走既有
       // 「提案→用户确认」管线）；存档/提取失败不吞掉回答，如实附注。
-      // P1-A：查询在本次提问运行期间生成的提议任务（如有），附带回交给原对话
-      let proposedTasks: Array<{ id: string; goal: string; status: string; scope: string[] }> = [];
+      // T2b：这一轮新建的编码任务逐个进待办——拍板「要做」= 批准并排队（acceptTodo）、
+      // 「不做」= 取消（rejectTodo），状态一律以任务表为准。
+      // 你拒绝过的同样的事：起草的任务自动取消，不出现在回答上。
+      const codingTodos: Array<{ id: string; title: string }> = [];
       try {
         const tasks = this.db
           .prepare(
-            `SELECT id, goal, status, scope_json FROM coding_tasks
+            `SELECT id, goal FROM coding_tasks
              WHERE created_at >= ? AND project_id IS NOT NULL
              ORDER BY created_at DESC LIMIT 5`,
           )
-          .all(startedAt) as Array<{
-          id: string;
-          goal: string;
-          status: string;
-          scope_json: string;
-        }>;
-        proposedTasks = tasks.map((t) => {
-          let scope: string[] = [];
-          try {
-            scope = JSON.parse(t.scope_json) as string[];
-          } catch {
-            scope = [];
-          }
-          return {
-            id: t.id,
-            goal: t.goal,
-            status: t.status,
-            scope,
-          };
-        });
+          .all(startedAt) as Array<{ id: string; goal: string }>;
+        for (const t of tasks) {
+          const title = t.goal.split('\n')[0]!.trim().slice(0, 80);
+          if (title.length === 0) continue;
+          const row = this.todos.propose({
+            title,
+            conversationId,
+            messageId: assistantMessage.id,
+            linked: { kind: 'coding_task', id: t.id },
+          });
+          if (row) codingTodos.push({ id: row.id, title: row.title });
+          else this.coding.cancel(t.id);
+        }
       } catch {
         // ignore
       }
@@ -1131,7 +1126,7 @@ export class AppRuntime {
       // D3/D4：回答收尾到占位消息上。取消的回合按 cancelled 记，不冒充完成——
       // 下一轮的 priorTurns 只取 complete，半截回答不会变成背景。
       const cancelled = result.notice?.includes('用户取消') === true;
-      const proposedTodos: Array<{ id: string; title: string }> = [];
+      const proposedTodos: Array<{ id: string; title: string }> = [...codingTodos];
       if (!cancelled) {
         for (const title of extracted.todos) {
           const row = this.todos.propose({
@@ -1154,7 +1149,6 @@ export class AppRuntime {
           usedChars: result.usedChars,
           coverage: result.coverage,
           steps: result.steps,
-          proposedTasks: proposedTasks.length > 0 ? proposedTasks : undefined,
           // E5：这一轮给模型看了哪些记忆——回答下面列出来供当场纠正；
           // 提炼这段回答时据此认出复述（回声）。空数组也要存：表示「这一轮一条都没给」。
           memoryUsed: result.memoryUsed,
@@ -1175,7 +1169,6 @@ export class AppRuntime {
         conversationId,
         userMessageId: userMessage.id,
         messageId: assistantMessage.id,
-        proposedTasks: proposedTasks.length > 0 ? proposedTasks : undefined,
       };
     } catch (err) {
       // 失败也要在对话里留痕：把占位消息收尾成 failed，否则用户看到的是
@@ -1540,17 +1533,36 @@ export class AppRuntime {
     this.askProgressSink = fn;
   }
 
-  // 待办（T3；T2b 会在 accept / reject 里接编码任务，现在先直接调存取）
+  // 待办（T3；T2b：底下是编码任务的，拍板即批准 / 取消，完成以任务表为准）
   listTodos(input?: { status?: TodoStatus[] }): TodoView[] {
+    // 「要做」的待办，底下编码任务已经 completed 的，跟着算做完
+    for (const t of this.todos.list({ status: ['accepted'] })) {
+      if (t.linkedStatus === 'completed') this.todos.complete(t.id);
+    }
     return this.todos.list(input);
   }
   addTodo(title: string): Todo {
     return this.todos.add({ title });
   }
   async acceptTodo(id: string): Promise<Todo> {
+    const todo = this.todos.get(id);
+    if (todo?.linked_kind === 'coding_task' && todo.linked_id) {
+      // 拍板「要做」= 批准编码任务并排队；批准失败原样报错，待办不动
+      await this.coding.approveAndQueue(todo.linked_id);
+    }
     return this.todos.accept(id);
   }
   async rejectTodo(id: string): Promise<Todo> {
+    const todo = this.todos.get(id);
+    if (todo?.linked_kind === 'coding_task' && todo.linked_id) {
+      // 「不做」= 取消还没结束的任务；已经结束的只改待办，不动任务
+      const row = this.db
+        .prepare('SELECT status FROM coding_tasks WHERE id = ?')
+        .get(todo.linked_id) as { status: string } | undefined;
+      if (row && !['completed', 'failed', 'cancelled'].includes(row.status)) {
+        this.coding.cancel(todo.linked_id);
+      }
+    }
     return this.todos.reject(id);
   }
   completeTodo(id: string): Todo {

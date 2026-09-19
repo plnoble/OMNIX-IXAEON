@@ -9,18 +9,6 @@ import { api, errMsg, type Project } from '../api.js';
 import { Button, Empty, ErrorBanner } from '../ui.js';
 import { AskMessage } from './AskMessage.js';
 
-type ProposedTask = { id: string; goal: string; status: string; scope: string[] };
-
-function tasksOf(meta: Record<string, unknown>): ProposedTask[] {
-  const raw = meta['proposedTasks'];
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((t): t is ProposedTask => {
-    if (!t || typeof t !== 'object') return false;
-    const o = t as Record<string, unknown>;
-    return typeof o['id'] === 'string' && typeof o['goal'] === 'string';
-  });
-}
-
 /**
  * 每条回答的说明文字要不要直接露出：和上一条回答的说明不同才露出。
  * 同一对话里每轮说明通常一字不差（走哪个引擎、存档是否生效），
@@ -98,6 +86,7 @@ export function AskPage({
   const shownId = useRef<string | null>(null);
   const [askPhase, setAskPhase] = useState<AskPhase | null>(null);
   const [todoStatus, setTodoStatus] = useState<Record<string, TodoStatus>>({});
+  const [todoCoding, setTodoCoding] = useState<Record<string, boolean>>({});
   const [waitSeconds, setWaitSeconds] = useState(0);
   const waitStarted = useRef<number | null>(null);
   const noticeShown = useMemo(() => noticeVisibility(messages), [messages]);
@@ -110,8 +99,13 @@ export function AskPage({
     if (!api.listTodos) return;
     const rows = await api.listTodos();
     const next: Record<string, TodoStatus> = {};
-    for (const t of rows) next[t.id] = t.status;
+    const coding: Record<string, boolean> = {};
+    for (const t of rows) {
+      next[t.id] = t.status;
+      coding[t.id] = t.linked_kind === 'coding_task';
+    }
     setTodoStatus(next);
+    setTodoCoding(coding);
   }, []);
 
   const openConversation = useCallback(
@@ -273,22 +267,6 @@ export function AskPage({
     }
   };
 
-  const approve = async (taskId: string) => {
-    try {
-      await api.approveCodingTask(taskId);
-      setMessages((prev) =>
-        prev.map((m) => {
-          const next = tasksOf(m.meta).map((t) =>
-            t.id === taskId ? { ...t, status: 'queued' } : t,
-          );
-          return next.length === 0 ? m : { ...m, meta: { ...m.meta, proposedTasks: next } };
-        }),
-      );
-    } catch (err) {
-      setError(errMsg(err));
-    }
-  };
-
   const actOnConv = async (fn: () => Promise<unknown>) => {
     try {
       await fn();
@@ -440,8 +418,8 @@ export function AskPage({
                   showNotice={noticeShown.get(m.id) ?? false}
                   expandedRef={expandedRef}
                   onToggleRef={(ref) => setExpandedRef(expandedRef === ref ? null : ref)}
-                  onApprove={(id) => void approve(id)}
                   todoStatus={todoStatus}
+                  todoCoding={todoCoding}
                   onDecideTodo={(id, decision) => {
                     void (async () => {
                       try {
