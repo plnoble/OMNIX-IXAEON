@@ -420,6 +420,11 @@ export function registerIpc(runtime: AppRuntime): void {
     renameConversation: async (input) => runtime.conversations.rename(input.id, input.title),
     archiveConversation: async (id) => runtime.conversations.archive(id),
     unarchiveConversation: async (id) => runtime.conversations.unarchive(id),
+    listTodos: async (input) => runtime.listTodos(input),
+    addTodo: async (input) => runtime.addTodo(input.title),
+    acceptTodo: async (id) => runtime.acceptTodo(id),
+    rejectTodo: async (id) => runtime.rejectTodo(id),
+    completeTodo: async (id) => runtime.completeTodo(id),
     deleteConversation: async (id) => {
       runtime.conversations.delete(id);
       return { deleted: true as const };

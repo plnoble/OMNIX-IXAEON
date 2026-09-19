@@ -59,7 +59,13 @@ function pendingMessage(
 }
 
 /** 问答页：连续聊天（D6）。左侧对话列表，右侧消息流；引用/批准卡/引擎信息保留。 */
-export function AskPage({ projects }: { projects: Project[] }) {
+export function AskPage({
+  projects,
+  openConversationId,
+}: {
+  projects: Project[];
+  openConversationId?: string | null;
+}) {
   const [projectId, setProjectId] = useState('');
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
@@ -100,6 +106,11 @@ export function AskPage({ projects }: { projects: Project[] }) {
     setMessages(data.messages);
     stick.current = true;
   }, []);
+
+  useEffect(() => {
+    if (!openConversationId) return;
+    void openConversation(openConversationId).catch((err) => setError(errMsg(err)));
+  }, [openConversationId, openConversation]);
 
   useEffect(() => {
     void reloadList().catch((err) => setError(errMsg(err)));

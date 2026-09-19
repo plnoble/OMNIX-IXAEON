@@ -11,6 +11,7 @@ import { AskPage } from './pages/Ask.js';
 import { PersonalOverviewPage } from './pages/Overview.js';
 import { ResearchPage } from './pages/Research.js';
 import { TasksPage } from './pages/Tasks.js';
+import { TodosPage } from './pages/Todos.js';
 import { ErrorBanner } from './ui.js';
 import { UpdatePrompt } from './UpdatePrompt.js';
 
@@ -25,6 +26,7 @@ type Page =
   | 'search'
   | 'research'
   | 'tasks'
+  | 'todos'
   | 'settings';
 
 export default function App() {
@@ -33,6 +35,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('overview');
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [openConversationId, setOpenConversationId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -153,6 +156,14 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={page === 'todos' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('todos')}
+            data-testid="nav-todos"
+          >
+            待办
+          </button>
+          <button
+            type="button"
             className={page === 'history' ? 'nav-item active' : 'nav-item'}
             onClick={() => setPage('history')}
             data-testid="nav-history"
@@ -229,7 +240,16 @@ export default function App() {
 
         {page === 'inbox' && <InboxPage projects={projects} />}
 
-        {page === 'ask' && <AskPage projects={projects} />}
+        {page === 'ask' && <AskPage projects={projects} openConversationId={openConversationId} />}
+
+        {page === 'todos' && (
+          <TodosPage
+            onOpenConversation={(id) => {
+              setOpenConversationId(id);
+              setPage('ask');
+            }}
+          />
+        )}
 
         {page === 'history' && <HistoryPage />}
 

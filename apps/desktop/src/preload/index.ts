@@ -72,6 +72,12 @@ const api: IxaIpcApi = {
   renameConversation: (input) => ipcRenderer.invoke('ixaeon:renameConversation', input),
   archiveConversation: (id) => ipcRenderer.invoke('ixaeon:archiveConversation', id),
   unarchiveConversation: (id) => ipcRenderer.invoke('ixaeon:unarchiveConversation', id),
+  // 待办（T3）
+  listTodos: (input) => ipcRenderer.invoke('ixaeon:listTodos', input),
+  addTodo: (input) => ipcRenderer.invoke('ixaeon:addTodo', input),
+  acceptTodo: (id) => ipcRenderer.invoke('ixaeon:acceptTodo', id),
+  rejectTodo: (id) => ipcRenderer.invoke('ixaeon:rejectTodo', id),
+  completeTodo: (id) => ipcRenderer.invoke('ixaeon:completeTodo', id),
   deleteConversation: (id) => ipcRenderer.invoke('ixaeon:deleteConversation', id),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
   listProjectRelations: (input) => ipcRenderer.invoke('ixaeon:listProjectRelations', input),
