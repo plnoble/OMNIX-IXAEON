@@ -11,7 +11,7 @@ v2 规格：你先把验收条件写成测试（`packages/core/test/acceptance/s
 
 ## 契约
 
-1. 列出：`listAgentSessions({ ticket })`。`ticket` 是 `pickFiles('directory')` 给的一次性票据；主进程消费票据、给这个目录建 folder 授权（和现在的文件夹导入一样）。递归找 `.jsonl`（最多 2000 个），每个只读**开头 20 个非空行和末尾 256KB**，不整份读：
+1. 列出：IPC `listAgentSessions({ ticket })`。`ticket` 是 `pickFiles('directory')` 给的一次性票据；IPC 处理函数消费票据、给这个目录建 folder 授权（和现在的文件夹导入一样），再调 `runtime.listAgentSessions({ root, permissionId })`，返回 `{ listId, sessions, unrecognizedCount, subagentCount }`，编号 `id` 是数字。核心层的扫描放在 `ImportService.previewAgentSessions(root)`（锁定测试按这两个名字调）。递归找 `.jsonl`（最多 2000 个），每个只读**开头（最多 20 个非空行，且最多 256KB）和末尾 256KB**，不整份读——开头也要有字节上限，会话开头就可能有一条几 MB 的工具输出：
    - 认不出的不列，只报个数；Codex 子代理会话（`isCodexSubagentSession`）不列，只报个数；
    - 每项：编号（主进程生成）、工具（claude_code / codex）、标题（Claude Code：末尾那段里最后一个 custom-title，没有就最后一个 ai-title，再没有就开头里第一句用户的话；Codex：开头里第一句用户的话，按 S2 的规则去掉注入的段；都没有就用文件名）、工作目录 `cwd`、按 `cwd` 匹配到的项目（规则同 S1）、文件修改时间、大小、状态（新 / 已导入 / 有更新：按 provider + externalId 找已有来源，找到且文件修改时间晚于来源的导入时间算「有更新」）。
    - 主进程把这次清单（编号 → 路径、授权）存在内存里，给一个清单号；过期（30 分钟）或应用重启就作废。
@@ -39,3 +39,10 @@ v2 规格：你先把验收条件写成测试（`packages/core/test/acceptance/s
 
 - `node_modules/.bin/jiti scripts/real/agent-sessions.ts`，贴输出（确认解析器没有退化）；
 - 用临时数据目录启动应用（`IXAEON_DATA_DIR`），对**合成的**会话文件夹（测试里的那套）调一次列出与估算，贴结果。**不要对用户真实的会话文件夹调列出**：标题就是内容。
+
+## 整合方复审测试时定下的（2026-09-19）
+
+执行方写的测试有两处测弱了，整合方补全后重新锁定：
+
+- 条件 5：原来只打了编造的清单号。补上「清单号是真的、编号不在清单里」（混着一个合法的也整批拒绝）和「过了 30 分钟」两种，并加一个对照：重新列出后合法的编号能估算、能导入。runtime 的导入返回 `{ created, unchanged, failed }`（前两个是个数）。
+- 条件 7：原来只拦 `readFileSync`，逐块把整份读完也能过。改成数实际读了多少字节（小于 1MB），并在文件中间埋一次改名：只读头尾就不会拿它当标题。开头紧跟一条 10MB 的工具输出，所以开头也必须有字节上限。

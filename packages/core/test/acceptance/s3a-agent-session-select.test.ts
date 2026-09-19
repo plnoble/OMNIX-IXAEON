@@ -9,12 +9,13 @@
  * 条件 3：导入后再列是「已导入」；追加一轮并更新 mtime 后再列是「有更新」。
  * 条件 4：只导勾选的；计数对；新导入的进 pendingExtraction。
  * 条件 6：估算字数等于解析器解析出的你说的、AI 回答的字数之和。
- * 条件 7：列出 20MB 中间都是工具输出的会话时，不是整份读进内存。
+ * 条件 7：列出一个大会话时只读开头（最多 20 个非空行、最多 256KB）和末尾 256KB，不是整份读
+ *   （整合方 2026-09-19 复审时补：原测试只拦 readFileSync，逐块把整份读完也能过）。
  *
  * 条件 5（假编号 / 过期清单）在 apps/desktop/test/acceptance/s3a-ipc-list.test.ts。
  */
-import * as fs from 'node:fs';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import type * as NodeFs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -29,6 +30,42 @@ import {
   parseCodexSession,
   type CoreDatabase,
 } from '../../src/index.js';
+
+// 条件 7：数一数每个文件实际读了多少字节（替换 node:fs，只包一层计数，行为不变）
+const io = vi.hoisted(() => ({
+  fdPath: new Map<number, string>(),
+  bytes: new Map<string, number>(),
+}));
+vi.mock('node:fs', async (importOriginal) => {
+  const real = await importOriginal<typeof NodeFs>();
+  const key = (p: unknown) => String(p).replace(/\\/g, '/');
+  const add = (p: string, n: number) => io.bytes.set(p, (io.bytes.get(p) ?? 0) + n);
+  const call = <T>(fn: unknown, args: unknown[]) => (fn as (...a: unknown[]) => T)(...args);
+  const wrapped = {
+    ...real,
+    openSync: (...args: unknown[]) => {
+      const fd = call<number>(real.openSync, args);
+      io.fdPath.set(fd, key(args[0]));
+      return fd;
+    },
+    closeSync: (fd: number) => {
+      io.fdPath.delete(fd);
+      real.closeSync(fd);
+    },
+    readSync: (fd: number, ...rest: unknown[]) => {
+      const n = call<number>(real.readSync, [fd, ...rest]);
+      const p = io.fdPath.get(fd);
+      if (p) add(p, n);
+      return n;
+    },
+    readFileSync: (...args: unknown[]) => {
+      const out = call<string | Buffer>(real.readFileSync, args);
+      if (typeof args[0] === 'string') add(key(args[0]), out.length);
+      return out;
+    },
+  };
+  return { ...wrapped, default: wrapped };
+});
 
 const CC_SID = '11111111-2222-4333-8444-555555555555';
 const CC_SID2 = '11111111-2222-4333-8444-666666666666';
@@ -323,32 +360,52 @@ it('条件 6：估算字数等于解析器你说的 + AI 回答的字数之和',
   expect(est.assistantChars).toBe(sum(parsedCc, 'assistant') + sum(parsedCx, 'assistant'));
 });
 
-it('条件 7：列出 20MB 会话时不是整份读进内存', () => {
+it('条件 7：列出大会话时只读开头和末尾——中间的改名不当标题，读的字节远小于文件', () => {
   const big = join(folder, 'big.jsonl');
-  const head = claudeSession({
-    sid: '11111111-2222-4333-8444-777777777777',
-    cwd: 'D:/work/demo',
-    user: '大文件开头用户话',
-    assistant: '开头回答',
-    customTitle: '大文件会话',
-  });
-  const toolLine = L({
-    type: 'user',
-    uuid: 'big-tool',
-    sessionId: '11111111-2222-4333-8444-777777777777',
-    timestamp: at(5),
-    message: {
-      role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: 't', content: 'M'.repeat(20 * 1024 * 1024) }],
-    },
-  });
-  writeFileSync(big, [...head, toolLine].join('\n'), 'utf8');
-  const readFileSync = vi.spyOn(fs, 'readFileSync');
-  const r = preview();
-  expect(r.sessions.some((s) => s.title === '大文件会话')).toBe(true);
-  const whole = readFileSync.mock.calls.filter((c) =>
-    String(c[0]).replace(/\\/g, '/').endsWith('/big.jsonl'),
+  const sid = '11111111-2222-4333-8444-777777777777';
+  const pad = (tag: string) =>
+    L({
+      type: 'user',
+      uuid: `pad-${tag}`,
+      sessionId: sid,
+      timestamp: at(5),
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: tag, content: 'M'.repeat(10 * 1024 * 1024) }],
+      },
+    });
+  writeFileSync(
+    big,
+    [
+      // 开头：没有标题行，第一句用户的话就是标题；紧跟一条 10MB 的工具输出（开头也要有字节上限）
+      ...claudeSession({
+        sid,
+        cwd: 'D:/work/demo',
+        user: '大文件开头用户话',
+        assistant: '开头回答',
+      }),
+      pad('a'),
+      // 中间：改过一次名。只读头尾的话看不到它
+      L({ type: 'custom-title', customTitle: '藏在中间的名字', sessionId: sid }),
+      pad('b'),
+      L({
+        type: 'assistant',
+        uuid: 'tail',
+        sessionId: sid,
+        timestamp: at(9),
+        message: { role: 'assistant', content: [{ type: 'text', text: '末尾的回答' }] },
+      }),
+    ].join('\n'),
+    'utf8',
   );
-  expect(whole).toHaveLength(0);
-  readFileSync.mockRestore();
+  io.bytes.clear();
+  const r = preview();
+  const titles = r.sessions.map((s) => s.title);
+  expect(titles).toContain('大文件开头用户话');
+  expect(titles).not.toContain('藏在中间的名字');
+  const readBig = [...io.bytes.entries()]
+    .filter(([p]) => p.endsWith('/big.jsonl'))
+    .reduce((n, [, b]) => n + b, 0);
+  expect(readBig).toBeGreaterThan(0);
+  expect(readBig).toBeLessThan(1024 * 1024);
 });

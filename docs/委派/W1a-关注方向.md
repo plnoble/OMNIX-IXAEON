@@ -34,3 +34,17 @@ v2 规格：你先把验收条件写成测试（`apps/desktop/test/acceptance/w1
 ## 真机检查
 
 在 `scripts/real/` 加一个脚本：临时库里放一组**合成的**记忆（例如「想做一个全天记录的个人助理」「关注人形机器人」「想换一台内存大、能跑本地大模型的手机」），用真的模型走一遍提方向，贴出返回的方向与对外检索描述，如实写有没有把个人信息写进对外检索描述。
+
+## 契约（整合方 2026-09-19 复审测试时定下，锁定测试按这个调）
+
+- `previewWatchDirections(): Promise<{ memoryCount: number }>`：确认框里显示的条数 = 这次会发的记忆条数（不含项目）。
+- `suggestWatchDirections(): Promise<{ searchConfigured: boolean; directions: WatchDirection[] }>`，`WatchDirection = { question, publicDescription, basis: Array<{ id, statement }>, relatedGoalId: string | null, relatedProjectId: string | null }`：
+  - 模型按 `{ directions: [{ question, publicDescription, why: 记忆编号[] }] }` 返回（`chatStructured`）；不是这个形状、或哪个方向缺字符串的 `question` / `publicDescription`：整次报错，不返回任何方向；
+  - `basis` 由主进程按 `why` 对回这次发出去的记忆原文，认不出的编号丢掉；`relatedGoalId` 取依据里第一条目标，`relatedProjectId` 取它的项目（没有目标就取依据里第一条有项目的记忆的项目）；
+  - 超过 5 个只留前 5 个；问题或对外检索描述与拒绝过的、已有研究主题的相似（字符二元组 Jaccard ≥ 0.6）就不返回。
+- 「有效」的记忆：没被拒绝（`confirmation != 'rejected'`）、没被取代（`state = 'current'`）、没标成已结束（`time_status != 'ended'`）；「没采纳的 AI 建议」按 `isUnadoptedAiAdvice` 判。超过 40 条取最近更新的 40 条。个人记忆和项目记忆都算（这是用户点了确认的一次）。
+- `followWatchDirection({ question, publicDescription, relatedGoalId, relatedProjectId })`：建研究主题并启用；搜索可用看 `research.searchAvailable`。
+- `skipWatchDirection({ question, publicDescription })`：记进 `app_settings`，重启后仍然有效。
+- 界面测试用到的标识：`research-suggest`、`research-suggest-confirm`、`research-suggest-count`、`research-suggest-ok`、`research-suggest-cancel`、`research-direction-<序号>`、`research-direction-public-<序号>`、`research-direction-basis-<序号>`、`research-direction-budget-<序号>`、`research-direction-follow-<序号>`、`research-direction-skip-<序号>`。
+
+执行方原来的测试把「没采纳的 AI 建议」写成了 `open_loop` 类型的条目——本来就不在「目标、约束」里，等于没测；也没测被拒绝、已结束的记忆和搜索已配置时的预算。整合方补全后重新锁定。

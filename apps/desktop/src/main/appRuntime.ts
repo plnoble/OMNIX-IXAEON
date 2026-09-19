@@ -1546,7 +1546,9 @@ export class AppRuntime {
   }
   async acceptTodo(id: string): Promise<Todo> {
     const todo = this.todos.get(id);
-    if (todo?.linked_kind === 'coding_task' && todo.linked_id) {
+    // 先看待办能不能改成「要做」：已经不是等你拍板的（连点两下、别处改过），
+    // 直接由 accept 报状态冲突，不能先把编码任务批准了、待办却改不成
+    if (todo.status === 'proposed' && todo.linked_kind === 'coding_task' && todo.linked_id) {
       // 拍板「要做」= 批准编码任务并排队；批准失败原样报错，待办不动
       await this.coding.approveAndQueue(todo.linked_id);
     }
@@ -1554,7 +1556,8 @@ export class AppRuntime {
   }
   async rejectTodo(id: string): Promise<Todo> {
     const todo = this.todos.get(id);
-    if (todo?.linked_kind === 'coding_task' && todo.linked_id) {
+    const rejectable = todo.status === 'proposed' || todo.status === 'accepted';
+    if (rejectable && todo.linked_kind === 'coding_task' && todo.linked_id) {
       // 「不做」= 取消还没结束的任务；已经结束的只改待办，不动任务
       const row = this.db
         .prepare('SELECT status FROM coding_tasks WHERE id = ?')

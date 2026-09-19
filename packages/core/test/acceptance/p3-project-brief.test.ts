@@ -6,7 +6,8 @@
  *          派给 Hermes 的 prompt.submit 带上近况；20 天前的提交不在。
  * 条件 2：同一项目没有 project_snapshot：没有提交那块，会话和任务照带。
  * 条件 3：没选项目：没有项目近况。
- * 条件 4：整段超过 2000 字时按「提交 → 会话 → 任务」从每块末尾截，截后 ≤2000。
+ * 条件 4：整段超过 2000 字时按「提交 → 会话 → 任务」的顺序截，每块从末尾（最旧的）截起，截后 ≤2000；
+ *   计数是实际带上的条数（整合方 2026-09-19 复审时补：原测试只断言了 ≤2000）。
  * 条件 5：目录不是 git 仓库、或 git 超时：跳过提交那块，不报错。
  * 条件 6 的计数：回答带 meta.projectBrief；界面在 p3-brief-line.test.ts。
  */
@@ -361,7 +362,7 @@ it('条件 3：没选项目时没有项目近况', async () => {
   ).toBeUndefined();
 });
 
-it('条件 4：超过 2000 字按提交→会话→任务从每块末尾截，截后不超过 2000', async () => {
+it('条件 4：超过 2000 字时先截提交（从最旧的截起），会话和任务保住；截后不超过 2000，计数与实际带上的一致', async () => {
   const { project } = seedProject({ withSnapshot: true, withGit: true, long: true });
   const { buildProjectBrief } = (await import('../../src/index.js')) as {
     buildProjectBrief: (
@@ -372,6 +373,23 @@ it('条件 4：超过 2000 字按提交→会话→任务从每块末尾截，�
   const brief = buildProjectBrief(db!, project.id);
   expect(brief.block.length).toBeGreaterThan(0);
   expect(brief.block.length).toBeLessThanOrEqual(2000);
+  // 会话、任务一个不少（整合方复审时补：原测试只断言了不超过 2000）
+  for (const s of ['修导入乱码', '补重试', '长会话 0', '长会话 1', '长会话 2']) {
+    expect(brief.block).toContain(s);
+  }
+  for (const t of ['把验收测试补上', '写交付说明', '长任务 0', '长任务 1', '长任务 2']) {
+    expect(brief.block).toContain(t);
+  }
+  expect(brief.counts.sessions).toBe(5);
+  expect(brief.counts.tasks).toBe(5);
+  // 提交被截了：14 天内有 20 条，留下的是最新的那些，最旧的先被截掉
+  expect(brief.counts.commits).toBeGreaterThan(0);
+  expect(brief.counts.commits).toBeLessThan(20);
+  expect(brief.block).toContain('近期提交填充 17');
+  expect(brief.block).not.toContain('修好导入乱码');
+  // 计数就是实际带上的提交条数
+  const commitLines = brief.block.match(/近期提交填充 \d+|补上重试|修好导入乱码/g) ?? [];
+  expect(commitLines).toHaveLength(brief.counts.commits);
 });
 
 it('条件 5：不是 git 仓库时跳过提交那块，不报错；git 超时同样跳过', async () => {
