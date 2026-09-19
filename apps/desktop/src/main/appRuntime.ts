@@ -45,6 +45,7 @@ import {
   runControlledVerifyCommand,
   fetchApprovedSource,
   ContextSelector,
+  memoryOriginTag,
   CORE_TOOL_NAMES,
   getDisclosureEpoch,
   localDay,
@@ -1200,18 +1201,27 @@ export class AppRuntime {
         maxItems: limit,
         semantic: this.semanticIndex,
       });
+      const hasAdvice = r.items.some(
+        (i) => i.saidBy === 'ai' || i.origin === 'assistant_suggestion',
+      );
       return {
         today: localDay(new Date()),
         items: r.items.map((i) => ({
           id: i.id,
           type: i.type,
           statement: i.statement,
-          origin: i.origin === 'user' ? '用户指定' : '系统推断',
+          origin: memoryOriginTag(i),
           recordedAt: localDay(i.recordedAt),
           // E1：事情本身已经过去（内容日期已过或用户确认已结束），别当成眼下的事
           ...(i.over ? { over: i.pastDay ? `所述日期 ${i.pastDay} 已过` : '用户确认已结束' } : {}),
         })),
         notice: r.retrievalNotice ?? (r.items.length === 0 ? '没有找到相关记忆。' : null),
+        ...(hasAdvice
+          ? {
+              adviceNote:
+                '标为「AI 当时的建议」或「用户采纳的 AI 建议」的，是当时的看法，不是定论：之后可能有更好的做法，当时也可能考虑不全；有更好的方案就直接提出来，不必照旧执行。',
+            }
+          : {}),
       };
     }
     const broker = new CoreToolBroker(this.db, this.items, this.search, this.coding, this.projects);
