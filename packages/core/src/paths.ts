@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -10,11 +10,18 @@ export function normalizeLocalPath(p: string): string {
 }
 
 function real(p: string): string {
+  const abs = resolve(p);
   try {
-    return realpathSync.native(p);
+    return realpathSync.native(abs);
   } catch {
-    // 目标可能尚不存在（例如即将写出的文件）：退回词法规范化
-    return resolve(p);
+    // 目标可能尚不存在（例如即将写出的文件）：把最深一级已存在的上级做 realpath，再接上其余部分。
+    // 只做词法规范化不够：
+    // - Windows 上已存在的上级会被展开成长文件名（RUNNER~1 → runneradmin），不存在的目标却留着
+    //   8.3 短名，同一目录里的新文件会被误判为「在外面」（2026-09-19 首次 CI 上真实出现）；
+    // - 上级是指向外面的符号链接时，新文件词法上「在里面」，实际会写到外面去。
+    const parent = dirname(abs);
+    if (parent === abs) return abs;
+    return join(real(parent), basename(abs));
   }
 }
 

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,6 +41,24 @@ describe('路径授权范围检查', () => {
     writeFileSync(join(secret, 'key.pem'), 'fake');
     symlinkSync(secret, link, 'junction');
     expect(isPathInside(root, join(link, 'key.pem'))).toBe(false);
+    // 还不存在的新文件也一样：词法上在里面，实际会写到链接指向的外面
+    expect(isPathInside(root, join(link, 'new-file.md'))).toBe(false);
+    expect(isPathInside(root, join(link, 'new-dir', 'deeper.md'))).toBe(false);
+  });
+
+  it('Windows 8.3 短路径：同一目录的长名与短名互认（2026-09-19 CI 上真实出现）', (ctx) => {
+    if (process.platform !== 'win32') return ctx.skip();
+    const root = join(dir, 'a-long-directory-name-for-short-path');
+    mkdirSync(root, { recursive: true });
+    const out = spawnSync('cmd', ['/d', '/c', `for %I in ("${root}") do @echo %~sI`], {
+      encoding: 'utf8',
+      windowsVerbatimArguments: true,
+    }).stdout.trim();
+    // 这个卷上关了 8.3 短名（常见于非系统盘）：没法造出短路径，跳过
+    if (!out || out.toLowerCase() === root.toLowerCase()) return ctx.skip();
+    expect(isPathInside(root, join(out, 'new.md'))).toBe(true);
+    expect(isPathInside(out, join(root, 'new.md'))).toBe(true);
+    expect(isPathInside(out, join(root, 'docs', 'new.md'))).toBe(true);
   });
 
   it('assertInside 抛出 PATH_ESCAPE 错误码', () => {
