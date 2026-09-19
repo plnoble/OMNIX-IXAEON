@@ -36,7 +36,7 @@
     {
       "id": "T2a",
       "title": "聊天里的待办",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/t2a-suggested-todos.test.ts": "894abc8826f20296a9f026131ce5bac61e8caa1740ce92d248547a73563cb9a2",
         "packages/core/test/acceptance/t2a-hermes-instruction.test.ts": "66e66cf930e02aefd540795612d3c37c6ff60cf736b958667160873a99934175",

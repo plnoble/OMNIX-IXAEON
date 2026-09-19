@@ -94,6 +94,16 @@ function MemoryUsedList({ items }: { items: MemoryUsedItem[] }) {
   );
 }
 
+/**
+ * 流式过程中先不显示回答末尾的「建议待办」段：答完后主进程会把它拆成下面的待办卡，
+ * 正文里就没有这一段了（标题行的认法同 packages/core/src/runtime/suggestedTodos.ts）。
+ */
+function hideSuggestedTodos(text: string): string {
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => /^建议待办[:：]$/.test(l.replace(/[#*\s]/g, '')));
+  return at < 0 ? text : lines.slice(0, at).join('\n').replace(/\s+$/, '');
+}
+
 const RESULT: Record<TodoStatus, string> = {
   proposed: '等你拍板',
   accepted: '要做',
@@ -148,6 +158,8 @@ export function AskMessage({
   const tasks = tasksOf(m.meta);
   const proposedTodos = proposedOf(m.meta);
   const userTodo = userTodoOf(m.meta);
+  const shownContent =
+    m.role === 'assistant' && m.status === 'streaming' ? hideSuggestedTodos(m.content) : m.content;
   const memoryUsed = memoryUsedOf(m.meta);
   const coverage = coverageOf(m.meta);
   const notice = typeof m.meta['notice'] === 'string' ? m.meta['notice'] : '';
@@ -168,7 +180,7 @@ export function AskMessage({
         {m.status === 'streaming' && <Spinner label={waitLabel ?? '正在回答…'} />}
         {m.status === 'failed' && <p className="warn">失败：{m.errorMessage ?? '未知错误'}</p>}
         {m.status === 'cancelled' && <p className="warn">已取消</p>}
-        {m.content ? <pre className="answer-text">{m.content}</pre> : null}
+        {shownContent ? <pre className="answer-text">{shownContent}</pre> : null}
         {showNotice && notice ? (
           <p className="warn" data-testid="message-notice">
             {notice}
@@ -196,11 +208,12 @@ export function AskMessage({
           <MemoryUsedList items={memoryUsed} />
         )}
         {proposedTodos.length > 0 && (
-          <div className="todo-cards">
+          <div className="ask-todo-cards">
+            <h4>建议待办</h4>
             {proposedTodos.map((t) => {
               const status = todoStatus?.[t.id] ?? 'proposed';
               return (
-                <div key={t.id} className="card" data-testid={`todo-card-${t.id}`}>
+                <div key={t.id} className="card ask-todo-card" data-testid={`todo-card-${t.id}`}>
                   <span>{t.title}</span>
                   {status === 'proposed' ? (
                     <>

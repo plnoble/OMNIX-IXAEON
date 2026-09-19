@@ -1090,6 +1090,12 @@ export class AppRuntime {
         // ignore
       }
 
+      // T2a：回答末尾的「建议待办」由代码变成待办（见下面 finishMessage 前），
+      // 存档、消息正文、返回值都用拆掉这一段之后的回答——否则同一件事会被
+      // 记忆提炼再记成一条「AI 建议」，下一轮背景里也会带着它。
+      const extracted = extractSuggestedTodos(result.answer);
+      result.answer = extracted.answer;
+
       if (result.answer.trim().length > 0 && result.engine !== 'missing') {
         const askPerm = this.ensureAskCapturePermission();
         if (askPerm) {
@@ -1125,7 +1131,6 @@ export class AppRuntime {
       // D3/D4：回答收尾到占位消息上。取消的回合按 cancelled 记，不冒充完成——
       // 下一轮的 priorTurns 只取 complete，半截回答不会变成背景。
       const cancelled = result.notice?.includes('用户取消') === true;
-      const extracted = extractSuggestedTodos(result.answer);
       const proposedTodos: Array<{ id: string; title: string }> = [];
       if (!cancelled) {
         for (const title of extracted.todos) {
@@ -1182,6 +1187,8 @@ export class AppRuntime {
           status: 'failed',
           runId,
           errorMessage: message.slice(0, 500),
+          // 回答失败，你写的「待办：…」照样加上了：提示也要留着
+          ...(userTodo ? { meta: { userTodo: { id: userTodo.id, title: userTodo.title } } } : {}),
         });
       } catch {
         // 收尾本身失败（例如库已关闭）不能盖掉原始错误；

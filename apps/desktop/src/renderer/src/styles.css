@@ -869,6 +869,26 @@ textarea {
   padding: 12px;
 }
 
+/* T2a：回答下面的建议待办卡 */
+.ask-todo-cards h4 {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 12px 0 6px;
+}
+
+.ask-todo-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+  padding: 8px 12px;
+}
+
+.ask-todo-card > span:first-child {
+  flex: 1;
+}
+
 .ask-answer {
   margin-top: 12px;
 }
