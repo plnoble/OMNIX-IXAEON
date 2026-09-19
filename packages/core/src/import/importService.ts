@@ -56,6 +56,23 @@ export const MAX_GEMINI_EXPORT_BYTES = 512 * 1024 * 1024;
 /** 编码代理会话 .jsonl（本机有超过 512MB 的）；逐行读，上限 2GB。 */
 export const MAX_AGENT_SESSION_BYTES = 2 * 1024 * 1024 * 1024;
 
+const AGENT_HEAD_BYTES = 256 * 1024;
+const AGENT_TAIL_BYTES = 256 * 1024;
+const AGENT_HEAD_LINES = 20;
+const AGENT_MAX_FILES = 2000;
+
+export type AgentSessionPreview = {
+  id: number;
+  tool: 'claude_code' | 'codex';
+  title: string;
+  cwd: string | null;
+  projectId: string | null;
+  mtimeMs: number;
+  size: number;
+  status: 'new' | 'imported' | 'updated';
+  path: string;
+};
+
 /** 全量历史导出文件名（B5 三平台 + ChatGPT）走大文件上限。 */
 const LARGE_EXPORT_FILENAMES = new Set([
   'conversations.json', // ChatGPT / Claude 同名，内容嗅探区分
@@ -367,6 +384,111 @@ export class ImportService {
       deduplicated: result.created ? [] : [result.source],
       pendingExtraction: result.created ? [result.source] : [],
     };
+  }
+
+  /** S3a：列出认得出的会话。每个文件只读开头（≤20 非空行且 ≤256KB）和末尾 256KB。 */
+  previewAgentSessions(root: string): {
+    sessions: AgentSessionPreview[];
+    unrecognizedCount: number;
+    subagentCount: number;
+  } {
+    const sessions: AgentSessionPreview[] = [];
+    let unrecognizedCount = 0;
+    let subagentCount = 0;
+    for (const absPath of listAgentSessionFiles(root)) {
+      let slices: ReturnType<typeof readAgentPreviewSlices>;
+      try {
+        slices = readAgentPreviewSlices(absPath);
+      } catch {
+        unrecognizedCount += 1;
+        continue;
+      }
+      const tool = slices.size ? detectAgentSession(slices.headLines) : null;
+      if (!tool) unrecognizedCount += 1;
+      else if (tool === 'codex' && isCodexSubagentSession(slices.headLines)) subagentCount += 1;
+      else {
+        const parsed = (tool === 'codex' ? parseCodexSession : parseClaudeCodeSession)([
+          ...slices.headLines,
+          ...slices.tailLines,
+        ]);
+        const cwd = typeof parsed?.metadata.cwd === 'string' ? parsed.metadata.cwd : null;
+        sessions.push({
+          id: sessions.length + 1,
+          tool,
+          title: parsed?.title || basename(absPath),
+          cwd,
+          projectId: cwd ? this.matchProjectByCwd(cwd) : null,
+          mtimeMs: slices.mtimeMs,
+          size: slices.size,
+          status: this.agentSessionStatus(parsed?.externalId ?? null, slices.mtimeMs),
+          path: absPath,
+        });
+      }
+    }
+    return { sessions, unrecognizedCount, subagentCount };
+  }
+
+  estimateAgentSessions(root: string, ids: number[], listed?: AgentSessionPreview[]) {
+    const byId = this.agentById(root, ids, listed);
+    const items = ids.map((id) => {
+      const s = byId.get(id)!;
+      const parsed = (s.tool === 'codex' ? parseCodexSession : parseClaudeCodeSession)(
+        iterateJsonlLines(s.path),
+      );
+      const chars = (role: 'user' | 'assistant') =>
+        parsed?.segments.filter((x) => x.role === role).reduce((n, x) => n + x.text.length, 0) ?? 0;
+      return { id, userChars: chars('user'), assistantChars: chars('assistant') };
+    });
+    return {
+      items,
+      userChars: items.reduce((n, x) => n + x.userChars, 0),
+      assistantChars: items.reduce((n, x) => n + x.assistantChars, 0),
+    };
+  }
+
+  importSelectedAgentSessions(
+    root: string,
+    ids: number[],
+    opts: { permissionId: string; projectId: string | null },
+    listed?: AgentSessionPreview[],
+  ) {
+    this.requirePermission(opts.permissionId, root);
+    const byId = this.agentById(root, ids, listed);
+    const created: Source[] = [];
+    const unchanged: Source[] = [];
+    const pendingExtraction: Source[] = [];
+    const failed: Array<{ path: string; message: string }> = [];
+    for (const id of ids) {
+      const path = byId.get(id)!.path;
+      try {
+        const result = this.importFile(path, opts);
+        created.push(...result.created);
+        unchanged.push(...result.deduplicated);
+        pendingExtraction.push(...result.pendingExtraction);
+      } catch (err) {
+        failed.push({ path, message: `${toApiError(err).code} ${toApiError(err).message}` });
+      }
+    }
+    return { created, unchanged, failed, pendingExtraction };
+  }
+
+  private agentById(root: string, ids: number[], listed?: AgentSessionPreview[]) {
+    const byId = new Map(
+      (listed ?? this.previewAgentSessions(root).sessions).map((s) => [s.id, s]),
+    );
+    for (const id of ids) {
+      if (!byId.has(id)) throw new IxaError(ErrorCodes.VALIDATION_FAILED, `编号不在清单里: ${id}`);
+    }
+    return byId;
+  }
+
+  private agentSessionStatus(externalId: string | null, mtimeMs: number) {
+    if (!externalId) return 'new' as const;
+    const sql = `SELECT imported_at FROM sources WHERE provider='coding_agent' AND external_id=? ORDER BY imported_at DESC LIMIT 1`;
+    const row = this.db.prepare(sql).get(externalId) as { imported_at: string } | undefined;
+    if (!row) return 'new' as const;
+    const importedMs = Date.parse(row.imported_at);
+    return Number.isFinite(importedMs) && mtimeMs > importedMs ? 'updated' : 'imported';
   }
 
   private matchProjectByCwd(cwd: string): string | null {
@@ -881,4 +1003,55 @@ function listFolderTextFiles(root: string): {
   };
   walk(root, 0);
   return { files, failed, skipped };
+}
+
+function listAgentSessionFiles(root: string): string[] {
+  const files: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > FOLDER_MAX_DEPTH || files.length >= AGENT_MAX_FILES) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (files.length >= AGENT_MAX_FILES) return;
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (!e.name.startsWith('.') && !FOLDER_SKIP_DIRS.has(e.name)) walk(full, depth + 1);
+      } else if (e.isFile() && /\.jsonl$/i.test(e.name)) files.push(full);
+    }
+  };
+  walk(root, 0);
+  return files.sort((a, b) => a.replace(/\\/g, '/').localeCompare(b.replace(/\\/g, '/')));
+}
+
+function sliceLines(text: string, skipFirst: boolean, dropLast: boolean, max: number): string[] {
+  const raw = text.split(/\r?\n/);
+  if (skipFirst) raw.shift();
+  if (dropLast) raw.pop();
+  return raw.filter((l) => l.trim().length > 0).slice(0, max);
+}
+
+function readAgentPreviewSlices(absPath: string) {
+  const st = statSync(absPath);
+  const fd = openSync(absPath, 'r');
+  try {
+    const headLen = Math.min(st.size, AGENT_HEAD_BYTES);
+    const head = Buffer.alloc(headLen);
+    if (headLen) readSync(fd, head, 0, headLen, 0);
+    const dropLast = headLen < st.size && headLen > 0 && head[headLen - 1] !== 0x0a;
+    const tailLen = st.size > AGENT_HEAD_BYTES ? Math.min(AGENT_TAIL_BYTES, st.size) : 0;
+    const tail = Buffer.alloc(tailLen);
+    if (tailLen) readSync(fd, tail, 0, tailLen, st.size - tailLen);
+    return {
+      headLines: sliceLines(head.toString('utf8'), false, dropLast, AGENT_HEAD_LINES),
+      tailLines: tailLen ? sliceLines(tail.toString('utf8'), true, false, 1e9) : [],
+      size: st.size,
+      mtimeMs: st.mtimeMs,
+    };
+  } finally {
+    closeSync(fd);
+  }
 }

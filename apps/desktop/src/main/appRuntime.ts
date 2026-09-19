@@ -59,6 +59,7 @@ import {
   personalMemoryToChat,
   setPersonalMemoryToChat,
   type HermesLocator,
+  type AgentSessionPreview,
   type AskResult,
   type CoreDatabase,
   type ModelProvider,
@@ -157,6 +158,11 @@ export class AppRuntime {
   private warming = false;
   /** 这一问用掉了预热会话：答完再备一个。 */
   private rewarmAfterAsk = false;
+  /** S3a：列出后的内存清单（编号 → 路径、授权），30 分钟过期。 */
+  private agentSessionLists: Map<
+    string,
+    { root: string; permissionId: string; sessions: AgentSessionPreview[]; expiresAt: number }
+  > | null = null;
 
   private constructor(deps: {
     dataDir: string;
@@ -399,6 +405,58 @@ export class AppRuntime {
     const job = this.jobs.enqueue('extract', auto ? { sourceId, auto: true } : { sourceId });
     recordAudit(this.db, 'extract.enqueued', { jobId: job.id, sourceId, auto });
     this.jobs.kick();
+  }
+
+  /** S3a：扫描文件夹，返回带清单号的会话列表（渲染层只拿编号）。 */
+  async listAgentSessions(input: { root: string; permissionId: string }) {
+    this.permissions.get(input.permissionId);
+    const preview = this.imports.previewAgentSessions(input.root);
+    const listId = randomUUID();
+    (this.agentSessionLists ??= new Map()).set(listId, {
+      root: input.root,
+      permissionId: input.permissionId,
+      sessions: preview.sessions,
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+    return {
+      listId,
+      sessions: preview.sessions.map(({ path: _p, ...rest }) => rest),
+      unrecognizedCount: preview.unrecognizedCount,
+      subagentCount: preview.subagentCount,
+    };
+  }
+
+  async estimateAgentSessions(input: { listId: string; ids: number[] }) {
+    const list = this.requireAgentSessionList(input.listId, input.ids);
+    return this.imports.estimateAgentSessions(list.root, input.ids, list.sessions);
+  }
+
+  async importAgentSessions(input: { listId: string; ids: number[]; projectId: string | null }) {
+    const list = this.requireAgentSessionList(input.listId, input.ids);
+    const opts = { permissionId: list.permissionId, projectId: input.projectId };
+    const result = this.imports.importSelectedAgentSessions(
+      list.root,
+      input.ids,
+      opts,
+      list.sessions,
+    );
+    for (const source of result.pendingExtraction) this.enqueueExtract(source.id, true);
+    return {
+      created: result.created.length,
+      unchanged: result.unchanged.length,
+      failed: result.failed,
+    };
+  }
+
+  private requireAgentSessionList(listId: string, ids: number[]) {
+    const list = this.agentSessionLists?.get(listId);
+    if (!list || Date.now() > list.expiresAt) {
+      this.agentSessionLists?.delete(listId);
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '清单号无效或已过期');
+    }
+    if (ids.some((id) => !list.sessions.some((s) => s.id === id)))
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '编号不在这次清单里');
+    return list;
   }
 
   /**

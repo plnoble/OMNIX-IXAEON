@@ -452,6 +452,32 @@ export interface IxaIpcApi {
     scanned: number;
   }>;
   registerProjectDirectory(input: RegisterProjectDirInput): Promise<{ jobId: string }>;
+  /** S3a：选文件夹后列出编码代理会话。渲染层只传票据，不传路径。 */
+  listAgentSessions(input: { ticket: string }): Promise<{
+    listId: string;
+    sessions: Array<{
+      id: number;
+      tool: 'claude_code' | 'codex';
+      title: string;
+      cwd: string | null;
+      projectId: string | null;
+      mtimeMs: number;
+      size: number;
+      status: 'new' | 'imported' | 'updated';
+    }>;
+    unrecognizedCount: number;
+    subagentCount: number;
+  }>;
+  estimateAgentSessions(input: { listId: string; ids: number[] }): Promise<{
+    items: Array<{ id: number; userChars: number; assistantChars: number }>;
+    userChars: number;
+    assistantChars: number;
+  }>;
+  importAgentSessions(input: { listId: string; ids: number[]; projectId: string | null }): Promise<{
+    created: number;
+    unchanged: number;
+    failed: Array<{ path?: string; message: string }>;
+  }>;
   // 来源
   listSources(input: { projectId: string | null }): Promise<SourceListItem[]>;
   getSource(id: string): Promise<Source | null>;

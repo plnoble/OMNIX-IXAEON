@@ -233,6 +233,15 @@ export function registerIpc(runtime: AppRuntime): void {
       const jobIds = enqueueExtractions(result.pendingExtraction, input.projectId);
       return { jobIds, failed: result.failed, scanned: result.scanned };
     },
+    // S3a：目录票据 → folder 授权 → 列出；估算/导入只认这次清单里的编号。
+    listAgentSessions: async (input) => {
+      const paths = consumeTicket(input.ticket, 'import');
+      const root = paths[0]!;
+      const permission = runtime.permissions.grantFolder(root);
+      return runtime.listAgentSessions({ root, permissionId: permission.id });
+    },
+    estimateAgentSessions: async (input) => runtime.estimateAgentSessions(input),
+    importAgentSessions: async (input) => runtime.importAgentSessions(input),
     registerProjectDirectory: async (input) => {
       // 目录票据（Setup / Projects 页的目录选择）→ folder 授权 → 快照导入
       const paths = consumeTicket(input.ticket, 'import');
