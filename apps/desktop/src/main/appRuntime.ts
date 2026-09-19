@@ -110,8 +110,8 @@ export class AppRuntime {
   research: ResearchChecker;
   coding: CodingOrchestrator;
   jobs: JobQueue;
-  /** D2/D4：对话与消息的权威记录。 */
-  readonly conversations: ConversationStore;
+  /** D2/D4：对话与消息的权威记录。R1 起可重赋值（恢复回滚后重建）。 */
+  conversations: ConversationStore;
   todos: TodoStore;
   readonly logger: Logger;
   readonly localServer: LocalServer;
@@ -139,8 +139,9 @@ export class AppRuntime {
   /**
    * R1：本机语义索引（Ollama + qwen3-embedding:0.6b，用户 2026-09-17 批准）。
    * IXAEON_EMBED_MODEL=none 关闭；Ollama 没开时聊天照常，预注入记忆退回关键词并如实说明。
+   * R1 起可重赋值（恢复回滚后按新连接重建，见 createSemanticIndex）。
    */
-  readonly semanticIndex: SemanticIndex | null;
+  semanticIndex: SemanticIndex | null;
   /** 正在跑的补向量回合（同一时间只跑一个）；提问前会等它，见 awaitSemanticBackfill。 */
   private semanticBackfillRun: Promise<void> | null = null;
   private semanticUnavailableLogged = false;
@@ -196,11 +197,7 @@ export class AppRuntime {
     this.localServer = deps.localServer;
     this.conversations = new ConversationStore(deps.db);
     this.todos = new TodoStore(deps.db);
-    const embedModel = (process.env.IXAEON_EMBED_MODEL ?? 'qwen3-embedding:0.6b').trim();
-    this.semanticIndex =
-      embedModel === '' || embedModel === 'none'
-        ? null
-        : new SemanticIndex(deps.db, new OllamaEmbedder({ model: embedModel }));
+    this.semanticIndex = createSemanticIndex(deps.db);
     // D4：引擎会话活在引擎进程里，上一次运行留下的 engine_session_id 早已失效。
     // 启动时清空，避免重开旧对话时去续一个不存在的会话。
     const cleared = this.conversations.clearEngineSessions();
@@ -1456,6 +1453,7 @@ export class AppRuntime {
     const run = index
       .backfill({ batchSize: 16 })
       .then((r) => {
+        if (this.semanticIndex !== index) return; // R1：重建后旧索引的迟到结果不写新状态
         this.semanticLastError = null;
         this.semanticUnavailableLogged = false;
         if (r.embedded > 0) {
@@ -1463,6 +1461,7 @@ export class AppRuntime {
         }
       })
       .catch((err: unknown) => {
+        if (this.semanticIndex !== index) return; // R1：旧索引随旧连接失效，失败是预期
         const msg = err instanceof Error ? err.message : String(err);
         this.semanticLastError = msg;
         if (!this.semanticUnavailableLogged) {
@@ -1478,7 +1477,8 @@ export class AppRuntime {
         }
       })
       .finally(() => {
-        this.semanticBackfillRun = null;
+        // R1：只清自己那一轮。旧索引迟到结束时，不能把新索引已经开始的补向量清掉。
+        if (this.semanticBackfillRun === run) this.semanticBackfillRun = null;
       });
     this.semanticBackfillRun = run;
     return run;
@@ -1791,7 +1791,21 @@ export class AppRuntime {
     const coding = new CodingOrchestrator(db, createCodingExecutor(), this.dataDir);
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;
+    // R1：conversations 与 semanticIndex 原来只在构造函数里建一次，
+    // 回滚后还拿着已关闭的旧连接——聊天列表、打开对话、提问全部报
+    // 「database connection is not open」。按新连接重建。
+    this.conversations = new ConversationStore(db);
     this.todos = new TodoStore(db);
+    this.semanticIndex = createSemanticIndex(db);
+    // R1：旧索引的在途补向量（如果有）绑着已关的旧连接——弃置引用，
+    // 迟到的失败不写新状态（kickSemanticBackfill 里有同样的守卫）。
+    // 语义索引没有常驻定时器，后台工作只有按需补向量的 promise。
+    this.semanticBackfillRun = null;
+    this.semanticLastError = null;
+    this.semanticUnavailableLogged = false;
+    // R1：懒建的引擎会话持着旧连接，同样不能留（下一问会重建，历史靠 priorTurns 重新喂）。
+    // 测试桩用 Object.create 绕过构造函数时没有这个 Map，不能清。
+    this.askSessions?.clear();
     this.vault = vault;
     this.permissions = permissions;
     this.sources = sources;
@@ -2187,4 +2201,15 @@ function createCodingExecutor(): FakeCodingExecutor | CodexCliExecutor {
   const locator = resolveCodexLocator();
   if (locator) return new CodexCliExecutor(locator);
   return new FakeCodingExecutor();
+}
+
+/**
+ * R1：语义索引按当前环境建（构造与恢复重建共用，不复制两份）。
+ * IXAEON_EMBED_MODEL 设为 none 或空串 → null（不建）。
+ */
+function createSemanticIndex(db: CoreDatabase): SemanticIndex | null {
+  const embedModel = (process.env.IXAEON_EMBED_MODEL ?? 'qwen3-embedding:0.6b').trim();
+  return embedModel === '' || embedModel === 'none'
+    ? null
+    : new SemanticIndex(db, new OllamaEmbedder({ model: embedModel }));
 }

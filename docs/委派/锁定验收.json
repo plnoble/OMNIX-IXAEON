@@ -94,6 +94,14 @@
         "apps/desktop/test/acceptance/w1a-suggest-topics.test.ts": "903da8198162fd4d279b1a640f66639ad379135fb49285219ce1176c52805c39",
         "apps/desktop/test/acceptance/w1a-suggest-topics-page.test.ts": "59470180c7db081ebe2fc334dfa9d5234ffaf07fe95d33779e0a0b164fe3aea8"
       }
+    },
+    {
+      "id": "R1",
+      "title": "恢复失败后重建聊天",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/r1-rebuild-conversations-semantic.test.ts": "562f09395cdfd5810b9a7b27587e410c6b81c921417247757b8dec120d86d86a"
+      }
     }
   ]
 }
