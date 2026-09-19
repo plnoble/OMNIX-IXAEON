@@ -149,7 +149,11 @@ export default function App() {
           <button
             type="button"
             className={page === 'ask' ? 'nav-item active' : 'nav-item'}
-            onClick={() => setPage('ask')}
+            onClick={() => {
+              // 从侧栏进聊天是「照常打开」：不再跳回上次从待办点过去的那个对话
+              setOpenConversationId(null);
+              setPage('ask');
+            }}
             data-testid="nav-ask"
           >
             问答

@@ -26,19 +26,22 @@ function Row({
   children?: ReactNode;
 }) {
   return (
-    <div data-testid={`todo-${t.id}`}>
-      <span>{t.title}</span>
-      <span> {t.origin === 'agent' ? 'AI 提的' : '你加的'} </span>
-      {t.conversation_id && (
-        <button
-          type="button"
-          data-testid={`todo-open-${t.id}`}
-          onClick={() => onOpen(t.conversation_id!)}
-        >
-          从对话来
-        </button>
-      )}
-      {children}
+    <div className="item-row" data-testid={`todo-${t.id}`}>
+      <p className="item-statement">{t.title}</p>
+      <div className="item-actions">
+        <span className="badge">{t.origin === 'agent' ? 'AI 提的' : '你加的'}</span>
+        {t.conversation_id && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            data-testid={`todo-open-${t.id}`}
+            onClick={() => onOpen(t.conversation_id!)}
+          >
+            从对话来
+          </button>
+        )}
+        {children}
+      </div>
     </div>
   );
 }
@@ -88,7 +91,7 @@ export function TodosPage({
     <div className="page">
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       <Card title="待办">
-        <div>
+        <div className="field-row">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -96,13 +99,14 @@ export function TodosPage({
               if (e.key === 'Enter') add();
             }}
             placeholder="加一条自己要做的事"
+            style={{ flex: 1 }}
             data-testid="todo-add-input"
           />
-          <button type="button" data-testid="todo-add" onClick={add}>
+          <button type="button" className="btn" data-testid="todo-add" onClick={add}>
             加一条
           </button>
         </div>
-        <div data-testid="todo-section-proposed">
+        <div className="item-group" data-testid="todo-section-proposed">
           <h3>等你拍板</h3>
           {proposed.length === 0 ? (
             <Empty>没有等你拍板的事</Empty>
@@ -111,6 +115,7 @@ export function TodosPage({
               <Row key={t.id} t={t} onOpen={onOpen}>
                 <button
                   type="button"
+                  className="btn btn-primary"
                   data-testid={`todo-accept-${t.id}`}
                   onClick={() => void run(() => api.acceptTodo(t.id))}
                 >
@@ -118,6 +123,7 @@ export function TodosPage({
                 </button>
                 <button
                   type="button"
+                  className="btn"
                   data-testid={`todo-reject-${t.id}`}
                   onClick={() => void run(() => api.rejectTodo(t.id))}
                 >
@@ -127,7 +133,7 @@ export function TodosPage({
             ))
           )}
         </div>
-        <div data-testid="todo-section-accepted">
+        <div className="item-group" data-testid="todo-section-accepted">
           <h3>要做</h3>
           {accepted.length === 0 ? (
             <Empty>没有要做的事</Empty>
@@ -135,31 +141,34 @@ export function TodosPage({
             accepted.map((t) => (
               <Row key={t.id} t={t} onOpen={onOpen}>
                 {t.linked_kind === 'coding_task' && (
-                  <span data-testid={`todo-linked-${t.id}`}>
+                  <span className="badge" data-testid={`todo-linked-${t.id}`}>
                     编码任务：{LINKED[t.linkedStatus ?? 'unknown'] ?? '状态不明'}
                   </span>
                 )}
-                <button
-                  type="button"
-                  data-testid={`todo-reject-${t.id}`}
-                  onClick={() => void run(() => api.rejectTodo(t.id))}
-                >
-                  不做
-                </button>
-                {t.linked_kind === null && (
+                {/* 底下是编码任务的，完成跟着任务走（T2b）；其余的自己点完成 */}
+                {t.linked_kind !== 'coding_task' && (
                   <button
                     type="button"
+                    className="btn"
                     data-testid={`todo-complete-${t.id}`}
                     onClick={() => void run(() => api.completeTodo(t.id))}
                   >
                     做完了
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  data-testid={`todo-reject-${t.id}`}
+                  onClick={() => void run(() => api.rejectTodo(t.id))}
+                >
+                  不做
+                </button>
               </Row>
             ))
           )}
         </div>
-        <div data-testid="todo-section-done">
+        <div className="item-group" data-testid="todo-section-done">
           <h3>已完成</h3>
           {done.length === 0 ? (
             <Empty>还没有做完的事</Empty>
