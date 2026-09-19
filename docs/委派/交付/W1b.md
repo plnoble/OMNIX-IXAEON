@@ -35,7 +35,7 @@ IPC 名是 `markFindingsSeen`；核心函数 `markOverviewFindingsSeen`，runtim
 
 - `node scripts/acceptance.mjs run W1b`：3 passed
 - `node scripts/verify.mjs`：EXIT=0
-- GitHub 上的 verify：没看（推送后查）
+- GitHub 上的 verify：绿（运行 [35444914162](https://github.com/plnoble/OMNIX-IXAEON/actions/runs/35444914162)，`b25a3bf`）
 
 ## 真机通过
 
@@ -62,7 +62,13 @@ W1b 真机合成发现 · W1b 真机合成方向 · 2026-09-19 11:29
 
 ## Codex 审查（A 档）
 
-尚未跑。推送后执行 `node scripts/codex-review.mjs W1b`。
+2026-09-19 重跑结论「需要修改」。三条「必须改」我不同意，**不改锁定测试、不合并**，交整合方复审：
+
+1. **行数 634**：实现约 103 行（规格 ≤200）。其余是规格要求的验收测试、交付和真机脚本。规则要拆的是实现，不是把锁定测试拆走。
+2. **「最新 10 条」**：查询是 `ORDER BY fetched_at DESC LIMIT 10`，锁定测试已断言长度 10 且时间倒序。再断言具体 id 得改锁定测试。
+3. **点过「都看过了」后标记消失**：页面在 `markFindingsSeen` 之后 `reload()`；真机 `AFTER_NEW_BADGES 0`。锁定测试查的是 IPC 与再次拉取，不能改测试去查 DOM。
+
+建议：链接与研究页同为 `<a target=_blank>`（规格：「照研究页现有做法」）。
 
 ## 已知缺口
 
