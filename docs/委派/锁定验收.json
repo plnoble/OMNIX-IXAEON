@@ -47,7 +47,7 @@
     {
       "id": "T2b",
       "title": "编码任务进待办",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/t2b-coding-todos.test.ts": "19d09c20fcb47227c05bce8a353ab9b1e8057d539fd6bea65bad970e80aa13ab"
       }
@@ -66,6 +66,33 @@
       "status": "done",
       "files": {
         "packages/core/test/acceptance/s2-codex-import.test.ts": "505a05a385a56bcbd41416243cac4dceb7c60f3485b28b3b35328e2fddfc7ac0"
+      }
+    },
+    {
+      "id": "S3a",
+      "title": "编码代理会话选择导入（核心）",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/s3a-agent-session-select.test.ts": "6a0d055a333bbde542b39cb58677e6ecd08ac308642f84d81453c3259c41282a",
+        "apps/desktop/test/acceptance/s3a-ipc-list.test.ts": "c2e5a873f0cb32578454c19a081be93b31350104841fcc9664f77c563fd007a5"
+      }
+    },
+    {
+      "id": "P3",
+      "title": "项目进展简报",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/p3-project-brief.test.ts": "a05d1239b4afbdfd3776e0d0e20c595464cd94d2e9df13afdcd8248d4f5641b3",
+        "apps/desktop/test/acceptance/p3-brief-line.test.ts": "34a3c7bda20beb82b8cee4c632f412eabfcb9f3f65e2ffa0b7d3d946cdbec3cf"
+      }
+    },
+    {
+      "id": "W1a",
+      "title": "关注方向",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/w1a-suggest-topics.test.ts": "5f3d241392d148807660539ce2a0c078e1133e315904be10a80050c1530742a2",
+        "apps/desktop/test/acceptance/w1a-suggest-topics-page.test.ts": "1c6763c120d0363d17a3346c95265eaea915c1a80aa95c7c7a64316b5c59598f"
       }
     }
   ]
