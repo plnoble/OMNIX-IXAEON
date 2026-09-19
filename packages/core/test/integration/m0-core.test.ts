@@ -136,7 +136,13 @@ describe('JobQueue 暂时性失败有限退避重试（M0.2 第 7 条）', () =>
     const d = mkdtempSync(join(tmpdir(), 'ixaeon-m0-retry-'));
     const db = openDatabase(join(d, 'ixaeon.db'));
     migrate(db);
-    const queue = new JobQueue(db, undefined, { retryBackoffMs: [30, 30, 30] });
+    // 退避设成 1 分钟：「还没到时间」那一步不会因为机器忙而恰好到点（原来 30ms 的窗口
+    // 在整套集成测试并发时偶尔被跨过，2026-09-19 门禁上出现过一次）；到点靠直接改 not_before
+    const queue = new JobQueue(db, undefined, { retryBackoffMs: [60_000, 60_000, 60_000] });
+    const due = () =>
+      db
+        .prepare('UPDATE jobs SET not_before = ? WHERE id = ?')
+        .run('2000-01-01T00:00:00.000Z', job.id);
     let calls = 0;
     queue.register('flaky', async () => {
       calls += 1;
@@ -153,9 +159,9 @@ describe('JobQueue 暂时性失败有限退避重试（M0.2 第 7 条）', () =>
     // not_before 未到：不执行
     await (queue as unknown as { tick(): Promise<void> }).tick();
     expect(calls).toBe(1);
-    // 等退避窗口过后继续；共重试 3 次后 failed
+    // 退避窗口过后继续；共重试 3 次后 failed
     for (let i = 0; i < 4; i++) {
-      await new Promise((r) => setTimeout(r, 40));
+      due();
       await (queue as unknown as { tick(): Promise<void> }).tick();
     }
     expect(calls).toBe(4); // 首次 + 3 次重试

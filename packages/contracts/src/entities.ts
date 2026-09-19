@@ -547,3 +547,38 @@ export const skillCandidateSchema = z.object({
   updated_at: isoDateTimeSchema,
 });
 export type SkillCandidate = z.infer<typeof skillCandidateSchema>;
+
+// ---------------------------------------------------------------------------
+// todos：待办（三周任务单 T1，迁移 33）。设计决定 3：薄的一层——只存叫什么、什么状态、
+// 从哪次对话来，底下指向已有的编码任务 / 研究主题，不新造任务系统。
+// ---------------------------------------------------------------------------
+
+/** proposed = 等你拍板；accepted = 要做（在做）；done = 做完了；rejected = 不做。 */
+export const todoStatusSchema = z.enum(['proposed', 'accepted', 'done', 'rejected']);
+export type TodoStatus = z.infer<typeof todoStatusSchema>;
+
+export const todoSchema = z.object({
+  id: z.string(),
+  title: z.string().min(1).max(200),
+  status: todoStatusSchema,
+  /** agent = 聊天里 AI 提出来的（要你拍板）；user = 你自己加的（直接算要做） */
+  origin: z.enum(['agent', 'user']),
+  /** 从哪次对话来（对话删了就为空） */
+  conversation_id: z.string().nullable(),
+  message_id: z.string().nullable(),
+  /** 底下指向的已有任务；为空 = 纯待办 */
+  linked_kind: z.enum(['coding_task', 'research_topic']).nullable(),
+  linked_id: z.string().nullable(),
+  created_at: isoDateTimeSchema,
+  updated_at: isoDateTimeSchema,
+  /** 接受或拒绝的时间 */
+  decided_at: isoDateTimeSchema.nullable(),
+  done_at: isoDateTimeSchema.nullable(),
+});
+export type Todo = z.infer<typeof todoSchema>;
+
+/** 列表视图：带上底下任务的实时状态（不读消息里的快照）。 */
+export type TodoView = Todo & {
+  /** 底下编码任务的实时状态（coding_tasks.status）；没有关联为 null */
+  linkedStatus: string | null;
+};

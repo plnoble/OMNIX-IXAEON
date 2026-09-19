@@ -964,6 +964,32 @@ CREATE TABLE app_settings (
 );
 `,
   },
+  {
+    id: 33,
+    name: 'todos',
+    sql: `
+-- 三周任务单 T1：待办。设计决定 3——薄的一层：只存叫什么、什么状态、从哪次对话来，
+-- 底下指向已有的编码任务 / 研究主题（linked_*），不新造任务系统。
+-- 状态：proposed 等你拍板 / accepted 要做 / done 做完了 / rejected 不做。
+-- 拒绝过的留着不删：同样的事 AI 再提，靠它认出来不再打扰（TodoStore.propose）。
+CREATE TABLE todos (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+  status TEXT NOT NULL CHECK (status IN ('proposed', 'accepted', 'done', 'rejected')),
+  origin TEXT NOT NULL CHECK (origin IN ('agent', 'user')),
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+  linked_kind TEXT CHECK (linked_kind IS NULL OR linked_kind IN ('coding_task', 'research_topic')),
+  linked_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  decided_at TEXT,
+  done_at TEXT
+);
+CREATE INDEX idx_todos_status ON todos(status, updated_at);
+CREATE UNIQUE INDEX idx_todos_link ON todos(linked_kind, linked_id) WHERE linked_id IS NOT NULL;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

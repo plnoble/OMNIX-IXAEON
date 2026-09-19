@@ -91,6 +91,7 @@ export {
   type ExtractStats,
 } from './extraction/extractor.js';
 export { ItemService } from './storage/itemStore.js';
+export { TodoStore, type TodoLink } from './storage/todoStore.js';
 export {
   syncDerivedNeedsReasons,
   derivedNeedsReasons,
