@@ -3,9 +3,9 @@
     {
       "id": "A1",
       "title": "分析失败耐心重试",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "packages/core/test/acceptance/a1-patient-retry.test.ts": "c60e4d06e8984db61c5ff73d6ab2d6907648cd0ddf798f3fa7faa2d3446d1456"
+        "packages/core/test/acceptance/a1-patient-retry.test.ts": "dd6801cea1a5377b646734a5094e24f8ff14ae4545a81ccab92b9b5eeb6a1133"
       }
     },
     {

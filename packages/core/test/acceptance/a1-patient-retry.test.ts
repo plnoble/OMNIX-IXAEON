@@ -111,10 +111,13 @@ describe('429（并发满、限流）算暂时性失败', () => {
 });
 
 describe('启动时把因网络失败的任务重新排队', () => {
-  function failed(error: string): string {
-    const job = queue.enqueue('extract', { sourceId: 'synthetic' });
+  let n = 0;
+  /** 一个失败了的提取任务（每个来源一个，排在「现在」之前）。 */
+  function failed(error: string, sourceId = `synthetic-${++n}`): string {
+    const job = queue.enqueue('extract', { sourceId });
     db.prepare(
-      "UPDATE jobs SET status = 'failed', error = ?, retry_count = 5, not_before = ? WHERE id = ?",
+      `UPDATE jobs SET status = 'failed', error = ?, retry_count = 5, not_before = ?,
+         created_at = '2026-09-17T00:00:00.000Z' WHERE id = ?`,
     ).run(error, '2000-01-01T00:00:00.000Z', job.id);
     return job.id;
   }
@@ -140,6 +143,29 @@ describe('启动时把因网络失败的任务重新排队', () => {
     expect(queue.get(auth)!.status).toBe('failed');
     // 再调一次不会重复计数
     expect(queue.requeueNetworkFailures()).toBe(0);
+  });
+
+  // 整合方 2026-09-19 补：「全部重新分析」是给同一来源另排新任务，旧的失败任务留在表里。
+  // 启动时若连旧的也重排，同一份资料要分析两遍（用户库里约 24 个这样的旧失败）。
+  it('同一来源后来又排过任务的，旧的失败不再重排', () => {
+    const old = failed('网络错误: TypeError: fetch failed', 'src-reanalyzed');
+    const newer = queue.enqueue('extract', { sourceId: 'src-reanalyzed', reextract: true }).id;
+    const alone = failed('网络错误: TypeError: fetch failed', 'src-alone');
+
+    expect(queue.requeueNetworkFailures()).toBe(1);
+    expect(queue.get(old)!.status).toBe('failed');
+    expect(queue.get(newer)!.status).toBe('queued');
+    expect(queue.get(alone)!.status).toBe('queued');
+  });
+
+  it('同一来源有好几个旧的网络失败：只重排最近那个', () => {
+    const first = failed('网络错误: TypeError: fetch failed', 'src-twice');
+    const second = failed('API 错误 502: bad gateway', 'src-twice');
+    db.prepare(`UPDATE jobs SET created_at = '2026-09-17T01:00:00.000Z' WHERE id = ?`).run(second);
+
+    expect(queue.requeueNetworkFailures()).toBe(1);
+    expect(queue.get(first)!.status).toBe('failed');
+    expect(queue.get(second)!.status).toBe('queued');
   });
 });
 

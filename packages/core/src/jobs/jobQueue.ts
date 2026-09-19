@@ -271,10 +271,22 @@ export class JobQueue {
   /**
    * 把因网络/网关/限流失败的任务重新排队（从头计次）。
    * 认定：错误文字以「网络错误」开头，或以「API 错误 429」「API 错误 5xx」开头。
+   * 只看同一对象（同类任务、同一来源；没有来源的按整个载荷）最近的那个任务：
+   * 「全部重新分析」是给同一来源另排新任务，旧的失败留在表里——连旧的也重排，
+   * 同一份资料就要分析两遍（整合方 2026-09-19 在用户库里查到约 24 个这样的旧失败）。
    */
   requeueNetworkFailures(): number {
     const rows = this.db
-      .prepare("SELECT id, error FROM jobs WHERE status = 'failed'")
+      .prepare(
+        `SELECT j.id, j.error FROM jobs j
+         WHERE j.status = 'failed'
+           AND NOT EXISTS (
+             SELECT 1 FROM jobs k
+             WHERE k.kind = j.kind AND k.id != j.id
+               AND (k.created_at > j.created_at OR (k.created_at = j.created_at AND k.id > j.id))
+               AND COALESCE(json_extract(k.payload_json, '$.sourceId'), k.payload_json)
+                 = COALESCE(json_extract(j.payload_json, '$.sourceId'), j.payload_json))`,
+      )
       .all() as Array<{ id: string; error: string | null }>;
     const now = new Date().toISOString();
     const upd = this.db.prepare(
