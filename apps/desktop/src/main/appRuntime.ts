@@ -37,6 +37,7 @@ import {
   ensureDataDirLayout,
   loadConfig,
   migrate,
+  backupBeforeMigrate,
   recordAudit,
   resolveDataDir,
   saveConfig,
@@ -214,7 +215,7 @@ export class AppRuntime {
     logger.info('运行时初始化', { dataDir: resolved.dataDir, source: resolved.source });
 
     const db = openDatabase(layout.dbFile);
-    migrate(db);
+    backupThenMigrate(db, layout, logger);
     const vault = new Vault(layout.vaultDir);
     const permissions = new PermissionService(db);
     const sources = new SourceStore(db);
@@ -1703,7 +1704,7 @@ export class AppRuntime {
     }
     const db = openDatabase(dbPath);
     // 按回滚后的磁盘数据重建（结构化迁移在 openDatabase 后执行）
-    migrate(db);
+    backupThenMigrate(db, ensureDataDirLayout(this.dataDir), this.logger);
     const vault = new Vault(join(this.dataDir, 'vault'));
     const permissions = new PermissionService(db);
     const sources = new SourceStore(db);
@@ -1952,7 +1953,7 @@ export class AppRuntime {
     saveConfig(layout.configFile, newConfig);
     const newDb = openDatabase(layout.dbFile);
     try {
-      migrate(newDb);
+      backupThenMigrate(newDb, layout, this.logger);
       if (projectName.length > 0) {
         const newProjects = new ProjectService(newDb);
         const exists = newProjects
@@ -2080,6 +2081,33 @@ export function normalizeApiBase(url: string | null | undefined): string {
   } catch {
     return raw.replace(/\/+$/, '');
   }
+}
+
+/**
+ * 有待执行的迁移时先备份；备份失败就不迁移。
+ * 全新库 / 已是最新版本会返回 null，不影响。
+ */
+function backupThenMigrate(
+  db: CoreDatabase,
+  layout: { backupsDir: string; configFile: string },
+  logger: Logger,
+): void {
+  let backupDir: string | null;
+  try {
+    backupDir = backupBeforeMigrate(db, {
+      backupsDir: layout.backupsDir,
+      configPath: layout.configFile,
+    });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`迁移前备份失败，已停止迁移：${reason}`);
+  }
+  if (backupDir) {
+    const dirName = backupDir.replace(/\\/g, '/').split('/').pop() ?? backupDir;
+    logger.info('迁移前已备份', { dirName });
+    recordAudit(db, 'migration.backup', { dirName });
+  }
+  migrate(db);
 }
 
 /** 用户已确认隔离默认值：有 Codex 就真机派发，否则 Fake。 */
