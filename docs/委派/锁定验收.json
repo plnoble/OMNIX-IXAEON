@@ -23,6 +23,50 @@
       "files": {
         "apps/desktop/test/acceptance/a3-bridge-origin-tag.test.ts": "a3af25500f3c146f2acf4f3fe59d6a9fed91a86953e5293bf4d28377484d03f1"
       }
+    },
+    {
+      "id": "T3",
+      "title": "待办页",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/t3-todos-ipc.test.ts": "5a48ee45ac47c4241548d378f0f4c27875fa6b48f47d945f859e59baba92f697",
+        "apps/desktop/test/acceptance/t3-todos-page.test.ts": "da2282cd82bb5b96fa618115a65881357ddcd3aaaffbb787fbb0f0b9d9607fd2"
+      }
+    },
+    {
+      "id": "T2a",
+      "title": "聊天里的待办",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/t2a-suggested-todos.test.ts": "894abc8826f20296a9f026131ce5bac61e8caa1740ce92d248547a73563cb9a2",
+        "packages/core/test/acceptance/t2a-hermes-instruction.test.ts": "66e66cf930e02aefd540795612d3c37c6ff60cf736b958667160873a99934175",
+        "apps/desktop/test/acceptance/t2a-ask-todos.test.ts": "29eff4c3c4b7d2d5834e63552e086a5f603aee829bc713b5a31d79660e76e651",
+        "apps/desktop/test/acceptance/t2a-todo-cards.test.ts": "f5940c3e73c54c00c962fa1d05abe6af9ee225fed0b13f2985d7a053a9b53c60"
+      }
+    },
+    {
+      "id": "T2b",
+      "title": "编码任务进待办",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/t2b-coding-todos.test.ts": "19d09c20fcb47227c05bce8a353ab9b1e8057d539fd6bea65bad970e80aa13ab"
+      }
+    },
+    {
+      "id": "S1",
+      "title": "导入 Claude Code 会话",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/s1-claude-code-import.test.ts": "9c8677f3a3c99a087e8c5c42dddea5f4680cc2e4ae29e09eafa5244cb1194822"
+      }
+    },
+    {
+      "id": "S2",
+      "title": "导入 Codex 会话",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/s2-codex-import.test.ts": "c62b89faebb8b10c81fa55fe7e4dc654d222b7c95afb37debb2c2c4dbcb9e3e2"
+      }
     }
   ]
 }
