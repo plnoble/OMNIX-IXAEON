@@ -53,6 +53,13 @@ import {
   includesAiAdvice,
   AI_ADVICE_NOTE,
   CORE_TOOL_NAMES,
+  addRejectedWatchDirection,
+  buildWatchPrompt,
+  collectWatchMemories,
+  listRejectedWatchDirections,
+  mapWatchDirections,
+  watchDirectionsSchema,
+  type WatchDirection,
   getDisclosureEpoch,
   localDay,
   locateHermes,
@@ -1631,6 +1638,55 @@ export class AppRuntime {
         : '当前未配置搜索服务。只给方向、不给网址时不能完成真实搜索；已批准来源检查不是全网检索。可在设置页「网页搜索」配置。研读阶段每轮最多 8 次模型调用。',
       topics,
     };
+  }
+
+  previewWatchDirections() {
+    return { memoryCount: collectWatchMemories(this.db).length };
+  }
+
+  async suggestWatchDirections() {
+    const provider = this.getProvider();
+    if (!provider) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '未配置模型，提不了关注方向（先在设置页配置模型）',
+      );
+    }
+    const memories = collectWatchMemories(this.db);
+    const raw = await provider.chatStructured({
+      ...buildWatchPrompt(memories, this.projects.list()),
+      schema: watchDirectionsSchema,
+    });
+    return {
+      searchConfigured: this.research.searchAvailable,
+      directions: mapWatchDirections(
+        raw,
+        memories,
+        listRejectedWatchDirections(this.db),
+        this.research.store.listTopics().map((t) => ({
+          question: t.question,
+          publicDescription: t.public_description,
+        })),
+      ),
+    };
+  }
+
+  async followWatchDirection(input: Omit<WatchDirection, 'basis'>): Promise<{ id: string }> {
+    const search = this.research.searchAvailable;
+    const topic = this.research.createTopic({
+      ...input,
+      sources: [],
+      interval_ms: 86_400_000,
+      paid_budget_mode: search ? 'request_cap' : 'none',
+      request_cap: search ? 3 : 0,
+    });
+    this.research.store.setEnabled(topic.id, true);
+    return { id: topic.id };
+  }
+
+  skipWatchDirection(input: { question: string; publicDescription: string }): { ok: true } {
+    addRejectedWatchDirection(this.db, input);
+    return { ok: true };
   }
 
   /** 工作记录列表（M3：最近工作展示）。 */

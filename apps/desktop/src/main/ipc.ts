@@ -521,6 +521,10 @@ export function registerIpc(runtime: AppRuntime): void {
       });
       return finding;
     },
+    previewWatchDirections: async () => runtime.previewWatchDirections(),
+    suggestWatchDirections: async () => runtime.suggestWatchDirections(),
+    followWatchDirection: async (input) => runtime.followWatchDirection(input),
+    skipWatchDirection: async (input) => runtime.skipWatchDirection(input),
     listCodingTasks: async (projectId) => {
       const name = runtime.codingExecutorName();
       const real = name === 'codex-cli';

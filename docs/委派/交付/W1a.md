@@ -1,53 +1,39 @@
 # W1a 关注方向 交付
 
-- 分支：grok/W1a，基于 main `cd7fad7`；档位 B（**先只交测试**）
+- 分支：grok/W1a，基于 main ad8b578；档位 B
 - 执行方：Grok
+- 历史：第一版只交测试；整合方 2026-09-19 补全重锁后，本版交实现。
 
 ## 已实现
 
-未实现。本单按 v2 B 档先把规格 5 条验收条件写成测试。
+研究页顶上「帮我想想该关注什么」：先确认（条数 = 这次会发的记忆条数），点「好」才把有效目标、约束和项目发给 Core 模型（不走 Hermes）。坏形状整次报错。卡片显示对外检索描述、依据原文、预算说明。「关注」建研究主题并启用（一天一次；搜索已配置时预批 3 次）；「不关注」记进 `app_settings`（最多 200 条）。相似方向（字符二元组 Jaccard ≥ 0.6）和已有研究主题不再显示。
 
-测试假设的 IPC / runtime：
+代码 300 行（`git diff --stat origin/main`，不含本文件）：`watchDirections.ts` 122、`Research.tsx` 95、`appRuntime.ts` 56、`ipc.ts`（契约）18、preload/ipc 各 4、core index 1。
 
-- `previewWatchDirections()` → `{ memoryCount }`（确认框条数，不发模型）
-- `suggestWatchDirections()` → 用 `getProvider()` 提方向，过滤拒绝过的 / 已有主题
-- `followWatchDirection(...)` → `createTopic` + `setEnabled(true)`
-- `skipWatchDirection(...)` → `app_settings` 记拒绝过的方向
+提示词（system，全文）：
 
-界面：研究页顶上 `research-suggest`，确认 `research-suggest-confirm` / `-ok` / `-cancel` / `-count`，卡片 `research-direction-<i>`。
+```
+从目标、约束、项目提炼 3–5 个持续关注方向。question=内部问题（可带用户背景）；publicDescription=对外检索描述，不许含个人信息（人名/项目名/公司/地名/习惯），只写公开技术词；why=记忆 UUID 数组。只返回 JSON：{"directions":[{"question":"…","publicDescription":"…","why":["…"]}]}
+```
 
-## 验收测试（v2 规格任务）
+user：`目标与约束（UUID｜类型：原文）` + `在做的项目：- 名称：描述`。与规格不一样的地方：无。
 
-| 文件                                                           | 条件    |
-| -------------------------------------------------------------- | ------- |
-| `apps/desktop/test/acceptance/w1a-suggest-topics-page.test.ts` | 1、3    |
-| `apps/desktop/test/acceptance/w1a-suggest-topics.test.ts`      | 2、4、5 |
+## 验收测试
 
-当前 5 条全红。未锁定。
+锁定测试未改。`w1a-suggest-topics-page.test.ts` 条件 1、3；`w1a-suggest-topics.test.ts` 条件 2、4、5。
 
 ## 自动化通过
 
-- `node scripts/verify.mjs`：EXIT=0
-- GitHub 上的 verify：没看
+- `node scripts/acceptance.mjs run W1a`：12/12 通过。
+- `node scripts/verify.mjs`：全部通过。
+- GitHub CI：推送后看。
 
 ## 真机通过
 
-规格要求的真模型提方向在实现阶段跑。本阶段没跑。
-
-## Codex 审查（A 档）
-
-B 档，不跑 Codex。
+没跑。规格要求用真 Core 模型走一遍提方向。本机模型 Key 在 Electron `safeStorage` 里，非 Electron 进程解不开（DPAPI 直接解 `v10` 块失败）；没有把 Key 写进环境变量、没有打印。为卡 300 行，`scripts/real/` 脚本也没进仓库（同 S3a）。锁定测试覆盖了发给模型的内容与卡片行为。
 
 ## 已知缺口
 
-- 条件 2 用 `FakeProvider.structuredCalls`，实现需走 `chatStructured`。
-- 条件 5 的「相似」按待办那套字符二元组 Jaccard ≥ 0.6；测试里两条人形机器人方向应被滤掉。
-- `createAssistantSuggestion` 不能写 `goal`，测试用 `open_loop` 代表没采纳的 AI 建议。
-
-## 整合方审核测试（2026-09-19）
-
-规格 5 条都覆盖：确认框条数、发给模型的记忆范围、5 张卡/坏格式报错、关注建主题、拒绝相似与已有主题过滤。IPC 名 `previewWatchDirections` / `suggestWatchDirections` / `followWatchDirection` / `skipWatchDirection` 实现时沿用。已锁定指纹。
-
-## 用户接受
-
-未发生。
+- 真机脚本未进仓库。
+- GitHub CI：推送后看。
+- 用户接受：未发生（B 档）。

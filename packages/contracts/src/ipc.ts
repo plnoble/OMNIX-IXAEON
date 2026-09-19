@@ -689,6 +689,24 @@ export interface IxaIpcApi {
     actionReason?: string | null;
     nextExperiment?: string | null;
   }): Promise<ResearchFinding>;
+  previewWatchDirections(): Promise<{ memoryCount: number }>;
+  suggestWatchDirections(): Promise<{
+    searchConfigured: boolean;
+    directions: Array<{
+      question: string;
+      publicDescription: string;
+      basis: Array<{ id: string; statement: string }>;
+      relatedGoalId: string | null;
+      relatedProjectId: string | null;
+    }>;
+  }>;
+  followWatchDirection(input: {
+    question: string;
+    publicDescription: string;
+    relatedGoalId: string | null;
+    relatedProjectId: string | null;
+  }): Promise<{ id: string }>;
+  skipWatchDirection(input: { question: string; publicDescription: string }): Promise<{ ok: true }>;
   listCodingTasks(projectId?: string): Promise<{
     executor: 'fake' | 'codex-cli';
     realDispatchEnabled: boolean;

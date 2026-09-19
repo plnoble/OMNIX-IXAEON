@@ -134,6 +134,7 @@ export {
   type SearchCandidate,
 } from './research/checker.js';
 export { ResearchJudge, type ResearchJudgment } from './research/judge.js';
+export * from './research/watchDirections.js';
 export {
   assertPublicHttpsUrl,
   isBlockedIpLiteral,
