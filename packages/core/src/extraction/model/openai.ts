@@ -158,7 +158,10 @@ export class OpenAIResponsesProvider implements ModelProvider {
       if (retry && (res.status === 429 || res.status >= 500)) {
         return this.request(system, user, jsonSchema, false);
       }
-      throw new ModelError(`API 错误 ${res.status}: ${text.slice(0, 200)}`, res.status >= 500);
+      throw new ModelError(
+        `API 错误 ${res.status}: ${text.slice(0, 200)}`,
+        res.status === 429 || res.status >= 500,
+      );
     }
     const json = (await res.json()) as { output?: Array<{ content?: Array<{ text?: string }> }> };
     const texts: string[] = [];
@@ -209,7 +212,10 @@ export class OpenAIResponsesProvider implements ModelProvider {
       if (retry && (res.status === 429 || res.status >= 500)) {
         return this.request(system, user, jsonSchema, false);
       }
-      throw new ModelError(`API 错误 ${res.status}: ${text.slice(0, 200)}`, res.status >= 500);
+      throw new ModelError(
+        `API 错误 ${res.status}: ${text.slice(0, 200)}`,
+        res.status === 429 || res.status >= 500,
+      );
     }
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
@@ -242,7 +248,10 @@ export async function listUpstreamModels(opts: {
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new ModelError(`API 错误 ${res.status}: ${text.slice(0, 200)}`, res.status >= 500);
+    throw new ModelError(
+      `API 错误 ${res.status}: ${text.slice(0, 200)}`,
+      res.status === 429 || res.status >= 500,
+    );
   }
   const json = (await res.json()) as { data?: Array<{ id?: string }> };
   const models = (json.data ?? [])

@@ -16,6 +16,23 @@ export interface JobContext {
 }
 
 /**
+ * 默认暂时性失败退避（毫秒）。网关断几小时也自己接着做，不用人点「全部重新分析」。
+ * 第一项 ≤ 10 秒；不递减；单项 ≤ 1 小时；合计 ≥ 4 小时。
+ */
+export const DEFAULT_RETRY_BACKOFF_MS: number[] = [
+  5_000,
+  30_000,
+  2 * 60_000,
+  5 * 60_000,
+  15 * 60_000,
+  30 * 60_000,
+  60 * 60_000,
+  60 * 60_000,
+  60 * 60_000,
+  60 * 60_000,
+];
+
+/**
  * 进程内后台任务队列（jobs 表 + 轮询执行器）。不引入 Redis 或外部队列。
  * 任务可中断（cancelled 状态在下次 tick 生效）与重试（retry 重新入队）。
  */
@@ -45,8 +62,8 @@ export class JobQueue {
       info: (msg: string, fields?: Record<string, unknown>) =>
         console.log(JSON.stringify({ level: 'info', message: msg, ...fields })),
     };
-    this.maxAutoRetries = opts?.maxAutoRetries ?? 3;
-    this.retryBackoffMs = opts?.retryBackoffMs ?? [5_000, 30_000, 120_000];
+    this.retryBackoffMs = opts?.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS;
+    this.maxAutoRetries = opts?.maxAutoRetries ?? this.retryBackoffMs.length;
   }
 
   register(kind: string, handler: JobHandler): void {
@@ -251,6 +268,27 @@ export class JobQueue {
       .all(limit) as Job[];
   }
 
+  /**
+   * 把因网络/网关/限流失败的任务重新排队（从头计次）。
+   * 认定：错误文字以「网络错误」开头，或以「API 错误 429」「API 错误 5xx」开头。
+   */
+  requeueNetworkFailures(): number {
+    const rows = this.db
+      .prepare("SELECT id, error FROM jobs WHERE status = 'failed'")
+      .all() as Array<{ id: string; error: string | null }>;
+    const now = new Date().toISOString();
+    const upd = this.db.prepare(
+      "UPDATE jobs SET status = 'queued', retry_count = 0, not_before = NULL, error = NULL, updated_at = ? WHERE id = ?",
+    );
+    let n = 0;
+    for (const row of rows) {
+      if (!isNetworkFailureMessage(row.error)) continue;
+      upd.run(now, row.id);
+      n += 1;
+    }
+    return n;
+  }
+
   /** 重试失败任务（保持原 id，retry_count + 1）。 */
   retry(id: string): Job {
     const job = this.get(id);
@@ -310,6 +348,13 @@ export class JobQueue {
   get idleExecution(): boolean {
     return !this.running;
   }
+}
+
+function isNetworkFailureMessage(error: string | null): boolean {
+  if (!error) return false;
+  if (error.startsWith('网络错误')) return true;
+  if (error.startsWith('API 错误 429')) return true;
+  return /^API 错误 5\d{2}/.test(error);
 }
 
 /** 暂时性失败分类：模型调用失败 / 服务暂不可用 / 可重试的 ModelError。 */

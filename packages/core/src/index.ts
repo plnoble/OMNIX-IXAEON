@@ -67,7 +67,12 @@ export {
   looksLikeGeminiExport,
 } from './import/platformParsers.js';
 export { ImportService, MAX_IMPORT_BYTES, type ImportFileResult } from './import/importService.js';
-export { JobQueue, type JobHandler, type JobContext } from './jobs/jobQueue.js';
+export {
+  JobQueue,
+  DEFAULT_RETRY_BACKOFF_MS,
+  type JobHandler,
+  type JobContext,
+} from './jobs/jobQueue.js';
 export { ModelError, type ModelProvider } from './extraction/model/provider.js';
 export { OpenAIResponsesProvider, listUpstreamModels } from './extraction/model/openai.js';
 export { FakeProvider } from './extraction/model/fake.js';

@@ -16,6 +16,8 @@ export interface SourceAnalysisStatus {
   /** 任务成功但有话要说（如「本次丢弃 N 条依据对不上的结论」）。 */
   lastJobNote: string | null;
   lastJobAt: string | null;
+  lastJobRetryCount: number;
+  lastJobNextAt: string | null;
 }
 
 export interface SourceWithStats {
@@ -218,7 +220,11 @@ export class SourceStore {
         (SELECT note FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
           ORDER BY created_at DESC LIMIT 1) AS last_job_note,
         (SELECT created_at FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
-          ORDER BY created_at DESC LIMIT 1) AS last_job_at
+          ORDER BY created_at DESC LIMIT 1) AS last_job_at,
+        (SELECT retry_count FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
+          ORDER BY created_at DESC LIMIT 1) AS last_job_retry_count,
+        (SELECT not_before FROM jobs WHERE kind = 'extract' AND payload_json LIKE '%' || s.id || '%'
+          ORDER BY created_at DESC LIMIT 1) AS last_job_next_at
       FROM sources s
       JOIN permissions p ON p.id = s.permission_id
       LEFT JOIN projects pj ON pj.id = s.project_id
@@ -240,6 +246,8 @@ export class SourceStore {
         last_job_error: string | null;
         last_job_note: string | null;
         last_job_at: string | null;
+        last_job_retry_count: number | null;
+        last_job_next_at: string | null;
       }
     >;
     return rows.map((r) => ({
@@ -252,6 +260,8 @@ export class SourceStore {
         lastJobError: r.last_job_error,
         lastJobNote: r.last_job_note,
         lastJobAt: r.last_job_at,
+        lastJobRetryCount: r.last_job_retry_count ?? 0,
+        lastJobNextAt: r.last_job_next_at,
       },
       source: {
         id: r.id,
