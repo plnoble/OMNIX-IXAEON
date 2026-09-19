@@ -188,6 +188,7 @@ export {
   type TuiSpawnOptions,
 } from './runtime/tuiGateway.js';
 export { JsonRpcStdio } from './runtime/jsonrpcStdio.js';
+export { buildProjectBrief, type ProjectBriefCounts } from './runtime/projectBrief.js';
 export { CoreToolBroker, CORE_TOOL_NAMES, type CoreToolName } from './runtime/broker.js';
 export {
   AgentSession,
