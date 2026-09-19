@@ -28,6 +28,14 @@ interface OverviewData {
     action_reason: string | null;
     related_project_id: string | null;
   }>;
+  recentFindings: Array<{
+    id: string;
+    title: string;
+    url: string;
+    topicQuestion: string;
+    fetchedAt: string;
+    isNew: boolean;
+  }>;
   coverage: {
     projectCount: number;
     analyzedSources: number;
@@ -239,6 +247,33 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
       <Card title="冲突" testId="overview-conflicts">
         <ItemList items={data?.conflicts ?? []} />
       </Card>
+      {(data?.recentFindings ?? []).length > 0 ? (
+        <Card title="最近的新发现" testId="overview-recent-findings">
+          <ul>
+            {(data?.recentFindings ?? []).map((f) => (
+              <li key={f.id} data-testid={`recent-finding-${f.id}`}>
+                <a href={f.url} target="_blank" rel="noreferrer">
+                  {f.title}
+                </a>
+                <span className="muted">
+                  {' '}
+                  · {f.topicQuestion} · {f.fetchedAt.slice(0, 16).replace('T', ' ')}
+                </span>
+                {f.isNew ? <span data-testid={`recent-finding-new-${f.id}`}> 新</span> : null}
+              </li>
+            ))}
+          </ul>
+          <Button
+            testId="recent-findings-seen"
+            onClick={async () => {
+              await api.markFindingsSeen();
+              await reload();
+            }}
+          >
+            都看过了
+          </Button>
+        </Card>
+      ) : null}
       <Card title="研究里你标过值得行动" testId="overview-research-followups">
         {(data?.researchFollowUps ?? []).length === 0 ? (
           <p className="muted">没有。检查成功不会自动变成目标；要跟进请在研究页自己标。</p>

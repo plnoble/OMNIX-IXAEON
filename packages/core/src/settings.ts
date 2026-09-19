@@ -16,6 +16,9 @@ import { recordAudit } from './audit.js';
  */
 export const PERSONAL_MEMORY_TO_CHAT = 'memory.personal_to_chat';
 
+/** W1b：概览「最近的新发现」上次点过「都看过了」的时间（ISO）。没这行 = 从没看过。 */
+export const OVERVIEW_FINDINGS_SEEN_AT = 'overview.findings_seen_at';
+
 export function getSetting(
   db: CoreDatabase,
   key: string,

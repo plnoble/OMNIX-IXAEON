@@ -94,6 +94,15 @@
         "apps/desktop/test/acceptance/w1a-suggest-topics.test.ts": "903da8198162fd4d279b1a640f66639ad379135fb49285219ce1176c52805c39",
         "apps/desktop/test/acceptance/w1a-suggest-topics-page.test.ts": "59470180c7db081ebe2fc334dfa9d5234ffaf07fe95d33779e0a0b164fe3aea8"
       }
+    },
+    {
+      "id": "W1b",
+      "title": "概览页新发现",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/w1b-recent-findings.test.ts": "e1ec77dd89aeb3dad3ab2eaf6591d96cd493cb28a72e7002527e3afb01c50d43",
+        "apps/desktop/test/acceptance/w1b-overview-findings-page.test.ts": "56e18c105d7bfcbda14c4bf5e94341216550f13ed991583c25cd123dc85384d2"
+      }
     }
   ]
 }

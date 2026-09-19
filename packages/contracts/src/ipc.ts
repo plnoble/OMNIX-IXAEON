@@ -623,6 +623,14 @@ export interface IxaIpcApi {
       action_reason: string | null;
       related_project_id: string | null;
     }>;
+    recentFindings: Array<{
+      id: string;
+      title: string;
+      url: string;
+      topicQuestion: string;
+      fetchedAt: string;
+      isNew: boolean;
+    }>;
     coverage: {
       projectCount: number;
       analyzedSources: number;
@@ -630,6 +638,8 @@ export interface IxaIpcApi {
       unassignedItems: number;
     };
   }>;
+  /** W1b：概览「最近的新发现」点「都看过了」。 */
+  markFindingsSeen(): Promise<{ ok: true }>;
   listProjectRelations(input?: {
     status?: 'proposed' | 'accepted' | 'rejected' | 'superseded';
   }): Promise<ProjectRelation[]>;

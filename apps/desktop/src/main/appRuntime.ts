@@ -58,6 +58,7 @@ import {
   locateHermes,
   personalMemoryToChat,
   setPersonalMemoryToChat,
+  markOverviewFindingsSeen,
   type HermesLocator,
   type AskResult,
   type CoreDatabase,
@@ -1608,6 +1609,11 @@ export class AppRuntime {
 
   personalOverview() {
     return buildPersonalOverview(this.db);
+  }
+
+  markFindingsSeen(): { ok: true } {
+    markOverviewFindingsSeen(this.db);
+    return { ok: true };
   }
 
   proposeRelations() {

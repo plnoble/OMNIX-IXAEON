@@ -430,6 +430,7 @@ export function registerIpc(runtime: AppRuntime): void {
       return { deleted: true as const };
     },
     getPersonalOverview: async () => runtime.personalOverview(),
+    markFindingsSeen: async () => runtime.markFindingsSeen(),
     setItemTimeStatus: async (input) => {
       const item = runtime.items.setTimeStatus(input.id, input.status);
       // 记忆的「过没过去」变了：长驻的引擎会话里注入过的旧说法要作废

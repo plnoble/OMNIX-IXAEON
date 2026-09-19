@@ -80,6 +80,7 @@ const api: IxaIpcApi = {
   completeTodo: (id) => ipcRenderer.invoke('ixaeon:completeTodo', id),
   deleteConversation: (id) => ipcRenderer.invoke('ixaeon:deleteConversation', id),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
+  markFindingsSeen: () => ipcRenderer.invoke('ixaeon:markFindingsSeen'),
   listProjectRelations: (input) => ipcRenderer.invoke('ixaeon:listProjectRelations', input),
   proposeProjectRelations: () => ipcRenderer.invoke('ixaeon:proposeProjectRelations'),
   acceptProjectRelation: (id) => ipcRenderer.invoke('ixaeon:acceptProjectRelation', id),
