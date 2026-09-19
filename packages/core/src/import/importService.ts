@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
 import { normalize } from 'node:path';
@@ -25,6 +25,7 @@ import {
   parseGeminiActivity,
   parseGrokConversations,
 } from './platformParsers.js';
+import { detectAgentSession, parseClaudeCodeSession } from './agentSessions.js';
 import { readProjectSnapshot } from './projectSnapshot.js';
 import { recordAudit } from '../audit.js';
 import type { ConnectorRegistry, ConnectorPlatform } from '../connectors/connectorRegistry.js';
@@ -46,6 +47,9 @@ export const MAX_GROK_EXPORT_BYTES = 512 * 1024 * 1024;
 
 /** Gemini Takeout MyActivity.json 单文件全量活动日志。 */
 export const MAX_GEMINI_EXPORT_BYTES = 512 * 1024 * 1024;
+
+/** 编码代理会话 .jsonl（本机有超过 512MB 的）；逐行读，上限 2GB。 */
+export const MAX_AGENT_SESSION_BYTES = 2 * 1024 * 1024 * 1024;
 
 /** 全量历史导出文件名（B5 三平台 + ChatGPT）走大文件上限。 */
 const LARGE_EXPORT_FILENAMES = new Set([
@@ -217,6 +221,9 @@ export class ImportService {
     },
   ): ImportFileResult {
     const permission = this.requirePermission(opts.permissionId, absPath);
+    if (/\.jsonl$/i.test(basename(absPath))) {
+      return this.importAgentSession(absPath, permission, opts);
+    }
     const { content, hash: fileHash } = this.readAuthorized(absPath, { maxBytes: opts.maxBytes });
     const name = basename(absPath);
     const created: Source[] = [];
@@ -280,7 +287,7 @@ export class ImportService {
     } else {
       throw new IxaError(
         ErrorCodes.UNSUPPORTED_FORMAT,
-        `不支持的文件类型（仅支持 .md / .txt / .json / conversations.json）: ${name}`,
+        `不支持的文件类型（仅支持 .md / .txt / .json / .jsonl / conversations.json）: ${name}`,
       );
     }
     const result = this.insertParsed(parsed, {
@@ -296,6 +303,72 @@ export class ImportService {
       deduplicated: deduplicated.length,
     });
     return { created, deduplicated, pendingExtraction: created };
+  }
+
+  /** 编码代理会话（.jsonl）：逐块读；vault 只存保留下来的内容。 */
+  private importAgentSession(
+    absPath: string,
+    permission: Permission,
+    opts: { projectId: string | null; accountNamespace?: string; maxBytes?: number },
+  ): ImportFileResult {
+    this.permissions.assertPathAllowed(absPath);
+    const maxBytes = opts.maxBytes ?? MAX_AGENT_SESSION_BYTES;
+    let size = 0;
+    try {
+      size = statSync(absPath).size;
+    } catch (err) {
+      throw new IxaError(ErrorCodes.NOT_FOUND, `无法读取文件: ${absPath}（${String(err)}）`);
+    }
+    if (size === 0) throw new IxaError(ErrorCodes.PARSE_FAILED, `文件为空: ${absPath}`);
+    if (size > maxBytes) {
+      throw new IxaError(
+        ErrorCodes.FILE_TOO_LARGE,
+        `文件超过 ${Math.floor(maxBytes / 1024 / 1024)}MB 上限（${size} 字节）：${absPath}`,
+      );
+    }
+    const preview: string[] = [];
+    for (const line of iterateJsonlLines(absPath)) {
+      if (line.trim().length === 0) continue;
+      preview.push(line);
+      if (preview.length >= 20) break;
+    }
+    if (detectAgentSession(preview) !== 'claude_code') {
+      throw new IxaError(ErrorCodes.UNSUPPORTED_FORMAT, '不认识的 .jsonl 格式');
+    }
+    const parsed = parseClaudeCodeSession(iterateJsonlLines(absPath), {
+      accountNamespace: opts.accountNamespace,
+    });
+    if (!parsed) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个会话里没有对话内容');
+    const stored = this.vault.store(parsed.segments.map((s) => `${s.role}: ${s.text}`).join('\n'));
+    const cwd = typeof parsed.metadata.cwd === 'string' ? parsed.metadata.cwd : null;
+    const projectId = opts.projectId ?? (cwd ? this.matchProjectByCwd(cwd) : null);
+    const result = this.insertParsed(parsed, {
+      permissionId: permission.id,
+      projectId,
+      rawPath: Vault.relativePathFor(stored.hash),
+    });
+    recordAudit(this.db, 'import.coding_agent', {
+      file: basename(absPath),
+      created: result.created ? 1 : 0,
+    });
+    return {
+      created: result.created ? [result.source] : [],
+      deduplicated: result.created ? [] : [result.source],
+      pendingExtraction: result.created ? [result.source] : [],
+    };
+  }
+
+  private matchProjectByCwd(cwd: string): string | null {
+    const want = cwd.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const rows = this.db
+      .prepare(
+        "SELECT id, root_path FROM projects WHERE root_path IS NOT NULL AND status != 'archived'",
+      )
+      .all() as Array<{ id: string; root_path: string }>;
+    return (
+      rows.find((r) => r.root_path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === want)
+        ?.id ?? null
+    );
   }
 
   /**
@@ -346,7 +419,7 @@ export class ImportService {
 
   /**
    * 导入文件夹（2026-09-08 用户需求：一个项目不止一个文件）。
-   * 递归收集白名单内的文本文件（.md/.txt/.json），逐文件走 importFile：
+   * 递归收集白名单内的文本文件（.md/.txt/.json/.jsonl），逐文件走 importFile：
    * - folder 授权覆盖全部子路径（requirePermission 对每个文件校验）；
    * - 排除 node_modules/.git/dist 等构建目录、点开头目录与密钥类文件
    *  （与项目目录快照同一套规则，用户不会一次性导入敏感内容）；
@@ -629,8 +702,42 @@ export class ImportService {
 /** 兼容旧调用形态的路径规范化（Windows 大小写不敏感比较用）。 */
 export const normalizeForCompare = (p: string): string => normalize(p).toLowerCase();
 
+/** 逐块读 jsonl，自己切行；不把整个文件读成一个字符串。 */
+function* iterateJsonlLines(absPath: string): Generator<string> {
+  const fd = openSync(absPath, 'r');
+  try {
+    const chunk = Buffer.alloc(64 * 1024);
+    let leftover = Buffer.alloc(64 * 1024);
+    let len = 0;
+    for (;;) {
+      const n = readSync(fd, chunk, 0, chunk.length, null);
+      if (n === 0) break;
+      if (len + n > leftover.length) {
+        const next = Buffer.alloc(Math.max(leftover.length * 2, len + n));
+        leftover.copy(next, 0, 0, len);
+        leftover = next;
+      }
+      chunk.copy(leftover, len, 0, n);
+      len += n;
+      let start = 0;
+      for (let i = 0; i < len; i++) {
+        if (leftover[i] !== 0x0a) continue;
+        yield leftover.subarray(start, leftover[i - 1] === 0x0d ? i - 1 : i).toString('utf8');
+        start = i + 1;
+      }
+      if (start > 0) {
+        leftover.copyWithin(0, start, len);
+        len -= start;
+      }
+    }
+    if (len > 0) yield leftover.subarray(0, len).toString('utf8');
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** 文件夹导入的文本文件白名单。 */
-const FOLDER_TEXT_RE = /\.(md|txt|json)$/i;
+const FOLDER_TEXT_RE = /\.(md|txt|json|jsonl)$/i;
 
 /** 文件夹导入单目录文件数上限（防误选巨大目录）。 */
 const FOLDER_MAX_FILES = 500;

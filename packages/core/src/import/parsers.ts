@@ -25,7 +25,8 @@ export interface ParsedSource {
     | 'grok_export'
     | 'local_file'
     | 'project'
-    | 'ask_session';
+    | 'ask_session'
+    | 'coding_agent';
   /** 用户自命名的本地账户命名空间；默认 local。不读取密码/Cookie。 */
   accountNamespace: string;
   externalId: string;
