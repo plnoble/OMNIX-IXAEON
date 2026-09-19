@@ -71,7 +71,7 @@
     {
       "id": "S3a",
       "title": "编码代理会话选择导入（核心）",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/s3a-agent-session-select.test.ts": "d7b686586a990154827599ff8eb8fc68a12ed0d771e74daa1b4c0920e23b7d11",
         "apps/desktop/test/acceptance/s3a-ipc-list.test.ts": "0f11c0df3e9ce80d71017af9740c22159b44730dc0923382452ae12960a141f8"
@@ -80,16 +80,16 @@
     {
       "id": "P3",
       "title": "项目进展简报",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "packages/core/test/acceptance/p3-project-brief.test.ts": "b8651b2d9a289e0851d8a1be75e6d09028a1b09ad7118dffe62b41a1b67a5ef0",
+        "packages/core/test/acceptance/p3-project-brief.test.ts": "df5b7109b06367f4d62d9b816a7862836af6f98606e8555e19c750ef21a57ecb",
         "apps/desktop/test/acceptance/p3-brief-line.test.ts": "34a3c7bda20beb82b8cee4c632f412eabfcb9f3f65e2ffa0b7d3d946cdbec3cf"
       }
     },
     {
       "id": "W1a",
       "title": "关注方向",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/w1a-suggest-topics.test.ts": "903da8198162fd4d279b1a640f66639ad379135fb49285219ce1176c52805c39",
         "apps/desktop/test/acceptance/w1a-suggest-topics-page.test.ts": "59470180c7db081ebe2fc334dfa9d5234ffaf07fe95d33779e0a0b164fe3aea8"
@@ -98,7 +98,7 @@
     {
       "id": "R1",
       "title": "恢复失败后重建聊天",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/r1-rebuild-conversations-semantic.test.ts": "562f09395cdfd5810b9a7b27587e410c6b81c921417247757b8dec120d86d86a"
       }

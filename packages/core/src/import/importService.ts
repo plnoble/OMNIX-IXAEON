@@ -457,7 +457,8 @@ export class ImportService {
     const created: Source[] = [];
     const unchanged: Source[] = [];
     const pendingExtraction: Source[] = [];
-    const failed: Array<{ path: string; message: string }> = [];
+    // 失败项只报编号，不把绝对路径交出去（渲染层按编号找回标题）
+    const failed: Array<{ id: number; message: string }> = [];
     for (const id of ids) {
       const path = byId.get(id)!.path;
       try {
@@ -466,7 +467,7 @@ export class ImportService {
         unchanged.push(...result.deduplicated);
         pendingExtraction.push(...result.pendingExtraction);
       } catch (err) {
-        failed.push({ path, message: `${toApiError(err).code} ${toApiError(err).message}` });
+        failed.push({ id, message: `${toApiError(err).code} ${toApiError(err).message}` });
       }
     }
     return { created, unchanged, failed, pendingExtraction };

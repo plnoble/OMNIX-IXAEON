@@ -476,7 +476,7 @@ export interface IxaIpcApi {
   importAgentSessions(input: { listId: string; ids: number[]; projectId: string | null }): Promise<{
     created: number;
     unchanged: number;
-    failed: Array<{ path?: string; message: string }>;
+    failed: Array<{ id: number; message: string }>;
   }>;
   // 来源
   listSources(input: { projectId: string | null }): Promise<SourceListItem[]>;

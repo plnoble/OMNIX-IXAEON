@@ -61,6 +61,7 @@ import {
   watchDirectionsSchema,
   type WatchDirection,
   getDisclosureEpoch,
+  isPathInside,
   localDay,
   locateHermes,
   personalMemoryToChat,
@@ -413,7 +414,12 @@ export class AppRuntime {
 
   /** S3a：扫描文件夹，返回带清单号的会话列表（渲染层只拿编号）。 */
   async listAgentSessions(input: { root: string; permissionId: string }) {
-    this.permissions.get(input.permissionId);
+    // 授权必须真的覆盖这个目录：列出会读目录下所有会话的开头与末尾，
+    // 不能只靠调用方传了个 id 就放行（整合方复审 2026-09-20 补）。
+    const perm = this.permissions.get(input.permissionId);
+    if (!perm || perm.status !== 'active' || !isPathInside(perm.locator, input.root)) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '这个文件夹没有有效授权，不能列出会话');
+    }
     const preview = this.imports.previewAgentSessions(input.root);
     const listId = randomUUID();
     (this.agentSessionLists ??= new Map()).set(listId, {
@@ -1716,6 +1722,11 @@ export class AppRuntime {
     const raw = await provider.chatStructured({
       ...buildWatchPrompt(memories, this.projects.list()),
       schema: watchDirectionsSchema,
+    });
+    // 把记忆发给模型是一次外发：留痕（只记条数，不记内容）。整合方复审 2026-09-20 补。
+    recordAudit(this.db, 'research.watch_directions_suggested', {
+      memoryCount: memories.length,
+      model: provider.modelName,
     });
     return {
       searchConfigured: this.research.searchAvailable,

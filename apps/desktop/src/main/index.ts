@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { registerIpc } from './ipc.js';
@@ -24,6 +24,15 @@ async function createWindow(): Promise<void> {
       sandbox: false,
       webSecurity: true,
     },
+  });
+
+  // 外部链接（研究页的来源与发现、概览页的新发现）交给系统浏览器。
+  // 原来没有这个处理：点一下会在应用里新开一个 Electron 窗口去加载外部网页，
+  // 既不是「用系统浏览器打开」，也不该让外部页面跑在应用的窗口里。
+  // 2026-09-20 整合方复审 W1b 时发现（研究页一直如此）。
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
   });
 
   // 界面崩溃/报错写入日志（此前完全没有兜底，出错只剩深色窗口）

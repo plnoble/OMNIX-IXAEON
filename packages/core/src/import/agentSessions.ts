@@ -197,6 +197,8 @@ const CODEX_WRAPPER_TAGS = [
   'send_user_message_question_reply',
   'codex_internal_context',
   'in-app-browser-context',
+  // 2026-09-20 真机检查里新冒出来的一种（界面动作记录）
+  'user_action',
 ];
 /** 整段都不是你打的字：注入的 AGENTS.md、图片占位的首尾。 */
 const CODEX_INJECTED = ['# AGENTS.md instructions', '<image', '</image>'];

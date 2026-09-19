@@ -47,7 +47,15 @@ afterEach(() => {
   else process.env.IXAEON_HERMES_EXE = previousExe;
   if (db?.open) db.close();
   db = null;
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) {
+    // Windows 上 git 有时还占着临时仓库里的文件（EPERM）。清理失败不该让测试挂掉：
+    // 重试几次，还不行就留给系统清（整合方 2026-09-20：门禁上真的挂过一次）。
+    try {
+      rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {
+      /* 留给系统清 */
+    }
+  }
 });
 
 function tempDir(prefix: string): string {
