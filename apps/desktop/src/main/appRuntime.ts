@@ -1152,6 +1152,8 @@ export class AppRuntime {
           // E5：这一轮给模型看了哪些记忆——回答下面列出来供当场纠正；
           // 提炼这段回答时据此认出复述（回声）。空数组也要存：表示「这一轮一条都没给」。
           memoryUsed: result.memoryUsed,
+          // P3：这一轮带上的项目近况计数（没带不写；回答下面一行灰字用它）。
+          ...(result.projectBrief ? { projectBrief: result.projectBrief } : {}),
           ...(proposedTodos.length > 0 ? { proposedTodos } : {}),
           ...(userTodo ? { userTodo: { id: userTodo.id, title: userTodo.title } } : {}),
         },

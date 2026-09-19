@@ -10,6 +10,7 @@ import { getDisclosureEpoch } from '../access.js';
 import { type HermesRuntimeAdapter } from './adapter.js';
 import { CORE_TOOL_NAMES, type CoreToolBroker, type CoreToolName } from './broker.js';
 import { explainModelFailure } from './modelErrors.js';
+import { buildProjectBrief, type ProjectBriefCounts } from './projectBrief.js';
 import { SUGGESTED_TODOS_INSTRUCTION } from './suggestedTodos.js';
 
 const MAX_ROUNDS = 4;
@@ -60,6 +61,8 @@ export interface AgentSessionResult extends AskResult {
   steps: AgentStep[];
   /** E5：Hermes 这一轮回答前注入的记忆（Core 兜底路径不填，它的依据在 citations 里）。 */
   memoryUsed?: MemoryUsedItem[];
+  /** P3：这一轮带上的项目近况计数（block 为空不写）。 */
+  projectBrief?: ProjectBriefCounts;
 }
 
 const SYSTEM = [
@@ -256,7 +259,22 @@ export class AgentSession {
           ? `\n\n（IXAEON 约定：需要了解用户的情况、之前说过或做过的事时，调用 ${tool('search_memory')} 查 IXAEON 记忆；` +
             `用户告诉你需要记住的事，调用 ${tool('record_observation')} 写入 IXAEON 记忆。）`
           : '';
-        const dispatchedGoal = `${goal}${contextBlock}${priorBlock}${memoryRoute}\n\n${SUGGESTED_TODOS_INSTRUCTION}`;
+        // P3：对话选了项目时带上「项目近况」（提交/会话/任务，现查现拼），
+        // 接在记忆那段后面；拼不出来不挡回答。
+        let projectBrief: ProjectBriefCounts | undefined;
+        let briefBlock = '';
+        if (input.projectId) {
+          try {
+            const brief = buildProjectBrief(this.db, input.projectId);
+            if (brief.block) {
+              briefBlock = `\n\n（IXAEON 项目近况，系统现查实时拼出，回答「做到哪了/接下来做什么」时参考）\n${brief.block}`;
+              projectBrief = brief.counts;
+            }
+          } catch {
+            /* 近况拼不出来照常派发 */
+          }
+        }
+        const dispatchedGoal = `${goal}${contextBlock}${briefBlock}${priorBlock}${memoryRoute}\n\n${SUGGESTED_TODOS_INSTRUCTION}`;
         const hermes = await this.adapter.start(
           {
             runId,
@@ -304,6 +322,7 @@ export class AgentSession {
           runId,
           steps,
           memoryUsed,
+          projectBrief,
         };
       } catch (err) {
         // A06：失败也落账本（原始 Hermes 错误如实保留，不吞成静默降级）。

@@ -40,6 +40,20 @@ function memoryUsedOf(meta: Record<string, unknown>): MemoryUsedItem[] {
   });
 }
 
+/** P3：这一轮给模型看的项目近况计数（没带不显示）。 */
+function projectBriefOf(
+  meta: Record<string, unknown>,
+): { commits: number; sessions: number; tasks: number } | null {
+  const raw = meta['projectBrief'];
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  return typeof o['commits'] === 'number' &&
+    typeof o['sessions'] === 'number' &&
+    typeof o['tasks'] === 'number'
+    ? { commits: o['commits'], sessions: o['sessions'], tasks: o['tasks'] }
+    : null;
+}
+
 /**
  * E6：这一轮用到的记忆，当场纠正（用户 2026-09-18：不想导入一份资料就逐句审核）。
  * 记忆默认直接用；用的时候看到不对或过时，在这里点一下，之后就不再这样用。
@@ -164,6 +178,7 @@ export function AskMessage({
   const shownContent =
     m.role === 'assistant' && m.status === 'streaming' ? hideSuggestedTodos(m.content) : m.content;
   const memoryUsed = memoryUsedOf(m.meta);
+  const projectBrief = projectBriefOf(m.meta);
   const coverage = coverageOf(m.meta);
   const notice = typeof m.meta['notice'] === 'string' ? m.meta['notice'] : '';
   const steps = Array.isArray(m.meta['steps'])
@@ -209,6 +224,12 @@ export function AskMessage({
         )}
         {m.role === 'assistant' && m.status !== 'streaming' && memoryUsed.length > 0 && (
           <MemoryUsedList items={memoryUsed} />
+        )}
+        {m.role === 'assistant' && m.status !== 'streaming' && projectBrief && (
+          <p className="muted" data-testid="ask-project-brief">
+            本轮给模型看了项目近况：{projectBrief.commits} 条提交、{projectBrief.sessions} 个会话、
+            {projectBrief.tasks} 个任务
+          </p>
         )}
         {proposedTodos.length > 0 && (
           <div className="ask-todo-cards">
