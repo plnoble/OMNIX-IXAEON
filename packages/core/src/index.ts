@@ -196,6 +196,8 @@ export {
   SEMANTIC_THRESHOLDS,
   localDay,
   memoryOriginTag,
+  includesAiAdvice,
+  AI_ADVICE_NOTE,
   type SelectedMemoryItem,
   type ContextSelectionResult,
   type SemanticThresholds,

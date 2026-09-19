@@ -47,6 +47,8 @@ import {
   fetchApprovedSource,
   ContextSelector,
   memoryOriginTag,
+  includesAiAdvice,
+  AI_ADVICE_NOTE,
   CORE_TOOL_NAMES,
   getDisclosureEpoch,
   localDay,
@@ -1202,9 +1204,6 @@ export class AppRuntime {
         maxItems: limit,
         semantic: this.semanticIndex,
       });
-      const hasAdvice = r.items.some(
-        (i) => i.saidBy === 'ai' || i.origin === 'assistant_suggestion',
-      );
       return {
         today: localDay(new Date()),
         items: r.items.map((i) => ({
@@ -1217,12 +1216,7 @@ export class AppRuntime {
           ...(i.over ? { over: i.pastDay ? `所述日期 ${i.pastDay} 已过` : '用户确认已结束' } : {}),
         })),
         notice: r.retrievalNotice ?? (r.items.length === 0 ? '没有找到相关记忆。' : null),
-        ...(hasAdvice
-          ? {
-              adviceNote:
-                '标为「AI 当时的建议」或「用户采纳的 AI 建议」的，是当时的看法，不是定论：之后可能有更好的做法，当时也可能考虑不全；有更好的方案就直接提出来，不必照旧执行。',
-            }
-          : {}),
+        ...(includesAiAdvice(r.items) ? { adviceNote: AI_ADVICE_NOTE } : {}),
       };
     }
     const broker = new CoreToolBroker(this.db, this.items, this.search, this.coding, this.projects);

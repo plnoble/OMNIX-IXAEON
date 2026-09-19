@@ -52,7 +52,7 @@
 
 - `node scripts/acceptance.mjs run <任务号>` 全过——这是整合方先写好、**锁定**的验收测试；
 - `node scripts/verify.mjs` 全过（其中 `acceptance-lock` 一步核对锁定测试没被改）；
-- 推送分支后，GitHub 上的 verify 检查是绿的。
+- 推送分支后，GitHub 上的 verify 检查是绿的。**推送前先 `git fetch origin && git rebase origin/main`**：分支要基于最新的 main，CI 才会用最新的门禁配置（2026-09-19 首批三个分支都基于门禁修好之前的 main，CI 在安装依赖那步就失败，与代码无关）。
 
 **锁定的验收测试不许改。** 指纹记在 `docs/委派/锁定验收.json`，改了门禁就不过。觉得验收测试本身有错：停下，在交付说明里写清楚是哪条、为什么，由整合方改。你可以另加自己的测试，不能改锁定的。
 

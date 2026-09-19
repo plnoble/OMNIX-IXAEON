@@ -11,7 +11,7 @@
     {
       "id": "A2",
       "title": "迁移前自动备份",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/a2-backup-before-migrate.test.ts": "b91f40f9fd52f19c2756fcff46da46299d977f2e4c09e5f9baeedad25bde0b18"
       }
@@ -19,7 +19,7 @@
     {
       "id": "A3",
       "title": "记忆桥出处标签",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/a3-bridge-origin-tag.test.ts": "a3af25500f3c146f2acf4f3fe59d6a9fed91a86953e5293bf4d28377484d03f1"
       }

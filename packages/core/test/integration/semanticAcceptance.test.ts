@@ -135,6 +135,8 @@ describe('P2-11 真实文档语义验收', () => {
 
   it('生成人类可读导出样例 ixaeon-export-sample.zip + 验收记录', async () => {
     const samplePath = join(root, 'apps', 'desktop', 'release', 'ixaeon-export-sample.zip');
+    // release/ 在 .gitignore 里：全新检出（CI）没有这个目录，2026-09-19 首次 CI 在这里失败
+    mkdirSync(dirname(samplePath), { recursive: true });
     await archive.exportData(samplePath);
     expect(existsSync(samplePath)).toBe(true);
 
