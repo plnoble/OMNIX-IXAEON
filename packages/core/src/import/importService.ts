@@ -25,7 +25,12 @@ import {
   parseGeminiActivity,
   parseGrokConversations,
 } from './platformParsers.js';
-import { detectAgentSession, parseClaudeCodeSession } from './agentSessions.js';
+import {
+  detectAgentSession,
+  isCodexSubagentSession,
+  parseClaudeCodeSession,
+  parseCodexSession,
+} from './agentSessions.js';
 import { readProjectSnapshot } from './projectSnapshot.js';
 import { recordAudit } from '../audit.js';
 import type { ConnectorRegistry, ConnectorPlatform } from '../connectors/connectorRegistry.js';
@@ -332,12 +337,17 @@ export class ImportService {
       preview.push(line);
       if (preview.length >= 20) break;
     }
-    if (detectAgentSession(preview) !== 'claude_code') {
-      throw new IxaError(ErrorCodes.UNSUPPORTED_FORMAT, '不认识的 .jsonl 格式');
+    const tool = detectAgentSession(preview);
+    if (!tool) throw new IxaError(ErrorCodes.UNSUPPORTED_FORMAT, '不认识的 .jsonl 格式');
+    // 子代理会话在开头就认出来：不必把可能上 GB 的文件整个读一遍
+    if (tool === 'codex' && isCodexSubagentSession(preview)) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '这是 Codex 派出去的子代理的会话（如自动审查），不导入',
+      );
     }
-    const parsed = parseClaudeCodeSession(iterateJsonlLines(absPath), {
-      accountNamespace: opts.accountNamespace,
-    });
+    const parse = tool === 'codex' ? parseCodexSession : parseClaudeCodeSession;
+    const parsed = parse(iterateJsonlLines(absPath), { accountNamespace: opts.accountNamespace });
     if (!parsed) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个会话里没有对话内容');
     const stored = this.vault.store(parsed.segments.map((s) => `${s.role}: ${s.text}`).join('\n'));
     const cwd = typeof parsed.metadata.cwd === 'string' ? parsed.metadata.cwd : null;
@@ -349,6 +359,7 @@ export class ImportService {
     });
     recordAudit(this.db, 'import.coding_agent', {
       file: basename(absPath),
+      tool,
       created: result.created ? 1 : 0,
     });
     return {
@@ -702,35 +713,66 @@ export class ImportService {
 /** 兼容旧调用形态的路径规范化（Windows 大小写不敏感比较用）。 */
 export const normalizeForCompare = (p: string): string => normalize(p).toLowerCase();
 
-/** 逐块读 jsonl，自己切行；不把整个文件读成一个字符串。 */
-function* iterateJsonlLines(absPath: string): Generator<string> {
+/**
+ * 单行超过它的整行跳过：会话里这么大的只可能是工具输出或压缩历史，本来就不导；
+ * 不让一行无限攒进内存（2026-09 本机会话最长一行 5.7MB，最大文件 1.5GB）。
+ */
+export const MAX_JSONL_LINE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * 逐块读 jsonl，自己切行；不把整个文件读成一个字符串。
+ * 找换行用 indexOf 且只扫新读进来的部分：很长的一行不会被反复从头扫。
+ */
+export function* iterateJsonlLines(
+  absPath: string,
+  opts: { chunkBytes?: number; maxLineBytes?: number } = {},
+): Generator<string> {
+  const chunkBytes = opts.chunkBytes ?? 1024 * 1024;
+  const maxLineBytes = opts.maxLineBytes ?? MAX_JSONL_LINE_BYTES;
   const fd = openSync(absPath, 'r');
   try {
-    const chunk = Buffer.alloc(64 * 1024);
-    let leftover = Buffer.alloc(64 * 1024);
+    const chunk = Buffer.alloc(chunkBytes);
+    let buf = Buffer.alloc(chunkBytes);
     let len = 0;
+    // 正在跳过一行超长的：丢掉读到的，直到下一个换行
+    let skipping = false;
     for (;;) {
       const n = readSync(fd, chunk, 0, chunk.length, null);
       if (n === 0) break;
-      if (len + n > leftover.length) {
-        const next = Buffer.alloc(Math.max(leftover.length * 2, len + n));
-        leftover.copy(next, 0, 0, len);
-        leftover = next;
+      let from = 0;
+      if (skipping) {
+        const nl = chunk.subarray(0, n).indexOf(0x0a);
+        if (nl === -1) continue;
+        skipping = false;
+        from = nl + 1;
       }
-      chunk.copy(leftover, len, 0, n);
-      len += n;
+      if (len + (n - from) > buf.length) {
+        const next = Buffer.alloc(Math.max(buf.length * 2, len + (n - from)));
+        buf.copy(next, 0, 0, len);
+        buf = next;
+      }
+      chunk.copy(buf, len, from, n);
+      // 之前攒下的部分已经确认没有换行，只扫新读进来的
+      const scanFrom = len;
+      len += n - from;
+      const view = buf.subarray(0, len);
       let start = 0;
-      for (let i = 0; i < len; i++) {
-        if (leftover[i] !== 0x0a) continue;
-        yield leftover.subarray(start, leftover[i - 1] === 0x0d ? i - 1 : i).toString('utf8');
-        start = i + 1;
+      for (let nl = view.indexOf(0x0a, scanFrom); nl !== -1; nl = view.indexOf(0x0a, start)) {
+        const end = nl > start && view[nl - 1] === 0x0d ? nl - 1 : nl;
+        yield view.toString('utf8', start, end);
+        start = nl + 1;
       }
       if (start > 0) {
-        leftover.copyWithin(0, start, len);
+        buf.copyWithin(0, start, len);
         len -= start;
       }
+      if (len > maxLineBytes) {
+        len = 0;
+        skipping = true;
+        buf = Buffer.alloc(chunkBytes);
+      }
     }
-    if (len > 0) yield leftover.subarray(0, len).toString('utf8');
+    if (len > 0 && !skipping) yield buf.toString('utf8', 0, len);
   } finally {
     closeSync(fd);
   }

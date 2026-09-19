@@ -66,7 +66,11 @@ export {
   looksLikeGrokExport,
   looksLikeGeminiExport,
 } from './import/platformParsers.js';
-export { detectAgentSession, parseClaudeCodeSession } from './import/agentSessions.js';
+export {
+  detectAgentSession,
+  parseClaudeCodeSession,
+  parseCodexSession,
+} from './import/agentSessions.js';
 export { ImportService, MAX_IMPORT_BYTES, type ImportFileResult } from './import/importService.js';
 export {
   JobQueue,

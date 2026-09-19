@@ -130,6 +130,83 @@ describe('解析', () => {
   it('Codex 自己派出去的子代理（如自动审查）的会话不导：那不是你在聊', () => {
     expect(parseCodexSession(session({ subagent: { other: 'guardian' } }))).toBeNull();
   });
+
+  // 2026-09-19 按本机真实会话的结构补：一条「用户」消息常由好几段拼成，注入的内容和你的话
+  // 可能在同一条里。要逐段认，不能先拼起来再看开头。
+  it('一条消息分好几段的逐段认：注入的段丢掉，只留你的话；什么都没留下的不打断回答', () => {
+    const multi = (s: number, ...parts: Array<string | null>) =>
+      item(s, {
+        type: 'message',
+        role: 'user',
+        content: parts.map((t) =>
+          t === null
+            ? { type: 'input_image', image_url: 'data:image/png;base64,AAAA' }
+            : { type: 'input_text', text: t },
+        ),
+      });
+    const lines = [
+      session()[0]!,
+      multi(
+        1,
+        '<recommended_plugins>\n不该导入\n</recommended_plugins>',
+        '# AGENTS.md instructions for D:/work/demo\n不该导入',
+        '<environment_context>\n不该导入\n</environment_context>',
+      ),
+      multi(
+        2,
+        '# Files mentioned by the user:\n\n## plan.md: D:/work/demo/plan.md\n\n## My request for Codex:\n按这个计划改导入\n',
+        '<image name=[Image #1] path="D:/work/demo/shot.png">',
+        null,
+        '</image>',
+      ),
+      item(3, text('assistant', '先看计划。')),
+      item(4, text('user', '<turn_aborted>\n不该导入\n</turn_aborted>')),
+      item(5, text('user', '<subagent_notification>\n不该导入\n</subagent_notification>')),
+      item(
+        6,
+        text(
+          'user',
+          '<send_user_message_question_reply>[{"selected_option":"[\\"A\\"]"}]</send_user_message_question_reply>',
+        ),
+      ),
+      item(
+        7,
+        text('user', '<codex_internal_context source="goal">\n不该导入\n</codex_internal_context>'),
+      ),
+      item(8, text('assistant', '改好了。')),
+      // 内置浏览器的状态贴在你的话前面：去掉标签，留下后面的话
+      item(
+        9,
+        text(
+          'user',
+          '<in-app-browser-context source="ambient-ui-state">\n不该导入\n</in-app-browser-context>\n## My request:\n页面上那个按钮点不动',
+        ),
+      ),
+      item(10, text('assistant', '按钮修好了。')),
+      item(
+        11,
+        text(
+          'user',
+          '# Files mentioned by the user:\n\n## a.ts: D:/work/demo/a.ts\n\n## My request:\n再看一下 a.ts',
+        ),
+      ),
+      item(12, text('user', '# Files mentioned by the user:\n\n## b.ts: D:/work/demo/b.ts')),
+      item(13, text('assistant', '看过了。')),
+    ];
+    const parsed = parseCodexSession(lines)!;
+    expect(parsed.segments.map((s) => [s.role, s.text])).toEqual([
+      ['user', '按这个计划改导入'],
+      ['assistant', '先看计划。\n\n改好了。'],
+      ['user', '页面上那个按钮点不动'],
+      ['assistant', '按钮修好了。'],
+      ['user', '再看一下 a.ts'],
+      ['assistant', '看过了。'],
+    ]);
+    const all = parsed.segments.map((s) => s.text).join('\n');
+    for (const junk of ['不该导入', 'Image #1', 'plan.md', 'selected_option', 'b.ts']) {
+      expect(all).not.toContain(junk);
+    }
+  });
 });
 
 describe('导入', () => {

@@ -27,7 +27,7 @@
     {
       "id": "T3",
       "title": "待办页",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/t3-todos-ipc.test.ts": "5a48ee45ac47c4241548d378f0f4c27875fa6b48f47d945f859e59baba92f697",
         "apps/desktop/test/acceptance/t3-todos-page.test.ts": "da2282cd82bb5b96fa618115a65881357ddcd3aaaffbb787fbb0f0b9d9607fd2"
@@ -55,7 +55,7 @@
     {
       "id": "S1",
       "title": "导入 Claude Code 会话",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/s1-claude-code-import.test.ts": "9c8677f3a3c99a087e8c5c42dddea5f4680cc2e4ae29e09eafa5244cb1194822"
       }
@@ -63,9 +63,9 @@
     {
       "id": "S2",
       "title": "导入 Codex 会话",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "packages/core/test/acceptance/s2-codex-import.test.ts": "c62b89faebb8b10c81fa55fe7e4dc654d222b7c95afb37debb2c2c4dbcb9e3e2"
+        "packages/core/test/acceptance/s2-codex-import.test.ts": "505a05a385a56bcbd41416243cac4dceb7c60f3485b28b3b35328e2fddfc7ac0"
       }
     }
   ]
