@@ -34,6 +34,8 @@ import {
   SearchService,
   SourceStore,
   TodoStore,
+  extractSuggestedTodos,
+  parseUserTodo,
   Vault,
   ensureDataDirLayout,
   loadConfig,
@@ -948,6 +950,14 @@ export class AppRuntime {
       role: 'user',
       content: question,
     });
+    const userTodoTitle = parseUserTodo(question);
+    const userTodo = userTodoTitle
+      ? this.todos.add({
+          title: userTodoTitle,
+          conversationId,
+          messageId: userMessage.id,
+        })
+      : null;
     // 紧跟着占住回答的位置（streaming 占位），再去等模型。
     // 回答的 seq 必须是真实分配的，不能用 userMessage.seq + 1 去「预测」：
     // 同一对话两问并发时，A 的问题是 1、B 的问题是 2，A 预测的「2」其实是
@@ -1115,8 +1125,20 @@ export class AppRuntime {
       // D3/D4：回答收尾到占位消息上。取消的回合按 cancelled 记，不冒充完成——
       // 下一轮的 priorTurns 只取 complete，半截回答不会变成背景。
       const cancelled = result.notice?.includes('用户取消') === true;
+      const extracted = extractSuggestedTodos(result.answer);
+      const proposedTodos: Array<{ id: string; title: string }> = [];
+      if (!cancelled) {
+        for (const title of extracted.todos) {
+          const row = this.todos.propose({
+            title,
+            conversationId,
+            messageId: assistantMessage.id,
+          });
+          if (row) proposedTodos.push({ id: row.id, title: row.title });
+        }
+      }
       this.conversations.finishMessage(assistantMessage.id, {
-        content: result.answer,
+        content: extracted.answer,
         status: cancelled ? 'cancelled' : 'complete',
         runId,
         engine: result.engine,
@@ -1131,6 +1153,8 @@ export class AppRuntime {
           // E5：这一轮给模型看了哪些记忆——回答下面列出来供当场纠正；
           // 提炼这段回答时据此认出复述（回声）。空数组也要存：表示「这一轮一条都没给」。
           memoryUsed: result.memoryUsed,
+          ...(proposedTodos.length > 0 ? { proposedTodos } : {}),
+          ...(userTodo ? { userTodo: { id: userTodo.id, title: userTodo.title } } : {}),
         },
       });
       // 引擎会话 id 落库：仅用于显示「这个对话上次用的是哪个引擎会话」。

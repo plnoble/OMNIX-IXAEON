@@ -10,6 +10,7 @@ import { getDisclosureEpoch } from '../access.js';
 import { type HermesRuntimeAdapter } from './adapter.js';
 import { CORE_TOOL_NAMES, type CoreToolBroker, type CoreToolName } from './broker.js';
 import { explainModelFailure } from './modelErrors.js';
+import { SUGGESTED_TODOS_INSTRUCTION } from './suggestedTodos.js';
 
 const MAX_ROUNDS = 4;
 
@@ -255,7 +256,7 @@ export class AgentSession {
           ? `\n\n（IXAEON 约定：需要了解用户的情况、之前说过或做过的事时，调用 ${tool('search_memory')} 查 IXAEON 记忆；` +
             `用户告诉你需要记住的事，调用 ${tool('record_observation')} 写入 IXAEON 记忆。）`
           : '';
-        const dispatchedGoal = `${goal}${contextBlock}${priorBlock}${memoryRoute}`;
+        const dispatchedGoal = `${goal}${contextBlock}${priorBlock}${memoryRoute}\n\n${SUGGESTED_TODOS_INSTRUCTION}`;
         const hermes = await this.adapter.start(
           {
             runId,
