@@ -247,10 +247,19 @@ test.describe('D6 聊天界面', () => {
          0, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, ?, ?)`,
     ).run(taskId, project.id, '写一条 note.txt', now, now);
 
+    const todoId = randomUUID();
+    db.prepare(
+      `INSERT INTO todos
+         (id, title, status, origin, conversation_id, message_id, linked_kind, linked_id, created_at, updated_at)
+       VALUES (?, ?, 'proposed', 'agent', ?, ?, 'coding_task', ?, ?, ?)`,
+    ).run(todoId, '写一条 note.txt', firstConvId, assistant.id, taskId, now, now);
+
     const meta = JSON.parse(assistant.meta_json) as Record<string, unknown>;
+    // 旧「行动批准卡」（proposedTasks）只给历史消息留着显示；T2b 起批准走待办卡
     meta.proposedTasks = [
       { id: taskId, goal: '写一条 note.txt', status: 'draft', scope: ['note.txt'] },
     ];
+    meta.proposedTodos = [{ id: todoId, title: '写一条 note.txt' }];
     db.prepare('UPDATE messages SET meta_json = ? WHERE id = ?').run(
       JSON.stringify(meta),
       assistant.id,
@@ -277,8 +286,18 @@ test.describe('D6 聊天界面', () => {
     await expect(page.getByTestId('ask-citations')).toContainText('用户纠正');
 
     await expect(page.getByText('行动批准卡')).toBeVisible();
-    await page.getByRole('button', { name: '批准并排队' }).click();
-    await expect(page.getByText('已排队执行')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('到待办页处理')).toBeVisible();
+    // T2b：编码任务进待办卡，点「要做」= 批准并排队
+    const todoCard = page.getByTestId(`todo-card-${todoId}`);
+    await expect(todoCard).toBeVisible();
+    await expect(todoCard).toContainText('编码任务');
+    await page.getByTestId(`todo-card-accept-${todoId}`).click();
+    await expect(page.getByTestId(`todo-card-accept-${todoId}`)).toHaveCount(0);
+    await expect(todoCard).toContainText('要做');
+    // 待办页：这条进「要做」，底下任务显示排队中
+    await page.getByTestId('nav-todos').click();
+    await expect(page.getByTestId('todo-section-accepted')).toContainText('写一条 note.txt');
+    await expect(page.getByTestId(`todo-linked-${todoId}`)).toContainText('排队中');
 
     await app.close();
     expect(pageErrors).toEqual([]);
