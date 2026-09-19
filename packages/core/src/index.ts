@@ -71,7 +71,12 @@ export {
   parseClaudeCodeSession,
   parseCodexSession,
 } from './import/agentSessions.js';
-export { ImportService, MAX_IMPORT_BYTES, type ImportFileResult } from './import/importService.js';
+export {
+  ImportService,
+  MAX_IMPORT_BYTES,
+  type ImportFileResult,
+  type AgentSessionPreview,
+} from './import/importService.js';
 export {
   JobQueue,
   DEFAULT_RETRY_BACKOFF_MS,
