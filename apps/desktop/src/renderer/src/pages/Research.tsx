@@ -68,6 +68,11 @@ export function ResearchPage({
   const [draftProjectId, setDraftProjectId] = useState(projects[0]?.id ?? '');
   /** 最近一次手动检查的搜索候选（按主题 id 存；临时展示，不落库） */
   const [lastCheck, setLastCheck] = useState<Record<string, CheckOutcome>>({});
+  const [suggestCount, setSuggestCount] = useState<number | null>(null);
+  const [suggested, setSuggested] = useState<Awaited<
+    ReturnType<typeof api.suggestWatchDirections>
+  > | null>(null);
+  const [decided, setDecided] = useState<Record<number, boolean>>({});
 
   const reload = useCallback(async () => {
     try {
@@ -120,6 +125,34 @@ export function ResearchPage({
     }
   };
 
+  const askSuggest = () =>
+    void act(async () => {
+      setSuggested(null);
+      setDecided({});
+      setSuggestCount((await api.previewWatchDirections()).memoryCount);
+    });
+  const confirmSuggest = () =>
+    void act(async () => {
+      setSuggestCount(null);
+      setSuggested(await api.suggestWatchDirections());
+    });
+  const decide = (i: number, follow: boolean) => {
+    const d = suggested?.directions[i];
+    if (!d) return;
+    void act(async () => {
+      const { question, publicDescription, relatedGoalId, relatedProjectId } = d;
+      if (follow)
+        await api.followWatchDirection({
+          question,
+          publicDescription,
+          relatedGoalId,
+          relatedProjectId,
+        });
+      else await api.skipWatchDirection({ question, publicDescription });
+      setDecided((prev) => ({ ...prev, [i]: true }));
+    });
+  };
+
   if (!data && !error) return <Spinner />;
 
   return (
@@ -139,6 +172,68 @@ export function ResearchPage({
           次调用（与搜索预算独立，超出走规则研读）。发现是外部线索，不会自动变成你的目标。
         </p>
       </Card>
+      <Button kind="primary" disabled={busy} onClick={askSuggest} testId="research-suggest">
+        帮我想想该关注什么
+      </Button>
+      {suggestCount !== null && (
+        <Card title="确认发给模型" testId="research-suggest-confirm">
+          <p data-testid="research-suggest-count">
+            会把你的 {suggestCount} 条目标、在做的项目、约束（记忆）发给模型，让它提 3–5
+            个值得持续关注的方向。
+          </p>
+          <div className="card-actions">
+            <Button
+              kind="primary"
+              disabled={busy}
+              onClick={confirmSuggest}
+              testId="research-suggest-ok"
+            >
+              好
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() => setSuggestCount(null)}
+              testId="research-suggest-cancel"
+            >
+              取消
+            </Button>
+          </div>
+        </Card>
+      )}
+      {(suggested?.directions ?? []).map((d, i) => (
+        <Card key={i} title={d.question} testId={`research-direction-${i}`}>
+          <p className="muted" data-testid={`research-direction-public-${i}`}>
+            对外检索用：{d.publicDescription}
+          </p>
+          <div data-testid={`research-direction-basis-${i}`}>
+            依据：{d.basis.map((b) => b.statement).join('；')}
+          </div>
+          <p className="muted" data-testid={`research-direction-budget-${i}`}>
+            {suggested?.searchConfigured
+              ? '每天自动找一次，最多搜 3 次'
+              : '每天自动找一次，只看你加的来源'}
+          </p>
+          {!decided[i] && (
+            <div className="card-actions">
+              <Button
+                kind="primary"
+                disabled={busy}
+                onClick={() => decide(i, true)}
+                testId={`research-direction-follow-${i}`}
+              >
+                关注
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={() => decide(i, false)}
+                testId={`research-direction-skip-${i}`}
+              >
+                不关注
+              </Button>
+            </div>
+          )}
+        </Card>
+      ))}
       <Card title="新建关注">
         <Field label="研究问题">
           <input
