@@ -61,9 +61,7 @@ export function ResearchPage({
   const [createBusy, setCreateBusy] = useState(false);
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [topicBusy, setTopicBusy] = useState<Record<string, boolean>>({});
-  const [checking, setChecking] = useState<Record<string, { elapsed: number; overdue: boolean }>>(
-    {},
-  );
+  const [checking, setChecking] = useState<Record<string, { startedAt: number }>>({});
   const [runNotice, setRunNotice] = useState<Record<string, string>>({});
   const checkSeq = useRef<Record<string, number>>({});
   const [question, setQuestion] = useState('');
@@ -101,21 +99,10 @@ export function ResearchPage({
   }, [projects, draftProjectId]);
 
   const checkingCount = Object.keys(checking).length;
+  const [, setTick] = useState(0);
   useEffect(() => {
     if (checkingCount === 0) return;
-    const timer = setInterval(() => {
-      setChecking((prev) => {
-        const next: typeof prev = {};
-        let changed = false;
-        for (const [id, row] of Object.entries(prev)) {
-          const elapsed = row.elapsed + 1;
-          const overdue = elapsed >= 300;
-          next[id] = { elapsed, overdue };
-          if (elapsed !== row.elapsed || overdue !== row.overdue) changed = true;
-        }
-        return changed ? next : prev;
-      });
-    }, 1000);
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(timer);
   }, [checkingCount]);
 
@@ -160,16 +147,16 @@ export function ResearchPage({
     }
   };
 
-  const topicAct = (id: string, fn: () => Promise<unknown>, label?: string) => {
+  const topicAct = (t: { id: string; question: string }, fn: () => Promise<unknown>) => {
     void (async () => {
-      setTopicFlag(id, true);
+      setTopicFlag(t.id, true);
       try {
         await fn();
         await reload();
       } catch (err) {
-        setError(label ? `${label}：${errMsg(err)}` : errMsg(err));
+        setError(`${t.question}：${errMsg(err)}`);
       } finally {
-        setTopicFlag(id, false);
+        setTopicFlag(t.id, false);
       }
     })();
   };
@@ -188,18 +175,20 @@ export function ResearchPage({
     const seq = (checkSeq.current[t.id] ?? 0) + 1;
     checkSeq.current[t.id] = seq;
     setTopicFlag(t.id, true);
-    setChecking((prev) => ({ ...prev, [t.id]: { elapsed: 0, overdue: false } }));
+    setChecking((prev) => ({ ...prev, [t.id]: { startedAt: Date.now() } }));
     void (async () => {
       try {
         const outcome = (await api.checkResearchTopicNow(t.id)) as CheckOutcome;
-        setLastCheck((prev) => ({ ...prev, [t.id]: outcome }));
-        const notice = outcome.run?.error ?? null;
-        setRunNotice((prev) => {
-          const next = { ...prev };
-          if (notice) next[t.id] = notice;
-          else delete next[t.id];
-          return next;
-        });
+        if (checkSeq.current[t.id] === seq) {
+          setLastCheck((prev) => ({ ...prev, [t.id]: outcome }));
+          const notice = outcome.run?.error ?? null;
+          setRunNotice((prev) => {
+            const next = { ...prev };
+            if (notice) next[t.id] = notice;
+            else delete next[t.id];
+            return next;
+          });
+        }
         await reload();
       } catch (err) {
         if (checkSeq.current[t.id] === seq) setError(`${t.question}：${errMsg(err)}`);
@@ -242,6 +231,13 @@ export function ResearchPage({
       else await api.skipWatchDirection({ question, publicDescription });
       setDecided((prev) => ({ ...prev, [i]: true }));
     });
+  };
+
+  const waitFor = (id: string) => {
+    const row = checking[id];
+    if (!row) return null;
+    const elapsed = Math.floor((Date.now() - row.startedAt) / 1000);
+    return { elapsed, overdue: elapsed >= 300 };
   };
 
   if (!data && !error) return <Spinner />;
@@ -418,12 +414,12 @@ export function ResearchPage({
           {t.consecutive_failures >= 3 && (
             <p className="warn">连续失败 {t.consecutive_failures} 次，未把失败写成无变化。</p>
           )}
-          {checking[t.id] && !checking[t.id]!.overdue && (
+          {waitFor(t.id) && !waitFor(t.id)!.overdue && (
             <p className="muted" data-testid={`research-checking-${t.id}`}>
-              正在检查…（已 {checking[t.id]!.elapsed} 秒）
+              正在检查…（已 {waitFor(t.id)!.elapsed} 秒）
             </p>
           )}
-          {checking[t.id]?.overdue && (
+          {waitFor(t.id)?.overdue && (
             <p className="warn" data-testid={`research-checking-${t.id}`}>
               检查还没回来，可能是模型或网络慢；它会在后台继续跑完
             </p>
@@ -437,7 +433,7 @@ export function ResearchPage({
             <Button
               disabled={!!topicBusy[t.id]}
               onClick={() =>
-                topicAct(t.id, () => api.setResearchTopicEnabled({ id: t.id, enabled: !t.enabled }))
+                topicAct(t, () => api.setResearchTopicEnabled({ id: t.id, enabled: !t.enabled }))
               }
             >
               {t.enabled ? '关闭自动' : '启用自动'}
@@ -445,7 +441,7 @@ export function ResearchPage({
             <Button
               disabled={!!topicBusy[t.id]}
               onClick={() =>
-                topicAct(t.id, () => api.setResearchTopicPaused({ id: t.id, paused: !t.paused }))
+                topicAct(t, () => api.setResearchTopicPaused({ id: t.id, paused: !t.paused }))
               }
             >
               {t.paused ? '恢复' : '暂停'}
@@ -453,7 +449,7 @@ export function ResearchPage({
             <Button
               disabled={!!topicBusy[t.id]}
               onClick={() =>
-                topicAct(t.id, () =>
+                topicAct(t, () =>
                   api.setResearchBudget({
                     id: t.id,
                     paidBudgetMode: 'request_cap',
@@ -472,7 +468,7 @@ export function ResearchPage({
             >
               立即检查
             </Button>
-            {checking[t.id]?.overdue && (
+            {waitFor(t.id)?.overdue && (
               <Button onClick={() => stopWaiting(t.id)} testId={`research-stop-waiting-${t.id}`}>
                 停止等待
               </Button>
@@ -507,7 +503,7 @@ export function ResearchPage({
                           <Button
                             disabled={!!topicBusy[t.id]}
                             onClick={() =>
-                              topicAct(t.id, async () => {
+                              topicAct(t, async () => {
                                 await api.addResearchSource({
                                   topicId: t.id,
                                   url: c.url,
@@ -552,7 +548,7 @@ export function ResearchPage({
             <Button
               disabled={!!topicBusy[t.id]}
               onClick={() =>
-                topicAct(t.id, async () => {
+                topicAct(t, async () => {
                   await api.addResearchSource({
                     topicId: t.id,
                     url: (extraUrl[t.id] ?? '').trim(),
@@ -594,7 +590,7 @@ export function ResearchPage({
                     <Button
                       disabled={!!topicBusy[t.id]}
                       onClick={() =>
-                        topicAct(t.id, () =>
+                        topicAct(t, () =>
                           api.setResearchFindingAction({
                             findingId: f.id,
                             actionWorthy: !f.action_worthy,
@@ -622,7 +618,7 @@ export function ResearchPage({
                         <Button
                           disabled={!!topicBusy[t.id] || !draftProjectId}
                           onClick={() =>
-                            topicAct(t.id, async () => {
+                            topicAct(t, async () => {
                               await api.createCodingDraftFromFinding({
                                 findingId: f.id,
                                 projectId: draftProjectId,

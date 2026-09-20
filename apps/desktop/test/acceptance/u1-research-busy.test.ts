@@ -8,6 +8,8 @@
  *    点它之后这个主题的按钮恢复可用、提示消失；后来 IPC 真的返回时不报错、照常刷新列表。
  * 4. 返回的运行记录里 error 非空：这个主题下面显示那行黄字，内容含降级说明；error 为空时不显示。
  * 5. 检查失败（IPC reject）：只影响这个主题的按钮，错误提示里能看出是哪个主题。
+ *    启用/暂停等操作失败时，错误提示同样带主题名。
+ * 6. 停止等待后再检查同一主题：旧请求最后返回不覆盖新检查的搜索结果和降级提示。
  */
 import { createElement } from 'react';
 import { act } from 'react';
@@ -244,4 +246,43 @@ it('条件 5：检查失败只影响这个主题，错误里能看出是哪个�
   expect(disabled('research-check-a')).toBe(false);
   expect(disabled('research-check-b')).toBe(false);
   expect(disabled('research-create')).toBe(false);
+});
+
+it('条件 5：主题操作失败时错误也带主题名', async () => {
+  harness.setResearchTopicPaused.mockRejectedValueOnce(new Error('已暂停失败'));
+  await renderPage();
+  const pauseBtn = Array.from(container.querySelectorAll('button')).find((el) =>
+    el.textContent?.includes('暂停'),
+  ) as HTMLButtonElement;
+  await act(async () => {
+    pauseBtn.click();
+  });
+  expect($('error-banner')?.textContent).toContain('关注甲');
+  expect($('error-banner')?.textContent).toContain('已暂停失败');
+});
+
+it('停止等待后再检查：旧请求最后返回不覆盖新结果', async () => {
+  const first = deferred<ReturnType<typeof okCheck>>();
+  const second = deferred<ReturnType<typeof okCheck>>();
+  harness.checkResearchTopicNow
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  await renderPage();
+  await click('research-check-a');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+  });
+  await click('research-stop-waiting-a');
+  await click('research-check-a');
+  await act(async () => {
+    second.resolve(okCheck('模型研读失败 1 次，已降级为规则研读'));
+    await second.promise;
+  });
+  expect($('research-run-notice-a')?.textContent).toContain('已降级为规则研读');
+  await act(async () => {
+    first.resolve(okCheck(null));
+    await first.promise;
+  });
+  expect($('research-run-notice-a')?.textContent).toContain('已降级为规则研读');
+  expect($('error-banner')).toBeNull();
 });
