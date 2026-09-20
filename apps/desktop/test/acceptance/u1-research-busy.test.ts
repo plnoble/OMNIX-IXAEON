@@ -11,6 +11,7 @@
  * 5. 检查失败（IPC reject）：只影响这个主题的按钮，错误提示里能看出是哪个主题。
  *    启用/暂停等操作失败时，错误提示同样带主题名。
  * 6. 停止等待后再检查同一主题：旧请求最后返回不覆盖新检查的搜索结果和降级提示。
+ * 7. 停止等待后点加来源：旧检查返回不清掉加来源的忙状态。
  */
 import { createElement } from 'react';
 import { act } from 'react';
@@ -285,6 +286,32 @@ it('条件 5：主题操作失败时错误也带主题名', async () => {
   });
   expect($('error-banner')?.textContent).toContain('关注甲');
   expect($('error-banner')?.textContent).toContain('已暂停失败');
+});
+
+it('停止等待后点加来源：旧检查返回不清掉加来源的忙状态', async () => {
+  const check = deferred<ReturnType<typeof okCheck>>();
+  const add = deferred<{ id: string }>();
+  harness.checkResearchTopicNow.mockReturnValueOnce(check.promise);
+  harness.addResearchSource.mockReturnValueOnce(add.promise);
+  await renderPage();
+  await click('research-check-a');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+  });
+  await click('research-stop-waiting-a');
+  expect(disabled('research-add-source-a')).toBe(false);
+  await click('research-add-source-a');
+  expect(disabled('research-add-source-a')).toBe(true);
+  await act(async () => {
+    check.resolve(okCheck('模型研读失败 1 次，已降级为规则研读'));
+    await check.promise;
+  });
+  expect(disabled('research-add-source-a')).toBe(true);
+  await act(async () => {
+    add.resolve({ id: 'src-1' });
+    await add.promise;
+  });
+  expect(disabled('research-add-source-a')).toBe(false);
 });
 
 it('停止等待后再检查：旧请求最后返回不覆盖新结果', async () => {

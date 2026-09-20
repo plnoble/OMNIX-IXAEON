@@ -64,6 +64,7 @@ export function ResearchPage({
   const [checking, setChecking] = useState<Record<string, { startedAt: number }>>({});
   const [runNotice, setRunNotice] = useState<Record<string, string>>({});
   const checkSeq = useRef<Record<string, number>>({});
+  const topicSeq = useRef<Record<string, number>>({});
   const [question, setQuestion] = useState('');
   const [publicDescription, setPublicDescription] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
@@ -148,15 +149,17 @@ export function ResearchPage({
   };
 
   const topicAct = (t: { id: string; question: string }, fn: () => Promise<unknown>) => {
+    const seq = (topicSeq.current[t.id] ?? 0) + 1;
+    topicSeq.current[t.id] = seq;
     void (async () => {
       setTopicFlag(t.id, true);
       try {
         await fn();
         await reload();
       } catch (err) {
-        setError(`${t.question}：${errMsg(err)}`);
+        if (topicSeq.current[t.id] === seq) setError(`${t.question}：${errMsg(err)}`);
       } finally {
-        setTopicFlag(t.id, false);
+        if (topicSeq.current[t.id] === seq) setTopicFlag(t.id, false);
       }
     })();
   };
@@ -173,6 +176,8 @@ export function ResearchPage({
   const startCheck = (t: Snapshot['topics'][number]) => {
     const seq = (checkSeq.current[t.id] ?? 0) + 1;
     checkSeq.current[t.id] = seq;
+    topicSeq.current[t.id] = (topicSeq.current[t.id] ?? 0) + 1;
+    const busySeq = topicSeq.current[t.id];
     setTopicFlag(t.id, true);
     setChecking((prev) => ({ ...prev, [t.id]: { startedAt: Date.now() } }));
     void (async () => {
@@ -192,8 +197,8 @@ export function ResearchPage({
       } catch (err) {
         if (checkSeq.current[t.id] === seq) setError(`${t.question}：${errMsg(err)}`);
       } finally {
+        if (topicSeq.current[t.id] === busySeq) setTopicFlag(t.id, false);
         if (checkSeq.current[t.id] === seq) {
-          setTopicFlag(t.id, false);
           setChecking((prev) => {
             const next = { ...prev };
             delete next[t.id];
