@@ -108,8 +108,8 @@
       "title": "概览页新发现",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/w1b-recent-findings.test.ts": "e1ec77dd89aeb3dad3ab2eaf6591d96cd493cb28a72e7002527e3afb01c50d43",
-        "apps/desktop/test/acceptance/w1b-overview-findings-page.test.ts": "56e18c105d7bfcbda14c4bf5e94341216550f13ed991583c25cd123dc85384d2"
+        "apps/desktop/test/acceptance/w1b-recent-findings.test.ts": "04259a83d1d04daf6f21ddcbd003a8f43f39b0f6a6e233f4a1e37c6f3ab6b787",
+        "apps/desktop/test/acceptance/w1b-overview-findings-page.test.ts": "d60de22d8a342fa2a8312bc1173434b79d5931d11100705dd933b7da7e96c2ba"
       }
     }
   ]

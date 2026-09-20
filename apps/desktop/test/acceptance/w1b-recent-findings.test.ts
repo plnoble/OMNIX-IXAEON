@@ -128,7 +128,7 @@ it('条件 1：只返回启用主题 7 天内的发现，按时间倒序，最�
   expect(first.recentFindings.some((f) => f.title === '十天前甲')).toBe(false);
   expect(first.recentFindings.some((f) => f.title === '关着的今天')).toBe(false);
 
-  for (let i = 0; i < 11; i++) {
+  const pads = Array.from({ length: 11 }, (_, i) =>
     store.insertFinding({
       topicId: enabledA.id,
       sourceId: srcA.id,
@@ -140,12 +140,16 @@ it('条件 1：只返回启用主题 7 天内的发现，按时间倒序，最�
       fetchedAt: hoursAgo(2 + i * 0.1),
       relatedGoalId: null,
       relatedProjectId: null,
-    });
-  }
+    }),
+  )!;
   const capped = buildPersonalOverview(db);
   expect(capped.recentFindings).toHaveLength(10);
-  const times = capped.recentFindings.map((f) => f.fetchedAt);
-  expect([...times].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))).toEqual(times);
+  // 返回的就是最新的 10 条（比对 id）：今天 + 填充 0–8；
+  // 填充 9、填充 10（最旧的两条填充）和 72 小时前的三天前乙都被挤掉。
+  expect(capped.recentFindings.map((f) => f.id)).toEqual([
+    today.id,
+    ...pads.slice(0, 9).map((f) => f.id),
+  ]);
 });
 
 it('条件 2：从没看过全是新的；看过之后旧的不是新的；后来的一条又是新的', () => {

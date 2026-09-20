@@ -129,6 +129,9 @@ it('条件 3：有发现时显示这一块、新的有标记；点都看过了�
   });
   expect(harness.markFindingsSeen).toHaveBeenCalledTimes(1);
   expect(harness.getPersonalOverview.mock.calls.length).toBeGreaterThan(1);
+  // 界面要真的刷新：「新」标记消失，发现本身还在（不是 IPC 被调过就算）。
+  expect(container.querySelector('[data-testid="recent-finding-new-f-new"]')).toBeNull();
+  expect(container.querySelector('[data-testid="recent-finding-f-new"]')).not.toBeNull();
 
   harness.overview = { ...harness.overview, recentFindings: [] };
   await act(async () => {
