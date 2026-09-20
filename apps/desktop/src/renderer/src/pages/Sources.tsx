@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   api,
   errMsg,
@@ -135,6 +135,10 @@ export function SourcesPage({
   } | null>(null);
   const [agentResult, setAgentResult] = useState<string | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
+  /** 当前清单号（关闭/换清单时清掉）：过期响应不允许再改界面（Codex 复审） */
+  const agentActiveListId = useRef<string | null>(null);
+  /** 估算请求序号：只认最新一次请求的响应，乱序到达的旧响应丢弃 */
+  const agentEstimateSeq = useRef(0);
 
   const reload = useCallback(
     async (silent = false) => {
@@ -243,6 +247,8 @@ export function SourcesPage({
       const picked = await api.pickFiles('directory');
       if (!picked || picked.paths.length === 0) return;
       const result = await api.listAgentSessions({ ticket: picked.ticket });
+      agentEstimateSeq.current += 1; // 旧清单在途的估算作废
+      agentActiveListId.current = result.listId;
       setAgentList(result);
       setAgentChecked(new Set());
       setAgentEstimate(null);
@@ -255,32 +261,41 @@ export function SourcesPage({
   };
 
   const closeAgentSessions = () => {
+    agentEstimateSeq.current += 1; // 在途估算作废
+    agentActiveListId.current = null;
     setAgentList(null);
     setAgentChecked(new Set());
     setAgentEstimate(null);
     setAgentResult(null);
   };
 
-  /** 勾选变化后重新估算（一个都没勾就不显示）。 */
+  /** 勾选变化后重新估算（一个都没勾就不显示）。只认最新请求的响应。 */
   const applyAgentChecks = async (next: Set<number>) => {
     setAgentChecked(next);
     setAgentResult(null);
-    if (!agentList) return;
+    const listId = agentActiveListId.current;
+    if (!listId) return;
+    const seq = ++agentEstimateSeq.current;
     if (next.size === 0) {
       setAgentEstimate(null);
       return;
     }
     setAgentEstimate({ loading: true, userChars: 0, assistantChars: 0 });
     try {
-      const est = await api.estimateAgentSessions({ listId: agentList.listId, ids: [...next] });
+      const est = await api.estimateAgentSessions({ listId, ids: [...next] });
+      if (agentEstimateSeq.current !== seq || agentActiveListId.current !== listId) {
+        return; // 过期响应：清单已关/已换，或已有更新的请求
+      }
       setAgentEstimate({
         loading: false,
         userChars: est.userChars,
         assistantChars: est.assistantChars,
       });
     } catch (err) {
-      setAgentEstimate(null);
-      setError(errMsg(err));
+      if (agentEstimateSeq.current === seq && agentActiveListId.current === listId) {
+        setAgentEstimate(null);
+        setError(errMsg(err));
+      }
     }
   };
 
@@ -303,15 +318,17 @@ export function SourcesPage({
   };
 
   const importSelectedAgentSessions = async () => {
-    if (!agentList || agentChecked.size === 0) return;
+    const listId = agentActiveListId.current;
+    if (!agentList || !listId || agentChecked.size === 0) return;
     setAgentBusy(true);
     setError(null);
     try {
       const r = await api.importAgentSessions({
-        listId: agentList.listId,
+        listId,
         ids: [...agentChecked],
         projectId,
       });
+      if (agentActiveListId.current !== listId) return; // 清单已关/已换：结果不进新清单
       const lines = [
         `新导入 ${r.created} 个、没变化 ${r.unchanged} 个、失败 ${r.failed.length} 个`,
       ];
@@ -543,7 +560,7 @@ export function SourcesPage({
               导入文件夹
             </Button>
             <Button
-              disabled={busy}
+              disabled={busy || agentBusy}
               onClick={openAgentSessions}
               testId="sources-import-agent-sessions"
             >
@@ -698,7 +715,12 @@ export function SourcesPage({
           title="编码代理会话"
           testId="agent-sessions-card"
           actions={
-            <Button kind="ghost" onClick={closeAgentSessions} testId="agent-sessions-close">
+            <Button
+              kind="ghost"
+              disabled={agentBusy}
+              onClick={closeAgentSessions}
+              testId="agent-sessions-close"
+            >
               关掉
             </Button>
           }

@@ -67,43 +67,47 @@ async function launch() {
 }
 
 const run = await launch();
-await run.page.getByTestId('setup-next-1').click();
-await run.page.getByTestId('setup-model-name').fill('fake-model');
-await run.page.getByTestId('setup-next-2').click();
-await run.page.getByTestId('setup-project-name').fill('S3b 合成项目');
-await run.page.getByTestId('setup-finish').click();
-await run.page.getByTestId('main-nav').waitFor({ timeout: 20_000 });
+try {
+  await run.page.getByTestId('setup-next-1').click();
+  await run.page.getByTestId('setup-model-name').fill('fake-model');
+  await run.page.getByTestId('setup-next-2').click();
+  await run.page.getByTestId('setup-project-name').fill('S3b 合成项目');
+  await run.page.getByTestId('setup-finish').click();
+  await run.page.getByTestId('main-nav').waitFor({ timeout: 20_000 });
 
-await run.page.getByTestId('nav-sources').click();
-await run.page.getByTestId('sources-import-agent-sessions').click();
-await run.page.getByTestId('agent-sessions-list').waitFor({ timeout: 10_000 });
-const rows = await run.page.getByTestId('agent-sessions-list').innerText();
-console.log('LIST');
-console.log(rows);
+  await run.page.getByTestId('nav-sources').click();
+  await run.page.getByTestId('sources-import-agent-sessions').click();
+  await run.page.getByTestId('agent-sessions-list').waitFor({ timeout: 10_000 });
+  const rows = await run.page.getByTestId('agent-sessions-list').innerText();
+  console.log('LIST');
+  console.log(rows);
 
-await run.page.getByTestId('agent-sessions-select-new').click();
-await run.page
-  .getByTestId('agent-sessions-estimate')
-  .waitFor({ timeout: 10_000, state: 'visible' });
-await run.page.waitForTimeout(300);
-const estimate = await run.page.getByTestId('agent-sessions-estimate').innerText();
-console.log('ESTIMATE');
-console.log(estimate);
-await run.page.screenshot({ path: join(shotDir, 's3b-agent-list.png'), fullPage: true });
+  await run.page.getByTestId('agent-sessions-select-new').click();
+  await run.page
+    .getByTestId('agent-sessions-estimate')
+    .waitFor({ timeout: 10_000, state: 'visible' });
+  await run.page.waitForTimeout(300);
+  const estimate = await run.page.getByTestId('agent-sessions-estimate').innerText();
+  console.log('ESTIMATE');
+  console.log(estimate);
+  await run.page.screenshot({ path: join(shotDir, 's3b-agent-list.png'), fullPage: true });
 
-await run.page.getByTestId('agent-sessions-import').click();
-await run.page.getByTestId('agent-sessions-result').waitFor({ timeout: 20_000, state: 'visible' });
-const result = await run.page.getByTestId('agent-sessions-result').innerText();
-console.log('RESULT');
-console.log(result);
-await run.page.waitForTimeout(1500);
-const sourceRow = run.page.locator('[data-testid^="source-row-"]').first();
-const sourceVisible = await sourceRow.count();
-const sourceText = sourceVisible ? await sourceRow.innerText() : '';
-console.log('SOURCE_ROW', sourceVisible);
-console.log(sourceText);
-await run.page.screenshot({ path: join(shotDir, 's3b-after-import.png'), fullPage: true });
-await run.app.close();
-
-rmSync(dataDir, { recursive: true, force: true });
+  await run.page.getByTestId('agent-sessions-import').click();
+  await run.page
+    .getByTestId('agent-sessions-result')
+    .waitFor({ timeout: 20_000, state: 'visible' });
+  const result = await run.page.getByTestId('agent-sessions-result').innerText();
+  console.log('RESULT');
+  console.log(result);
+  await run.page.waitForTimeout(1500);
+  const sourceRow = run.page.locator('[data-testid^="source-row-"]').first();
+  const sourceVisible = await sourceRow.count();
+  const sourceText = sourceVisible ? await sourceRow.innerText() : '';
+  console.log('SOURCE_ROW', sourceVisible);
+  console.log(sourceText);
+  await run.page.screenshot({ path: join(shotDir, 's3b-after-import.png'), fullPage: true });
+} finally {
+  await run.app.close();
+  rmSync(dataDir, { recursive: true, force: true });
+}
 console.log('done');
