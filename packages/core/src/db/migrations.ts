@@ -990,6 +990,35 @@ CREATE INDEX idx_todos_status ON todos(status, updated_at);
 CREATE UNIQUE INDEX idx_todos_link ON todos(linked_kind, linked_id) WHERE linked_id IS NOT NULL;
 `,
   },
+  {
+    id: 34,
+    name: 'research-requirements',
+    sql: `
+-- N1：关注方向的「要求清单」。用户 2026-09-20 定的：新发现不要堆在那儿等他去翻，
+-- 只有对上他写下的硬要求时才提醒（「出了内存 24GB 以上、能跑本地大模型的手机就告诉我」）。
+-- 一条要求一行原话；比对结果一条发现一条要求一行，判过就不重判。
+CREATE TABLE research_requirements (
+  id TEXT PRIMARY KEY,
+  topic_id TEXT NOT NULL REFERENCES research_topics(id) ON DELETE CASCADE,
+  text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 200),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_research_requirements_topic ON research_requirements(topic_id, sort_order);
+
+-- verdict：meets 对上 / fails 对不上 / unknown 这条发现里看不出来。
+-- reason 是模型给的一句话理由（给用户看「为什么算对上」）。
+CREATE TABLE research_finding_matches (
+  finding_id TEXT NOT NULL REFERENCES research_findings(id) ON DELETE CASCADE,
+  requirement_id TEXT NOT NULL REFERENCES research_requirements(id) ON DELETE CASCADE,
+  verdict TEXT NOT NULL CHECK (verdict IN ('meets', 'fails', 'unknown')),
+  reason TEXT NOT NULL,
+  judged_at TEXT NOT NULL,
+  PRIMARY KEY (finding_id, requirement_id)
+);
+CREATE INDEX idx_finding_matches_finding ON research_finding_matches(finding_id);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
