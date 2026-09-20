@@ -137,6 +137,16 @@ export {
 } from './personal/overview.js';
 export { ResearchStore } from './research/researchStore.js';
 export {
+  listRequirements,
+  addRequirement,
+  removeRequirement,
+  judgeFindings,
+  listMatchedFindings,
+  markMatchedFindingsSeen,
+  type ResearchRequirement,
+  type MatchedFinding,
+} from './research/requirements.js';
+export {
   ResearchChecker,
   systemClock,
   type CheckResult,

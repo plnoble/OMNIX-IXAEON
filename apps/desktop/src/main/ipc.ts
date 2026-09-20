@@ -4,7 +4,15 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
-import { listAuditEvents, recordAudit } from '@ixaeon/core';
+import {
+  addRequirement,
+  listAuditEvents,
+  listMatchedFindings,
+  listRequirements,
+  markMatchedFindingsSeen,
+  recordAudit,
+  removeRequirement,
+} from '@ixaeon/core';
 import {
   ErrorCodes,
   IxaError,
@@ -440,6 +448,17 @@ export function registerIpc(runtime: AppRuntime): void {
     },
     getPersonalOverview: async () => runtime.personalOverview(),
     markFindingsSeen: async () => runtime.markFindingsSeen(),
+    listResearchRequirements: async (topicId) => listRequirements(runtime.db, topicId),
+    addResearchRequirement: async (input) => addRequirement(runtime.db, input),
+    removeResearchRequirement: async (id) => (
+      removeRequirement(runtime.db, id),
+      { ok: true as const }
+    ),
+    listMatchedFindings: async () => listMatchedFindings(runtime.db),
+    markMatchedFindingsSeen: async () => (
+      markMatchedFindingsSeen(runtime.db),
+      { ok: true as const }
+    ),
     setItemTimeStatus: async (input) => {
       const item = runtime.items.setTimeStatus(input.id, input.status);
       // 记忆的「过没过去」变了：长驻的引擎会话里注入过的旧说法要作废

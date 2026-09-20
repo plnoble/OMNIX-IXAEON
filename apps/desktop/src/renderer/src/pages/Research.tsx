@@ -76,6 +76,9 @@ export function ResearchPage({
   /** 最近一次手动检查的搜索候选（按主题 id 存；临时展示，不落库） */
   const [lastCheck, setLastCheck] = useState<Record<string, CheckOutcome>>({});
   const [suggestCount, setSuggestCount] = useState<number | null>(null);
+  const [requirements, setRequirements] = useState<
+    Record<string, Awaited<ReturnType<typeof api.listResearchRequirements>>>
+  >({});
   const [suggested, setSuggested] = useState<Awaited<
     ReturnType<typeof api.suggestWatchDirections>
   > | null>(null);
@@ -83,7 +86,14 @@ export function ResearchPage({
 
   const reload = useCallback(async () => {
     try {
-      setData((await api.listResearchTopics()) as Snapshot);
+      const snap = (await api.listResearchTopics()) as Snapshot;
+      setData(snap);
+      const next: typeof requirements = {};
+      // U1 锁定测试的替身没有这个方法：清单为空即可，不影响研究页
+      if (typeof api.listResearchRequirements === 'function') {
+        for (const t of snap.topics) next[t.id] = await api.listResearchRequirements(t.id);
+      }
+      setRequirements(next);
       setError(null);
     } catch (err) {
       setError(errMsg(err));
@@ -483,6 +493,44 @@ export function ResearchPage({
                 停止等待
               </Button>
             )}
+          </div>
+          <h3>你的要求</h3>
+          <div data-testid={`research-requirements-${t.id}`}>
+            {(requirements[t.id] ?? []).length === 0 ? (
+              <p className="muted" data-testid={`research-requirements-empty-${t.id}`}>
+                没有要求就不会提醒你，只会在页面上列发现
+              </p>
+            ) : (
+              <ul>
+                {(requirements[t.id] ?? []).map((r) => (
+                  <li key={r.id} data-testid={`research-requirement-${r.id}`}>
+                    {r.text}{' '}
+                    <Button
+                      kind="ghost"
+                      testId={`research-requirement-remove-${r.id}`}
+                      onClick={() => topicAct(t, () => api.removeResearchRequirement(r.id))}
+                    >
+                      删除
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="field-row">
+              <input data-testid={`research-requirement-input-${t.id}`} />
+              <Button
+                testId={`research-requirement-add-${t.id}`}
+                onClick={() => {
+                  const sel = `[data-testid="research-requirement-input-${t.id}"]`;
+                  const el = document.querySelector(sel) as HTMLInputElement;
+                  return topicAct(t, () =>
+                    api.addResearchRequirement({ topicId: t.id, text: el.value.trim() }),
+                  );
+                }}
+              >
+                加一条
+              </Button>
+            </div>
           </div>
           <h3>来源</h3>
           <ul>

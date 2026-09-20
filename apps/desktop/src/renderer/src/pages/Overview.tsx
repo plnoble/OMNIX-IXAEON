@@ -3,46 +3,8 @@ import { api, errMsg, type AppState, type Item } from '../api.js';
 import { Button, Card, ErrorBanner, Spinner } from '../ui.js';
 import type { ProjectRelation } from '@ixaeon/contracts';
 
-interface OverviewData {
-  generatedAt: string;
-  goals: Item[];
-  constraints: Item[];
-  unknowns: Item[];
-  conflicts: Item[];
-  /** E1：看起来已经结束的事（内容里的日期已过、你还没表态）。 */
-  pastSuggestions: Array<{ item: Item; day: string }>;
-  pastSources: Array<{
-    sourceId: string;
-    title: string;
-    lastDay: string;
-    pastItems: number;
-    totalItems: number;
-  }>;
-  projects: Array<{ project: { id: string; name: string }; goals: Item[]; constraints: Item[] }>;
-  relations: ProjectRelation[];
-  researchFollowUps: Array<{
-    id: string;
-    title: string;
-    url: string;
-    excerpt: string;
-    action_reason: string | null;
-    related_project_id: string | null;
-  }>;
-  recentFindings: Array<{
-    id: string;
-    title: string;
-    url: string;
-    topicQuestion: string;
-    fetchedAt: string;
-    isNew: boolean;
-  }>;
-  coverage: {
-    projectCount: number;
-    analyzedSources: number;
-    unanalyzedSources: number;
-    unassignedItems: number;
-  };
-}
+// 数据形状以 IPC 契约为准（含 N1 matchedFindings）
+type OverviewData = Awaited<ReturnType<typeof api.getPersonalOverview>>;
 
 const kindLabel: Record<ProjectRelation['kind'], string> = {
   serves_goal: '服务于目标',
@@ -247,6 +209,32 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
       <Card title="冲突" testId="overview-conflicts">
         <ItemList items={data?.conflicts ?? []} />
       </Card>
+      {(data?.matchedFindings ?? []).length > 0 ? (
+        <Card title="符合你要求的新发现" testId="overview-matched-findings">
+          <ul>
+            {(data?.matchedFindings ?? []).map((f) => (
+              <li key={f.id} data-testid={`matched-finding-${f.id}`}>
+                <a href={f.url} target="_blank" rel="noreferrer">
+                  {f.title}
+                </a>
+                <span className="muted">{` · ${f.topicQuestion} · ${f.fetchedAt.slice(0, 10)}`}</span>
+                {f.isNew ? <span data-testid={`matched-finding-new-${f.id}`}> 新</span> : null}
+                <ul>
+                  {f.matches.map((m) => (
+                    <li key={m.requirementId}>{`${m.text}：${m.reason}`}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+          <Button
+            testId="matched-findings-seen"
+            onClick={() => api.markMatchedFindingsSeen().then(reload)}
+          >
+            都看过了
+          </Button>
+        </Card>
+      ) : null}
       {(data?.recentFindings ?? []).length > 0 ? (
         <Card title="最近的新发现" testId="overview-recent-findings">
           <ul>
