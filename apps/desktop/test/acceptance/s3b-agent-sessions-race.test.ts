@@ -6,6 +6,7 @@
  * 2. 导入在途：关掉与重开清单被禁止（配合结果守卫，旧结果进不了新清单）；重开新清单不带旧结果。
  * 3. 条件 1 补强：成功选择那次的 pickFiles 在 listAgentSessions 之前。
  * 4. 重新选文件夹、等待新清单返回时，旧清单的导入按钮不能点。
+ * 5. 已有清单时重新选文件夹，关掉使在途列举失效，响应不再打开清单。
  */
 import { createElement } from 'react';
 import { act } from 'react';
@@ -234,6 +235,28 @@ it('条件 1 补强：成功选择那次的 pickFiles 在 listAgentSessions 之�
     harness.listAgentSessions.mock.invocationCallOrder[0],
   );
   expect(harness.pickFiles).nthCalledWith(1, 'directory');
+});
+
+it('已有清单时重新选文件夹，关掉使在途列举失效，响应不再打开清单', async () => {
+  let resolvePick!: (v: { ticket: string; paths: string[] } | null) => void;
+  await openList();
+  expect($('agent-sessions-list')).not.toBeNull();
+  const listedBefore = harness.listAgentSessions.mock.calls.length;
+
+  harness.pickFiles.mockImplementationOnce(
+    () =>
+      new Promise((res) => {
+        resolvePick = res;
+      }),
+  );
+  await click('sources-import-agent-sessions');
+  await click('agent-sessions-close');
+  expect($('agent-sessions-list')).toBeNull();
+
+  await resolvePick({ ticket: 'ticket-9999', paths: ['D:/synthetic/s3'] });
+  await settle();
+  expect($('agent-sessions-list')).toBeNull();
+  expect(harness.listAgentSessions.mock.calls.length).toBe(listedBefore);
 });
 
 it('重新选文件夹、等待新清单返回时，旧清单的导入按钮不能点', async () => {

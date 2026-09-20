@@ -109,7 +109,7 @@
       "status": "queued",
       "files": {
         "apps/desktop/test/acceptance/s3b-agent-sessions-page.test.ts": "0f1d22b64c6d610e928e992651c0d116e4e8bfcdb8a54d50c8cb240880e3009a",
-        "apps/desktop/test/acceptance/s3b-agent-sessions-race.test.ts": "87750d80b758caba5c8574221d33489329da89d8d1eb6910533ea55922854e1d"
+        "apps/desktop/test/acceptance/s3b-agent-sessions-race.test.ts": "307ff7e107e6f9330f35edbede897a9aec5552a90fa7577795ebb9f8d2446cfc"
       }
     }
   ]

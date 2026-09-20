@@ -9,10 +9,10 @@
 
 Codex 第一轮「必须改」后补了：估算请求序号 + 当前清单号守卫（乱序/已取消的响应丢弃）；导入在途禁止关掉/重开清单，导入完成后才显示结果（结果守卫比对清单号）。
 
-源码 226 行（只算 `apps/*/src`；验收测试、真机脚本、交付说明另计）：
+源码 237 行（只算 `apps/*/src`；验收测试、真机脚本、交付说明另计）：
 
 ```
- apps/desktop/src/renderer/src/pages/Sources.tsx | 226 ++++++++++++++
+ apps/desktop/src/renderer/src/pages/Sources.tsx | 237 ++++++++++++++
 ```
 
 ## 验收测试（先写后锁，`acceptance.mjs lock S3b`）
@@ -30,7 +30,7 @@ Codex 第一轮「必须改」后补了：估算请求序号 + 当前清单号�
 
 ## 自动化通过
 
-- `node scripts/acceptance.mjs run S3b`：9/9 通过。
+- `node scripts/acceptance.mjs run S3b`：10/10 通过。
 - `node scripts/verify.mjs`：全部通过（IXAEON v0.2 验证完成）。第一次跑时本机有正在使用的 IXAEON 实例占着固定端口 43191（单实例锁），`review-needs-lifecycle-ui` 一步被「不要动现有服务」守卫挡下；实例关掉后重跑全绿。中途 `review-recheck-ui` 的 BUI02 重启检查偶发过一次没等到主窗口，单独重跑该套件 3/3 过，完整 verify 再跑也全绿（判断为 `app.close()` 后单实例锁释放的竞态，与本单改动无关——本单只改渲染层）。Codex 补强后 verify 再跑仍全绿。
 - GitHub 上的 verify：第一版绿（运行 [35480869761](https://github.com/plnoble/OMNIX-IXAEON/actions/runs/35480869761)）；Codex 补强后的运行号推送后补记。
 
@@ -79,6 +79,8 @@ SOURCE_ROW 1
 建议：真机脚本失败时也关应用、清临时目录——本版加了 `try/finally`。
 
 第二轮又一条「必须改」：重新选文件夹、等待新清单返回时，旧清单的导入按钮仍可点。本版把导入/全选按钮在 `busy` 时禁用，并补了交错顺序的测试。
+
+第三轮又一条「必须改」：已有清单时重新选文件夹，等待新清单返回期间仍能点「关掉」，随后响应会无条件重新打开清单。本版加了列举请求序号，关掉使在途列举失效，并补了测试。
 
 重跑结论写进 `S3b-Codex审查.md`。
 

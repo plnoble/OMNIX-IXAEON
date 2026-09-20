@@ -139,6 +139,8 @@ export function SourcesPage({
   const agentActiveListId = useRef<string | null>(null);
   /** 估算请求序号：只认最新一次请求的响应，乱序到达的旧响应丢弃 */
   const agentEstimateSeq = useRef(0);
+  /** 列举请求序号：关掉清单使在途的选文件夹/列举失效 */
+  const agentListSeq = useRef(0);
 
   const reload = useCallback(
     async (silent = false) => {
@@ -243,10 +245,13 @@ export function SourcesPage({
   const openAgentSessions = async () => {
     setBusy(true);
     setError(null);
+    const seq = agentListSeq.current;
     try {
       const picked = await api.pickFiles('directory');
+      if (agentListSeq.current !== seq) return; // 关掉了：在途列举作废
       if (!picked || picked.paths.length === 0) return;
       const result = await api.listAgentSessions({ ticket: picked.ticket });
+      if (agentListSeq.current !== seq) return;
       agentEstimateSeq.current += 1; // 旧清单在途的估算作废
       agentActiveListId.current = result.listId;
       setAgentList(result);
@@ -254,13 +259,14 @@ export function SourcesPage({
       setAgentEstimate(null);
       setAgentResult(null);
     } catch (err) {
-      setError(errMsg(err));
+      if (agentListSeq.current === seq) setError(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
   const closeAgentSessions = () => {
+    agentListSeq.current += 1; // 在途列举作废
     agentEstimateSeq.current += 1; // 在途估算作废
     agentActiveListId.current = null;
     setAgentList(null);
