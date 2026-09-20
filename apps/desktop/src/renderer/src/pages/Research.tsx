@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 
@@ -6,6 +6,7 @@ interface CheckOutcome {
   searchUsed: boolean;
   searchError: string | null;
   searchCandidates: Array<{ title: string; url: string; snippet: string }>;
+  run?: { error: string | null };
 }
 
 interface Snapshot {
@@ -57,7 +58,13 @@ export function ResearchPage({
 }) {
   const [data, setData] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [topicBusy, setTopicBusy] = useState<Record<string, boolean>>({});
+  const [checking, setChecking] = useState<Record<string, { startedAt: number }>>({});
+  const [runNotice, setRunNotice] = useState<Record<string, string>>({});
+  const checkSeq = useRef<Record<string, number>>({});
+  const topicSeq = useRef<Record<string, number>>({});
   const [question, setQuestion] = useState('');
   const [publicDescription, setPublicDescription] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
@@ -92,8 +99,24 @@ export function ResearchPage({
     setDraftProjectId(projects[0]?.id ?? '');
   }, [projects, draftProjectId]);
 
+  const checkingCount = Object.keys(checking).length;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (checkingCount === 0) return;
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [checkingCount]);
+
+  const setTopicFlag = (id: string, on: boolean) =>
+    setTopicBusy((prev) => {
+      if (on) return { ...prev, [id]: true };
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+
   const create = async () => {
-    setBusy(true);
+    setCreateBusy(true);
     try {
       await api.createResearchTopic({
         question: question.trim(),
@@ -109,20 +132,87 @@ export function ResearchPage({
     } catch (err) {
       setError(errMsg(err));
     } finally {
-      setBusy(false);
+      setCreateBusy(false);
     }
   };
 
   const act = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
+    setSuggestBusy(true);
     try {
       await fn();
       await reload();
     } catch (err) {
       setError(errMsg(err));
     } finally {
-      setBusy(false);
+      setSuggestBusy(false);
     }
+  };
+
+  const topicAct = (t: { id: string; question: string }, fn: () => Promise<unknown>) => {
+    const seq = (topicSeq.current[t.id] ?? 0) + 1;
+    topicSeq.current[t.id] = seq;
+    void (async () => {
+      setTopicFlag(t.id, true);
+      try {
+        await fn();
+        await reload();
+      } catch (err) {
+        if (topicSeq.current[t.id] === seq) setError(`${t.question}：${errMsg(err)}`);
+      } finally {
+        if (topicSeq.current[t.id] === seq) setTopicFlag(t.id, false);
+      }
+    })();
+  };
+
+  const stopWaiting = (id: string) => {
+    setTopicFlag(id, false);
+    setChecking((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const startCheck = (t: Snapshot['topics'][number]) => {
+    const seq = (checkSeq.current[t.id] ?? 0) + 1;
+    checkSeq.current[t.id] = seq;
+    topicSeq.current[t.id] = (topicSeq.current[t.id] ?? 0) + 1;
+    const busySeq = topicSeq.current[t.id];
+    setTopicFlag(t.id, true);
+    setChecking((prev) => ({ ...prev, [t.id]: { startedAt: Date.now() } }));
+    void (async () => {
+      try {
+        const outcome = (await api.checkResearchTopicNow(t.id)) as CheckOutcome;
+        if (checkSeq.current[t.id] === seq) {
+          setLastCheck((prev) => ({ ...prev, [t.id]: outcome }));
+          const notice = outcome.run?.error ?? null;
+          setRunNotice((prev) => {
+            const next = { ...prev };
+            if (notice) next[t.id] = notice;
+            else delete next[t.id];
+            return next;
+          });
+          if (topicSeq.current[t.id] === busySeq) setTopicFlag(t.id, false);
+          setChecking((prev) => {
+            const next = { ...prev };
+            delete next[t.id];
+            return next;
+          });
+        }
+        await reload();
+      } catch (err) {
+        if (checkSeq.current[t.id] === seq) setError(`${t.question}：${errMsg(err)}`);
+      } finally {
+        if (topicSeq.current[t.id] === busySeq) setTopicFlag(t.id, false);
+        if (checkSeq.current[t.id] === seq) {
+          setChecking((prev) => {
+            const next = { ...prev };
+            delete next[t.id];
+            return next;
+          });
+        }
+      }
+    })();
   };
 
   const askSuggest = () =>
@@ -153,6 +243,13 @@ export function ResearchPage({
     });
   };
 
+  const waitFor = (id: string) => {
+    const row = checking[id];
+    if (!row) return null;
+    const elapsed = Math.floor((Date.now() - row.startedAt) / 1000);
+    return { elapsed, overdue: elapsed >= 300 };
+  };
+
   if (!data && !error) return <Spinner />;
 
   return (
@@ -172,7 +269,7 @@ export function ResearchPage({
           次调用（与搜索预算独立，超出走规则研读）。发现是外部线索，不会自动变成你的目标。
         </p>
       </Card>
-      <Button kind="primary" disabled={busy} onClick={askSuggest} testId="research-suggest">
+      <Button kind="primary" disabled={suggestBusy} onClick={askSuggest} testId="research-suggest">
         帮我想想该关注什么
       </Button>
       {suggestCount !== null && (
@@ -184,14 +281,14 @@ export function ResearchPage({
           <div className="card-actions">
             <Button
               kind="primary"
-              disabled={busy}
+              disabled={suggestBusy}
               onClick={confirmSuggest}
               testId="research-suggest-ok"
             >
               好
             </Button>
             <Button
-              disabled={busy}
+              disabled={suggestBusy}
               onClick={() => setSuggestCount(null)}
               testId="research-suggest-cancel"
             >
@@ -217,14 +314,14 @@ export function ResearchPage({
             <div className="card-actions">
               <Button
                 kind="primary"
-                disabled={busy}
+                disabled={suggestBusy}
                 onClick={() => decide(i, true)}
                 testId={`research-direction-follow-${i}`}
               >
                 关注
               </Button>
               <Button
-                disabled={busy}
+                disabled={suggestBusy}
                 onClick={() => decide(i, false)}
                 testId={`research-direction-skip-${i}`}
               >
@@ -302,7 +399,7 @@ export function ResearchPage({
         </Field>
         <Button
           kind="primary"
-          disabled={busy || question.trim().length === 0}
+          disabled={createBusy || question.trim().length === 0}
           onClick={() => void create()}
           testId="research-create"
         >
@@ -327,27 +424,42 @@ export function ResearchPage({
           {t.consecutive_failures >= 3 && (
             <p className="warn">连续失败 {t.consecutive_failures} 次，未把失败写成无变化。</p>
           )}
+          {waitFor(t.id) && !waitFor(t.id)!.overdue && (
+            <p className="muted" data-testid={`research-checking-${t.id}`}>
+              正在检查…（已 {waitFor(t.id)!.elapsed} 秒）
+            </p>
+          )}
+          {waitFor(t.id)?.overdue && (
+            <p className="warn" data-testid={`research-checking-${t.id}`}>
+              检查还没回来，可能是模型或网络慢；它会在后台继续跑完
+            </p>
+          )}
+          {runNotice[t.id] && (
+            <p className="warn" data-testid={`research-run-notice-${t.id}`}>
+              {runNotice[t.id]}
+            </p>
+          )}
           <div className="card-actions">
             <Button
-              disabled={busy}
+              disabled={!!topicBusy[t.id]}
               onClick={() =>
-                void act(() => api.setResearchTopicEnabled({ id: t.id, enabled: !t.enabled }))
+                topicAct(t, () => api.setResearchTopicEnabled({ id: t.id, enabled: !t.enabled }))
               }
             >
               {t.enabled ? '关闭自动' : '启用自动'}
             </Button>
             <Button
-              disabled={busy}
+              disabled={!!topicBusy[t.id]}
               onClick={() =>
-                void act(() => api.setResearchTopicPaused({ id: t.id, paused: !t.paused }))
+                topicAct(t, () => api.setResearchTopicPaused({ id: t.id, paused: !t.paused }))
               }
             >
               {t.paused ? '恢复' : '暂停'}
             </Button>
             <Button
-              disabled={busy}
+              disabled={!!topicBusy[t.id]}
               onClick={() =>
-                void act(() =>
+                topicAct(t, () =>
                   api.setResearchBudget({
                     id: t.id,
                     paidBudgetMode: 'request_cap',
@@ -360,16 +472,17 @@ export function ResearchPage({
             </Button>
             <Button
               kind="primary"
-              disabled={busy}
-              onClick={() =>
-                void act(async () => {
-                  const outcome = (await api.checkResearchTopicNow(t.id)) as CheckOutcome;
-                  setLastCheck((prev) => ({ ...prev, [t.id]: outcome }));
-                })
-              }
+              disabled={!!topicBusy[t.id]}
+              onClick={() => startCheck(t)}
+              testId={`research-check-${t.id}`}
             >
               立即检查
             </Button>
+            {waitFor(t.id)?.overdue && (
+              <Button onClick={() => stopWaiting(t.id)} testId={`research-stop-waiting-${t.id}`}>
+                停止等待
+              </Button>
+            )}
           </div>
           <h3>来源</h3>
           <ul>
@@ -398,9 +511,9 @@ export function ResearchPage({
                           </a>
                           <div className="muted">{c.snippet}</div>
                           <Button
-                            disabled={busy}
+                            disabled={!!topicBusy[t.id]}
                             onClick={() =>
-                              void act(async () => {
+                              topicAct(t, async () => {
                                 await api.addResearchSource({
                                   topicId: t.id,
                                   url: c.url,
@@ -443,9 +556,9 @@ export function ResearchPage({
               data-testid={`research-add-url-${t.id}`}
             />
             <Button
-              disabled={busy}
+              disabled={!!topicBusy[t.id]}
               onClick={() =>
-                void act(async () => {
+                topicAct(t, async () => {
                   await api.addResearchSource({
                     topicId: t.id,
                     url: (extraUrl[t.id] ?? '').trim(),
@@ -485,9 +598,9 @@ export function ResearchPage({
                   {f.action_reason && <p className="muted">{f.action_reason}</p>}
                   <div className="card-actions">
                     <Button
-                      disabled={busy}
+                      disabled={!!topicBusy[t.id]}
                       onClick={() =>
-                        void act(() =>
+                        topicAct(t, () =>
                           api.setResearchFindingAction({
                             findingId: f.id,
                             actionWorthy: !f.action_worthy,
@@ -513,9 +626,9 @@ export function ResearchPage({
                           ))}
                         </select>
                         <Button
-                          disabled={busy || !draftProjectId}
+                          disabled={!!topicBusy[t.id] || !draftProjectId}
                           onClick={() =>
-                            void act(async () => {
+                            topicAct(t, async () => {
                               await api.createCodingDraftFromFinding({
                                 findingId: f.id,
                                 projectId: draftProjectId,
