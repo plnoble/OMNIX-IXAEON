@@ -133,6 +133,17 @@ it('条件 1：拼接摘录打捞出最长连续一段，入库 excerpt 与原�
   expect(BODY).toContain(evidence[0]!.excerpt);
 });
 
+it('条件 1 补（整合方）：两段都够长时取最长的那段，不是先遇到的那段', () => {
+  // 原文里两段都 ≥15 字；短的在前、长的在后。取第一段就会拿到短的那条。
+  const first = '这一段是原文里的第一句话，十五字以上。';
+  const second = '这一段比前面那句还要长一些，也在原文里，同样超过十五个字。';
+  const body = `${first}
+中间夹一句别的。
+${second}`;
+  const spliced = `${first}${second}`;
+  expect(groundExcerptInSegment(spliced, body)).toBe(second);
+});
+
 it('条件 2：整段都是编的，打捞不到，不入库', async () => {
   const sourceId = seedDoc('made-up.md', BODY);
   const madeUp = '这是模型自己编的一段话，原文里根本没有。';

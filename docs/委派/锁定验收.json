@@ -128,6 +128,23 @@
       "files": {
         "apps/desktop/test/acceptance/u1-research-busy.test.ts": "2320bf684f9341238b87dead29e0c17bacf5dda30decd9c06f8de3c9b0764dcb"
       }
+    },
+    {
+      "id": "X1",
+      "title": "提炼打捞依据",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/x1-salvage-excerpt.test.ts": "1d674e1c55d700bdfdce3d51f901a6a067518f8bf704d366e498bf62bebe2d0f"
+      }
+    },
+    {
+      "id": "N1",
+      "title": "要求清单只在对上时提醒",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/n1-requirement-matches.test.ts": "fadea4e3a637803d9fa9959e7c21c62a89712c7c0d812b600beba8754abe1d1e",
+        "apps/desktop/test/acceptance/n1-requirements-page.test.ts": "14347541a82b6c9af52776b2eeaa0a5259f895e8ba52438777286fa01e3c76c7"
+      }
     }
   ]
 }
