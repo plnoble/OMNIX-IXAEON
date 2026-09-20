@@ -26,12 +26,25 @@
 ## 自动化通过
 
 - `node scripts/acceptance.mjs run S3b`：5/5 通过。
-- `node scripts/verify.mjs`：本地一次失败在 `review-needs-lifecycle-ui`（真实 Electron）：**本机有正在使用的 IXAEON 实例占着固定端口 43191**（共享检出目录 2026-09-20 08:49 启动，单实例锁），不是本单改动引起；其余步骤全过。端口空了重跑，结论补记。
-- GitHub 上的 verify：推送后看，结论补记。
+- `node scripts/verify.mjs`：全部通过（IXAEON v0.2 验证完成）。第一次跑时本机有正在使用的 IXAEON 实例占着固定端口 43191（单实例锁），`review-needs-lifecycle-ui` 一步被「不要动现有服务」守卫挡下；实例关掉后重跑全绿。中途 `review-recheck-ui` 的 BUI02 重启检查偶发过一次没等到主窗口，单独重跑该套件 3/3 过，完整 verify 再跑也全绿（判断为 `app.close()` 后单实例锁释放的竞态，与本单改动无关——本单只改渲染层）。
+- GitHub 上的 verify：绿（运行 [35480869761](https://github.com/plnoble/OMNIX-IXAEON/actions/runs/35480869761)，2026-09-20）。
 
 ## 真机通过
 
-`scripts/real/s3b-agent-sessions-ui.mjs`（临时 `IXAEON_DATA_DIR` + 合成会话文件夹；文件夹选择走主进程 `IXAEON_TEST_DIALOG_RESPONSES` 测试钩子）：待端口空了跑，输出补记。
+`node_modules/.bin/jiti scripts/real/s3b-agent-sessions-ui.ts`（临时 `IXAEON_DATA_DIR` + 合成会话文件夹；文件夹选择走主进程 `IXAEON_TEST_DIALOG_RESPONSES` 测试钩子，只在环境变量存在时生效）。输出（行内各列连在一起是 textContent 的取法，界面上是分列的）：
+
+```
+LIST
+Claude CodeS3b 合成任务：把会话选择导入做好未归属项目2026-09-20 01:240.5 KB新
+ESTIMATE
+将发给模型分析：约 0 万字（你说的 0 万、AI 回答 0 万）
+RESULT
+新导入 1 个、没变化 0 个、失败 0 个
+SOURCE_ROW 1
+	S3b 合成任务：把会话选择导入做好	未归属	对话	已收到，等待分析归档	2	0	2026-09-20 01:24:14
+```
+
+清单（工具/标题/项目/时间/大小/状态「新」）→ 全选 → 估算（合成会话只有 25 个字，四舍五入 0 万字，格式对）→ 导入（新导入 1 个）→ 资料列表出现新来源（类型「对话」、等待分析）。截图在本机 `apps/desktop/release/screenshots/s3b-agent-list.png` 与 `s3b-after-import.png`，未提交。
 
 ## Codex 审查（A 档）
 
