@@ -111,6 +111,15 @@
         "apps/desktop/test/acceptance/s3b-agent-sessions-page.test.ts": "0f1d22b64c6d610e928e992651c0d116e4e8bfcdb8a54d50c8cb240880e3009a",
         "apps/desktop/test/acceptance/s3b-agent-sessions-race.test.ts": "307ff7e107e6f9330f35edbede897a9aec5552a90fa7577795ebb9f8d2446cfc"
       }
+    },
+    {
+      "id": "W1b",
+      "title": "概览页新发现",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/w1b-recent-findings.test.ts": "04259a83d1d04daf6f21ddcbd003a8f43f39b0f6a6e233f4a1e37c6f3ab6b787",
+        "apps/desktop/test/acceptance/w1b-overview-findings-page.test.ts": "d60de22d8a342fa2a8312bc1173434b79d5931d11100705dd933b7da7e96c2ba"
+      }
     }
   ]
 }
