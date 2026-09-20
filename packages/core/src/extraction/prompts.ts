@@ -10,8 +10,9 @@
  * 这里只管措辞，让注入聊天和记忆页读起来不会被误当成用户的事。
  * v5（2026-09-18，E5）：提炼 IXAEON 自己的聊天存档时，块前附「AI 回答前看过的记忆」
  * 与不收什么（askSessionPreface）；系统提示词本身不变。
+ * v6（2026-09-20，X1）：摘录必须从原文逐字复制连续一段，不要拼接。
  */
-export const EXTRACT_PROMPT_VERSION = 'v5';
+export const EXTRACT_PROMPT_VERSION = 'v6';
 
 /**
  * E5：提炼 IXAEON 自己的聊天存档时，每块前附的说明。
@@ -57,6 +58,7 @@ export const EXTRACT_SYSTEM_PROMPT = [
   '- 结论相互冲突时分别输出两条，不要自行合并或取舍。',
   '- statement 用一句自然的中文陈述；rationale 简述原文理由（可选）。',
   '- excerpt 必须逐字摘自所引用片段原文（不超过 1500 字符）。',
+  '- 摘录必须从原文里逐字复制**连续的一段**：不要跨行拼接、不要改写、不要把两处并成一句。找不到能逐字复制的一段，就不要给这条结论。',
   '- confidence 是你对"确实提取自原文"的把握（0-1），不是对结论永恒正确的评价。',
   '- 宁缺毋滥：没有清晰依据就不要输出该条。',
   '- 一次性/当场要求（这次会议、仅本次、今天先）不要写成 goal/constraint/preference，用 open_loop。',

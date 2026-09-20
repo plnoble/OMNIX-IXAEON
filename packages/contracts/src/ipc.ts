@@ -502,6 +502,8 @@ export interface IxaIpcApi {
   reextractSource(sourceId: string): Promise<{ jobId: string }>;
   /** 批量重新分析（「资料」页一次重跑所有分析失败的来源）。已归档的跳过。 */
   reextractSources(sourceIds: string[]): Promise<{ queued: number; skipped: number }>;
+  /** X1：只把依据对不上原文的失败资料重新排队。 */
+  requeueFailedExtractions(): Promise<{ queued: number }>;
   archiveSource(input: {
     sourceId: string;
     /** 空则用标题+开头原文自动生成一句经验摘要 */

@@ -652,13 +652,17 @@ export class AppRuntime {
         this.jobs.kick();
       }
       // 成功但有话要说：引用核对不上的结论被丢掉了，用户有权知道丢了几条。
-      if (stats.skippedBadRef > 0) {
+      if (stats.skippedBadRef > 0 || stats.salvaged > 0) {
+        const parts: string[] = [];
+        if (stats.salvaged > 0) parts.push(`${stats.salvaged} 条依据按原文截短后保留`);
+        if (stats.skippedBadRef > 0) {
+          parts.push(
+            `${stats.skippedBadRef} 条结论的依据和原文对不上，已丢弃；其余 ${stats.inserted} 条照常入库。可点「重新分析」再试一次`,
+          );
+        }
         this.db
           .prepare('UPDATE jobs SET note = ? WHERE id = ?')
-          .run(
-            `本次有 ${stats.skippedBadRef} 条结论的依据和原文对不上，已丢弃；其余 ${stats.inserted} 条照常入库。可点「重新分析」再试一次。`,
-            job.id,
-          );
+          .run(`${parts.join('。')}。`, job.id);
       }
       recordAudit(this.db, 'extract.completed', {
         sourceId: payload.sourceId,

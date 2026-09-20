@@ -362,6 +362,44 @@ export class JobQueue {
   }
 }
 
+/**
+ * X1：把最后一次失败原因含「依据对不上原文」或「无效引用/依据」的来源
+ * 重新排进分析队列。同一来源只排一个（只看最新一条任务）；网络、限流不碰。
+ * 返回实际新排的个数。
+ */
+export function requeueFailedExtractions(db: CoreDatabase): number {
+  const rows = db
+    .prepare(
+      `SELECT j.id, j.error, json_extract(j.payload_json, '$.sourceId') AS sourceId
+         FROM jobs j
+        WHERE j.kind = 'extract' AND j.status = 'failed'
+          AND NOT EXISTS (
+            SELECT 1 FROM jobs k
+             WHERE k.kind = j.kind AND k.id != j.id
+               AND (k.created_at > j.created_at OR (k.created_at = j.created_at AND k.id > j.id))
+               AND COALESCE(json_extract(k.payload_json, '$.sourceId'), k.payload_json)
+                 = COALESCE(json_extract(j.payload_json, '$.sourceId'), j.payload_json))`,
+    )
+    .all() as Array<{ id: string; error: string | null; sourceId: string | null }>;
+  const now = new Date().toISOString();
+  const insert = db.prepare(
+    `INSERT INTO jobs (id, kind, status, payload_json, progress, error, retry_count, created_at, updated_at)
+     VALUES (?, 'extract', 'queued', ?, 0, NULL, 0, ?, ?)`,
+  );
+  let n = 0;
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const err = row.error ?? '';
+    if (!/依据对不上原文|无效引用\/依据/.test(err)) continue;
+    const sourceId = row.sourceId;
+    if (!sourceId || seen.has(sourceId)) continue;
+    seen.add(sourceId);
+    insert.run(randomUUID(), JSON.stringify({ sourceId, reextract: true }), now, now);
+    n += 1;
+  }
+  return n;
+}
+
 function isNetworkFailureMessage(error: string | null): boolean {
   if (!error) return false;
   if (error.startsWith('网络错误')) return true;
