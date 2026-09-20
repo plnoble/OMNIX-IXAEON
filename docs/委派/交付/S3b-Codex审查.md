@@ -1,12 +1,13 @@
 # S3b Codex 审查
 
-- 时间：2026-09-20T02:01:22.144Z
-- 分支：grok/S3b（58c8e27），对照 docs/委派/S3b-编码代理会话选择导入（界面）.md
+- 时间：2026-09-20T02:11:22.709Z
+- 分支：grok/S3b（09ec97c），对照 docs/委派/S3b-编码代理会话选择导入（界面）.md
 - Codex：0.155.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改：`apps/desktop/src/renderer/src/pages/Sources.tsx:249–255`：已有清单时重新选文件夹，等待新清单返回期间仍能点「关掉」，随后响应会无条件重新打开清单；应让关闭操作使在途清单请求失效，并补充此交错顺序的测试。
-- 建议：`apps/desktop/src/renderer/src/pages/Sources.tsx:733–739`：导入期间复选框仍能改变选择，估算随之更新，但导入结果对应提交时的旧选择；建议导入期间禁用复选框，保持选择、估算与结果一致。
-- 建议：`scripts/real/s3b-agent-sessions-ui.ts:59–70`：`launch()` 在 `try/finally` 外执行，Electron 启动后若等待窗口失败，应用和临时目录不会清理；另外第 110 行关闭应用失败也会跳过目录清理，应覆盖这些失败路径。
-- 建议：`docs/委派/交付/S3b.md:35`：需要人工确认：当前受审提交的 GitHub verify 已通过；说明只提供第一版的通过记录，补强版本仍待补记，不能用旧版结果满足最终合并门槛。
+- 建议，`apps/desktop/src/renderer/src/pages/Sources.tsx:784`：估算进行中或失败后仍可导入，用户可能尚未看到预计分析字数；建议当前勾选的估算成功后再启用导入。
+- 建议，`apps/desktop/src/renderer/src/pages/Sources.tsx:739–744`：导入期间复选框仍可操作，页面的选择数量和估算会改变，但返回结果对应原选择；建议在 `agentBusy` 时禁用复选框。
+- 建议，`scripts/real/s3b-agent-sessions-ui.ts:102–107`：资料列表没有出现来源时仅打印 `SOURCE_ROW 0`，脚本仍成功结束；应等待并断言合成来源出现，避免复跑时漏报失败。
+- 建议，`scripts/real/s3b-agent-sessions-ui.ts:69`：启动及等待首窗发生在 `try/finally` 外，失败时不会清理临时目录，也可能遗留应用进程；应将启动过程纳入清理范围。
+- 建议，`docs/委派/交付/S3b.md:35`：需要人工确认：最终待合并提交的 GitHub verify 已通过；现有链接仅证明第一版通过，合并前应补齐本版结果。
 
-结论：需要修改
+结论：可以合并
