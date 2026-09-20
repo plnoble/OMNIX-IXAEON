@@ -92,9 +92,7 @@ console.log(estimate);
 await run.page.screenshot({ path: join(shotDir, 's3b-agent-list.png'), fullPage: true });
 
 await run.page.getByTestId('agent-sessions-import').click();
-await run.page
-  .getByTestId('agent-sessions-result')
-  .waitFor({ timeout: 20_000, state: 'visible' });
+await run.page.getByTestId('agent-sessions-result').waitFor({ timeout: 20_000, state: 'visible' });
 const result = await run.page.getByTestId('agent-sessions-result').innerText();
 console.log('RESULT');
 console.log(result);
