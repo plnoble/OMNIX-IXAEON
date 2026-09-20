@@ -6,7 +6,8 @@
  * 2. 检查期间显示「正在检查…（已 N 秒）」，秒数会涨；检查返回后这行消失。
  * 3. 等待超过 5 分钟：文案变成「还没回来…后台继续跑」，出现「停止等待」；
  *    点它之后这个主题的按钮恢复可用、提示消失；后来 IPC 真的返回时不报错、照常刷新列表。
- * 4. 返回的运行记录里 error 非空：这个主题下面显示那行黄字，内容含降级说明；error 为空时不显示。
+ * 4. 返回的运行记录里 error 非空：这个主题下面显示那行黄字（class=warn），内容含降级说明；
+ *    同一主题再次返回空 error 后旧提示消失。停止等待后这次检查返回的降级说明仍显示。
  * 5. 检查失败（IPC reject）：只影响这个主题的按钮，错误提示里能看出是哪个主题。
  *    启用/暂停等操作失败时，错误提示同样带主题名。
  * 6. 停止等待后再检查同一主题：旧请求最后返回不覆盖新检查的搜索结果和降级提示。
@@ -227,13 +228,38 @@ it('条件 4：run.error 非空时这个主题下显示黄字；为空时不显�
     okCheck('模型研读失败 1 次，已降级为规则研读'),
   );
   await click('research-check-a');
-  expect($('research-run-notice-a')?.textContent).toContain('已降级为规则研读');
+  const notice = $('research-run-notice-a');
+  expect(notice?.textContent).toContain('已降级为规则研读');
+  expect(notice?.classList.contains('warn')).toBe(true);
+  expect($('research-topic-a')?.contains(notice)).toBe(true);
   expect($('research-run-notice-b')).toBeNull();
 
   harness.checkResearchTopicNow.mockResolvedValueOnce(okCheck(null));
   await click('research-check-b');
   expect($('research-run-notice-b')).toBeNull();
   expect($('research-run-notice-a')?.textContent).toContain('已降级为规则研读');
+
+  harness.checkResearchTopicNow.mockResolvedValueOnce(okCheck(null));
+  await click('research-check-a');
+  expect($('research-run-notice-a')).toBeNull();
+});
+
+it('停止等待后，这次检查返回的降级说明仍显示', async () => {
+  const held = deferred<ReturnType<typeof okCheck>>();
+  harness.checkResearchTopicNow.mockReturnValueOnce(held.promise);
+  await renderPage();
+  await click('research-check-a');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+  });
+  await click('research-stop-waiting-a');
+  expect($('research-checking-a')).toBeNull();
+  await act(async () => {
+    held.resolve(okCheck('模型研读失败 1 次，已降级为规则研读'));
+    await held.promise;
+  });
+  expect($('research-run-notice-a')?.textContent).toContain('已降级为规则研读');
+  expect($('error-banner')).toBeNull();
 });
 
 it('条件 5：检查失败只影响这个主题，错误里能看出是哪个主题', async () => {

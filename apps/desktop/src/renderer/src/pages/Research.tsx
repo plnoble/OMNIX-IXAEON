@@ -162,7 +162,6 @@ export function ResearchPage({
   };
 
   const stopWaiting = (id: string) => {
-    checkSeq.current[id] = (checkSeq.current[id] ?? 0) + 1;
     setTopicFlag(id, false);
     setChecking((prev) => {
       const next = { ...prev };
