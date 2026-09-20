@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   api,
   errMsg,
@@ -111,6 +111,36 @@ export function SourcesPage({
     total: number;
   } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** S3b：编码代理会话选择导入。清单号 → 勾选 → 估算 → 导入。渲染层不接触路径。 */
+  const [agentList, setAgentList] = useState<{
+    listId: string;
+    sessions: Array<{
+      id: number;
+      tool: 'claude_code' | 'codex';
+      title: string;
+      cwd: string | null;
+      projectId: string | null;
+      mtimeMs: number;
+      size: number;
+      status: 'new' | 'imported' | 'updated';
+    }>;
+    unrecognizedCount: number;
+    subagentCount: number;
+  } | null>(null);
+  const [agentChecked, setAgentChecked] = useState<Set<number>>(new Set());
+  const [agentEstimate, setAgentEstimate] = useState<{
+    loading: boolean;
+    userChars: number;
+    assistantChars: number;
+  } | null>(null);
+  const [agentResult, setAgentResult] = useState<string | null>(null);
+  const [agentBusy, setAgentBusy] = useState(false);
+  /** 当前清单号（关闭/换清单时清掉）：过期响应不允许再改界面（Codex 复审） */
+  const agentActiveListId = useRef<string | null>(null);
+  /** 估算请求序号：只认最新一次请求的响应，乱序到达的旧响应丢弃 */
+  const agentEstimateSeq = useRef(0);
+  /** 列举请求序号：关掉清单使在途的选文件夹/列举失效 */
+  const agentListSeq = useRef(0);
 
   const reload = useCallback(
     async (silent = false) => {
@@ -208,6 +238,113 @@ export function SourcesPage({
       setError(errMsg(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // S3b：选文件夹 → 列出会话（只用 S3a 的三个 IPC；渲染层不接触路径）
+  const openAgentSessions = async () => {
+    setBusy(true);
+    setError(null);
+    const seq = agentListSeq.current;
+    try {
+      const picked = await api.pickFiles('directory');
+      if (agentListSeq.current !== seq) return; // 关掉了：在途列举作废
+      if (!picked || picked.paths.length === 0) return;
+      const result = await api.listAgentSessions({ ticket: picked.ticket });
+      if (agentListSeq.current !== seq) return;
+      agentEstimateSeq.current += 1; // 旧清单在途的估算作废
+      agentActiveListId.current = result.listId;
+      setAgentList(result);
+      setAgentChecked(new Set());
+      setAgentEstimate(null);
+      setAgentResult(null);
+    } catch (err) {
+      if (agentListSeq.current === seq) setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const closeAgentSessions = () => {
+    agentListSeq.current += 1; // 在途列举作废
+    agentEstimateSeq.current += 1; // 在途估算作废
+    agentActiveListId.current = null;
+    setAgentList(null);
+    setAgentChecked(new Set());
+    setAgentEstimate(null);
+    setAgentResult(null);
+  };
+
+  /** 勾选变化后重新估算（一个都没勾就不显示）。只认最新请求的响应。 */
+  const applyAgentChecks = async (next: Set<number>) => {
+    setAgentChecked(next);
+    setAgentResult(null);
+    const listId = agentActiveListId.current;
+    if (!listId) return;
+    const seq = ++agentEstimateSeq.current;
+    if (next.size === 0) {
+      setAgentEstimate(null);
+      return;
+    }
+    setAgentEstimate({ loading: true, userChars: 0, assistantChars: 0 });
+    try {
+      const est = await api.estimateAgentSessions({ listId, ids: [...next] });
+      if (agentEstimateSeq.current !== seq || agentActiveListId.current !== listId) {
+        return; // 过期响应：清单已关/已换，或已有更新的请求
+      }
+      setAgentEstimate({
+        loading: false,
+        userChars: est.userChars,
+        assistantChars: est.assistantChars,
+      });
+    } catch (err) {
+      if (agentEstimateSeq.current === seq && agentActiveListId.current === listId) {
+        setAgentEstimate(null);
+        setError(errMsg(err));
+      }
+    }
+  };
+
+  const toggleAgentSession = (id: number, checked: boolean) => {
+    const next = new Set(agentChecked);
+    if (checked) next.add(id);
+    else next.delete(id);
+    return applyAgentChecks(next);
+  };
+
+  const selectNewAgentSessions = () => {
+    if (!agentList) return;
+    const next = new Set(
+      [...agentList.sessions]
+        .sort((a, b) => b.mtimeMs - a.mtimeMs)
+        .filter((s) => s.status === 'new' || s.status === 'updated')
+        .map((s) => s.id),
+    );
+    return applyAgentChecks(next);
+  };
+
+  const importSelectedAgentSessions = async () => {
+    const listId = agentActiveListId.current;
+    if (!agentList || !listId || agentChecked.size === 0) return;
+    setAgentBusy(true);
+    setError(null);
+    try {
+      const r = await api.importAgentSessions({
+        listId,
+        ids: [...agentChecked],
+        projectId,
+      });
+      if (agentActiveListId.current !== listId) return; // 清单已关/已换：结果不进新清单
+      const lines = [
+        `新导入 ${r.created} 个、没变化 ${r.unchanged} 个、失败 ${r.failed.length} 个`,
+      ];
+      for (const f of r.failed) lines.push(`${f.id}：${f.message}`);
+      setAgentResult(lines.join('；'));
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setAgentBusy(false);
     }
   };
 
@@ -428,6 +565,13 @@ export function SourcesPage({
             <Button disabled={busy} onClick={importFolder} testId="sources-import-folder">
               导入文件夹
             </Button>
+            <Button
+              disabled={busy || agentBusy}
+              onClick={openAgentSessions}
+              testId="sources-import-agent-sessions"
+            >
+              导入编码代理会话
+            </Button>
             <Button disabled={busy} onClick={importChatgptExport} testId="sources-import-chatgpt">
               导入 ChatGPT 导出
             </Button>
@@ -571,6 +715,93 @@ export function SourcesPage({
           </table>
         )}
       </Card>
+
+      {agentList && (
+        <Card
+          title="编码代理会话"
+          testId="agent-sessions-card"
+          actions={
+            <Button
+              kind="ghost"
+              disabled={agentBusy}
+              onClick={closeAgentSessions}
+              testId="agent-sessions-close"
+            >
+              关掉
+            </Button>
+          }
+        >
+          <div data-testid="agent-sessions-list">
+            {[...agentList.sessions]
+              .sort((a, b) => b.mtimeMs - a.mtimeMs)
+              .map((s) => (
+                <div key={s.id} className="item-row" data-testid={`agent-session-${s.id}`}>
+                  <input
+                    type="checkbox"
+                    checked={agentChecked.has(s.id)}
+                    onChange={(e) => void toggleAgentSession(s.id, e.target.checked)}
+                    aria-label={`选择 ${s.title}`}
+                    data-testid={`agent-session-check-${s.id}`}
+                  />
+                  <span className="badge">
+                    {s.tool === 'claude_code' ? 'Claude Code' : 'Codex'}
+                  </span>
+                  <span>{s.title}</span>
+                  <span className="muted">
+                    {s.projectId
+                      ? (projects.find((p) => p.id === s.projectId)?.name ?? '未归属项目')
+                      : '未归属项目'}
+                  </span>
+                  <span className="muted">
+                    {new Date(s.mtimeMs).toISOString().slice(0, 16).replace('T', ' ')}
+                  </span>
+                  <span className="muted">
+                    {s.size >= 1024 * 1024
+                      ? `${(s.size / 1024 / 1024).toFixed(1)} MB`
+                      : `${(s.size / 1024).toFixed(1)} KB`}
+                  </span>
+                  <span className="badge">
+                    {s.status === 'new' ? '新' : s.status === 'imported' ? '已导入' : '有更新'}
+                  </span>
+                </div>
+              ))}
+          </div>
+          {(agentList.subagentCount > 0 || agentList.unrecognizedCount > 0) && (
+            <p className="muted" data-testid="agent-sessions-unlisted">
+              另有 {agentList.subagentCount} 个 Codex 子代理会话、{agentList.unrecognizedCount}{' '}
+              个认不出的文件没列出
+            </p>
+          )}
+          <div className="field-row">
+            <Button
+              disabled={busy || agentBusy}
+              onClick={selectNewAgentSessions}
+              testId="agent-sessions-select-new"
+            >
+              全选有更新的和新的
+            </Button>
+            <Button
+              disabled={agentChecked.size === 0 || agentBusy || busy}
+              onClick={importSelectedAgentSessions}
+              testId="agent-sessions-import"
+            >
+              导入选中的 {agentChecked.size} 个
+            </Button>
+            {agentEstimate && (
+              <span className="muted" data-testid="agent-sessions-estimate">
+                {agentEstimate.loading
+                  ? '正在估算…'
+                  : `将发给模型分析：约 ${Math.round(
+                      (agentEstimate.userChars + agentEstimate.assistantChars) / 10000,
+                    )} 万字（你说的 ${Math.round(agentEstimate.userChars / 10000)} 万、AI 回答 ${Math.round(
+                      agentEstimate.assistantChars / 10000,
+                    )} 万）`}
+              </span>
+            )}
+          </div>
+          {agentResult && <p data-testid="agent-sessions-result">{agentResult}</p>}
+        </Card>
+      )}
 
       {detail && (
         <SourceDetail
