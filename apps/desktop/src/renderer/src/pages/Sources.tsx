@@ -767,11 +767,15 @@ export function SourcesPage({
             </p>
           )}
           <div className="field-row">
-            <Button onClick={selectNewAgentSessions} testId="agent-sessions-select-new">
+            <Button
+              disabled={busy || agentBusy}
+              onClick={selectNewAgentSessions}
+              testId="agent-sessions-select-new"
+            >
               全选有更新的和新的
             </Button>
             <Button
-              disabled={agentChecked.size === 0 || agentBusy}
+              disabled={agentChecked.size === 0 || agentBusy || busy}
               onClick={importSelectedAgentSessions}
               testId="agent-sessions-import"
             >

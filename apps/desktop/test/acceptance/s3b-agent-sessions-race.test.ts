@@ -5,6 +5,7 @@
  * 1. 估算响应乱序到达：旧响应不覆盖新估算；全部取消后，在途响应不让估算复活。
  * 2. 导入在途：关掉与重开清单被禁止（配合结果守卫，旧结果进不了新清单）；重开新清单不带旧结果。
  * 3. 条件 1 补强：成功选择那次的 pickFiles 在 listAgentSessions 之前。
+ * 4. 重新选文件夹、等待新清单返回时，旧清单的导入按钮不能点。
  */
 import { createElement } from 'react';
 import { act } from 'react';
@@ -233,4 +234,26 @@ it('条件 1 补强：成功选择那次的 pickFiles 在 listAgentSessions 之�
     harness.listAgentSessions.mock.invocationCallOrder[0],
   );
   expect(harness.pickFiles).nthCalledWith(1, 'directory');
+});
+
+it('重新选文件夹、等待新清单返回时，旧清单的导入按钮不能点', async () => {
+  let resolvePick!: (v: { ticket: string; paths: string[] } | null) => void;
+  await openList();
+  await click('agent-sessions-select-new');
+  expect(($('agent-sessions-import') as HTMLButtonElement).disabled).toBe(false);
+
+  harness.pickFiles.mockImplementationOnce(
+    () =>
+      new Promise((res) => {
+        resolvePick = res;
+      }),
+  );
+  await click('sources-import-agent-sessions'); // 开始选新文件夹
+  expect(($('agent-sessions-import') as HTMLButtonElement).disabled).toBe(true);
+  expect(($('agent-sessions-select-new') as HTMLButtonElement).disabled).toBe(true);
+
+  await resolvePick({ ticket: 'ticket-5678', paths: ['D:/synthetic/s2'] });
+  await settle();
+  expect($('agent-sessions-list')).not.toBeNull();
+  expect(($('agent-sessions-import') as HTMLButtonElement).disabled).toBe(true); // 新清单默认一个都不勾
 });
