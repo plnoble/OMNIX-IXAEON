@@ -102,6 +102,14 @@
       "files": {
         "apps/desktop/test/acceptance/r1-rebuild-conversations-semantic.test.ts": "562f09395cdfd5810b9a7b27587e410c6b81c921417247757b8dec120d86d86a"
       }
+    },
+    {
+      "id": "S3b",
+      "title": "编码代理会话选择导入（界面）",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/s3b-agent-sessions-page.test.ts": "0f1d22b64c6d610e928e992651c0d116e4e8bfcdb8a54d50c8cb240880e3009a"
+      }
     }
   ]
 }
