@@ -126,7 +126,7 @@
       "title": "研究页忙状态",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/u1-research-busy.test.ts": "e9150d2c662e86c81f6d4aacc6805936b4a9764a126e2bb22f295758844de940"
+        "apps/desktop/test/acceptance/u1-research-busy.test.ts": "2320bf684f9341238b87dead29e0c17bacf5dda30decd9c06f8de3c9b0764dcb"
       }
     }
   ]

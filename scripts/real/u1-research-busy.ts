@@ -67,17 +67,25 @@ try {
   console.log('TOPIC', topicId);
 
   await run.page.getByTestId('research-question').fill('另一个关注');
-  const createBefore = await run.page.getByTestId('research-create').isDisabled();
+  const createBtn = run.page.getByTestId('research-create');
+  const createBefore = await createBtn.isDisabled();
   console.log('CREATE_BEFORE', createBefore);
 
-  await run.page.getByTestId(`research-check-${topicId}`).click();
-  const createDuring = await run.page.getByTestId('research-create').isDisabled();
-  console.log('CREATE_DURING', createDuring);
+  const samples: boolean[] = [];
   const notice = run.page.getByTestId(`research-run-notice-${topicId}`);
+  const sampling = (async () => {
+    while ((await notice.count()) === 0) {
+      samples.push(await createBtn.isDisabled());
+      await run.page.waitForTimeout(20);
+    }
+  })();
+  await run.page.getByTestId(`research-check-${topicId}`).click();
   await notice.waitFor({ timeout: 30_000 });
+  await sampling;
+  console.log('CREATE_DISABLED_SAMPLES', samples.length, samples.some(Boolean));
   console.log('NOTICE');
   console.log(await notice.innerText());
-  const createAfter = await run.page.getByTestId('research-create').isDisabled();
+  const createAfter = await createBtn.isDisabled();
   console.log('CREATE_AFTER', createAfter);
   const bannerCount = await run.page.getByTestId('error-banner').count();
   console.log('BANNER_COUNT', bannerCount);

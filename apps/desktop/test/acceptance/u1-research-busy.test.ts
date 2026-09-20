@@ -12,6 +12,7 @@
  *    启用/暂停等操作失败时，错误提示同样带主题名。
  * 6. 停止等待后再检查同一主题：旧请求最后返回不覆盖新检查的搜索结果和降级提示。
  * 7. 停止等待后点加来源：旧检查返回不清掉加来源的忙状态。
+ * 8. 检查 IPC 返回后立刻去掉「正在检查」，不等列表刷新。
  */
 import { createElement } from 'react';
 import { act } from 'react';
@@ -286,6 +287,26 @@ it('条件 5：主题操作失败时错误也带主题名', async () => {
   });
   expect($('error-banner')?.textContent).toContain('关注甲');
   expect($('error-banner')?.textContent).toContain('已暂停失败');
+});
+
+it('检查返回后立刻去掉正在检查，不等列表刷新', async () => {
+  const check = deferred<ReturnType<typeof okCheck>>();
+  const reloadHeld = deferred<typeof SNAPSHOT>();
+  await renderPage();
+  harness.listResearchTopics.mockReturnValueOnce(reloadHeld.promise);
+  harness.checkResearchTopicNow.mockReturnValueOnce(check.promise);
+  await click('research-check-a');
+  expect($('research-checking-a')).not.toBeNull();
+  await act(async () => {
+    check.resolve(okCheck());
+    await check.promise;
+  });
+  expect($('research-checking-a')).toBeNull();
+  expect(disabled('research-check-a')).toBe(false);
+  await act(async () => {
+    reloadHeld.resolve(SNAPSHOT);
+    await reloadHeld.promise;
+  });
 });
 
 it('停止等待后点加来源：旧检查返回不清掉加来源的忙状态', async () => {

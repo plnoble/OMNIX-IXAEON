@@ -192,6 +192,12 @@ export function ResearchPage({
             else delete next[t.id];
             return next;
           });
+          if (topicSeq.current[t.id] === busySeq) setTopicFlag(t.id, false);
+          setChecking((prev) => {
+            const next = { ...prev };
+            delete next[t.id];
+            return next;
+          });
         }
         await reload();
       } catch (err) {
