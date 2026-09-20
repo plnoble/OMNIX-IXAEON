@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 
@@ -6,6 +6,7 @@ interface CheckOutcome {
   searchUsed: boolean;
   searchError: string | null;
   searchCandidates: Array<{ title: string; url: string; snippet: string }>;
+  run?: { error: string | null };
 }
 
 interface Snapshot {
@@ -57,7 +58,14 @@ export function ResearchPage({
 }) {
   const [data, setData] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [topicBusy, setTopicBusy] = useState<Record<string, boolean>>({});
+  const [checking, setChecking] = useState<Record<string, { elapsed: number; overdue: boolean }>>(
+    {},
+  );
+  const [runNotice, setRunNotice] = useState<Record<string, string>>({});
+  const checkSeq = useRef<Record<string, number>>({});
   const [question, setQuestion] = useState('');
   const [publicDescription, setPublicDescription] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
@@ -92,8 +100,35 @@ export function ResearchPage({
     setDraftProjectId(projects[0]?.id ?? '');
   }, [projects, draftProjectId]);
 
+  const checkingCount = Object.keys(checking).length;
+  useEffect(() => {
+    if (checkingCount === 0) return;
+    const timer = setInterval(() => {
+      setChecking((prev) => {
+        const next: typeof prev = {};
+        let changed = false;
+        for (const [id, row] of Object.entries(prev)) {
+          const elapsed = row.elapsed + 1;
+          const overdue = elapsed >= 300;
+          next[id] = { elapsed, overdue };
+          if (elapsed !== row.elapsed || overdue !== row.overdue) changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [checkingCount]);
+
+  const setTopicFlag = (id: string, on: boolean) =>
+    setTopicBusy((prev) => {
+      if (on) return { ...prev, [id]: true };
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+
   const create = async () => {
-    setBusy(true);
+    setCreateBusy(true);
     try {
       await api.createResearchTopic({
         question: question.trim(),
@@ -109,20 +144,76 @@ export function ResearchPage({
     } catch (err) {
       setError(errMsg(err));
     } finally {
-      setBusy(false);
+      setCreateBusy(false);
     }
   };
 
   const act = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
+    setSuggestBusy(true);
     try {
       await fn();
       await reload();
     } catch (err) {
       setError(errMsg(err));
     } finally {
-      setBusy(false);
+      setSuggestBusy(false);
     }
+  };
+
+  const topicAct = (id: string, fn: () => Promise<unknown>, label?: string) => {
+    void (async () => {
+      setTopicFlag(id, true);
+      try {
+        await fn();
+        await reload();
+      } catch (err) {
+        setError(label ? `${label}：${errMsg(err)}` : errMsg(err));
+      } finally {
+        setTopicFlag(id, false);
+      }
+    })();
+  };
+
+  const stopWaiting = (id: string) => {
+    checkSeq.current[id] = (checkSeq.current[id] ?? 0) + 1;
+    setTopicFlag(id, false);
+    setChecking((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const startCheck = (t: Snapshot['topics'][number]) => {
+    const seq = (checkSeq.current[t.id] ?? 0) + 1;
+    checkSeq.current[t.id] = seq;
+    setTopicFlag(t.id, true);
+    setChecking((prev) => ({ ...prev, [t.id]: { elapsed: 0, overdue: false } }));
+    void (async () => {
+      try {
+        const outcome = (await api.checkResearchTopicNow(t.id)) as CheckOutcome;
+        setLastCheck((prev) => ({ ...prev, [t.id]: outcome }));
+        const notice = outcome.run?.error ?? null;
+        setRunNotice((prev) => {
+          const next = { ...prev };
+          if (notice) next[t.id] = notice;
+          else delete next[t.id];
+          return next;
+        });
+        await reload();
+      } catch (err) {
+        if (checkSeq.current[t.id] === seq) setError(`${t.question}：${errMsg(err)}`);
+      } finally {
+        if (checkSeq.current[t.id] === seq) {
+          setTopicFlag(t.id, false);
+          setChecking((prev) => {
+            const next = { ...prev };
+            delete next[t.id];
+            return next;
+          });
+        }
+      }
+    })();
   };
 
   const askSuggest = () =>
@@ -172,7 +263,7 @@ export function ResearchPage({
           次调用（与搜索预算独立，超出走规则研读）。发现是外部线索，不会自动变成你的目标。
         </p>
       </Card>
-      <Button kind="primary" disabled={busy} onClick={askSuggest} testId="research-suggest">
+      <Button kind="primary" disabled={suggestBusy} onClick={askSuggest} testId="research-suggest">
         帮我想想该关注什么
       </Button>
       {suggestCount !== null && (
@@ -184,14 +275,14 @@ export function ResearchPage({
           <div className="card-actions">
             <Button
               kind="primary"
-              disabled={busy}
+              disabled={suggestBusy}
               onClick={confirmSuggest}
               testId="research-suggest-ok"
             >
               好
             </Button>
             <Button
-              disabled={busy}
+              disabled={suggestBusy}
               onClick={() => setSuggestCount(null)}
               testId="research-suggest-cancel"
             >
@@ -217,14 +308,14 @@ export function ResearchPage({
             <div className="card-actions">
               <Button
                 kind="primary"
-                disabled={busy}
+                disabled={suggestBusy}
                 onClick={() => decide(i, true)}
                 testId={`research-direction-follow-${i}`}
               >
                 关注
               </Button>
               <Button
-                disabled={busy}
+                disabled={suggestBusy}
                 onClick={() => decide(i, false)}
                 testId={`research-direction-skip-${i}`}
               >
@@ -302,7 +393,7 @@ export function ResearchPage({
         </Field>
         <Button
           kind="primary"
-          disabled={busy || question.trim().length === 0}
+          disabled={createBusy || question.trim().length === 0}
           onClick={() => void create()}
           testId="research-create"
         >
@@ -327,27 +418,42 @@ export function ResearchPage({
           {t.consecutive_failures >= 3 && (
             <p className="warn">连续失败 {t.consecutive_failures} 次，未把失败写成无变化。</p>
           )}
+          {checking[t.id] && !checking[t.id]!.overdue && (
+            <p className="muted" data-testid={`research-checking-${t.id}`}>
+              正在检查…（已 {checking[t.id]!.elapsed} 秒）
+            </p>
+          )}
+          {checking[t.id]?.overdue && (
+            <p className="warn" data-testid={`research-checking-${t.id}`}>
+              检查还没回来，可能是模型或网络慢；它会在后台继续跑完
+            </p>
+          )}
+          {runNotice[t.id] && (
+            <p className="warn" data-testid={`research-run-notice-${t.id}`}>
+              {runNotice[t.id]}
+            </p>
+          )}
           <div className="card-actions">
             <Button
-              disabled={busy}
+              disabled={!!topicBusy[t.id]}
               onClick={() =>
-                void act(() => api.setResearchTopicEnabled({ id: t.id, enabled: !t.enabled }))
+                topicAct(t.id, () => api.setResearchTopicEnabled({ id: t.id, enabled: !t.enabled }))
               }
             >
               {t.enabled ? '关闭自动' : '启用自动'}
             </Button>
             <Button
-              disabled={busy}
+              disabled={!!topicBusy[t.id]}
               onClick={() =>
-                void act(() => api.setResearchTopicPaused({ id: t.id, paused: !t.paused }))
+                topicAct(t.id, () => api.setResearchTopicPaused({ id: t.id, paused: !t.paused }))
               }
             >
               {t.paused ? '恢复' : '暂停'}
             </Button>
             <Button
-              disabled={busy}
+              disabled={!!topicBusy[t.id]}
               onClick={() =>
-                void act(() =>
+                topicAct(t.id, () =>
                   api.setResearchBudget({
                     id: t.id,
                     paidBudgetMode: 'request_cap',
@@ -360,16 +466,17 @@ export function ResearchPage({
             </Button>
             <Button
               kind="primary"
-              disabled={busy}
-              onClick={() =>
-                void act(async () => {
-                  const outcome = (await api.checkResearchTopicNow(t.id)) as CheckOutcome;
-                  setLastCheck((prev) => ({ ...prev, [t.id]: outcome }));
-                })
-              }
+              disabled={!!topicBusy[t.id]}
+              onClick={() => startCheck(t)}
+              testId={`research-check-${t.id}`}
             >
               立即检查
             </Button>
+            {checking[t.id]?.overdue && (
+              <Button onClick={() => stopWaiting(t.id)} testId={`research-stop-waiting-${t.id}`}>
+                停止等待
+              </Button>
+            )}
           </div>
           <h3>来源</h3>
           <ul>
@@ -398,9 +505,9 @@ export function ResearchPage({
                           </a>
                           <div className="muted">{c.snippet}</div>
                           <Button
-                            disabled={busy}
+                            disabled={!!topicBusy[t.id]}
                             onClick={() =>
-                              void act(async () => {
+                              topicAct(t.id, async () => {
                                 await api.addResearchSource({
                                   topicId: t.id,
                                   url: c.url,
@@ -443,9 +550,9 @@ export function ResearchPage({
               data-testid={`research-add-url-${t.id}`}
             />
             <Button
-              disabled={busy}
+              disabled={!!topicBusy[t.id]}
               onClick={() =>
-                void act(async () => {
+                topicAct(t.id, async () => {
                   await api.addResearchSource({
                     topicId: t.id,
                     url: (extraUrl[t.id] ?? '').trim(),
@@ -485,9 +592,9 @@ export function ResearchPage({
                   {f.action_reason && <p className="muted">{f.action_reason}</p>}
                   <div className="card-actions">
                     <Button
-                      disabled={busy}
+                      disabled={!!topicBusy[t.id]}
                       onClick={() =>
-                        void act(() =>
+                        topicAct(t.id, () =>
                           api.setResearchFindingAction({
                             findingId: f.id,
                             actionWorthy: !f.action_worthy,
@@ -513,9 +620,9 @@ export function ResearchPage({
                           ))}
                         </select>
                         <Button
-                          disabled={busy || !draftProjectId}
+                          disabled={!!topicBusy[t.id] || !draftProjectId}
                           onClick={() =>
-                            void act(async () => {
+                            topicAct(t.id, async () => {
                               await api.createCodingDraftFromFinding({
                                 findingId: f.id,
                                 projectId: draftProjectId,
