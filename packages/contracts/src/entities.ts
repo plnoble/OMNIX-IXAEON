@@ -452,6 +452,10 @@ export const researchTopicSchema = z.object({
   max_pages_per_run: z.number().int().positive(),
   paid_budget_mode: z.enum(['none', 'request_cap']),
   request_cap: z.number().int().nonnegative(),
+  /** G07：空 = 累计额度（用完不恢复）；有值 = 每天的额度，换日恢复。 */
+  daily_request_cap: z.number().int().nonnegative().nullable(),
+  /** G07：上次按天恢复是哪天（本地日期 YYYY-MM-DD）。 */
+  request_budget_day: z.string().nullable(),
   generation: z.number().int().nonnegative(),
   last_success_at: isoDateTimeSchema.nullable(),
   last_failure_at: isoDateTimeSchema.nullable(),

@@ -21,6 +21,7 @@ interface Snapshot {
     paused: boolean;
     paid_budget_mode?: string;
     request_cap?: number;
+    daily_request_cap?: number | null;
     last_success_at: string | null;
     last_failure_at: string | null;
     last_failure: string | null;
@@ -47,6 +48,22 @@ interface Snapshot {
       error: string | null;
     }>;
   }>;
+}
+
+/** G07：额度文案按主题类型写在各自的卡片里，不串。 */
+function budgetText(t: {
+  paid_budget_mode?: string;
+  request_cap?: number;
+  daily_request_cap?: number | null;
+}): string {
+  if (t.paid_budget_mode !== 'request_cap') return '未设预批预算';
+  const left = t.request_cap ?? 0;
+  if (t.daily_request_cap !== null) {
+    return left > 0
+      ? `今天还能搜 ${left} 次（每天 ${t.daily_request_cap} 次）`
+      : '今天的搜索额度用完了，明天恢复';
+  }
+  return left > 0 ? `还能搜 ${left} 次（总额度）` : '搜索额度用完了，要继续请调高上限';
 }
 
 export function ResearchPage({
@@ -422,10 +439,7 @@ export function ResearchPage({
           <p className="muted">
             {t.enabled ? '已启用自动检查' : '自动检查关闭'} · {t.paused ? '已暂停' : '未暂停'}
             {' · '}
-            自主搜索预算：
-            {t.paid_budget_mode === 'request_cap'
-              ? `剩余 ${t.request_cap ?? 0} 次`
-              : '未设预批预算'}
+            自主搜索预算：{budgetText(t)}
           </p>
           <p className="muted">
             上次成功 {t.last_success_at ?? '无'} · 上次失败 {t.last_failure_at ?? '无'}

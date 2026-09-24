@@ -1789,6 +1789,18 @@ export class AppRuntime {
       paid_budget_mode: search ? 'request_cap' : 'none',
       request_cap: search ? 3 : 0,
     });
+    // G07：搜索已配置时每天 3 次、第二天自动恢复。
+    // 没配置搜索时不设每天额度（daily_request_cap 保持空）：否则每天被「恢复」出
+    // 3 次、研究页写「今天还能搜 3 次」，而这个主题根本不能搜。
+    if (search) {
+      this.db
+        .prepare(
+          `UPDATE research_topics
+             SET daily_request_cap = 3, request_budget_day = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(localDay(new Date()), new Date().toISOString(), topic.id);
+    }
     this.research.store.setEnabled(topic.id, true);
     return { id: topic.id };
   }
