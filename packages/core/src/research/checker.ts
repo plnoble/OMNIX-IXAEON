@@ -7,6 +7,7 @@ import { isSpaOrDynamicSkeleton } from './tinyfishFetch.js';
 import { ResearchStore } from './researchStore.js';
 import { assertPublicHttpsUrl } from './urlSafety.js';
 import { sanitizePublicQuery } from '../memory/querySanitize.js';
+import { localDay } from '../memory/contextSelector.js';
 import type { WebSearchExecutor, WebSearchHit } from './webSearch.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import { ResearchJudge } from './judge.js';
@@ -147,6 +148,19 @@ export class ResearchChecker {
     }
     this.running = true;
     const now = this.iso();
+    // G07：按天的主题（daily_request_cap 有值）换日就恢复额度。
+    // 「今天」按本地时区算；累计的主题（空）完全不动。
+    const today = localDay(this.clock.now());
+    if (topic.daily_request_cap !== null && topic.request_budget_day !== today) {
+      this.db
+        .prepare(
+          `UPDATE research_topics
+             SET request_cap = daily_request_cap, request_budget_day = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(today, now, topic.id);
+      topic = { ...topic, request_cap: topic.daily_request_cap, request_budget_day: today };
+    }
     const generation = topic.generation;
     const run = this.store.startRun(topic.id, now, this.lease());
     const findings: ResearchFinding[] = [];

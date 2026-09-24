@@ -30,6 +30,8 @@ function toTopic(row: Record<string, unknown>): ResearchTopic {
     max_pages_per_run: row['max_pages_per_run'] as number,
     paid_budget_mode: row['paid_budget_mode'] as ResearchTopic['paid_budget_mode'],
     request_cap: row['request_cap'] as number,
+    daily_request_cap: (row['daily_request_cap'] as number | null) ?? null,
+    request_budget_day: (row['request_budget_day'] as string | null) ?? null,
     generation: row['generation'] as number,
     last_success_at: (row['last_success_at'] as string | null) ?? null,
     last_failure_at: (row['last_failure_at'] as string | null) ?? null,
