@@ -1044,6 +1044,9 @@ export class AppRuntime {
     });
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
+    // G05：准备阶段（语义补齐、组装上下文）界面已经有「停止」。这一轮在任何外发之前
+    // 就登记成可取消——等补齐结束才登记的话，点了停止也找不到这一轮，随后照样启动模型。
+    this.activeAskRuns.set(conversationId, runId);
     // 聊天优先：后台分析与聊天共用同一个模型网关账号（有并发上限），提问期间让后台
     // 分析让路，答完再继续（2026-09-18 真机：两边抢名额，聊天被 429 拒到超时）。
     // 紧挨着 try 获取、在 finally 释放——中间出任何错都不会让后台分析永远停着。
@@ -1106,6 +1109,27 @@ export class AppRuntime {
     try {
       // 选材前把向量补齐（有上限），别让第一问抢在补向量前面走关键词路径。
       await this.awaitSemanticBackfill();
+      // G05：准备期间已被取消就不再外发。回答按取消收尾，不启动 Hermes、不调用模型。
+      if (this.cancelledAskRuns.has(runId)) {
+        this.conversations.finishMessage(assistantMessage.id, {
+          status: 'cancelled',
+          runId,
+          meta: { notice: '用户在准备阶段取消' },
+        });
+        return {
+          answer: '',
+          citations: [],
+          notice: '用户在准备阶段取消',
+          usedChars: 0,
+          modelName: '',
+          engine: 'missing',
+          runId,
+          steps: [],
+          conversationId,
+          userMessageId: userMessage.id,
+          messageId: assistantMessage.id,
+        };
+      }
       // A06：同一对话复用 AgentSession（进而复用引擎侧 Hermes 会话）。
       // D4：按 conversationId 取，不再是全局单例。
       // P1：对话还没有会话时，先接过预热好的那个（省掉 5–9 秒组装），没有才新建。
@@ -1114,7 +1138,6 @@ export class AppRuntime {
         this.adoptWarmSession(projectId) ??
         this.newAskSession().session;
       this.askSessions.set(conversationId, session);
-      this.activeAskRuns.set(conversationId, runId);
       const result = await session.run({
         goal: question,
         projectId,
@@ -1596,9 +1619,10 @@ export class AppRuntime {
       target = [...this.activeAskRuns.keys()][0]!;
     }
     const runId = this.activeAskRuns.get(target);
-    const session = this.askSessions.get(target);
-    if (!runId || !session) return { cancelled: false, runId: null };
-    session.cancel(runId);
+    if (!runId) return { cancelled: false, runId: null };
+    // G05：准备阶段还没有会话。先记下取消，等这一轮走到外发前自己停下来；
+    // 已经在回答的，照旧通知会话停掉。
+    this.askSessions.get(target)?.cancel(runId);
     this.cancelledAskRuns.add(runId);
     return { cancelled: true, runId };
   }

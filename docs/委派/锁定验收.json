@@ -145,6 +145,14 @@
         "packages/core/test/acceptance/n1-requirement-matches.test.ts": "fadea4e3a637803d9fa9959e7c21c62a89712c7c0d812b600beba8754abe1d1e",
         "apps/desktop/test/acceptance/n1-requirements-page.test.ts": "14347541a82b6c9af52776b2eeaa0a5259f895e8ba52438777286fa01e3c76c7"
       }
+    },
+    {
+      "id": "G05",
+      "title": "准备阶段也能取消",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/g05-cancel-preparing.test.ts": "cb10c487e81163ded43e96a0a6ffacdc7bec2ab197437534ab53a0e30f97f8c2"
+      }
     }
   ]
 }
