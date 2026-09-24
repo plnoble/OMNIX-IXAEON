@@ -11,7 +11,11 @@ import { isEphemeralStatement } from '../memory/ephemeral.js';
 import { mentionedDays, pastEventDay } from '../memory/temporal.js';
 import { needsUserAttention } from '../storage/needsReview.js';
 import { OVERVIEW_FINDINGS_SEEN_AT, getSetting, setSetting } from '../settings.js';
-import { listMatchedFindings, type MatchedFinding } from '../research/requirements.js';
+import {
+  listMatchedFindings,
+  MATCH_WINDOW_DAYS,
+  type MatchedFinding,
+} from '../research/requirements.js';
 
 export interface PersonalOverview {
   generatedAt: string;
@@ -234,7 +238,9 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
       >
     >,
     recentFindings: listRecentFindings(db),
-    matchedFindings: listMatchedFindings(db),
+    matchedFindings: listMatchedFindings(db, {
+      since: new Date(Date.now() - MATCH_WINDOW_DAYS * 86_400_000).toISOString(),
+    }),
     coverage: {
       projectCount: projects.length,
       analyzedSources: analyzed,

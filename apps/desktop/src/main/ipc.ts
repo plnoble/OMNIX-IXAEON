@@ -9,6 +9,7 @@ import {
   listAuditEvents,
   listMatchedFindings,
   listRequirements,
+  MATCH_WINDOW_DAYS,
   markMatchedFindingsSeen,
   recordAudit,
   removeRequirement,
@@ -460,7 +461,10 @@ export function registerIpc(runtime: AppRuntime): void {
       removeRequirement(runtime.db, id),
       { ok: true as const }
     ),
-    listMatchedFindings: async () => listMatchedFindings(runtime.db),
+    listMatchedFindings: async () =>
+      listMatchedFindings(runtime.db, {
+        since: new Date(Date.now() - MATCH_WINDOW_DAYS * 86_400_000).toISOString(),
+      }),
     markMatchedFindingsSeen: async () => (
       markMatchedFindingsSeen(runtime.db),
       { ok: true as const }

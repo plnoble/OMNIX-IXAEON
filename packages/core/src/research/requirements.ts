@@ -7,6 +7,17 @@ import { getSetting, setSetting } from '../settings.js';
 
 export const OVERVIEW_MATCHED_SEEN_AT = 'overview.matched_seen_at';
 
+/**
+ * 判定与「看过的」展示都只看最近这么多天（整合方复审 2026-09-24 补）：
+ * - 判定：给攒了几百条发现的方向新加一条要求，不能一口气调几百次模型；
+ * - 展示：**没看过的对上发现不受这个限制**——一周没打开也不能让它悄悄消失。
+ */
+export const MATCH_WINDOW_DAYS = 7;
+
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
 export type ResearchRequirement = {
   id: string;
   topic_id: string;
@@ -67,12 +78,12 @@ export async function judgeFindings(
     .prepare(
       `SELECT f.id, f.title, f.url, f.excerpt, r.id AS rid, r.text
          FROM research_findings f JOIN research_requirements r ON r.topic_id = f.topic_id
-        WHERE f.topic_id = ? AND NOT EXISTS (
+        WHERE f.topic_id = ? AND f.fetched_at >= ? AND NOT EXISTS (
           SELECT 1 FROM research_finding_matches m
            WHERE m.finding_id = f.id AND m.requirement_id = r.id)
         ORDER BY f.fetched_at DESC, r.sort_order ASC`,
     )
-    .all(topicId) as Array<{
+    .all(topicId, daysAgo(MATCH_WINDOW_DAYS)) as Array<{
     id: string;
     title: string;
     url: string;
@@ -120,10 +131,12 @@ export function listMatchedFindings(
             SELECT 1 FROM research_requirements r WHERE r.topic_id = f.topic_id AND NOT EXISTS (
               SELECT 1 FROM research_finding_matches m
                WHERE m.finding_id = f.id AND m.requirement_id = r.id AND m.verdict = 'meets'))
-          ${opts?.since ? 'AND f.fetched_at >= ?' : ''}
+          ${opts?.since ? 'AND (f.fetched_at >= ? OR ? IS NULL OR f.fetched_at > ?)' : ''}
         ORDER BY f.fetched_at DESC LIMIT 20`,
     )
-    .all(...(opts?.since ? [opts.since] : [])) as Array<Omit<MatchedFinding, 'isNew' | 'matches'>>;
+    .all(...(opts?.since ? [opts.since, seenAt, seenAt] : [])) as Array<
+    Omit<MatchedFinding, 'isNew' | 'matches'>
+  >;
   const matchStmt = db.prepare(
     `SELECT m.requirement_id AS requirementId, r.text, m.reason FROM research_finding_matches m
        JOIN research_requirements r ON r.id = m.requirement_id

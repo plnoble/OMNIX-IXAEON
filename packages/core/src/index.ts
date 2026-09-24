@@ -144,6 +144,7 @@ export {
   removeRequirement,
   judgeFindings,
   listMatchedFindings,
+  MATCH_WINDOW_DAYS,
   markMatchedFindingsSeen,
   type ResearchRequirement,
   type MatchedFinding,

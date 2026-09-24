@@ -829,8 +829,15 @@ export function isExcerptGroundedInSegment(excerpt: string, segmentText: string)
  * X1：摘录对不上原文时，找出摘录里真正出现在片段中的最长连续一段。
  * 返回片段原文里的那一段原样文字；规范化后不足 15 字或打捞不到则 null。
  */
+/**
+ * 打捞只看摘录规范化后的前这么多字：找最长连续段是两层循环，耗时随长度平方涨
+ * （整合方 2026-09-24 实测：200 字 17ms、1000 字 392ms、2000 字 1.4s，提炼跑在主进程里）。
+ * 真实摘录很少超过 300 字；模型偶尔给一大段时，前 400 字里打捞不到也就算了。
+ */
+const MAX_SALVAGE_EXCERPT = 400;
+
 export function groundExcerptInSegment(excerpt: string, segmentText: string): string | null {
-  const excerptNorm = normalizeForGrounding(excerpt).text;
+  const excerptNorm = normalizeForGrounding(excerpt).text.slice(0, MAX_SALVAGE_EXCERPT);
   const segment = normalizeForGrounding(segmentText);
   if (excerptNorm.length === 0 || segment.text.length === 0) return null;
 

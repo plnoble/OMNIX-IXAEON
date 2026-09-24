@@ -178,7 +178,10 @@ it('条件 4：3 条里 2 条靠打捞、1 条编的 → 入库 2、丢 1，任�
 
   expect(stats.inserted).toBe(2);
   const rows = items.list({ projectId: null, state: 'current' });
-  expect(rows.map((r) => r.statement).sort()).toEqual(['结论甲：打捞成功', '结论乙：打捞成功']);
+  // 整合方 2026-09-24 修：原来右边没排序，「乙」U+4E59 排在「甲」U+7532 前，这条永远过不了
+  expect(rows.map((r) => r.statement).sort()).toEqual(
+    ['结论甲：打捞成功', '结论乙：打捞成功'].sort(),
+  );
   expect(rows.some((r) => r.statement === '结论丙：编的')).toBe(false);
 
   const salvage = listAuditEvents(db).find((e) => e.kind === 'extract.excerpt_salvaged');
