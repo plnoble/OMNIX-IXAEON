@@ -191,6 +191,19 @@ export class ConversationStore {
     return this.get(id);
   }
 
+  /** G06：空对话以第一问的项目为准并写回（有了消息就固定，见 AppRuntime.ask 的校验）。 */
+  setProject(id: string, projectId: string | null): void {
+    this.db.prepare('UPDATE conversations SET project_id = ? WHERE id = ?').run(projectId, id);
+  }
+
+  /** G06：这个对话里有没有消息（锁不锁的判断：空对话可换项目，有消息就固定）。 */
+  hasMessages(id: string): boolean {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS c FROM messages WHERE conversation_id = ?')
+      .get(id) as { c: number };
+    return row.c > 0;
+  }
+
   /** 删除对话；消息随外键级联删除。派生的 ask_session 来源不删（原文只增不改）。 */
   delete(id: string): void {
     this.get(id);

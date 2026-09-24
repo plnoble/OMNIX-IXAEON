@@ -60,6 +60,8 @@ export function AskPage({
   openConversationId?: string | null;
 }) {
   const [projectId, setProjectId] = useState('');
+  /** G06：当前对话有消息后项目下拉框锁定（换项目请开新对话）。 */
+  const [projectLocked, setProjectLocked] = useState(false);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +115,12 @@ export function AskPage({
       const data = await api.getConversation(id);
       setActiveId(id);
       setMessages(data.messages);
+      // G06：对话的项目固定。打开对话把下拉框切到它自己的项目；
+      // 锁不锁看这个对话里有没有消息（不是看有没有打开）：
+      // 空对话（刚点「新对话」还没发第一句）仍可改选，第一问以所选项目为准。
+      const convProject = data.conversation.projectId;
+      setProjectId(convProject ?? '');
+      setProjectLocked(data.messages.length > 0);
       stick.current = true;
       await reloadTodoStatus();
     },
@@ -228,6 +236,8 @@ export function AskPage({
         setActiveId(created.id);
       }
       waiting.current = { conversationId, pendingId: pendingAnswer.id, cancelled: false };
+      // G06：第一句发出去，这个对话的项目就定下来了（发的是下拉框当前所选）。
+      setProjectLocked(true);
       const result = await api.askQuestion({
         conversationId,
         projectId: projectId.length > 0 ? projectId : null,
@@ -352,7 +362,11 @@ export function AskPage({
                       }
                     >
                       <strong>{c.title}</strong>
-                      <span className="muted">{c.lastMessagePreview ?? '（空对话）'}</span>
+                      <span className="muted">
+                        {projects.find((p) => p.id === c.projectId)?.name ?? '全部项目'}
+                        {'｜'}
+                        {c.lastMessagePreview ?? '（空对话）'}
+                      </span>
                     </button>
                   )}
                   <div className="ask-conv-actions">
@@ -450,6 +464,7 @@ export function AskPage({
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
+              disabled={projectLocked}
               data-testid="ask-project-select"
             >
               <option value="">个人视角（不选项目）</option>
@@ -459,6 +474,11 @@ export function AskPage({
                 </option>
               ))}
             </select>
+            {projectLocked && (
+              <span className="muted" data-testid="ask-project-locked">
+                换项目请开新对话
+              </span>
+            )}
             <textarea
               value={question}
               placeholder="问一个关于自己或项目的问题（回答附引用，可核验）"
