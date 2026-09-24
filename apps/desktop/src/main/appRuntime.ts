@@ -67,6 +67,7 @@ import {
   personalMemoryToChat,
   setPersonalMemoryToChat,
   markOverviewFindingsSeen,
+  withAskRun,
   type HermesLocator,
   type AgentSessionPreview,
   type AskResult,
@@ -1063,7 +1064,6 @@ export class AppRuntime {
       status: 'streaming',
     });
     const runId = randomUUID();
-    const startedAt = new Date().toISOString();
     // 聊天优先：后台分析与聊天共用同一个模型网关账号（有并发上限），提问期间让后台
     // 分析让路，答完再继续（2026-09-18 真机：两边抢名额，聊天被 429 拒到超时）。
     // 紧挨着 try 获取、在 finally 释放——中间出任何错都不会让后台分析永远停着。
@@ -1135,14 +1135,18 @@ export class AppRuntime {
         this.newAskSession().session;
       this.askSessions.set(conversationId, session);
       this.activeAskRuns.set(conversationId, runId);
-      const result = await session.run({
-        goal: question,
-        projectId: effectiveProjectId,
-        runId,
-        priorTurns,
-        onDelta,
-        onProgress: (phase) => emitProgress(phase),
-      });
+      // G04：这一轮里建的编码任务（propose_task，或这一轮里别的代码直接建的）
+      // 都带上本轮 runId。并发的两轮各有各的上下文，不串。
+      const result = await withAskRun(runId, () =>
+        session.run({
+          goal: question,
+          projectId: effectiveProjectId,
+          runId,
+          priorTurns,
+          onDelta,
+          onProgress: (phase) => emitProgress(phase),
+        }),
+      );
       flushDeltas();
       // 用户指示（2026-09-13）：所有问答内容都进 Core。
       // A03（审核 2026-09-13）：问答存档挂独立的启用/撤销状态——
@@ -1153,15 +1157,19 @@ export class AppRuntime {
       // T2b：这一轮新建的编码任务逐个进待办——拍板「要做」= 批准并排队（acceptTodo）、
       // 「不做」= 取消（rejectTodo），状态一律以任务表为准。
       // 你拒绝过的同样的事：起草的任务自动取消，不出现在回答上。
+      // G04：只取本轮自己建的任务（propose_task 写下的 origin_run_id = 本轮 runId）。
+      // 原来按「创建时间晚于本轮开始」猜：对话 A 等回答时别的运行建的任务会被当成
+      // A 的建议，在错误的对话里被批准。没有 origin_run_id 的（旧数据、任务页手动建的）
+      // 不出现在任何一轮回答上。
       const codingTodos: Array<{ id: string; title: string }> = [];
       try {
         const tasks = this.db
           .prepare(
             `SELECT id, goal FROM coding_tasks
-             WHERE created_at >= ? AND project_id IS NOT NULL
+             WHERE origin_run_id = ? AND project_id IS NOT NULL
              ORDER BY created_at DESC LIMIT 5`,
           )
-          .all(startedAt) as Array<{ id: string; goal: string }>;
+          .all(runId) as Array<{ id: string; goal: string }>;
         for (const t of tasks) {
           const title = t.goal.split('\n')[0]!.trim().slice(0, 80);
           if (title.length === 0) continue;

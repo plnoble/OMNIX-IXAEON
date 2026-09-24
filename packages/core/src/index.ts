@@ -173,7 +173,12 @@ export {
   type WebSearchExecutorDeps,
 } from './research/webSearch.js';
 export { parseFeed, parsePage, fingerprintText } from './research/parse.js';
-export { CodingTaskStore, approvalDigest, DEFAULT_TASK_TIMEOUT_MS } from './execution/taskStore.js';
+export {
+  CodingTaskStore,
+  approvalDigest,
+  DEFAULT_TASK_TIMEOUT_MS,
+  withAskRun,
+} from './execution/taskStore.js';
 export { copyProjectWorkspace, type WorkspaceSnapshot } from './execution/workspaceCopy.js';
 export {
   CodingOrchestrator,
