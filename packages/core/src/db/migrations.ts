@@ -1084,6 +1084,17 @@ BEGIN
 END;
 `,
   },
+  {
+    id: 37,
+    name: 'research-findings-chinese',
+    sql: `
+-- W2（用户 2026-09-24 验证 N1 时说「全英文，可以增加转换功能么，显示中文」）：研究发现多来自
+-- 英文网页。模型给每条不是中文为主的发现写一个中文标题和一段中文摘要，存下来（每条只翻一次）；
+-- 原文照旧保留，界面上可以展开看。为空 = 还没翻（或本来就是中文），界面显示原文。
+ALTER TABLE research_findings ADD COLUMN title_zh TEXT;
+ALTER TABLE research_findings ADD COLUMN summary_zh TEXT;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
