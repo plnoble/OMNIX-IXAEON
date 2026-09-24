@@ -1013,6 +1013,26 @@ export class AppRuntime {
         ? this.conversations.get(input.conversationId)
         : this.conversations.create({ projectId });
     const conversationId = conversation.id;
+    // G06：对话的项目固定。调用方传来的 projectId 与对话自己的不一致（含
+    // 「全部项目」null 与某个项目之间）→ 拒绝，不静默改用哪一个——否则打开 A 的
+    // 旧对话、下拉框停在 B 时，这一问按 B 的记忆和项目近况回答。
+    // 例外：对话里还没有任何消息（刚点了「新对话」，随后才改选项目），以第一问的
+    // projectId 为准并写回；有了消息就固定。
+    let effectiveProjectId = projectId;
+    if (
+      input.conversationId != null &&
+      input.conversationId.length > 0 &&
+      (conversation.projectId ?? null) !== (projectId ?? null)
+    ) {
+      if (this.conversations.hasMessages(conversationId)) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          '这个对话属于另一个项目，换项目请开新对话',
+        );
+      }
+      this.conversations.setProject(conversationId, projectId);
+      effectiveProjectId = projectId;
+    }
 
     // 先取历史，再落本轮提问——否则会把刚问的这句当成「此前的内容」喂回去。
     const priorTurns = this.conversations
@@ -1111,13 +1131,13 @@ export class AppRuntime {
       // P1：对话还没有会话时，先接过预热好的那个（省掉 5–9 秒组装），没有才新建。
       const session =
         this.askSessions.get(conversationId) ??
-        this.adoptWarmSession(projectId) ??
+        this.adoptWarmSession(effectiveProjectId) ??
         this.newAskSession().session;
       this.askSessions.set(conversationId, session);
       this.activeAskRuns.set(conversationId, runId);
       const result = await session.run({
         goal: question,
-        projectId,
+        projectId: effectiveProjectId,
         runId,
         priorTurns,
         onDelta,
@@ -1177,7 +1197,7 @@ export class AppRuntime {
               runId,
               engine: result.engine,
               model: result.modelName,
-              projectId,
+              projectId: effectiveProjectId,
               permissionId: askPerm.id,
             });
             if (captured.created) {
@@ -1268,7 +1288,7 @@ export class AppRuntime {
       if (this.rewarmAfterAsk) {
         // 刚用掉了预热的会话：这一问答完后再备一个，下一个新对话也不用等组装
         this.rewarmAfterAsk = false;
-        const t = setTimeout(() => void this.prewarmChat(projectId), 1_000);
+        const t = setTimeout(() => void this.prewarmChat(effectiveProjectId), 1_000);
         t.unref?.();
       }
       if (this.activeAskRuns.get(conversationId) === runId) {
