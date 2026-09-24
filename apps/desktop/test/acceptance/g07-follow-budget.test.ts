@@ -3,6 +3,8 @@
  *
  * 搜索已配置时，「关注」建出的主题 daily_request_cap = 3（同时 request_cap = 3）。
  * 搜索没配置时仍是 paid_budget_mode = 'none'（W1a 的行为不许退化）。
+ * 整合方复审时补（2026-09-24）：搜索没配置时也不设每天额度（daily_request_cap 为空）——
+ * 否则每天被「恢复」出 3 次、研究页写「今天还能搜 3 次」，而这个主题根本不能搜。
  */
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -73,9 +75,10 @@ it('条件 4：搜索没配置时仍是 paid_budget_mode = none', async () => {
   const { id } = await rt.followWatchDirection(direction);
   const row = db!
     .prepare(
-      'SELECT paid_budget_mode AS mode, request_cap AS cap FROM research_topics WHERE id = ?',
+      'SELECT paid_budget_mode AS mode, request_cap AS cap, daily_request_cap AS daily FROM research_topics WHERE id = ?',
     )
-    .get(id) as { mode: string; cap: number };
+    .get(id) as { mode: string; cap: number; daily: number | null };
   expect(row.mode).toBe('none');
   expect(row.cap).toBe(0);
+  expect(row.daily).toBeNull();
 });

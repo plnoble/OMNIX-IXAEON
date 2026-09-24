@@ -5,6 +5,9 @@
  * 研究页按主题类型显示额度：
  * - 按天的：「今天还能搜 N 次（每天 3 次）」；用完：「今天的搜索额度用完了，明天恢复」
  * - 累计的：「还能搜 N 次（总额度）」；用完：「搜索额度用完了，要继续请调高上限」
+ *
+ * 整合方复审时补（2026-09-24）：按主题卡片（research-topic-<id>）逐张核对，文案不许串到
+ * 别的主题上；原稿只看整页文字，把两种文案对调也能过。
  */
 import { createElement } from 'react';
 import { act } from 'react';
@@ -86,9 +89,18 @@ it('条件 5：按天与累计的主题各显示自己的额度文案和用完�
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0));
   });
-  const text = document.body.textContent ?? '';
-  expect(text).toContain('今天还能搜 2 次（每天 3 次）');
-  expect(text).toContain('今天的搜索额度用完了，明天恢复');
-  expect(text).toContain('还能搜 2 次（总额度）');
-  expect(text).toContain('搜索额度用完了，要继续请调高上限');
+  const card = (id: string): string => {
+    const el = document.querySelector(`[data-testid="research-topic-${id}"]`);
+    if (!el) throw new Error(`没有主题卡片「${id}」`);
+    return el.textContent ?? '';
+  };
+  expect(card('按天有余量')).toContain('今天还能搜 2 次（每天 3 次）');
+  expect(card('按天用完')).toContain('今天的搜索额度用完了，明天恢复');
+  expect(card('累计有余量')).toContain('还能搜 2 次（总额度）');
+  expect(card('累计用完')).toContain('搜索额度用完了，要继续请调高上限');
+  // 不串
+  expect(card('按天有余量')).not.toContain('总额度');
+  expect(card('按天用完')).not.toContain('调高上限');
+  expect(card('累计有余量')).not.toContain('每天');
+  expect(card('累计用完')).not.toContain('明天恢复');
 });

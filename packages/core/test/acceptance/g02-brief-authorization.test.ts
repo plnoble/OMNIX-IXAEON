@@ -9,8 +9,12 @@
  * 条件 4：授权都有效 → 和 P3 原来的行为一致：跑 git，提交、会话、任务都在。
  *
  * 直接测 buildProjectBrief（git 用注入的替身计数），不启动 Hermes。
+ *
+ * 整合方复审时补（2026-09-24）：根目录在快照授权的文件夹之内（子目录）照样跑 git——
+ * 「覆盖」是 isPathInside(授权路径, 根目录)，不是两者相等；只写条件 3 的话，
+ * 按「路径相等」实现也能过，授权了上级文件夹的项目就悄悄没了提交块（P3 退化）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -113,7 +117,7 @@ function seed() {
     allowedCommands: [['node', '-e', 'process.exit(0)']],
   });
   tasks.setStatus(task.id, 'queued');
-  return { db, project, perms, snapshotPerm, sessionPermA, sessionPermB };
+  return { db, root, project, perms, snapshotPerm, sessionPermA, sessionPermB };
 }
 
 function briefWith(database: CoreDatabase, projectId: string) {
@@ -173,4 +177,14 @@ it('条件 3：项目根目录改到快照授权范围之外，不跑 git', () =
   expect(brief.block).not.toContain('最近的提交');
   expect(brief.block).toContain('会话甲');
   expect(brief.counts.sessions).toBe(2);
+});
+
+it('整合方补：根目录是快照授权文件夹里的子目录，照样跑 git', () => {
+  const { db: database, root, project } = seed();
+  const inner = join(root, 'packages', 'app');
+  mkdirSync(inner, { recursive: true });
+  database.prepare('UPDATE projects SET root_path = ? WHERE id = ?').run(inner, project.id);
+  const { brief, calls } = briefWith(database, project.id);
+  expect(calls).toEqual([inner]);
+  expect(brief.block).toContain('abcdef1 合成提交：加了验收');
 });

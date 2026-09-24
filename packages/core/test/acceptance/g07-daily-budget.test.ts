@@ -7,6 +7,10 @@
  *
  * 时钟可控（ResearchChecker 的 Clock）；搜索用替身，断言每轮的 searchUsed。
  * 「今天」按本地时区：日期用本地中午构造。
+ *
+ * 整合方复审时补（2026-09-24）：规格约束「今天按用户本地时区算」。本地中午在大多数时区
+ * 与 UTC 同一天，前三条分不出按 UTC 算的实现；补一条把时区设成东八区、在本地零点半检查
+ * （这时 UTC 还是前一天），按本地算的实现会恢复额度。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -100,4 +104,20 @@ it('条件 3：累计的主题额度用完后换一天也不恢复', async () =>
   h.clock.current = localNoon(2026, 9, 21);
   const second = await h.tick();
   expect([first, second]).toEqual([true, false]);
+});
+
+it('整合方补：「今天」按本地时区——东八区过了零点就恢复，不等 UTC 换日', async () => {
+  const previousTz = process.env.TZ;
+  const systemZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  process.env.TZ = 'Asia/Shanghai';
+  try {
+    const h = setup(3, 3);
+    for (let i = 0; i < 3; i++) await h.tick(); // 20 日本地中午把 3 次用完
+    h.clock.current = new Date(2026, 8, 21, 0, 30, 0); // 本地 21 日 00:30 = UTC 20 日 16:30
+    expect(await h.tick()).toBe(true);
+  } finally {
+    // Node 里删掉 TZ 不会回到系统时区，先设回原来的再删
+    process.env.TZ = previousTz ?? systemZone;
+    if (previousTz === undefined) delete process.env.TZ;
+  }
 });

@@ -9,6 +9,14 @@
  *
  * 对话的项目以对话自己的 projectId 为准（getConversation 返回的 conversation.projectId，
  * 列表项同字段）；项目名从 projects 属性里按 id 取。
+ *
+ * 整合方复审时补（2026-09-24）：
+ * - 条件 2 的界面一半：当前选 B 时打开 A 的旧对话再提问，发出去的必须是 A（审核复现的
+ *   就是这一步发错）。
+ * - 「新对话」按钮照常可用：打开 A 的旧对话后点「新对话」，下拉框解锁；改选 B 发第一句，
+ *   发出去的是 B（后端对还没有消息的对话以第一问的项目为准，见后端测试）。
+ *   锁不锁看对话里有没有消息，不看有没有打开对话。
+ * - 每个用例前把 getConversation 恢复成默认实现，用例之间不串。
  */
 import { createElement } from 'react';
 import { act } from 'react';
@@ -32,28 +40,31 @@ const harness = vi.hoisted(() => {
     { id: 'conv-b', title: 'B 的旧对话', projectId: 'proj-b' },
     { id: 'conv-none', title: '没有项目的对话', projectId: null },
   ];
+  /** 默认：旧对话里已经有一条消息。 */
+  async function getConversationDefault(id: string) {
+    const c = conversations.find((x) => x.id === id)!;
+    return {
+      conversation: { ...c },
+      messages: [
+        {
+          id: `${id}-m1`,
+          role: 'user',
+          content: '之前问的',
+          seq: 1,
+          status: 'complete',
+          meta: {},
+          citations: [],
+        },
+      ],
+    };
+  }
   return {
     conversations,
     listConversations: vi.fn(async () =>
       conversations.map((c) => ({ ...c, lastMessagePreview: '上一句', messageCount: 2 })),
     ),
-    getConversation: vi.fn(async (id: string) => {
-      const c = conversations.find((x) => x.id === id)!;
-      return {
-        conversation: { ...c },
-        messages: [
-          {
-            id: `${id}-m1`,
-            role: 'user',
-            content: '之前问的',
-            seq: 1,
-            status: 'complete',
-            meta: {},
-            citations: [],
-          },
-        ],
-      };
-    }),
+    getConversationDefault,
+    getConversation: vi.fn(getConversationDefault),
     createConversation: vi.fn(),
     askQuestion: vi.fn(),
     listTodos: vi.fn(async () => []),
@@ -84,7 +95,8 @@ let host: HTMLDivElement;
 
 beforeEach(() => {
   harness.listConversations.mockClear();
-  harness.getConversation.mockClear();
+  harness.getConversation.mockReset();
+  harness.getConversation.mockImplementation(harness.getConversationDefault);
   harness.createConversation.mockReset();
   harness.askQuestion.mockReset();
   host = document.createElement('div');
@@ -121,6 +133,21 @@ function setValue(el: HTMLSelectElement | HTMLTextAreaElement, value: string): v
   );
 }
 
+async function flush(): Promise<void> {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+async function send(text: string): Promise<void> {
+  const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+  await act(async () => {
+    setValue(textarea, text);
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+  await flush();
+}
+
 function item(title: string): HTMLElement {
   const el = [...document.querySelectorAll('[data-testid="conversation-item"]')].find((n) =>
     n.textContent?.includes(title),
@@ -155,18 +182,88 @@ describe('G06 对话的项目固定（界面）', () => {
     expect(hint?.textContent).toContain('换项目请开新对话');
   });
 
+  it('条件 2（界面，整合方补）：当前选 B 时打开 A 的旧对话再提问，发出去的是 A', async () => {
+    harness.askQuestion.mockResolvedValue({ conversationId: 'conv-a' });
+    await render();
+    await act(async () => {
+      setValue(select(), PROJECT_B.id);
+    });
+    await act(async () => {
+      item('A 的旧对话').querySelector('button')!.click();
+    });
+    await flush();
+    await send('接着说');
+    expect(harness.askQuestion).toHaveBeenCalledTimes(1);
+    expect(harness.askQuestion.mock.calls[0]![0]).toMatchObject({
+      conversationId: 'conv-a',
+      projectId: PROJECT_A.id,
+    });
+  });
+
+  it('整合方补：打开 A 的旧对话后点「新对话」，下拉框解锁；改选 B 发第一句，发出去的是 B', async () => {
+    harness.createConversation.mockResolvedValue({ id: 'conv-fresh', projectId: PROJECT_A.id });
+    harness.askQuestion.mockResolvedValue({ conversationId: 'conv-fresh' });
+    harness.getConversation.mockImplementation(async (id: string) =>
+      id === 'conv-fresh'
+        ? { conversation: { id, title: '新对话', projectId: PROJECT_A.id }, messages: [] }
+        : harness.getConversationDefault(id),
+    );
+    await render();
+    await act(async () => {
+      item('A 的旧对话').querySelector('button')!.click();
+    });
+    await flush();
+    expect(select().disabled).toBe(true);
+    await act(async () => {
+      (document.querySelector('[data-testid="conversation-new"]') as HTMLButtonElement).click();
+    });
+    await flush();
+    expect(select().disabled).toBe(false);
+    await act(async () => {
+      setValue(select(), PROJECT_B.id);
+    });
+    await send('第一句');
+    expect(harness.askQuestion).toHaveBeenCalledTimes(1);
+    expect(harness.askQuestion.mock.calls[0]![0]).toMatchObject({
+      conversationId: 'conv-fresh',
+      projectId: PROJECT_B.id,
+    });
+  });
+
   it('条件 4：新对话可以选 B，发出第一句后下拉框锁定为 B', async () => {
     harness.createConversation.mockResolvedValue({ id: 'conv-new', projectId: PROJECT_B.id });
     harness.askQuestion.mockResolvedValue({ conversationId: 'conv-new' });
     harness.getConversation.mockImplementation(async (id: string) => {
       if (id === 'conv-new') {
+        // 发出第一句之后，库里这个对话就有了这一轮问答（整合方补：原稿一直返回空，与真实不符）
+        const asked = harness.askQuestion.mock.calls.length > 0;
         return {
           conversation: { id, title: '新对话', projectId: PROJECT_B.id },
-          messages: [],
+          messages: asked
+            ? [
+                {
+                  id: 'conv-new-m1',
+                  role: 'user',
+                  content: '第一句',
+                  seq: 1,
+                  status: 'complete',
+                  meta: {},
+                  citations: [],
+                },
+                {
+                  id: 'conv-new-m2',
+                  role: 'assistant',
+                  content: '好的',
+                  seq: 2,
+                  status: 'complete',
+                  meta: {},
+                  citations: [],
+                },
+              ]
+            : [],
         };
       }
-      const c = harness.conversations.find((x) => x.id === id)!;
-      return { conversation: { ...c }, messages: [] };
+      return harness.getConversationDefault(id);
     });
     await render();
     expect(select().disabled).toBe(false);

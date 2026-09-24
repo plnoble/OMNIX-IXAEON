@@ -5,19 +5,20 @@
  * 协议替身（PassThrough），不启动本机 Hermes；看 session.create 的次数与
  * prompt.submit 实际发出去的文字。
  *
- * 契约 2 的记忆版本算法（规格说「具体怎么算由执行方定，测试写明」，实现照此）：
- * getDisclosureEpoch 的记忆段不再统计 current/disputed 的数量与最大更新时间，
- * 改为「收回可见性指纹」，五段用 '|' 连进纪元串（授权段、披露段、设置段照旧）：
- *   1. rejected：confirmation='rejected' 的条数与 max(updated_at)
- *   2. superseded：state='superseded' 的条数与 max(updated_at)
- *   3. ended：time_status='ended' 的条数与 max(updated_at)
- *   4. scope：updated_at > created_at 的条目按 id 排序拼 `id:scope`（纯新增的条目
- *      created_at 等于 updated_at，不计入；改过范围的 updated_at 被推后，计入）
- *   5. removed：累计删除条数。getDisclosureEpoch 在 app_settings 里维护
- *      disclosure.items_seen（上次见过的全部 item id，逗号分隔）与
- *      disclosure.items_removed（累计消失条数）：本次 id 集合里消失的计进 removed，
- *      新出现的 id 只更新 seen 不计数。
- * 因此新 INSERT 一条记忆五段都不变；拒绝、标过时、被取代、改范围、删除都会变。
+ * 契约 2 的记忆版本（整合方复审时改写，2026-09-24）：
+ * 执行方原稿用五段指纹（拒绝/取代/结束的条数与最大更新时间、updated_at > created_at 的
+ * `id:scope` 串、getDisclosureEpoch 每次把全部 item id 写进 app_settings 来数删除）。复审发现：
+ * 搁置、归档资料、换项目都会让模型看不到记忆，却不在五段里；有的写法改范围不动 updated_at；
+ * 读函数带写副作用、存的串随条数一直涨。改为：
+ *   记忆段 = app_settings 里 disclosure.memory_revision 的值。迁移 36（整合方写）的触发器在
+ *   「收回可见性」时加 1：删除记忆；标「不对」；被取代（state 离开 current/disputed）；
+ *   搁置；标「结束没结束」（time_status 变）；改范围或归属项目；归档来源。新增记忆、标争议、
+ *   重算待处理原因、点「对」都不加。**getDisclosureEpoch 只读不写。**
+ *   授权段、披露段照旧。
+ *   设置段只看会改变「模型能看到什么」的设置，目前只有 memory.personal_to_chat；不再取
+ *   全部 app_settings 的最大 updated_at——否则点「都看过了」（overview.*_seen_at）、
+ *   「不关注」（research.watch_directions.rejected）也会让会话重建。
+ * 规格契约 2 点名的五种（拒绝、标过时、被取代、改范围、删除）一条没少。
  *
  * 契约 1 的判断方法：规格举例 willReuseSession(contextRef)。适配器不持有数据库，
  * 披露版本由调用方算好传入，故签名为
@@ -37,11 +38,14 @@ import {
   FakeCodingExecutor,
   FakeProvider,
   HermesRuntimeAdapter,
+  ImportService,
   ItemService,
   JsonRpcStdio,
   PermissionService,
   ProjectService,
   SearchService,
+  SourceStore,
+  Vault,
   getDisclosureEpoch,
   migrate,
   openDatabase,
@@ -407,5 +411,87 @@ describe('G01 记忆版本（契约 2：只有收回可见性才让版本变）'
 
     database.prepare('DELETE FROM items WHERE id = ?').run(removed);
     expect(getDisclosureEpoch(database)).not.toBe(afterScope);
+  });
+
+  it('整合方补：搁置、换归属项目、归档资料也会改变版本', () => {
+    const { db: database, items } = fresh();
+    const shelved = insertMemory(database, '记一条准备搁置');
+    const moved = insertMemory(database, '记一条准备换项目');
+    const projects = new ProjectService(database);
+    const first = projects.create({ name: '合成项目甲', rootPath: null, description: null });
+    const second = projects.create({ name: '合成项目乙', rootPath: null, description: null });
+    items.assignToProject(moved, first.id);
+    let epoch = getDisclosureEpoch(database);
+
+    items.shelve(shelved, true);
+    expect(getDisclosureEpoch(database)).not.toBe(epoch);
+    epoch = getDisclosureEpoch(database);
+
+    // 从甲换到乙：在甲的对话里它就不该再出现了
+    items.assignToProject(moved, second.id);
+    expect(getDisclosureEpoch(database)).not.toBe(epoch);
+
+    const dir = tempDir('ixa-g01-archive-');
+    const doc = join(dir, 'note.md');
+    writeFileSync(doc, ['# 合成资料', '', '一段合成的笔记。'].join('\n'), 'utf8');
+    const permissions = new PermissionService(database);
+    const sources = new SourceStore(database);
+    const imports = new ImportService(
+      database,
+      new Vault(join(dir, 'vault')),
+      permissions,
+      sources,
+    );
+    const source = imports.importFile(doc, {
+      projectId: null,
+      permissionId: permissions.grantFile(doc).id,
+    }).created[0]!;
+    // 导入时授权段已经变了，这里重新取基线
+    epoch = getDisclosureEpoch(database);
+    sources.archive(source.id, '合成资料的经验摘要');
+    expect(getDisclosureEpoch(database)).not.toBe(epoch);
+  });
+
+  it('整合方补：标争议、重算待处理原因、点「对」不改变版本（每轮提炼后都会发生）', async () => {
+    const { db: database, items } = fresh();
+    const disputed = insertMemory(database, '记一条会被标争议');
+    const confirmed = insertMemory(database, '记一条会被确认');
+    const base = getDisclosureEpoch(database);
+    // 提炼器发现冲突时的写法（extractor.ts）：争议条目照旧注入，只多一个标签
+    database.prepare(`UPDATE items SET state = 'disputed' WHERE id = ?`).run(disputed);
+    // 待处理原因重算（needsReview.ts）。更新时间故意推后：靠 updated_at 算版本的实现在这里必挂
+    database
+      .prepare('UPDATE items SET needs_reasons = ?, needs_review = 1, updated_at = ? WHERE id = ?')
+      .run('unconfirmed', new Date(Date.now() + 60_000).toISOString(), confirmed);
+    await new Promise((r) => setTimeout(r, 5));
+    items.confirm(confirmed);
+    expect(getDisclosureEpoch(database)).toBe(base);
+  });
+
+  it('整合方补：写别的设置（都看过了、不关注）不改变版本；「个人记忆给聊天用」会', () => {
+    const { db: database } = fresh();
+    const base = getDisclosureEpoch(database);
+    const now = new Date().toISOString();
+    const put = database.prepare(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    );
+    put.run('overview.findings_seen_at', now, now);
+    put.run('overview.matched_seen_at', now, now);
+    put.run('research.watch_directions.rejected', '[]', now);
+    expect(getDisclosureEpoch(database)).toBe(base);
+    setPersonalMemoryToChat(database, true);
+    expect(getDisclosureEpoch(database)).not.toBe(base);
+  });
+
+  it('整合方补：读版本不写库', () => {
+    const { db: database } = fresh();
+    insertMemory(database, '一条记忆');
+    const snapshot = () =>
+      JSON.stringify(database.prepare('SELECT * FROM app_settings ORDER BY key').all());
+    const before = snapshot();
+    getDisclosureEpoch(database);
+    getDisclosureEpoch(database);
+    expect(snapshot()).toBe(before);
   });
 });

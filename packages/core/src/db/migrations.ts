@@ -1037,6 +1037,53 @@ ALTER TABLE research_topics ADD COLUMN daily_request_cap INTEGER
 ALTER TABLE research_topics ADD COLUMN request_budget_day TEXT;
 `,
   },
+  {
+    id: 36,
+    name: 'memory-visibility-revision',
+    sql: `
+-- G01（整合方复审测试时定，2026-09-24）：进行中的 Hermes 会话里留着前几轮注入过的记忆。
+-- 有记忆模型不该再看到了，会话就得重建；但「新提炼出一条记忆」不算——原来的披露版本把
+-- 记忆条数和最后更新时间都算进去，聊一轮提炼一轮，会话就重建一次，前几轮的话跟着丢了。
+-- 用一个只增不减的版本号，由触发器维护：读版本时不写库；不靠 updated_at 猜（有的写法改了
+-- 范围不动 updated_at）；也不用把全部记忆 id 存下来。
+-- 条件对着 ContextSelector 选材的条件写：state 在 current/disputed、没搁置、没被标不对、
+-- 来源没归档、按 project_id 过滤、按 scope 判断能不能给模型；再加上用户标「结束没结束」。
+-- 只数「收回」的方向：取消搁置、撤销「不对」、取消归档是多给模型看，下一轮注入自然带上。
+-- 外键级联（删项目连带删记忆、删来源把 extracted_from_source_id 置空）同样触发。
+-- 以后重建 items 或 sources 表的迁移，要把这三个触发器一起重建（DROP TABLE 会带走触发器）。
+INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+  VALUES ('disclosure.memory_revision', '0', '1970-01-01T00:00:00.000Z');
+CREATE TRIGGER trg_memory_revision_item_delete AFTER DELETE ON items
+BEGIN
+  UPDATE app_settings
+     SET value = CAST(value AS INTEGER) + 1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE key = 'disclosure.memory_revision';
+END;
+CREATE TRIGGER trg_memory_revision_item_update
+AFTER UPDATE OF confirmation, state, shelved_at, time_status, scope, project_id ON items
+WHEN (NEW.confirmation = 'rejected' AND OLD.confirmation IS NOT 'rejected')
+  OR (NEW.state NOT IN ('current', 'disputed') AND OLD.state IN ('current', 'disputed'))
+  OR (NEW.shelved_at IS NOT NULL AND OLD.shelved_at IS NULL)
+  OR NEW.time_status IS NOT OLD.time_status
+  OR NEW.scope IS NOT OLD.scope
+  OR NEW.project_id IS NOT OLD.project_id
+BEGIN
+  UPDATE app_settings
+     SET value = CAST(value AS INTEGER) + 1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE key = 'disclosure.memory_revision';
+END;
+CREATE TRIGGER trg_memory_revision_source_archive AFTER UPDATE OF archived_at ON sources
+WHEN NEW.archived_at IS NOT NULL AND OLD.archived_at IS NULL
+BEGIN
+  UPDATE app_settings
+     SET value = CAST(value AS INTEGER) + 1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE key = 'disclosure.memory_revision';
+END;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

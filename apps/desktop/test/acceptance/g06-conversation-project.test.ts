@@ -5,6 +5,13 @@
  * 条件 3：调用方传来的 projectId 与对话自己的不一致 → VALIDATION_FAILED
  *         「这个对话属于另一个项目，换项目请开新对话」，什么都不发给模型
  *         （替身 run 零调用，对话里不新增消息）。
+ *
+ * 整合方复审时补（2026-09-24）：
+ * - 这里的「旧对话」是已经聊过的对话（setup 先放一轮问答）。「全部项目」（null）和某个
+ *   项目之间也算不一致。
+ * - 「新对话」按钮按当时的下拉框**立刻**建一个空对话，用户可能随后才改选项目。对话里
+ *   还没有任何消息时，以第一问的 projectId 为准并写回对话；有了消息就固定。否则点了
+ *   「新对话」再换项目，第一句就被拒——规格「新对话（还没发第一句）时下拉框可选」落空。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -56,6 +63,9 @@ function setup() {
   const projectB = projects.create({ name: '项目B', rootPath: null, description: null });
   const conversations = new ConversationStore(db);
   const conv = conversations.create({ projectId: projectA.id });
+  // 旧对话：已经聊过一轮
+  conversations.appendMessage(conv.id, { role: 'user', content: '之前问的' });
+  conversations.appendMessage(conv.id, { role: 'assistant', content: '之前答的' });
   const seen: Array<string | null> = [];
   const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
   Object.assign(runtime, {
@@ -81,7 +91,7 @@ function setup() {
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
   });
-  runtime['askSessions'].set(conv.id, {
+  const fakeSession = {
     run: async (input: { projectId: string | null }) => {
       seen.push(input.projectId);
       return {
@@ -98,8 +108,22 @@ function setup() {
     },
     cancel: () => undefined,
     getEngineSessionId: () => 's-test',
-  } as unknown as AgentSession);
-  return { runtime, conversations, conv, projectA, projectB, seen };
+  } as unknown as AgentSession;
+  /** 让某个对话用替身会话（不启动真引擎）。 */
+  const bind = (conversationId: string) => runtime['askSessions'].set(conversationId, fakeSession);
+  bind(conv.id);
+  return { runtime, conversations, conv, projectA, projectB, seen, bind };
+}
+
+function askError(
+  runtime: AppRuntime,
+  conversationId: string,
+  projectId: string | null,
+): Promise<unknown> {
+  return runtime.ask({ conversationId, projectId, question: '做到哪了' }).then(
+    () => null,
+    (e: unknown) => e,
+  );
 }
 
 describe('G06 对话的项目固定（后端）', () => {
@@ -123,5 +147,32 @@ describe('G06 对话的项目固定（后端）', () => {
     expect((err as IxaError).message).toContain('这个对话属于另一个项目，换项目请开新对话');
     expect(seen).toEqual([]);
     expect(conversations.messages(conv.id).length).toBe(before);
+  });
+
+  it('整合方补：「全部项目」和某个项目之间也算不一致', async () => {
+    const { runtime, conversations, conv, projectB, seen, bind } = setup();
+    // A 的旧对话，传来「全部项目」
+    const toAll = await askError(runtime, conv.id, null);
+    expect((toAll as IxaError).code).toBe(ErrorCodes.VALIDATION_FAILED);
+    // 「全部项目」的旧对话，传来 B
+    const loose = conversations.create({ projectId: null });
+    conversations.appendMessage(loose.id, { role: 'user', content: '之前问的' });
+    bind(loose.id);
+    const toB = await askError(runtime, loose.id, projectB.id);
+    expect((toB as IxaError).code).toBe(ErrorCodes.VALIDATION_FAILED);
+    expect(seen).toEqual([]);
+  });
+
+  it('整合方补：刚点「新对话」还没发第一句，以第一句的项目为准并写回；之后固定', async () => {
+    const { runtime, conversations, projectA, projectB, seen, bind } = setup();
+    // 「新对话」按钮按当时的下拉框建了 A 的空对话，用户随后改选了 B
+    const fresh = conversations.create({ projectId: projectA.id });
+    bind(fresh.id);
+    await runtime.ask({ conversationId: fresh.id, projectId: projectB.id, question: '第一句' });
+    expect(seen).toEqual([projectB.id]);
+    expect(conversations.get(fresh.id).projectId).toBe(projectB.id);
+    const later = await askError(runtime, fresh.id, projectA.id);
+    expect((later as IxaError).code).toBe(ErrorCodes.VALIDATION_FAILED);
+    expect(seen).toEqual([projectB.id]);
   });
 });
