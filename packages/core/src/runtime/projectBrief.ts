@@ -8,6 +8,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import type { CoreDatabase } from '../db/database.js';
+import { isPathInside } from '../paths.js';
 
 /** 编码任务的中文状态（同待办页 Todos 的对照表）。 */
 const STATUS_ZH: Record<string, string> = {
@@ -51,12 +52,19 @@ export function buildProjectBrief(
   if (!project) return empty;
 
   // 登记读取是门槛：登记目录时用户才同意把 git 摘要交给模型分析，这里不扩大范围。
-  const registered = db
-    .prepare("SELECT id FROM sources WHERE project_id = ? AND kind = 'project_snapshot' LIMIT 1")
-    .get(projectId);
+  // G02：门槛还要看授权**仍有效**，且覆盖项目当前的根目录（isPathInside，
+  // 不是两者相等——授权了上级文件夹、项目根目录是其子目录时照样跑）。
+  // 快照授权被撤销、或项目换了根目录跑到授权范围外 → 不跑：已有快照不能充当永久授权。
+  const snapshot = db
+    .prepare(
+      `SELECT p.locator AS locator FROM sources s JOIN permissions p ON p.id = s.permission_id
+        WHERE s.project_id = ? AND s.kind = 'project_snapshot' AND p.status = 'active'
+        ORDER BY s.captured_at DESC LIMIT 1`,
+    )
+    .get(projectId) as { locator: string } | undefined;
   const runGit = opts?.runGit ?? runGitLog;
   let commitLines: string[] = [];
-  if (registered && project.root_path) {
+  if (snapshot && project.root_path && isPathInside(snapshot.locator, project.root_path)) {
     try {
       commitLines = runGit(project.root_path)
         .split('\n')
@@ -67,11 +75,14 @@ export function buildProjectBrief(
     }
   }
 
+  // G02：编码代理会话只取授权仍有效的来源（与其它读取入口同一把尺子：
+  // permissions.status = 'active'）。撤销了读取授权的会话不再进简报。
   const sessions = db
     .prepare(
-      `SELECT id, title, captured_at FROM sources
-        WHERE project_id = ? AND provider = 'coding_agent'
-        ORDER BY captured_at DESC LIMIT 5`,
+      `SELECT s.id, s.title, s.captured_at FROM sources s
+        JOIN permissions p ON p.id = s.permission_id
+        WHERE s.project_id = ? AND s.provider = 'coding_agent' AND p.status = 'active'
+        ORDER BY s.captured_at DESC LIMIT 5`,
     )
     .all(projectId) as Array<{ id: string; title: string; captured_at: string | null }>;
   const sessionLines = sessions.map((s) => {
