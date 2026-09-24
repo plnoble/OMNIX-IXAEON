@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -14,6 +15,24 @@ import { codingClientMayReadItem } from '../access.js';
 import { copyProjectWorkspace } from './workspaceCopy.js';
 
 export const DEFAULT_TASK_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * G04：当前正在进行的提问（runId）。提问期间建的编码任务记下这个归属，
+ * ask() 只把这一轮自己建的任务带进回答。用异步上下文而不是函数参数：
+ * 任务可能由 broker 的 propose_task 建，也可能由这一轮里别的代码建
+ * （T2b 的会话替身就是这样），两条路都要标上。并发的两轮各有各的上下文，不串。
+ */
+const askRunStorage = new AsyncLocalStorage<string>();
+
+/** 在这个提问的上下文里跑 fn。里面建的编码任务自动带上 runId。 */
+export function withAskRun<T>(runId: string, fn: () => Promise<T>): Promise<T> {
+  return askRunStorage.run(runId, fn);
+}
+
+/** 当前提问的 runId；不在提问里时为 null（手动建的任务没有归属）。 */
+export function currentAskRunId(): string | null {
+  return askRunStorage.getStore() ?? null;
+}
 
 function bool(v: unknown): boolean {
   return v === 1 || v === true;
@@ -158,8 +177,8 @@ export class CodingTaskStore {
            id, project_id, goal, scope_json, workspace_path, snapshot_ref, context_digest,
            allowed_commands_json, timeout_ms, status, version, approval_id, dispatch_key,
            generation, executor_name, executor_report_json, verify_status, verify_exit_code,
-           verify_output, tests_modified, accepted_at, error, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'draft', 1, NULL, ?, 0, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, ?, ?)`,
+           verify_output, tests_modified, accepted_at, error, created_at, updated_at, origin_run_id
+         ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'draft', 1, NULL, ?, 0, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?)`,
       )
       .run(
         id,
@@ -172,6 +191,9 @@ export class CodingTaskStore {
         input.dispatchKey ?? null,
         now,
         now,
+        // G04：提问期间建的任务记住是哪一轮（ask() 按它归属）。
+        // 没在提问里建的（任务页手动建、旧数据）为 null，不出现在任何回答上。
+        currentAskRunId(),
       );
     return this.get(id);
   }

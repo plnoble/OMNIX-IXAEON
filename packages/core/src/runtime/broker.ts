@@ -213,12 +213,18 @@ export class CoreToolBroker {
             ],
           ];
         }
-        return this.coding.create({
+        // G04：记住这个任务是哪一轮提问产生的。提问期间（withAskRun）建的任务
+        // 已经带上 runId；这里再按这次调用的 ctx.runId 写一次，两条路一致。
+        const created = this.coding.create({
           projectId,
           goal,
           scope,
           allowedCommands,
         });
+        this.db
+          .prepare('UPDATE coding_tasks SET origin_run_id = ? WHERE id = ?')
+          .run(ctx.runId, created.id);
+        return created;
       }
       case 'dispatch_coding_task':
         throw new IxaError(
