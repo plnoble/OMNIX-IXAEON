@@ -42,3 +42,6 @@ $RECYCLE.BIN/
 
 # 复审套件（Playwright）的运行产物：每次运行都会重写，不进版本管理
 apps/desktop/test/review/.*-verify/
+
+# 审核脚本的本地证据目录（scripts/real/global-audit-*.mjs 写这里）
+.audit-global-*/

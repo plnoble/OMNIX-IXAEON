@@ -1019,6 +1019,24 @@ CREATE TABLE research_finding_matches (
 CREATE INDEX idx_finding_matches_finding ON research_finding_matches(finding_id);
 `,
   },
+  {
+    id: 35,
+    name: 'task-origin-run-and-daily-search-budget',
+    sql: `
+-- 全局审核 G04（2026-09-20）：编码任务记住是哪一轮提问产生的。原来按「本轮开始之后创建的」
+-- 时间窗口猜，并发时会把别的对话、别的项目的任务算成这一轮的建议。
+ALTER TABLE coding_tasks ADD COLUMN origin_run_id TEXT;
+CREATE INDEX idx_coding_tasks_origin_run ON coding_tasks(origin_run_id) WHERE origin_run_id IS NOT NULL;
+
+-- 全局审核 G07：关注方向卡片写「每天最多搜 3 次」，实际是累计 3 次、用完不再恢复。
+-- 用户 2026-09-24 定：每天 3 次，第二天自动恢复。
+-- daily_request_cap 为空 = 原来的累计额度（手动建的关注照旧，不偷偷扩大自动搜索）；
+-- 有值 = 每天的额度；request_budget_day 记上次按天恢复是哪一天（本地日期 YYYY-MM-DD）。
+ALTER TABLE research_topics ADD COLUMN daily_request_cap INTEGER
+  CHECK (daily_request_cap IS NULL OR daily_request_cap >= 0);
+ALTER TABLE research_topics ADD COLUMN request_budget_day TEXT;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
