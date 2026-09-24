@@ -149,15 +149,15 @@
     {
       "id": "G01",
       "title": "会话重建后补历史；新增记忆不再触发重建",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "packages/core/test/acceptance/g01-session-rebuild.test.ts": "61297c827326057955f6b0e69b6dbecc5235fc918d0947075140053c370fa5e4"
+        "packages/core/test/acceptance/g01-session-rebuild.test.ts": "4045453962017942681338c96a2a65741b41a51c17f9a07c1fe37184f51a149b"
       }
     },
     {
       "id": "G06",
       "title": "对话的项目固定",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/g06-conversation-project.test.ts": "24e5c9760452c5c23f131e23e7cadd9b7978bca55ee11382191ef089feae4605",
         "apps/desktop/test/acceptance/g06-conversation-project-page.test.ts": "d52da6fb066b15a2a47d8b3bdd984714234b9e7fd53d5ec86d69dab0c277da27"
@@ -166,7 +166,7 @@
     {
       "id": "G02",
       "title": "项目简报尊重授权撤销",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/g02-brief-authorization.test.ts": "7948cd862e7b61b9970500c98861bce23ce48f29807c23c1a2629478660b8625"
       }
@@ -174,7 +174,7 @@
     {
       "id": "G04",
       "title": "编码任务按运行归属",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/g04-task-origin.test.ts": "3455dc6b7d8ff598d555a5bd53f533d18de54d5bdc6eae55e4bf6f9cc339b8a4"
       }
@@ -182,7 +182,7 @@
     {
       "id": "G03",
       "title": "关注方向接受你说的目标",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/g03-watch-goal-origin.test.ts": "8440d685d00db7b035590df034603cb3513c39928061552c6b9b3684f446c8fa"
       }
@@ -190,7 +190,7 @@
     {
       "id": "G07",
       "title": "搜索预算按天恢复",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/g07-daily-budget.test.ts": "9b73146564e95926efdcb5de4eb84422ec4f65fb7d140c0801ddc4c1833c8d2d",
         "apps/desktop/test/acceptance/g07-follow-budget.test.ts": "b6a6cbafe0bfa93e9ed78cb6a16d465f0f31e632e52b9adff85e4e9f301b1671",

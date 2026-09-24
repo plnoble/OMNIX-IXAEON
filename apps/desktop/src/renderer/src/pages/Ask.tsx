@@ -285,6 +285,8 @@ export function AskPage({
       if (activeId && !next.some((c) => c.id === activeId)) {
         setActiveId(null);
         setMessages([]);
+        // 打开的对话被删了或归档了：没有对话了，项目下拉框不再锁着
+        setProjectLocked(false);
       }
     } catch (err) {
       setError(errMsg(err));

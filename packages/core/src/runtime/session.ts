@@ -246,13 +246,14 @@ export class AgentSession {
         // 按旧算法就不补了：聊着聊着会话被换掉，前几轮的话跟着丢。
         // willReuseSession 与 start() 同一套规则（同 contextRef 有活着的长驻会话、
         // 启动参数与披露版本都没变）：会复用 → 不补；会新开 → 补。
+        // 整合方复审时补：还要这个对话自己已经在那个会话里聊过（hermesSessionId 有值）。
+        // 预热好的会话接给一个旧对话时，适配器里有活着的长驻会话、版本也没变，但那个
+        // 会话是空的，没见过这个对话的前几轮——只看复用不补，重开旧对话就丢了历史。
         const permissionVersion = getDisclosureEpoch(this.db);
-        const priorBlock = this.adapter.willReuseSession(
-          input.projectId ?? 'personal',
-          permissionVersion,
-        )
-          ? ''
-          : formatPriorTurns(priorTurns);
+        const alreadyInSession =
+          this.hermesSessionId !== null &&
+          this.adapter.willReuseSession(input.projectId ?? 'personal', permissionVersion);
+        const priorBlock = alreadyInSession ? '' : formatPriorTurns(priorTurns);
         // 记忆路由约定（2026-09-13 用户实测发现：模型默认用 Hermes 自带 memory
         // 工具，用户日程落进 Hermes 记忆库而不是 IXAEON Core——违背「Hermes
         // 可替换、Core 资料独立保存」）。派发目标附带本约定，引导写入 Core；

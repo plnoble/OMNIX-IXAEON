@@ -20,6 +20,11 @@
  *   「不关注」（research.watch_directions.rejected）也会让会话重建。
  * 规格契约 2 点名的五种（拒绝、标过时、被取代、改范围、删除）一条没少。
  *
+ * 条件 4 整合方复审实现时补（2026-09-24）：应用会预热一个空会话（P1），重开旧对话的第一问
+ * 接的就是它。适配器里有活着的长驻会话、版本也没变，但那个会话没见过这个对话的前几轮——
+ * 只看「会不会复用」就不补历史，重开旧对话丢了上文。原来的条件 4 用的是不预热的新适配器，
+ * 测不到这条最常走的路。
+ *
  * 契约 1 的判断方法：规格举例 willReuseSession(contextRef)。适配器不持有数据库，
  * 披露版本由调用方算好传入，故签名为
  * willReuseSession(contextRef: string, permissionVersion: string): boolean
@@ -34,6 +39,7 @@ import { PassThrough } from 'node:stream';
 import {
   AgentSession,
   CodingOrchestrator,
+  CORE_TOOL_NAMES,
   CoreToolBroker,
   FakeCodingExecutor,
   FakeProvider,
@@ -93,6 +99,7 @@ function harness(): {
   spawns: Spawn[];
   drive: (goal: string, priorTurns: PriorTurn[]) => Promise<string>;
   reopen: () => AgentSession;
+  prewarm: () => Promise<void>;
 } {
   const dir = tempDir('ixa-g01-');
   db = openDatabase(join(dir, 'ixaeon.db'));
@@ -197,7 +204,26 @@ function harness(): {
     });
   }
 
-  return { db: database, adapter, session, spawns, drive, reopen };
+  /** 应用的会话预热（P1）：进程起好、会话建好，还没有任何一轮对话。 */
+  async function prewarm(): Promise<void> {
+    const warming = adapter.prewarm({
+      runId: 'prewarm-g01',
+      goal: '',
+      contextRef: 'personal',
+      allowedTools: [...CORE_TOOL_NAMES],
+      permissionVersion: getDisclosureEpoch(database),
+      budget: { maxToolCalls: 4, timeoutMs: 120_000 },
+      idempotencyKey: 'prewarm-personal',
+    });
+    const req = await nextRequest();
+    expect(req.msg.method).toBe('session.create');
+    req.spawn.hostIn.write(
+      JSON.stringify({ jsonrpc: '2.0', id: req.msg.id, result: { session_id: 's-1' } }) + '\n',
+    );
+    expect(await warming).toBe(true);
+  }
+
+  return { db: database, adapter, session, spawns, drive, reopen, prewarm };
 }
 
 /** 往库里直接插入一条记忆（提炼器产物的形状：origin=ai、said_by=user）。 */
@@ -338,6 +364,28 @@ describe('G01 会话重建后补历史', () => {
       }) + '\n',
     );
     await pending;
+  });
+
+  it('条件 4（整合方补）：预热好的会话接给一个旧对话，第一问也补历史', async () => {
+    const h = harness();
+    await h.prewarm();
+    const prior: PriorTurn[] = [
+      { role: 'user', content: PASSPHRASE },
+      { role: 'assistant', content: '好的' },
+    ];
+    const text = await h.drive('我刚才说的口令是什么', prior);
+    // 用的就是预热好的那个进程与会话
+    expect(h.spawns.length).toBe(1);
+    expect(text).toContain(HISTORY_MARK);
+    expect(text).toContain(PASSPHRASE);
+    // 接着聊：这回它已经在这个会话里了，不再重复补
+    const next = await h.drive('再说一遍', [
+      ...prior,
+      { role: 'user', content: '我刚才说的口令是什么' },
+      { role: 'assistant', content: '好的' },
+    ]);
+    expect(next).not.toContain(HISTORY_MARK);
+    h.adapter.disposeAll();
   });
 
   it('条件 5：同一会话连续复用时每一轮都不重复补历史', async () => {

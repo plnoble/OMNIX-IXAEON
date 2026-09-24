@@ -58,7 +58,7 @@ function budgetText(t: {
 }): string {
   if (t.paid_budget_mode !== 'request_cap') return '未设预批预算';
   const left = t.request_cap ?? 0;
-  if (t.daily_request_cap !== null) {
+  if (t.daily_request_cap != null) {
     return left > 0
       ? `今天还能搜 ${left} 次（每天 ${t.daily_request_cap} 次）`
       : '今天的搜索额度用完了，明天恢复';
@@ -100,6 +100,8 @@ export function ResearchPage({
     ReturnType<typeof api.suggestWatchDirections>
   > | null>(null);
   const [decided, setDecided] = useState<Record<number, boolean>>({});
+  /** 「关注」「不关注」失败时写在那张卡片上：页面顶上的提示，往下翻看卡片时看不见，像点了没反应。 */
+  const [decideError, setDecideError] = useState<Record<number, string>>({});
 
   const reload = useCallback(async () => {
     try {
@@ -246,6 +248,7 @@ export function ResearchPage({
     void act(async () => {
       setSuggested(null);
       setDecided({});
+      setDecideError({});
       setSuggestCount((await api.previewWatchDirections()).memoryCount);
     });
   const confirmSuggest = () =>
@@ -256,17 +259,22 @@ export function ResearchPage({
   const decide = (i: number, follow: boolean) => {
     const d = suggested?.directions[i];
     if (!d) return;
+    setDecideError((prev) => ({ ...prev, [i]: '' }));
     void act(async () => {
       const { question, publicDescription, relatedGoalId, relatedProjectId } = d;
-      if (follow)
-        await api.followWatchDirection({
-          question,
-          publicDescription,
-          relatedGoalId,
-          relatedProjectId,
-        });
-      else await api.skipWatchDirection({ question, publicDescription });
-      setDecided((prev) => ({ ...prev, [i]: true }));
+      try {
+        if (follow)
+          await api.followWatchDirection({
+            question,
+            publicDescription,
+            relatedGoalId,
+            relatedProjectId,
+          });
+        else await api.skipWatchDirection({ question, publicDescription });
+        setDecided((prev) => ({ ...prev, [i]: true }));
+      } catch (err) {
+        setDecideError((prev) => ({ ...prev, [i]: errMsg(err) }));
+      }
     });
   };
 
@@ -356,6 +364,11 @@ export function ResearchPage({
               </Button>
             </div>
           )}
+          {decideError[i] ? (
+            <p className="warn" data-testid={`research-direction-error-${i}`}>
+              没办成：{decideError[i]}
+            </p>
+          ) : null}
         </Card>
       ))}
       <Card title="新建关注">
