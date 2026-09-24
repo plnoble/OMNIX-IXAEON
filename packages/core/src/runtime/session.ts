@@ -240,12 +240,19 @@ export class AgentSession {
             /* 上下文取不到时照常派发，不编造 */
           }
         }
-        // D3：历史轮次只在引擎会话不存在时注入。
-        // 引擎会话活着的时候，之前那些话本来就在它的上下文里（A06 的复用逻辑），
-        // 再注入一遍等于把同一段对话说两遍，既费 token 又会让模型以为用户重复了。
-        // 需要注入的是这两种情况：本对话在本进程内第一次提问，或应用重启后
-        // 重开旧对话（engine_session_id 已被 clearEngineSessions 清空）。
-        const priorBlock = this.hermesSessionId === null ? formatPriorTurns(priorTurns) : '';
+        // D3 / G01：补不补历史只看底层会话是不是新的，不再以自己手里的
+        // hermesSessionId 为准——披露版本一变（收回一条记忆的可见性），
+        // 适配器会丢掉长驻会话新开一个，这里的 hermesSessionId 还没跟着变，
+        // 按旧算法就不补了：聊着聊着会话被换掉，前几轮的话跟着丢。
+        // willReuseSession 与 start() 同一套规则（同 contextRef 有活着的长驻会话、
+        // 启动参数与披露版本都没变）：会复用 → 不补；会新开 → 补。
+        const permissionVersion = getDisclosureEpoch(this.db);
+        const priorBlock = this.adapter.willReuseSession(
+          input.projectId ?? 'personal',
+          permissionVersion,
+        )
+          ? ''
+          : formatPriorTurns(priorTurns);
         // 记忆路由约定（2026-09-13 用户实测发现：模型默认用 Hermes 自带 memory
         // 工具，用户日程落进 Hermes 记忆库而不是 IXAEON Core——违背「Hermes
         // 可替换、Core 资料独立保存」）。派发目标附带本约定，引导写入 Core；
@@ -281,7 +288,7 @@ export class AgentSession {
             goal: dispatchedGoal,
             contextRef: input.projectId ?? 'personal',
             allowedTools: [...CORE_TOOL_NAMES],
-            permissionVersion: getDisclosureEpoch(this.db),
+            permissionVersion,
             budget: { maxToolCalls: MAX_ROUNDS, timeoutMs: 120_000 },
             idempotencyKey: runId,
           },

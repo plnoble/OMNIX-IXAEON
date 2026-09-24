@@ -32,14 +32,19 @@ export function getSetting(
   return row ? { value: row.value, updatedAt: row.updated_at } : null;
 }
 
-/** 设置最后一次变动的时间（权限纪元用：开关一变，旧会话失效）。 */
+/**
+ * 会改变「模型能看到什么」的设置，最后一次变动的时间（权限纪元用）。
+ * G01（整合方复审时定，2026-09-24）：目前只有「个人记忆给聊天用」。不再取全部
+ * app_settings 的最大更新时间——点一下「都看过了」「不关注」也会写设置，那不该
+ * 让进行中的会话重建。
+ */
 export function settingsEpoch(db: CoreDatabase): string {
   return beforeMigration32(
     () =>
       (
-        db.prepare("SELECT COALESCE(MAX(updated_at), '') AS t FROM app_settings").get() as {
-          t: string;
-        }
+        db
+          .prepare(`SELECT COALESCE(MAX(updated_at), '') AS t FROM app_settings WHERE key = ?`)
+          .get(PERSONAL_MEMORY_TO_CHAT) as { t: string }
       ).t,
     '',
   );

@@ -186,6 +186,24 @@ export class HermesRuntimeAdapter {
   }
 
   /**
+   * G01：判断这一轮会不会复用已有的长驻会话（与 start() 同一套规则，只查不建）。
+   * AgentSession 组装派发内容前用它决定要不要补前几轮对话：会复用 → 不补
+   * （那些话还在引擎会话的上下文里）；会新开 → 补。适配器不持有数据库，
+   * 披露版本由调用方算好传入。
+   */
+  willReuseSession(contextRef: string, permissionVersion: string): boolean {
+    const resident = this.resident.get(contextRef);
+    if (!resident) return false;
+    const launch = this.getLaunchOptions?.() ?? { chatModel: null, bridgeToken: null };
+    const launchKey = JSON.stringify([launch.chatModel ?? '', launch.bridgeToken ?? '']);
+    return (
+      !resident.isDead &&
+      resident.permissionVersion === permissionVersion &&
+      this.residentLaunchKey.get(contextRef) === launchKey
+    );
+  }
+
+  /**
    * A06 / D02（审核 2026-09-14）：同 contextRef 的长驻会话若存活且权限版本一致，可以复用。
    * 权限版本变了（撤权/纠正），旧会话上下文已过时，必须销毁重开，防止泄漏。
    * 模型与记忆桥令牌都是启动参数，变了也必须重开网关进程——沿用旧进程等于设置没生效

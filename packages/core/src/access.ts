@@ -28,14 +28,36 @@ export function getDisclosureEpoch(
        WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`,
     )
     .get(now) as { c: number; t: string };
-  // 条目当前状态（含纠正产生的 superseded 变化）计入纪元
-  const i = db
-    .prepare(
-      "SELECT COUNT(*) AS c, COALESCE(MAX(updated_at), '') AS t FROM items WHERE state IN ('current', 'disputed')",
-    )
-    .get() as { c: number; t: string };
+  // G01（整合方复审时定，2026-09-24）：记忆段只对「收回可见性」的变化敏感。
+  // 原来取 current/disputed 条数与最大更新时间：每提炼一条新记忆版本就变，
+  // 会话跟着重建，前几轮的对话就丢了。改为读 app_settings 里
+  // disclosure.memory_revision（迁移 36 的触发器维护：删除、标「不对」、被取代、
+  // 搁置、改「结束没结束」、改范围或归属项目、归档来源时加 1；新增不加）。
+  // 这里只读不写。旧库（迁移 36 之前）没有这行：当作 0，授权段照旧兜底。
+  const i = beforeMigration36(
+    db,
+    () =>
+      (
+        db
+          .prepare(
+            "SELECT COALESCE(MAX(value), '0') AS v FROM app_settings WHERE key = 'disclosure.memory_revision'",
+          )
+          .get() as { v: string }
+      ).v,
+    '0',
+  );
   // E6：「个人记忆给聊天用」开关一变，带着旧可见范围的长驻会话必须失效
-  return `${p.c}:${p.t}|${d.c}:${d.t}|${i.c}:${i.t}|${settingsEpoch(db)}`;
+  return `${p.c}:${p.t}|${d.c}:${d.t}|${i}|${settingsEpoch(db)}`;
+}
+
+/** 迁移 36 之前的库没有 memory_revision 这行设置（表在 32 才建）：当作 0。 */
+function beforeMigration36(db: CoreDatabase, read: () => string, fallback: string): string {
+  try {
+    return read();
+  } catch (err) {
+    if (err instanceof Error && /no such table: app_settings/.test(err.message)) return fallback;
+    throw err;
+  }
 }
 
 /**
