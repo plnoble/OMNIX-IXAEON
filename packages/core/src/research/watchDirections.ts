@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isUnadoptedAiAdvice } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { getSetting, setSetting } from '../settings.js';
 
@@ -13,18 +14,45 @@ export type WatchDirection = {
 type Pair = { question: string; publicDescription: string };
 const REJECTED_KEY = 'research.watch_directions.rejected';
 
+/**
+ * G03：一条记忆能不能当关注的依据。研究端建主题（relatedGoalId）和 W1a 提方向
+ * （collectWatchMemories）共用这一处，不各写一套：
+ * 当前、没标「不对」、没结束、不是没采纳的 AI 建议。
+ * 从资料里提炼的目标 said_by 为空——不是「你说的」，也不是 AI 建议，照样算。
+ */
+export function isWatchableMemory(item: {
+  state: string;
+  confirmation: string | null;
+  time_status: string | null;
+  origin: string;
+  said_by: string | null;
+}): boolean {
+  return (
+    item.state === 'current' &&
+    (item.confirmation ?? 'none') !== 'rejected' &&
+    (item.time_status ?? '') !== 'ended' &&
+    !isUnadoptedAiAdvice({
+      origin: item.origin,
+      said_by: item.said_by,
+      confirmation: item.confirmation ?? 'none',
+    })
+  );
+}
+
 export function collectWatchMemories(db: CoreDatabase): WatchMemory[] {
-  return db
-    .prepare(
-      `SELECT id, project_id AS projectId, type, statement FROM items
-       WHERE type IN ('goal', 'constraint') AND state = 'current'
-         AND COALESCE(confirmation, 'none') != 'rejected'
-         AND COALESCE(time_status, '') != 'ended'
-         AND NOT ((COALESCE(said_by, '') = 'ai' OR origin = 'assistant_suggestion')
-                  AND COALESCE(confirmation, 'none') != 'confirmed')
-       ORDER BY updated_at DESC LIMIT 40`,
-    )
-    .all() as WatchMemory[];
+  return (
+    db
+      .prepare(
+        `SELECT id, project_id AS projectId, type, statement,
+              state, confirmation, time_status, origin, said_by
+       FROM items
+       WHERE type IN ('goal', 'constraint')
+       ORDER BY updated_at DESC`,
+      )
+      .all() as Array<WatchMemory & Parameters<typeof isWatchableMemory>[0]>
+  )
+    .filter(isWatchableMemory)
+    .slice(0, 40);
 }
 
 export const watchDirectionsSchema = z.object({

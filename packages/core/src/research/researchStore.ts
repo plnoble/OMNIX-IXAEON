@@ -10,6 +10,7 @@ import {
   type ResearchTopic,
 } from '@ixaeon/contracts';
 import { assertPublicHttpsUrl } from './urlSafety.js';
+import { isWatchableMemory } from './watchDirections.js';
 
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -117,10 +118,16 @@ export class ResearchStore {
     if (question.length === 0) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '研究问题不能为空');
     if (input.relatedGoalId) {
       const goal = this.db
-        .prepare(`SELECT id, origin, type FROM items WHERE id = ?`)
-        .get(input.relatedGoalId) as { id: string; origin: string; type: string } | undefined;
+        .prepare(
+          `SELECT id, type, state, confirmation, time_status, origin, said_by FROM items WHERE id = ?`,
+        )
+        .get(input.relatedGoalId) as
+        ({ id: string; type: string } & Parameters<typeof isWatchableMemory>[0]) | undefined;
       if (!goal) throw new IxaError(ErrorCodes.NOT_FOUND, '关联目标不存在');
-      if (goal.origin !== 'user' || goal.type !== 'goal') {
+      // G03：与 W1a 提方向同一个判断（isWatchableMemory），另加「必须是目标」。
+      // 人工建的、提炼出的你说的、你采纳过的、从资料里提炼的都收；
+      // 没采纳的 AI 建议、标了「不对」的、被取代的、已结束的不收。
+      if (goal.type !== 'goal' || !isWatchableMemory(goal)) {
         throw new IxaError(
           ErrorCodes.VALIDATION_FAILED,
           '研究只能关联用户确认的目标，不能把助手建议或外部事实写成用户目标',
