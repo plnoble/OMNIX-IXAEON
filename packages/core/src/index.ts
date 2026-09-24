@@ -81,6 +81,7 @@ export {
 export {
   JobQueue,
   DEFAULT_RETRY_BACKOFF_MS,
+  requeueFailedExtractions,
   type JobHandler,
   type JobContext,
 } from './jobs/jobQueue.js';
@@ -97,6 +98,7 @@ export {
   extractionOutputSchema,
   splitTextToFit,
   isExcerptGroundedInSegment,
+  groundExcerptInSegment,
   MAX_BLOCK_CHARS,
   type ExtractionOutput,
   type ExtractStats,

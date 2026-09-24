@@ -40,6 +40,8 @@ export type ExtractionOutput = z.infer<typeof extractionOutputSchema>;
 export interface ExtractStats {
   inserted: number;
   skippedBadRef: number;
+  /** X1：摘录对不上原文、但打捞出连续一段后入库的条数 */
+  salvaged: number;
   /** 与用户已确认/已不采纳结论相似而跳过的新条目数（M2 改口优先） */
   skippedPreserved: number;
   disputed: number;
@@ -154,6 +156,7 @@ export class Extractor {
       return {
         inserted: 0,
         skippedBadRef: 0,
+        salvaged: 0,
         skippedPreserved: 0,
         disputed: 0,
         needsReview: 0,
@@ -209,6 +212,7 @@ export class Extractor {
     const stats: ExtractStats = {
       inserted: 0,
       skippedBadRef: 0,
+      salvaged: 0,
       skippedPreserved: 0,
       disputed: 0,
       needsReview: 0,
@@ -245,10 +249,12 @@ export class Extractor {
       collected: Collected[];
       problems: BadRefProblem[];
       skippedPreserved: number;
+      salvaged: number;
     }> => {
       const collected: Collected[] = [];
       const problems: BadRefProblem[] = [];
       let skippedPreserved = 0;
+      let salvaged = 0;
       // 全部模型调用（跨网络，不持锁）。任一失败直接抛出 —— 旧 current 理解保持不变。
       // 修复 R3b：每次模型请求前重新检查授权 —— 撤销后立即停止发送尚未发送的块
       //（已经发出的网络请求无法收回，但撤销之后不再发送任何新内容）。
@@ -274,12 +280,18 @@ export class Extractor {
           // 引用编号真实但摘录是模型自编（或来自其他片段）的，一律视为无效依据。
           const segText = textById.get(segmentId) ?? '';
           if (!isExcerptGroundedInSegment(item.excerpt, segText)) {
-            problems.push({
-              segmentRef: item.segment_ref,
-              reason: 'ungrounded',
-              excerptPreview: item.excerpt,
-            });
-            continue;
+            const salvagedExcerpt = groundExcerptInSegment(item.excerpt, segText);
+            if (salvagedExcerpt) {
+              item.excerpt = salvagedExcerpt;
+              salvaged += 1;
+            } else {
+              problems.push({
+                segmentRef: item.segment_ref,
+                reason: 'ungrounded',
+                excerptPreview: item.excerpt,
+              });
+              continue;
+            }
           }
           if (exactProtected(item.statement)) {
             // 与人工决定逐字相同 → 不复活/不重复（G4：完全相同才跳过）
@@ -292,7 +304,7 @@ export class Extractor {
           collected.push({ row: item, segmentId, conflictsWithProtected });
         }
       }
-      return { collected, problems, skippedPreserved };
+      return { collected, problems, skippedPreserved, salvaged };
     };
 
     let pass = await runModelPass();
@@ -303,6 +315,7 @@ export class Extractor {
 
     let collected = pass.collected;
     stats.skippedBadRef = pass.problems.length;
+    stats.salvaged = pass.salvaged;
     stats.skippedPreserved += pass.skippedPreserved;
 
     // 2) 引用校验（修复 R4，2026-09-18 按真机数据放宽）：
@@ -324,6 +337,13 @@ export class Extractor {
         dropped: pass.problems.length,
         kept: collected.length,
         refs: pass.problems.slice(0, 8).map((p) => p.segmentRef),
+      });
+    }
+    if (stats.salvaged > 0 || pass.problems.length > 0) {
+      recordAudit(this.db, 'extract.excerpt_salvaged', {
+        sourceId,
+        salvaged: stats.salvaged,
+        dropped: pass.problems.length,
       });
     }
     // E5：确定性兜底——提炼出的 AI 建议与这一轮注入的某条记忆几乎同义，就是回声，不存
@@ -780,13 +800,103 @@ function formatBadRefMessage(title: string, problems: BadRefProblem[]): string {
   );
 }
 
+function normalizeGroundChar(ch: string): string | null {
+  if (/[\s\u200b\u200c\u200d\ufeff]/.test(ch)) return null;
+  if (/[“”«»„]/.test(ch)) return '"';
+  if (/[‘’]/.test(ch)) return "'";
+  return ch;
+}
+
+function normalizeForGrounding(s: string): { text: string; map: number[] } {
+  let text = '';
+  const map: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const n = normalizeGroundChar(s[i]!);
+    if (n === null) continue;
+    text += n;
+    map.push(i);
+  }
+  return { text, map };
+}
+
 export function isExcerptGroundedInSegment(excerpt: string, segmentText: string): boolean {
-  const norm = (s: string): string =>
-    s
-      .replace(/[\s\u200b\u200c\u200d\ufeff]/g, '')
-      .replace(/[“”«»„]/g, '"')
-      .replace(/[‘’]/g, "'");
-  const e = norm(excerpt);
+  const e = normalizeForGrounding(excerpt).text;
   if (e.length === 0) return false;
-  return norm(segmentText).includes(e);
+  return normalizeForGrounding(segmentText).text.includes(e);
+}
+
+/**
+ * X1：摘录对不上原文时，找出摘录里真正出现在片段中的最长连续一段。
+ * 返回片段原文里的那一段原样文字；规范化后不足 15 字或打捞不到则 null。
+ */
+export function groundExcerptInSegment(excerpt: string, segmentText: string): string | null {
+  const excerptNorm = normalizeForGrounding(excerpt).text;
+  const segment = normalizeForGrounding(segmentText);
+  if (excerptNorm.length === 0 || segment.text.length === 0) return null;
+
+  let bestStart = -1;
+  let bestLen = 0;
+  for (let i = 0; i < excerptNorm.length; i++) {
+    for (let j = excerptNorm.length; j - i > bestLen; j--) {
+      const slice = excerptNorm.slice(i, j);
+      const at = indexOfContinuousRun(segment, segmentText, slice);
+      if (at >= 0) {
+        bestStart = at;
+        bestLen = slice.length;
+      }
+    }
+  }
+  if (bestLen < 15 || bestStart < 0) return null;
+  let origStart = segment.map[bestStart]!;
+  const origEnd = segment.map[bestStart + bestLen - 1]! + 1;
+  // 不要把上一句的句号经换行粘到下一段前面（整合方：两段都够长时取最长那段）。
+  while (origStart < origEnd - 1) {
+    const ch = segmentText[origStart]!;
+    const stripped = segmentText.slice(origStart + 1, origEnd);
+    const strippedNorm = normalizeForGrounding(stripped).text;
+    if (
+      /[。．.!?！？、，,;；:：]/.test(ch) &&
+      strippedNorm.length >= 15 &&
+      excerptNorm.includes(strippedNorm)
+    ) {
+      origStart += 1;
+      continue;
+    }
+    if (normalizeGroundChar(ch) === null) {
+      origStart += 1;
+      continue;
+    }
+    break;
+  }
+  const grounded = segmentText.slice(origStart, origEnd);
+  return normalizeForGrounding(grounded).text.length >= 15 ? grounded : null;
+}
+
+/**
+ * 规范化后的匹配必须对应原文里的连续一段：相邻两个规范化字符之间
+ * 只能夹被丢掉的空白，不能夹别的字。这样「句号 + 换行 + 下一段」不会被当成一段。
+ */
+function indexOfContinuousRun(
+  segment: { text: string; map: number[] },
+  original: string,
+  slice: string,
+): number {
+  let from = 0;
+  while (from <= segment.text.length - slice.length) {
+    const at = segment.text.indexOf(slice, from);
+    if (at < 0) return -1;
+    let ok = true;
+    for (let k = 0; k < slice.length - 1; k++) {
+      const a = segment.map[at + k]!;
+      const b = segment.map[at + k + 1]!;
+      const between = original.slice(a + 1, b);
+      if (between.length > 0 && normalizeForGrounding(between).text.length > 0) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return at;
+    from = at + 1;
+  }
+  return -1;
 }

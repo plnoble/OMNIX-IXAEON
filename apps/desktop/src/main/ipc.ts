@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
-import { listAuditEvents, recordAudit } from '@ixaeon/core';
+import { listAuditEvents, recordAudit, requeueFailedExtractions } from '@ixaeon/core';
 import {
   ErrorCodes,
   IxaError,
@@ -302,6 +302,11 @@ export function registerIpc(runtime: AppRuntime): void {
       }
       if (queued > 0) runtime.jobs.kick();
       return { queued, skipped };
+    },
+    requeueFailedExtractions: async () => {
+      const queued = requeueFailedExtractions(runtime.db);
+      if (queued > 0) runtime.jobs.kick();
+      return { queued };
     },
     archiveSource: async (input) => {
       const summary =

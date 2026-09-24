@@ -79,8 +79,14 @@ export function analysisStatus(
   }
   if (a.analyzedRevision > 0) {
     // 引用核对不上的结论会被丢掉（其余照常入库）——成功也要把丢了几条说出来
-    if (a.lastJobNote)
-      return { text: '已分析（部分结论被丢弃）', detail: a.lastJobNote, tone: 'warn' };
+    if (a.lastJobNote) {
+      const salvaged = a.lastJobNote.includes('按原文截短后保留');
+      return {
+        text: salvaged ? '已分析（部分依据按原文截短后保留）' : '已分析（部分结论被丢弃）',
+        detail: a.lastJobNote,
+        tone: 'warn',
+      };
+    }
     return { text: '已分析最新内容', tone: 'ok' };
   }
   return { text: '已收到', tone: 'muted' };
@@ -103,6 +109,14 @@ export function SourcesPage({
   /** 分析失败、且未归档的来源——「全部重新分析」的对象。 */
   const failedIds = (list ?? [])
     .filter((i) => i.analysis.lastJobStatus === 'failed' && !i.source.archived_at)
+    .map((i) => i.source.id);
+  const groundingFailedIds = (list ?? [])
+    .filter(
+      (i) =>
+        i.analysis.lastJobStatus === 'failed' &&
+        !i.source.archived_at &&
+        /依据对不上原文|无效引用\/依据/.test(i.analysis.lastJobError ?? ''),
+    )
     .map((i) => i.source.id);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<{
@@ -420,6 +434,20 @@ export function SourcesPage({
   };
 
   /** 一次重跑所有分析失败的来源（真机上 44 条资料里 29 条从没成功过）。 */
+  const retryGroundingFailed = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.requeueFailedExtractions();
+      setNotice(`已重新排队 ${r.queued} 条依据对不上原文的资料`);
+      await reload(true);
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const retryAllFailed = async () => {
     if (failedIds.length === 0) return;
     setBusy(true);
@@ -538,6 +566,17 @@ export function SourcesPage({
           有 {failedIds.length} 条资料这次没分析成功（原文都在，理解没更新）。
           <Button disabled={busy} onClick={retryAllFailed} testId="sources-retry-all-failed">
             全部重新分析
+          </Button>
+        </p>
+      )}
+      {groundingFailedIds.length > 0 && (
+        <p className="muted" data-testid="sources-requeue-grounding">
+          <Button
+            disabled={busy}
+            onClick={retryGroundingFailed}
+            testId="sources-requeue-grounding-failed"
+          >
+            重新分析失败的资料（{groundingFailedIds.length} 份）
           </Button>
         </p>
       )}
