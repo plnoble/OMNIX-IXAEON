@@ -10,6 +10,7 @@ import { sanitizePublicQuery } from '../memory/querySanitize.js';
 import type { WebSearchExecutor, WebSearchHit } from './webSearch.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import { ResearchJudge } from './judge.js';
+import { judgeFindings } from './requirements.js';
 
 export interface Clock {
   now(): Date;
@@ -61,7 +62,8 @@ export class ResearchChecker {
     private readonly fetchDeps: FetchDeps = {},
     /** 惰性提供：每次检查时重新解析当前配置（保存 Key 后无需重启） */
     private readonly webSearchProvider?: () => WebSearchExecutor | undefined,
-    modelProvider?: ModelProvider | null | (() => ModelProvider | null | undefined),
+    private readonly modelProvider?:
+      ModelProvider | null | (() => ModelProvider | null | undefined),
   ) {
     this.store = new ResearchStore(db);
     this.judge = new ResearchJudge(modelProvider);
@@ -404,6 +406,13 @@ export class ResearchChecker {
           error: finalRunError,
           now,
         });
+        try {
+          const p =
+            typeof this.modelProvider === 'function' ? this.modelProvider() : this.modelProvider;
+          await judgeFindings(this.db, p ?? null, topic.id);
+        } catch {
+          /* 判定失败不影响发现入库 */
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -36,6 +36,7 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
+  const [matchedNew, setMatchedNew] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -43,7 +44,8 @@ export default function App() {
       setState(s);
       if (s.setupComplete) {
         setProjects(await api.listProjects());
-      }
+        setMatchedNew((await api.listMatchedFindings()).filter((f) => f.isNew).length);
+      } else setMatchedNew(0);
     } catch (err) {
       setError(errMsg(err));
     }
@@ -205,6 +207,11 @@ export default function App() {
             data-testid="nav-research"
           >
             研究
+            {matchedNew > 0 && (
+              <span className="badge" data-testid="nav-research-badge">
+                {matchedNew}
+              </span>
+            )}
           </button>
           <button
             type="button"

@@ -22,6 +22,22 @@ import type {
 import { z } from 'zod';
 import { itemTypeSchema } from './entities.js';
 
+export type OverviewMatchedFindingView = {
+  id: string;
+  title: string;
+  url: string;
+  topicQuestion: string;
+  fetchedAt: string;
+  isNew: boolean;
+  matches: Array<{ requirementId: string; text: string; reason: string }>;
+};
+export type ResearchRequirementView = {
+  id: string;
+  topic_id: string;
+  text: string;
+  sort_order: number;
+};
+
 // ---------------------------------------------------------------------------
 // 渲染进程 ↔ 主进程 IPC 契约。
 // preload 以 contextBridge 暴露最小 API；类型在这里集中定义，双端共用。
@@ -659,6 +675,7 @@ export interface IxaIpcApi {
       fetchedAt: string;
       isNew: boolean;
     }>;
+    matchedFindings: Array<OverviewMatchedFindingView>;
     coverage: {
       projectCount: number;
       analyzedSources: number;
@@ -668,6 +685,14 @@ export interface IxaIpcApi {
   }>;
   /** W1b：概览「最近的新发现」点「都看过了」。 */
   markFindingsSeen(): Promise<{ ok: true }>;
+  listResearchRequirements(topicId: string): Promise<ResearchRequirementView[]>;
+  addResearchRequirement(input: {
+    topicId: string;
+    text: string;
+  }): Promise<ResearchRequirementView>;
+  removeResearchRequirement(id: string): Promise<{ ok: true }>;
+  listMatchedFindings(): Promise<OverviewMatchedFindingView[]>;
+  markMatchedFindingsSeen(): Promise<{ ok: true }>;
   listProjectRelations(input?: {
     status?: 'proposed' | 'accepted' | 'rejected' | 'superseded';
   }): Promise<ProjectRelation[]>;

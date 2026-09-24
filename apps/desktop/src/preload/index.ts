@@ -85,6 +85,12 @@ const api: IxaIpcApi = {
   deleteConversation: (id) => ipcRenderer.invoke('ixaeon:deleteConversation', id),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
   markFindingsSeen: () => ipcRenderer.invoke('ixaeon:markFindingsSeen'),
+  listResearchRequirements: (topicId) =>
+    ipcRenderer.invoke('ixaeon:listResearchRequirements', topicId),
+  addResearchRequirement: (input) => ipcRenderer.invoke('ixaeon:addResearchRequirement', input),
+  removeResearchRequirement: (id) => ipcRenderer.invoke('ixaeon:removeResearchRequirement', id),
+  listMatchedFindings: () => ipcRenderer.invoke('ixaeon:listMatchedFindings'),
+  markMatchedFindingsSeen: () => ipcRenderer.invoke('ixaeon:markMatchedFindingsSeen'),
   listProjectRelations: (input) => ipcRenderer.invoke('ixaeon:listProjectRelations', input),
   proposeProjectRelations: () => ipcRenderer.invoke('ixaeon:proposeProjectRelations'),
   acceptProjectRelation: (id) => ipcRenderer.invoke('ixaeon:acceptProjectRelation', id),
