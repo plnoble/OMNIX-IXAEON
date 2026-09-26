@@ -25,6 +25,8 @@ import { itemTypeSchema } from './entities.js';
 export type OverviewMatchedFindingView = {
   id: string;
   title: string;
+  /** W2：中文标题，没有时界面显示原标题。 */
+  titleZh: string | null;
   url: string;
   topicQuestion: string;
   fetchedAt: string;
@@ -662,6 +664,7 @@ export interface IxaIpcApi {
     researchFollowUps: Array<{
       id: string;
       title: string;
+      titleZh: string | null;
       url: string;
       excerpt: string;
       action_reason: string | null;
@@ -670,6 +673,7 @@ export interface IxaIpcApi {
     recentFindings: Array<{
       id: string;
       title: string;
+      titleZh: string | null;
       url: string;
       topicQuestion: string;
       fetchedAt: string;

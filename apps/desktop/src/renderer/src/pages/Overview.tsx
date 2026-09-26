@@ -215,7 +215,7 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
             {(data?.matchedFindings ?? []).map((f) => (
               <li key={f.id} data-testid={`matched-finding-${f.id}`}>
                 <a href={f.url} target="_blank" rel="noreferrer">
-                  {f.title}
+                  {f.titleZh || f.title}
                 </a>
                 <span className="muted">{` · ${f.topicQuestion} · ${f.fetchedAt.slice(0, 10)}`}</span>
                 {f.isNew ? <span data-testid={`matched-finding-new-${f.id}`}> 新</span> : null}
@@ -241,7 +241,7 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
             {(data?.recentFindings ?? []).map((f) => (
               <li key={f.id} data-testid={`recent-finding-${f.id}`}>
                 <a href={f.url} target="_blank" rel="noreferrer">
-                  {f.title}
+                  {f.titleZh || f.title}
                 </a>
                 <span className="muted">
                   {' '}
@@ -270,7 +270,7 @@ export function PersonalOverviewPage({ state }: { state: AppState }) {
             {(data?.researchFollowUps ?? []).map((f) => (
               <li key={f.id}>
                 <a href={f.url} target="_blank" rel="noreferrer">
-                  {f.title}
+                  {f.titleZh || f.title}
                 </a>
                 {f.action_reason ? <span className="muted"> · {f.action_reason}</span> : null}
               </li>

@@ -138,6 +138,7 @@ export {
   type PersonalOverview,
 } from './personal/overview.js';
 export { ResearchStore } from './research/researchStore.js';
+export { isMostlyChinese, translateFindings, translateCandidates } from './research/translate.js';
 export {
   listRequirements,
   addRequirement,

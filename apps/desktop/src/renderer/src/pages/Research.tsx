@@ -5,7 +5,13 @@ import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 interface CheckOutcome {
   searchUsed: boolean;
   searchError: string | null;
-  searchCandidates: Array<{ title: string; url: string; snippet: string }>;
+  searchCandidates: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+    titleZh?: string | null;
+    snippetZh?: string | null;
+  }>;
   run?: { error: string | null };
 }
 
@@ -31,6 +37,8 @@ interface Snapshot {
     findings: Array<{
       id: string;
       title: string;
+      title_zh?: string | null;
+      summary_zh?: string | null;
       url: string;
       excerpt: string;
       claimed_published_at: string | null;
@@ -582,9 +590,16 @@ export function ResearchPage({
                       {lastCheck[t.id]!.searchCandidates.map((c) => (
                         <li key={c.url}>
                           <a href={c.url} target="_blank" rel="noreferrer">
-                            {c.title}
+                            {c.titleZh || c.title}
                           </a>
-                          <div className="muted">{c.snippet}</div>
+                          <div className="muted">{c.snippetZh || c.snippet}</div>
+                          {c.titleZh || c.snippetZh ? (
+                            <details>
+                              <summary>原文</summary>
+                              <div>{c.title}</div>
+                              <div className="muted">{c.snippet}</div>
+                            </details>
+                          ) : null}
                           <Button
                             disabled={!!topicBusy[t.id]}
                             onClick={() =>
@@ -657,7 +672,7 @@ export function ResearchPage({
               {t.findings.map((f) => (
                 <li key={f.id}>
                   <a href={f.url} target="_blank" rel="noreferrer">
-                    {f.title}
+                    {f.title_zh || f.title}
                   </a>
                   <div className="muted">
                     抓取 {f.fetched_at.slice(0, 19).replace('T', ' ')}
@@ -669,7 +684,18 @@ export function ResearchPage({
                     {f.limitations ? ` · ${f.limitations}` : ''}
                     {f.action_worthy ? ' · 你标了值得行动' : ''}
                   </div>
-                  <p>{f.excerpt}</p>
+                  {f.summary_zh ? (
+                    <>
+                      <p>{f.summary_zh}</p>
+                      <details>
+                        <summary>原文</summary>
+                        <p>{f.title}</p>
+                        <p>{f.excerpt}</p>
+                      </details>
+                    </>
+                  ) : (
+                    <p>{f.excerpt}</p>
+                  )}
                   {f.action_reason && <p className="muted">{f.action_reason}</p>}
                   <div className="card-actions">
                     <Button

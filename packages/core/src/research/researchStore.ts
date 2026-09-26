@@ -66,6 +66,8 @@ function toFinding(row: Record<string, unknown>): ResearchFinding {
     topic_id: row['topic_id'] as string,
     source_id: row['source_id'] as string,
     title: row['title'] as string,
+    title_zh: (row['title_zh'] as string | null) ?? null,
+    summary_zh: (row['summary_zh'] as string | null) ?? null,
     url: row['url'] as string,
     excerpt: row['excerpt'] as string,
     content_fingerprint: row['content_fingerprint'] as string,

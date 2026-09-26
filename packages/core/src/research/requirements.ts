@@ -28,6 +28,8 @@ export type ResearchRequirement = {
 export type MatchedFinding = {
   id: string;
   title: string;
+  /** W2：中文标题，没有时界面显示原标题。 */
+  titleZh: string | null;
   url: string;
   topicQuestion: string;
   fetchedAt: string;
@@ -124,7 +126,7 @@ export function listMatchedFindings(
       : (getSetting(db, OVERVIEW_MATCHED_SEEN_AT)?.value ?? null);
   const rows = db
     .prepare(
-      `SELECT f.id, f.title, f.url, t.question AS topicQuestion, f.fetched_at AS fetchedAt
+      `SELECT f.id, f.title, f.title_zh AS titleZh, f.url, t.question AS topicQuestion, f.fetched_at AS fetchedAt
          FROM research_findings f JOIN research_topics t ON t.id = f.topic_id
         WHERE EXISTS (SELECT 1 FROM research_requirements r WHERE r.topic_id = f.topic_id)
           AND NOT EXISTS (
