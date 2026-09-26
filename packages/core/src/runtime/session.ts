@@ -283,6 +283,20 @@ export class AgentSession {
           }
         }
         const dispatchedGoal = `${goal}${contextBlock}${briefBlock}${priorBlock}${memoryRoute}\n\n${SUGGESTED_TODOS_INSTRUCTION}`;
+        // G05（整合方抽查补）：选材、拼近况期间用户点了停止——这时还没有在跑的引擎会话，
+        // 适配器收不到这个取消。启动 Hermes 之前再查一次，已取消就不外发。
+        if (this.cancelled.has(runId)) {
+          this.finish(runId, goal, input.projectId, 'hermes', 'cancelled', [], '用户取消', now);
+          this.unwireEventLedger();
+          return {
+            ...this.asAsk('已取消。', '用户取消', 'hermes'),
+            engine: 'hermes',
+            runId,
+            steps: [],
+            memoryUsed,
+            projectBrief,
+          };
+        }
         const hermes = await this.adapter.start(
           {
             runId,
