@@ -14,6 +14,15 @@
  *
  * 中文为主 = 去掉空白后中文字符（一-鿿）占比 ≥ 30%，isMostlyChinese 一处判断。
  * 模型用替身：截下每次 chatStructured 的 system 与 user，按请求里出现的发现 id 回中文。
+ *
+ * 整合方复审时补（2026-09-26）：
+ * - 契约 4 也不许带「出门说法」：原稿的出门说法与发现标题只差一个大小写，查不出来；改成
+ *   独立的合成标记（w2publicmarker）并断言不外发。
+ * - 契约 2「旧的英文发现在下一次检查时补上」：原稿只测了本次检查新入库的发现，只翻新发现的
+ *   实现也能过，用户库里已有的英文发现就永远不会翻。补一条：检查前就在库里的英文发现，
+ *   检查后也有中文。
+ * - 界面测试都是把中文字段直接喂给页面；核心层取数据时不带中文，界面测试照样全过。补一条：
+ *   研究页用的 listFindings、总览三块（对上要求的、最近的、标了值得行动的）都带中文。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,6 +32,7 @@ import type { z } from 'zod';
 import {
   ResearchChecker,
   ResearchStore,
+  buildPersonalOverview,
   isMostlyChinese,
   migrate,
   openDatabase,
@@ -94,7 +104,7 @@ function seed(): Seeded {
   const store = new ResearchStore(database);
   const topic = store.createTopic({
     question: '合成标记-内部问题-不许外发',
-    publicDescription: 'local model runtime',
+    publicDescription: 'w2publicmarker runtime',
     sources: [{ url: 'https://example.com/w2', kind: 'page' }],
   });
   database
@@ -181,6 +191,7 @@ it('条件 3：发给模型的只有标题和摘录，没有内部问题和要�
     const sent = `${call.system}\n${call.user}`;
     expect(sent).not.toContain('合成标记-内部问题-不许外发');
     expect(sent).not.toContain('合成标记-要求文字-不许外发');
+    expect(sent).not.toContain('w2publicmarker');
     expect(sent).toContain('Local model runtime reaches new speed');
     expect(sent).toContain('A runtime for local models.');
   }
@@ -305,7 +316,7 @@ function checkerWith(
   );
   const topic = checker.createTopic({
     question: '合成标记-内部问题-不许外发',
-    publicDescription: 'local model runtime',
+    publicDescription: 'w2publicmarker runtime',
     sources: [],
   });
   return { db: database, checker, topicId: topic.id };
@@ -329,6 +340,7 @@ it('条件 7：英文候选带回中文，中文候选不发模型', async () =>
   for (const call of stub.calls) {
     expect(`${call.system}\n${call.user}`).not.toContain('本地模型的新进展');
     expect(`${call.system}\n${call.user}`).not.toContain('合成标记-内部问题-不许外发');
+    expect(`${call.system}\n${call.user}`).not.toContain('w2publicmarker');
   }
 });
 
@@ -348,7 +360,7 @@ it('条件 7：候选翻译失败时两项为空，候选照常返回', async ()
   expect(failing.calls.length).toBeGreaterThan(0);
 });
 
-it('检查成功后翻译英文发现；检查失败不翻译', async () => {
+it('检查成功后翻译英文发现（发给模型的没有内部问题）', async () => {
   const database = freshDb();
   const pages = new Map<string, string>([
     [
@@ -385,4 +397,86 @@ it('检查成功后翻译英文发现；检查失败不翻译', async () => {
   for (const call of stub.calls) {
     expect(`${call.system}\n${call.user}`).not.toContain('合成标记-内部问题-不许外发');
   }
+});
+
+it('整合方补：检查前就在库里、还没翻的英文发现，这次检查一起补上', async () => {
+  const database = freshDb();
+  const stub = translator(echoReply);
+  const checker = new ResearchChecker(
+    database,
+    undefined,
+    {
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () =>
+          '<html><head><title>Another runtime note</title></head><body><p>Some text long enough to count as a page excerpt.</p></body></html>',
+      }),
+    },
+    undefined,
+    stub.provider,
+  );
+  const topic = checker.createTopic({
+    question: '合成标记-内部问题-不许外发',
+    publicDescription: '',
+    sources: [{ url: 'https://example.com/w2', kind: 'page' }],
+  });
+  const store = new ResearchStore(database);
+  const sourceId = (
+    database.prepare('SELECT id FROM research_sources WHERE topic_id = ?').get(topic.id) as {
+      id: string;
+    }
+  ).id;
+  // 迁移前入库、一直没翻的英文发现
+  const old = store.insertFinding({
+    topicId: topic.id,
+    sourceId,
+    title: 'Older finding stored before translation existed',
+    url: 'https://example.com/w2/old',
+    excerpt: 'An older English excerpt.',
+    fingerprint: 'fp-old',
+    claimedPublishedAt: null,
+    fetchedAt: new Date(Date.now() - 3 * 86400_000).toISOString(),
+    relatedGoalId: null,
+    relatedProjectId: null,
+  })!;
+  const result = await checker.checkNow(topic.id);
+  expect(result.run.status).toBe('succeeded');
+  expect(zh(database, old.id).title_zh).toBe(`中文标题 ${old.id.slice(0, 4)}`);
+});
+
+it('整合方补：研究页和总览拿到的数据里带着中文', async () => {
+  const s = seed();
+  s.store.setEnabled(s.topicId, true);
+  const id = addFinding(
+    s,
+    'Local model runtime reaches new speed',
+    'A runtime for local models.',
+    1,
+  );
+  await translateFindings(s.db, translator(echoReply).provider, s.topicId);
+  const title = `中文标题 ${id.slice(0, 4)}`;
+  // 研究页：researchSnapshot 用的 listFindings
+  const listed = s.store.listFindings(s.topicId).find((f) => f.id === id) as unknown as {
+    title_zh: string | null;
+    summary_zh: string | null;
+  };
+  expect(listed.title_zh).toBe(title);
+  expect(listed.summary_zh).toBe(`中文摘要 ${id.slice(0, 4)}`);
+  // 总览：对上全部要求、标了值得行动
+  s.db
+    .prepare(
+      `INSERT INTO research_finding_matches (finding_id, requirement_id, verdict, reason, judged_at)
+       VALUES (?, '11111111-1111-4111-8111-111111111111', 'meets', '对上了', ?)`,
+    )
+    .run(id, new Date().toISOString());
+  s.db.prepare('UPDATE research_findings SET action_worthy = 1 WHERE id = ?').run(id);
+  const overview = buildPersonalOverview(s.db) as unknown as {
+    matchedFindings: Array<{ id: string; titleZh?: string | null }>;
+    recentFindings: Array<{ id: string; titleZh?: string | null }>;
+    researchFollowUps: Array<{ id: string; titleZh?: string | null }>;
+  };
+  expect(overview.matchedFindings.find((f) => f.id === id)?.titleZh).toBe(title);
+  expect(overview.recentFindings.find((f) => f.id === id)?.titleZh).toBe(title);
+  expect(overview.researchFollowUps.find((f) => f.id === id)?.titleZh).toBe(title);
 });

@@ -205,6 +205,16 @@
         "apps/desktop/test/acceptance/g05-cancel-preparing.test.ts": "cb10c487e81163ded43e96a0a6ffacdc7bec2ab197437534ab53a0e30f97f8c2",
         "apps/desktop/test/acceptance/g05-cancel-preparing-extra.test.ts": "357080043999e6a1be671259ff5c21d361846b98d751b581a084b09806f2cf14"
       }
+    },
+    {
+      "id": "W2",
+      "title": "研究的发现与搜索候选显示中文",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/w2-translate.test.ts": "489541f1a10144cd83cf383bf2ae85c1275f619d417af40e315d4839e773a9dd",
+        "apps/desktop/test/acceptance/w2-research-page.test.ts": "03d4328e2e7c5d35120e72ef79a00551718fa01c9ade9cb60108e60116f917f7",
+        "apps/desktop/test/acceptance/w2-overview-page.test.ts": "53e89e1df49a4e442a2b8640dc5e29eac3d1361949c535de34b76674c6e854de"
+      }
     }
   ]
 }
