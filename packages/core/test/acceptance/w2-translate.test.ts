@@ -38,6 +38,7 @@ import {
   openDatabase,
   translateFindings,
   type CoreDatabase,
+  type FetchDeps,
   type ModelProvider,
 } from '../../src/index.js';
 
@@ -360,25 +361,34 @@ it('条件 7：候选翻译失败时两项为空，候选照常返回', async ()
   expect(failing.calls.length).toBeGreaterThan(0);
 });
 
+/**
+ * 抓取替身：域名解析和抓取都不走真网络。字段名照 FetchDeps（lookup、fetch）——
+ * 整合方 2026-09-26 修：原稿写成 fetchImpl，替身没接上，测试真的去请求了 example.com。
+ */
+function fakeWeb(pages: Record<string, string>): FetchDeps {
+  return {
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    fetch: async (url) => {
+      const body = pages[url.split('?')[0]!];
+      if (body === undefined) return new Response('missing', { status: 404 });
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    },
+  };
+}
+
 it('检查成功后翻译英文发现（发给模型的没有内部问题）', async () => {
   const database = freshDb();
-  const pages = new Map<string, string>([
-    [
-      'https://example.com/w2',
-      '<html><head><title>Local model runtime reaches new speed</title></head><body><p>A runtime for local models with a long enough excerpt.</p></body></html>',
-    ],
-  ]);
   const stub = translator(echoReply);
   const checker = new ResearchChecker(
     database,
     undefined,
-    {
-      fetchImpl: async (url) => ({
-        ok: true,
-        status: 200,
-        text: async () => pages.get(String(url)) ?? '',
-      }),
-    },
+    fakeWeb({
+      'https://example.com/w2':
+        '<html><head><title>Local model runtime reaches new speed</title></head><body><p>A runtime for local models with a long enough excerpt.</p></body></html>',
+    }),
     undefined,
     stub.provider,
   );
@@ -405,14 +415,10 @@ it('整合方补：检查前就在库里、还没翻的英文发现，这次检�
   const checker = new ResearchChecker(
     database,
     undefined,
-    {
-      fetchImpl: async () => ({
-        ok: true,
-        status: 200,
-        text: async () =>
-          '<html><head><title>Another runtime note</title></head><body><p>Some text long enough to count as a page excerpt.</p></body></html>',
-      }),
-    },
+    fakeWeb({
+      'https://example.com/w2':
+        '<html><head><title>Another runtime note</title></head><body><p>Some text long enough to count as a page excerpt.</p></body></html>',
+    }),
     undefined,
     stub.provider,
   );
