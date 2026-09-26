@@ -1095,6 +1095,20 @@ ALTER TABLE research_findings ADD COLUMN title_zh TEXT;
 ALTER TABLE research_findings ADD COLUMN summary_zh TEXT;
 `,
   },
+  {
+    id: 38,
+    name: 'coding-task-acceptance-and-apply',
+    sql: `
+-- 场景一（用户 2026-09-27 定）：你说「把 X 做了」→ 编码任务草案带上可以验收的条件（D1）；
+-- 你点「接受」之后，改动在项目仓库里建分支提交（不是 git 仓库的生成补丁）（D4）。
+-- acceptance_json：验收条件（JSON 字符串数组），聊天里提任务时写下，回报时逐条列出。
+-- applied_ref：建出的分支名或补丁文件路径；applied_at：落地时间；apply_error：没落成的原因。
+ALTER TABLE coding_tasks ADD COLUMN acceptance_json TEXT;
+ALTER TABLE coding_tasks ADD COLUMN applied_ref TEXT;
+ALTER TABLE coding_tasks ADD COLUMN applied_at TEXT;
+ALTER TABLE coding_tasks ADD COLUMN apply_error TEXT;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
