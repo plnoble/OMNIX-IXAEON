@@ -78,8 +78,24 @@ it('条件 1：按要求顺序返回，没判的那条 verdict 与 reason 为 nu
   expect(groups[0]!.judgments[2]).toMatchObject({ text: '要求三', verdict: null, reason: null });
 });
 
-it('条件 2：没有要求的主题返回空', () => {
+it('条件 2：没有要求的主题返回空（主题里有发现也一样）', () => {
   const s = fresh();
-  const topic = s.store.createTopic({ question: '没有要求', publicDescription: '', sources: [] });
+  const topic = s.store.createTopic({
+    question: '没有要求',
+    publicDescription: '',
+    sources: [{ url: 'https://example.com/n2', kind: 'page' }],
+  });
+  s.store.insertFinding({
+    topicId: topic.id,
+    sourceId: s.store.listSources(topic.id)[0]!.id,
+    title: '没有要求的发现',
+    url: 'https://example.com/n2/f',
+    excerpt: '摘录',
+    fingerprint: 'fp-none',
+    claimedPublishedAt: null,
+    fetchedAt: new Date().toISOString(),
+    relatedGoalId: null,
+    relatedProjectId: null,
+  });
   expect(listFindingJudgments(s.db, topic.id)).toEqual([]);
 });

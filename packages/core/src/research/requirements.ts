@@ -77,12 +77,12 @@ export function listFindingJudgments(db: CoreDatabase, topicId: string): Finding
     verdict: FindingJudgment['verdict'];
     reason: string | null;
   }>;
-  const groups: FindingJudgmentGroup[] = [];
+  const groups = new Map<string, FindingJudgmentGroup>();
   for (const row of rows) {
-    let group = groups.find((g) => g.findingId === row.findingId);
+    let group = groups.get(row.findingId);
     if (!group) {
       group = { findingId: row.findingId, judgments: [] };
-      groups.push(group);
+      groups.set(row.findingId, group);
     }
     group.judgments.push({
       requirementId: row.requirementId,
@@ -91,7 +91,7 @@ export function listFindingJudgments(db: CoreDatabase, topicId: string): Finding
       reason: row.reason,
     });
   }
-  return groups;
+  return [...groups.values()];
 }
 
 export function listRequirements(db: CoreDatabase, topicId: string): ResearchRequirement[] {

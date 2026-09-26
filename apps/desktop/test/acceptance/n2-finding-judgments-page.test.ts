@@ -66,8 +66,8 @@ function topic(id: string, findings: ReturnType<typeof finding>[]) {
 }
 
 const three = [
-  { text: '要求一', verdict: 'meets' as const, reason: '对上了' },
-  { text: '要求二', verdict: 'unknown' as const, reason: '看不出来' },
+  { text: '要求一', verdict: 'meets' as const, reason: '写了内存容量' },
+  { text: '要求二', verdict: 'unknown' as const, reason: '摘录没有提到模型' },
   { text: '要求三', verdict: null, reason: null },
 ];
 
@@ -129,13 +129,12 @@ it('条件 3、4：摘要只写非 0 的项，展开后逐条显示，没判的�
   expect(line!.textContent).not.toContain('对不上');
   const detail = host.querySelector('[data-testid="finding-judgments-detail-部分"]')!;
   expect(detail.tagName).toBe('DETAILS');
-  expect(detail.textContent).toContain('要求一');
-  expect(detail.textContent).toContain('对上');
-  expect(detail.textContent).toContain('对上了');
-  expect(detail.textContent).toContain('要求二');
-  expect(detail.textContent).toContain('看不出来');
-  expect(detail.textContent).toContain('要求三');
-  expect(detail.textContent).toContain('还没判');
+  const rows = [...detail.querySelectorAll('li')].map((li) => li.textContent);
+  expect(rows).toEqual([
+    '要求一：对上（写了内存容量）',
+    '要求二：看不出来（摘录没有提到模型）',
+    '要求三：还没判',
+  ]);
 });
 
 it('条件 3：全部对上时写全部对上（总览已提醒）', async () => {
