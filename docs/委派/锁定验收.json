@@ -196,6 +196,15 @@
         "apps/desktop/test/acceptance/g07-follow-budget.test.ts": "b6a6cbafe0bfa93e9ed78cb6a16d465f0f31e632e52b9adff85e4e9f301b1671",
         "apps/desktop/test/acceptance/g07-budget-page.test.ts": "30f52f2d5b24012144c2b9dcaaf1710e1224bd253252d6c7deefc5a40c406df9"
       }
+    },
+    {
+      "id": "G05",
+      "title": "准备阶段也能取消",
+      "status": "done",
+      "files": {
+        "apps/desktop/test/acceptance/g05-cancel-preparing.test.ts": "cb10c487e81163ded43e96a0a6ffacdc7bec2ab197437534ab53a0e30f97f8c2",
+        "apps/desktop/test/acceptance/g05-cancel-preparing-extra.test.ts": "357080043999e6a1be671259ff5c21d361846b98d751b581a084b09806f2cf14"
+      }
     }
   ]
 }
