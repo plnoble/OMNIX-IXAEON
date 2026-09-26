@@ -107,5 +107,6 @@ export const DATA_DIR_LAYOUT = {
   configFile: 'config.json',
 } as const;
 
-export const LOCAL_HTTP_PORT = 43191;
+/** 真机检查可设 IXAEON_HTTP_PORT 避开正在运行的应用占着的默认端口。 */
+export const LOCAL_HTTP_PORT = Number(process.env['IXAEON_HTTP_PORT'] ?? 43191);
 export const LOCAL_HTTP_HOST = '127.0.0.1';

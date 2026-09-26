@@ -47,6 +47,12 @@ interface Snapshot {
       limitations: string | null;
       action_worthy: boolean;
       action_reason: string | null;
+      judgments?: Array<{
+        requirementId: string;
+        text: string;
+        verdict: 'meets' | 'fails' | 'unknown' | null;
+        reason: string | null;
+      }>;
     }>;
     runs: Array<{
       id: string;
@@ -56,6 +62,43 @@ interface Snapshot {
       error: string | null;
     }>;
   }>;
+}
+
+const VERDICT_TEXT: Record<string, string> = {
+  meets: '对上',
+  fails: '对不上',
+  unknown: '看不出来',
+};
+const JUDGMENT_WINDOW_MS = 7 * 86_400_000;
+
+type FindingJudgment = {
+  requirementId: string;
+  text: string;
+  verdict: 'meets' | 'fails' | 'unknown' | null;
+  reason: string | null;
+};
+
+/** N2：摘要只写非 0 的项；全部对上单独一句。窗口外且一条都没判过的不显示。 */
+function judgmentSummary(finding: {
+  fetched_at: string;
+  judgments?: FindingJudgment[];
+}): string | null {
+  const judgments = finding.judgments ?? [];
+  if (judgments.length === 0) return null;
+  const count = (verdict: string | null): number =>
+    judgments.filter((j) => j.verdict === verdict).length;
+  const outsideWindow = Date.now() - new Date(finding.fetched_at).getTime() > JUDGMENT_WINDOW_MS;
+  if (outsideWindow && count(null) === judgments.length) return null;
+  if (count('meets') === judgments.length) return '全部对上（总览已提醒）';
+  const parts = (
+    [
+      ['对上', count('meets')],
+      ['对不上', count('fails')],
+      ['看不出来', count('unknown')],
+      ['还没判', count(null)],
+    ] as Array<[string, number]>
+  ).filter(([, n]) => n > 0);
+  return `对照你的 ${judgments.length} 条要求：${parts.map(([label, n]) => `${label} ${n}`).join(' · ')}`;
 }
 
 /** G07：额度文案按主题类型写在各自的卡片里，不串。 */
@@ -703,6 +746,24 @@ export function ResearchPage({
                     </>
                   ) : (
                     <p>{f.excerpt}</p>
+                  )}
+                  {judgmentSummary(f) && (
+                    <>
+                      <p className="muted" data-testid={`finding-judgments-${f.id}`}>
+                        {judgmentSummary(f)}
+                      </p>
+                      <details data-testid={`finding-judgments-detail-${f.id}`}>
+                        <summary>理由</summary>
+                        <ul>
+                          {(f.judgments ?? []).map((j) => (
+                            <li key={j.requirementId}>
+                              {`${j.text}：${j.verdict ? VERDICT_TEXT[j.verdict] : '还没判'}`}
+                              {j.reason ? `（${j.reason}）` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    </>
                   )}
                   {f.action_reason && <p className="muted">{f.action_reason}</p>}
                   <div className="card-actions">

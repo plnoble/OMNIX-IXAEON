@@ -141,6 +141,7 @@ export { ResearchStore } from './research/researchStore.js';
 export { isMostlyChinese, translateFindings, translateCandidates } from './research/translate.js';
 export {
   listRequirements,
+  listFindingJudgments,
   addRequirement,
   removeRequirement,
   judgeFindings,
@@ -148,6 +149,8 @@ export {
   MATCH_WINDOW_DAYS,
   markMatchedFindingsSeen,
   type ResearchRequirement,
+  type FindingJudgment,
+  type FindingJudgmentGroup,
   type MatchedFinding,
 } from './research/requirements.js';
 export {

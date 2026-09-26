@@ -67,6 +67,7 @@ import {
   personalMemoryToChat,
   setPersonalMemoryToChat,
   markOverviewFindingsSeen,
+  listFindingJudgments,
   withAskRun,
   type HermesLocator,
   type AgentSessionPreview,
@@ -1750,12 +1751,20 @@ export class AppRuntime {
   }
 
   researchSnapshot() {
-    const topics = this.research.store.listTopics().map((t) => ({
-      ...t,
-      sources: this.research.store.listSources(t.id),
-      findings: this.research.store.listFindings(t.id),
-      runs: this.research.store.listRuns(t.id),
-    }));
+    const topics = this.research.store.listTopics().map((t) => {
+      const byFinding = new Map(
+        listFindingJudgments(this.db, t.id).map((g) => [g.findingId, g.judgments]),
+      );
+      return {
+        ...t,
+        sources: this.research.store.listSources(t.id),
+        findings: this.research.store.listFindings(t.id).map((f) => ({
+          ...f,
+          judgments: byFinding.get(f.id) ?? [],
+        })),
+        runs: this.research.store.listRuns(t.id),
+      };
+    });
     const searchConfigured = this.research.searchAvailable;
     return {
       mode: (searchConfigured ? 'approved-sources-plus-search' : 'approved-sources-only') as

@@ -42,6 +42,58 @@ const verdictSchema = z.object({
   reason: z.string().min(1).max(60),
 });
 
+export interface FindingJudgment {
+  requirementId: string;
+  text: string;
+  verdict: 'meets' | 'fails' | 'unknown' | null;
+  reason: string | null;
+}
+
+export interface FindingJudgmentGroup {
+  findingId: string;
+  judgments: FindingJudgment[];
+}
+
+/**
+ * N2：这个主题每条发现的判定，按发现分组、按要求的 sort_order 排。
+ * 还没判过的要求 verdict 与 reason 为 null。主题没有要求时返回空。
+ */
+export function listFindingJudgments(db: CoreDatabase, topicId: string): FindingJudgmentGroup[] {
+  const rows = db
+    .prepare(
+      `SELECT f.id AS findingId, r.id AS requirementId, r.text AS text,
+              m.verdict AS verdict, m.reason AS reason
+         FROM research_findings f
+         JOIN research_requirements r ON r.topic_id = f.topic_id
+         LEFT JOIN research_finding_matches m
+           ON m.finding_id = f.id AND m.requirement_id = r.id
+        WHERE f.topic_id = ?
+        ORDER BY f.created_at DESC, r.sort_order ASC, r.created_at ASC`,
+    )
+    .all(topicId) as Array<{
+    findingId: string;
+    requirementId: string;
+    text: string;
+    verdict: FindingJudgment['verdict'];
+    reason: string | null;
+  }>;
+  const groups: FindingJudgmentGroup[] = [];
+  for (const row of rows) {
+    let group = groups.find((g) => g.findingId === row.findingId);
+    if (!group) {
+      group = { findingId: row.findingId, judgments: [] };
+      groups.push(group);
+    }
+    group.judgments.push({
+      requirementId: row.requirementId,
+      text: row.text,
+      verdict: row.verdict,
+      reason: row.reason,
+    });
+  }
+  return groups;
+}
+
 export function listRequirements(db: CoreDatabase, topicId: string): ResearchRequirement[] {
   return db
     .prepare(
