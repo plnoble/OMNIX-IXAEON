@@ -12,6 +12,7 @@ import type { WebSearchExecutor, WebSearchHit } from './webSearch.js';
 import type { ModelProvider } from '../extraction/model/provider.js';
 import { ResearchJudge } from './judge.js';
 import { judgeFindings } from './requirements.js';
+import { translateCandidates, translateFindings } from './translate.js';
 
 export interface Clock {
   now(): Date;
@@ -424,8 +425,11 @@ export class ResearchChecker {
           const p =
             typeof this.modelProvider === 'function' ? this.modelProvider() : this.modelProvider;
           await judgeFindings(this.db, p ?? null, topic.id);
+          // W2：顺手把还没翻的英文发现译成中文（含检查前就在库里的）。
+          // 失败什么都不写，下次检查再试。
+          await translateFindings(this.db, p ?? null, topic.id);
         } catch {
-          /* 判定失败不影响发现入库 */
+          /* 判定或翻译失败不影响发现入库 */
         }
       }
     } catch (err) {
@@ -441,6 +445,12 @@ export class ResearchChecker {
       });
     } finally {
       this.running = false;
+    }
+    // W2：不是中文为主的候选合成一次调用翻标题和摘要。失败时两项为空，候选照常返回。
+    if (!opts.scheduled && searchCandidates.length > 0) {
+      const p =
+        typeof this.modelProvider === 'function' ? this.modelProvider() : this.modelProvider;
+      searchCandidates = await translateCandidates(p ?? null, searchCandidates);
     }
     return {
       run: this.store.getRun(run.id),

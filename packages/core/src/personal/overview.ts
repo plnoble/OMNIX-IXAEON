@@ -51,12 +51,14 @@ export interface PersonalOverview {
     Pick<
       ResearchFinding,
       'id' | 'title' | 'url' | 'excerpt' | 'action_reason' | 'related_project_id'
-    >
+    > & { titleZh: string | null }
   >;
   /** W1b：已启用研究主题最近 7 天的发现，最新在前，最多 10 条。 */
   recentFindings: Array<{
     id: string;
     title: string;
+    /** W2：中文标题，没有时界面显示原标题。 */
+    titleZh: string | null;
     url: string;
     topicQuestion: string;
     fetchedAt: string;
@@ -227,16 +229,11 @@ export function buildPersonalOverview(db: CoreDatabase): PersonalOverview {
     relations: new RelationService(db).list({ includeStale: true }),
     researchFollowUps: db
       .prepare(
-        `SELECT id, title, url, excerpt, action_reason, related_project_id
+        `SELECT id, title, title_zh AS titleZh, url, excerpt, action_reason, related_project_id
            FROM research_findings WHERE action_worthy = 1
            ORDER BY created_at DESC LIMIT 20`,
       )
-      .all() as Array<
-      Pick<
-        ResearchFinding,
-        'id' | 'title' | 'url' | 'excerpt' | 'action_reason' | 'related_project_id'
-      >
-    >,
+      .all() as PersonalOverview['researchFollowUps'],
     recentFindings: listRecentFindings(db),
     matchedFindings: listMatchedFindings(db, {
       since: new Date(Date.now() - MATCH_WINDOW_DAYS * 86_400_000).toISOString(),
@@ -255,7 +252,7 @@ function listRecentFindings(db: CoreDatabase): PersonalOverview['recentFindings'
   const seenAt = getSetting(db, OVERVIEW_FINDINGS_SEEN_AT)?.value ?? null;
   const rows = db
     .prepare(
-      `SELECT f.id, f.title, f.url, t.question AS topicQuestion, f.fetched_at AS fetchedAt
+      `SELECT f.id, f.title, f.title_zh AS titleZh, f.url, t.question AS topicQuestion, f.fetched_at AS fetchedAt
          FROM research_findings f
          JOIN research_topics t ON t.id = f.topic_id
         WHERE t.enabled = 1 AND f.fetched_at >= ?
@@ -265,6 +262,7 @@ function listRecentFindings(db: CoreDatabase): PersonalOverview['recentFindings'
     .all(cutoff) as Array<{
     id: string;
     title: string;
+    titleZh: string | null;
     url: string;
     topicQuestion: string;
     fetchedAt: string;

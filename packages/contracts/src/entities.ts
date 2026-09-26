@@ -487,6 +487,10 @@ export const researchFindingSchema = z.object({
   topic_id: uuidSchema,
   source_id: uuidSchema,
   title: z.string().min(1),
+  /** W2：中文标题。空 = 还没翻或原文就是中文，界面照旧显示原标题。 */
+  title_zh: z.string().nullable(),
+  /** W2：中文摘要。 */
+  summary_zh: z.string().nullable(),
   url: z.string().min(1),
   excerpt: z.string(),
   content_fingerprint: z.string().min(1),
