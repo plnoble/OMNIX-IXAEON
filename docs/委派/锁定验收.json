@@ -219,7 +219,7 @@
     {
       "id": "N2",
       "title": "研究页显示每条判定和理由",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/n2-finding-judgments.test.ts": "6706b891247ee5a281f91fe1f09ffc7533a69beb24a9d93e17eafb3119920ba3",
         "apps/desktop/test/acceptance/n2-finding-judgments-page.test.ts": "689b1ec5cb36874a63bdf4b0994d31510720d4426e9aa5a5514ae3a0aea130b9"
