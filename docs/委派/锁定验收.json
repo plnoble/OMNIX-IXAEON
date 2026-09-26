@@ -209,7 +209,7 @@
     {
       "id": "W2",
       "title": "研究的发现与搜索候选显示中文",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/w2-translate.test.ts": "36798557bc42fb393e3200fe84966de2a13248be7735ca64de8bbaa9468b069a",
         "apps/desktop/test/acceptance/w2-research-page.test.ts": "03d4328e2e7c5d35120e72ef79a00551718fa01c9ade9cb60108e60116f917f7",

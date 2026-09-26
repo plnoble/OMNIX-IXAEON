@@ -693,6 +693,14 @@ export function ResearchPage({
                         <p>{f.excerpt}</p>
                       </details>
                     </>
+                  ) : f.title_zh ? (
+                    <>
+                      <p>{f.excerpt}</p>
+                      <details>
+                        <summary>原文</summary>
+                        <p>{f.title}</p>
+                      </details>
+                    </>
                   ) : (
                     <p>{f.excerpt}</p>
                   )}
