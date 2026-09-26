@@ -151,7 +151,8 @@
       "title": "准备阶段也能取消",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/g05-cancel-preparing.test.ts": "cb10c487e81163ded43e96a0a6ffacdc7bec2ab197437534ab53a0e30f97f8c2"
+        "apps/desktop/test/acceptance/g05-cancel-preparing.test.ts": "cb10c487e81163ded43e96a0a6ffacdc7bec2ab197437534ab53a0e30f97f8c2",
+        "apps/desktop/test/acceptance/g05-cancel-preparing-extra.test.ts": "357080043999e6a1be671259ff5c21d361846b98d751b581a084b09806f2cf14"
       }
     }
   ]
