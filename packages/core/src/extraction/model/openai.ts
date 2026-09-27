@@ -200,9 +200,11 @@ export class OpenAIResponsesProvider implements ModelProvider {
     try {
       return await read();
     } catch (err) {
-      if (err instanceof ModelError) throw err;
+      // 截断（流在完成前结束）算网络错误，和读取中途断开一样重试一次。
+      const truncated = err instanceof ModelError && err.message.includes('流在完成前结束');
+      if (err instanceof ModelError && !truncated) throw err;
       if (retry) return this.request(system, user, jsonSchema, false);
-      throw new ModelError(`网络错误: ${String(err)}`, true);
+      throw new ModelError(`网络错误: ${String(err instanceof Error ? err.message : err)}`, true);
     }
   }
 
@@ -306,11 +308,11 @@ export async function listUpstreamModels(opts: {
 function rejectsStream(status: number, text: string): boolean {
   if (status !== 400) return false;
   const t = text.toLowerCase();
-  // 「'stream' is not supported」「unknown parameter: stream」这类；upstream 不算。
-  return (
-    /(^|[^a-z])stream([^a-z]|$)/.test(t) ||
-    /unsupported.{0,20}stream|stream.{0,20}unsupported/.test(t)
-  );
+  // 「'stream' is not supported」「unknown parameter: stream」这类。全部带词边界，
+  // 「unsupported upstream model」不会命中（upstream 里没有独立的 stream）。
+  const WORD_STREAM = /(^|[^a-z])stream([^a-z]|$)/;
+  const UNSUPPORTED = /(^|[^a-z])unsupported([^a-z]|$)/;
+  return WORD_STREAM.test(t) || (UNSUPPORTED.test(t) && WORD_STREAM.test(t));
 }
 
 function isEventStream(res: Response): boolean {
@@ -320,13 +322,13 @@ function isEventStream(res: Response): boolean {
 /**
  * 流里的错误套进既有的两种前缀：限流写成「API 错误 429」、服务端类写成「API 错误 500」，
  * 队列和界面按这两个前缀认暂时性错误；其余照「API 错误 400」报，不算暂时性。
- * 只认错误码，不在消息正文里找数字，避免「超过 512 tokens」这类话被误判。
+ * 只认错误码字段，绝不在消息正文里找数字——「超过 512 tokens」这类话不会改变判定。
  */
 function streamError(code: string, message: string): ModelError {
   const text = message.length > 0 ? message : '流式响应失败';
   const c = code.toLowerCase();
   if (/rate.?limit|429/.test(c)) return new ModelError(`API 错误 429: ${text}`, true);
-  if (/server_error|overloaded|unavailable|timeout|5\d\d/.test(c) || /\b5\d{2}\b/.test(message)) {
+  if (/server_error|overloaded|unavailable|timeout|(^|[^0-9])5\d\d([^0-9]|$)/.test(c)) {
     return new ModelError(`API 错误 500: ${text}`, true);
   }
   return new ModelError(`API 错误 400: ${code} ${text}`.trim(), false);
