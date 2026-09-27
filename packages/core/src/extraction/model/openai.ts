@@ -306,10 +306,12 @@ export async function listUpstreamModels(opts: {
 
 /**
  * 400 里明确拒绝 stream 这个参数才算「不支持流式」。
- * 识别「stream 前后紧挨着拒绝/禁用词」的组合——拒绝的对象就是 stream 本身：
- *   "'stream' is not supported" / "unknown parameter: 'stream'" / "stream must be false"
- * 反例都不命中：「invalid schema property 'stream'」（拒绝的是 schema 属性，
- * invalid 与 stream 之间隔着别的词）、「unsupported upstream model」（句子里没有独立的 stream）。
+ * 识别三种形状（stream 都是独立的词，拒绝/禁用词就在 stream 所在的短语里）：
+ *   1. 拒绝词紧挨 stream：「'stream' is not supported」「stream is unsupported」
+ *   2. stream 带参数后缀：「stream parameter is not supported」「the stream option ...」
+ *   3. 禁用词跟在 stream 后：「stream must be false / disabled / omitted」
+ * 反例不命中：「invalid schema property 'stream'」（拒绝的是 schema 属性，schema property
+ * 在 unsupported 与 stream 之间）、「unsupported upstream model」（没有独立的 stream）。
  */
 function rejectsStream(status: number, text: string): boolean {
   if (status !== 400) return false;
@@ -318,8 +320,10 @@ function rejectsStream(status: number, text: string): boolean {
     'unsupported|not supported|does not support|unknown parameter|invalid parameter|not enabled|must be (false|disabled|omitted)';
   const streamStandalone = /(^|[^a-z])stream([^a-z]|$)/;
   if (!streamStandalone.test(t)) return false;
-  const re = new RegExp(`(?:${REJECT_WORDS}).{0,12}(^|[^a-z])stream([^a-z]|$)`, 's');
-  const re2 = new RegExp(`(^|[^a-z])stream([^a-z]|$).{0,12}(?:${REJECT_WORDS})`, 's');
+  // stream 后面可以直接跟 parameter/option/field 之类的参数称谓
+  const STREAM_PHRASE = '(^|[^a-z])stream( parameter| option| field)?([^a-z]|$)';
+  const re = new RegExp(`(?:${REJECT_WORDS}).{0,16}${STREAM_PHRASE}`, 's');
+  const re2 = new RegExp(`${STREAM_PHRASE}.{0,16}(?:${REJECT_WORDS})`, 's');
   return re.test(t) || re2.test(t);
 }
 

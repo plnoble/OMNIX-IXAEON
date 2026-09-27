@@ -290,6 +290,11 @@ it('拒绝对象不是 stream 的 400 不回退；stream 被明确禁用时回�
   const p2 = provider(mustFalse.fetchImpl);
   expect(await p2.chatText({ system: 's', user: 'u' })).toBe('普通成功');
   expect(mustFalse.calls()).toBe(2);
+  // 「stream parameter is not supported」：拒绝词与 stream 隔着 parameter，仍要回退
+  const paramNotSupported = with400('stream parameter is not supported');
+  const p3 = provider(paramNotSupported.fetchImpl);
+  expect(await p3.chatText({ system: 's', user: 'u' })).toBe('普通成功');
+  expect(paramNotSupported.calls()).toBe(2);
 });
 
 it('响应头到手后读取断了，按网络错误重试一次', async () => {
