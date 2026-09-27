@@ -302,9 +302,15 @@ export async function listUpstreamModels(opts: {
   return models;
 }
 
-/** 400 里明确提到 stream 才算「不支持流式」，模型或输入的 400 不算。 */
+/** 400 里明确拒绝 stream 这个参数才算「不支持流式」，upstream 等字样不算。 */
 function rejectsStream(status: number, text: string): boolean {
-  return status === 400 && text.toLowerCase().includes('stream');
+  if (status !== 400) return false;
+  const t = text.toLowerCase();
+  // 「'stream' is not supported」「unknown parameter: stream」这类；upstream 不算。
+  return (
+    /(^|[^a-z])stream([^a-z]|$)/.test(t) ||
+    /unsupported.{0,20}stream|stream.{0,20}unsupported/.test(t)
+  );
 }
 
 function isEventStream(res: Response): boolean {
@@ -314,48 +320,48 @@ function isEventStream(res: Response): boolean {
 /**
  * 流里的错误套进既有的两种前缀：限流写成「API 错误 429」、服务端类写成「API 错误 500」，
  * 队列和界面按这两个前缀认暂时性错误；其余照「API 错误 400」报，不算暂时性。
+ * 只认错误码，不在消息正文里找数字，避免「超过 512 tokens」这类话被误判。
  */
 function streamError(code: string, message: string): ModelError {
   const text = message.length > 0 ? message : '流式响应失败';
-  if (/rate.?limit/i.test(`${code} ${message}`)) {
-    return new ModelError(`API 错误 429: ${text}`, true);
-  }
-  if (retriableStreamError(code, message)) {
+  const c = code.toLowerCase();
+  if (/rate.?limit|429/.test(c)) return new ModelError(`API 错误 429: ${text}`, true);
+  if (/server_error|overloaded|unavailable|timeout|5\d\d/.test(c) || /\b5\d{2}\b/.test(message)) {
     return new ModelError(`API 错误 500: ${text}`, true);
   }
   return new ModelError(`API 错误 400: ${code} ${text}`.trim(), false);
 }
 
-/** 限流与服务端错误算暂时性，交给队列重试；其余不算。 */
-function retriableStreamError(code: string, message: string): boolean {
-  const text = `${code} ${message}`.toLowerCase();
-  return /rate.?limit|server_error|overloaded|unavailable|timeout|5\d\d/.test(text);
-}
-
 /**
  * 按 SSE 读：事件可能被拆在两次读取之间，一次读取里也可能有多个事件。
- * 每个事件以空行结束，行以 `data:` 开头的拼成数据。
+ * 事件分隔兼容 \n\n 与 \r\n\r\n；onEvent 返回 true 表示流已到头，读完即停。
  */
-async function readEvents(res: Response, onEvent: (data: string) => void): Promise<void> {
+async function readEvents(res: Response, onEvent: (data: string) => boolean | void): Promise<void> {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    let split = buffer.indexOf('\n\n');
-    while (split >= 0) {
-      const block = buffer.slice(0, split);
-      buffer = buffer.slice(split + 2);
-      const data = block
-        .split('\n')
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).replace(/^ /, ''))
-        .join('\n');
-      if (data.length > 0) onEvent(data);
-      split = buffer.indexOf('\n\n');
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      buffer = buffer.replace(/\r\n/g, '\n');
+      for (;;) {
+        const split = buffer.indexOf('\n\n');
+        if (split < 0) break;
+        const block = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+        const data = block
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).replace(/^ /, ''))
+          .join('\n');
+        if (data.length > 0 && onEvent(data)) return;
+      }
+      if (done) return;
     }
-    if (done) break;
+  } finally {
+    reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 }
 
@@ -374,29 +380,43 @@ async function readResponsesStream(res: Response): Promise<string> {
     };
     if (event.type === 'response.output_text.delta') {
       text += event.delta ?? '';
-    } else if (event.type === 'response.completed') {
+      return false;
+    }
+    if (event.type === 'response.completed') {
       finished = true;
-    } else if (event.type === 'response.failed' || event.type === 'error') {
+      return true; // 到头了，停止读取
+    }
+    if (event.type === 'response.failed' || event.type === 'error') {
       const err = event.error ?? event.response?.error;
       throw streamError(err?.code ?? event.code ?? '', err?.message ?? event.message ?? '');
     }
+    return false;
   });
-  if (!finished && text.length === 0) throw new ModelError('API 返回空文本', true);
+  // 没等到 completed 就断流 = 截断，不算成功；只收到 completed 没有文字 = 空文本。
+  if (!finished) throw new ModelError('API 返回空文本（流在完成前结束）', true);
+  if (text.length === 0) throw new ModelError('API 返回空文本', true);
   return text;
 }
 
 /** /chat/completions 的流：累加 delta.content，[DONE] 结束。 */
 async function readChatStream(res: Response): Promise<string> {
   let text = '';
+  let done = false;
   await readEvents(res, (data) => {
-    if (data.trim() === '[DONE]') return;
+    if (data.trim() === '[DONE]') {
+      done = true;
+      return true; // 到头了，停止读取
+    }
     const event = JSON.parse(data) as {
       choices?: Array<{ delta?: { content?: string } }>;
       error?: { code?: string; message?: string };
     };
     if (event.error) throw streamError(event.error.code ?? '', event.error.message ?? '');
     text += event.choices?.[0]?.delta?.content ?? '';
+    return false;
   });
+  // 没等到 [DONE] 就断流 = 截断，不算成功。
+  if (!done) throw new ModelError('API 返回空文本（流在完成前结束）', true);
   if (text.length === 0) throw new ModelError('API 返回空文本', true);
   return text;
 }

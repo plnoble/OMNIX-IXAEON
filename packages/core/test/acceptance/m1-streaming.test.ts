@@ -53,11 +53,11 @@ it('条件 1：/responses 流式，delta 被拆开也能拼回完整文字并通
       return new Response('{"error":"model not specified"}', { status: 400 });
     }
     calls.push(sentBody(init));
+    // 三次读取、两段非空 delta，第二段跨在第 2、3 块之间
     return streamOf([
       'event: response.created\ndata: {"type":"response.created"}\n\n',
       'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"{\\"ok\\":',
-      'true}"}\n\nevent: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":""}\n\n',
-      'event: response.completed\ndata: {"type":"response.completed"}\n\n',
+      'true}"}\n\nevent: response.completed\ndata: {"type":"response.completed"}\n\n',
     ]);
   }) as typeof fetch;
   const result = await provider(fetchImpl).chatStructured({
@@ -189,7 +189,8 @@ it('模型或输入的 400 不算不支持流式，不重发', async () => {
 it('响应头到手后读取断了，按网络错误重试一次', async () => {
   let streams = 0;
   const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
-    if (String(url).endsWith('/responses') && sentBody(init)['input'] === undefined) {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
       return new Response('{"error":"model not specified"}', { status: 400 });
     }
     streams += 1;
@@ -241,6 +242,47 @@ it('条件 4：限流类的 error 事件 retriable 为 true，其它为 false', 
   await expect(rateLimited).rejects.toBeInstanceOf(ModelError);
   await expect(rateLimited).rejects.toMatchObject({ retriable: true });
   await expect(rateLimited).rejects.toThrow(/API 错误 429/);
+  // 数字限流码也认，只看 code，不在消息正文里找数字
+  const numeric = provider(failing('429')).chatText({ system: 's', user: 'u' });
+  await expect(numeric).rejects.toMatchObject({ retriable: true });
+  // 消息里带数字的普通错误不算服务端错误
+  const tokens = provider(failing('invalid_prompt')).chatText({ system: 's', user: 'u' });
+  await expect(tokens).rejects.toMatchObject({ retriable: false });
   const bad = provider(failing('invalid_prompt')).chatText({ system: 's', user: 'u' });
   await expect(bad).rejects.toMatchObject({ retriable: false });
+});
+
+it('CRLF 分隔的流也能读完（跨读取边界）', async () => {
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    if (String(url).endsWith('/responses') && sentBody(init)['input'] === undefined) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    return streamOf([
+      'event: response.output_text.delta\r\ndata: {"type":"response.output_text.delta","delta":"回车换行"}\r\n\r\n',
+      'event: response.completed\r\ndata: {"type":"response.completed"}\r\n\r\n',
+    ]);
+  }) as typeof fetch;
+  expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('回车换行');
+});
+
+it('没等到完成标记就断流，按网络错误重试，不把截断当成功', async () => {
+  let streams = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    if (String(url).endsWith('/responses') && sentBody(init)['input'] === undefined) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    streams += 1;
+    if (streams === 1) {
+      // 有文字但没有 completed 就断：截断，必须重试
+      return streamOf([
+        'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"半截"}\n\n',
+      ]);
+    }
+    return streamOf([
+      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"完整回答"}\n\n',
+      'event: response.completed\ndata: {"type":"response.completed"}\n\n',
+    ]);
+  }) as typeof fetch;
+  expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('完整回答');
+  expect(streams).toBe(2);
 });
