@@ -34,8 +34,10 @@ const server = createServer((req, res) => {
         res.end('{"error":"model not specified"}');
         return;
       }
-      // 立刻回响应头，隔 110 秒再吐文字：网关按「100 秒没回应」掐断的就是这种情况。
+      // 立刻把响应头刷出去，隔 110 秒再吐文字：网关按「100 秒没回应」掐断的就是这种情况。
       res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.flushHeaders();
+      console.log('HEADERS_FLUSHED', Date.now());
       setTimeout(() => {
         res.write(
           'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"慢模型的完整回答"}\n\n',
@@ -48,6 +50,7 @@ const server = createServer((req, res) => {
   }
   if (url.endsWith('/chat/completions')) {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.flushHeaders();
     setTimeout(() => {
       res.write('data: {"choices":[{"delta":{"content":"兼容端点的回答"}}]}\n\n');
       res.write('data: [DONE]\n\n');
@@ -64,6 +67,17 @@ console.log('FAKE_SERVER', port);
 
 const base = `http://127.0.0.1:${port}/v1`;
 const started = Date.now();
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+  const res = await originalFetch(url, init);
+  if (
+    String(url).endsWith('/responses') &&
+    res.headers.get('content-type')?.includes('event-stream')
+  ) {
+    console.log('HEADERS_RECEIVED_AFTER_SECONDS', Math.round((Date.now() - started) / 1000));
+  }
+  return res;
+}) as typeof fetch;
 try {
   const responses = new OpenAIResponsesProvider({
     apiKey: 'sk-test',

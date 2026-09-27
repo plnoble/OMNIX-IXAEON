@@ -56,7 +56,7 @@ it('条件 1：/responses 流式，delta 被拆开也能拼回完整文字并通
     return streamOf([
       'event: response.created\ndata: {"type":"response.created"}\n\n',
       'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"{\\"ok\\":',
-      'true}"}\n\n',
+      'true}"}\n\nevent: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":""}\n\n',
       'event: response.completed\ndata: {"type":"response.completed"}\n\n',
     ]);
   }) as typeof fetch;
@@ -108,6 +108,9 @@ it('条件 3：对 stream 报 400 就去掉 stream 重发，之后不再带 stre
     if (body['stream'] === true) {
       return new Response('{"error":"unknown parameter stream"}', { status: 400 });
     }
+    if ('stream' in body) {
+      throw new Error('回退请求不该再带 stream 字段');
+    }
     return new Response(JSON.stringify({ output: [{ content: [{ text: '重发成功' }] }] }), {
       status: 200,
     });
@@ -118,6 +121,93 @@ it('条件 3：对 stream 报 400 就去掉 stream 重发，之后不再带 stre
   // 第一次带 stream 被拒、重发不带；第二次直接不带。探测请求（input 为空）不算。
   const real = bodies.filter((b) => Array.isArray(b['input']) && b['input'].length > 0);
   expect(real.map((b) => b['stream'] === true)).toEqual([true, false, false]);
+});
+
+it('条件 3：返回普通 JSON 之后，同一个实例不再尝试流式', async () => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const body = sentBody(init);
+    if (String(url).endsWith('/responses') && body['input'] === undefined) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    bodies.push(body);
+    return new Response(JSON.stringify({ output: [{ content: [{ text: '普通回答' }] }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  const p = provider(fetchImpl);
+  expect(await p.chatText({ system: 's', user: 'u' })).toBe('普通回答');
+  expect(await p.chatText({ system: 's', user: 'u' })).toBe('普通回答');
+  const real = bodies.filter(
+    (b) => Array.isArray(b['input']) && (b['input'] as unknown[]).length > 0,
+  );
+  expect(real.map((b) => b['stream'] === true)).toEqual([true, false]);
+});
+
+it('条件 3：/chat/completions 对 stream 报 400，去掉字段重发并记住', async () => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    if (String(url).endsWith('/responses')) {
+      return new Response('{"error":"not found"}', { status: 404 });
+    }
+    const body = sentBody(init);
+    bodies.push(body);
+    if (body['stream'] === true) {
+      return new Response('{"error":"unknown parameter stream"}', { status: 400 });
+    }
+    if ('stream' in body) throw new Error('回退请求不该再带 stream 字段');
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: '兼容端点重发成功' } }] }),
+      {
+        status: 200,
+      },
+    );
+  }) as typeof fetch;
+  const p = provider(fetchImpl);
+  expect(await p.chatText({ system: 's', user: 'u' })).toBe('兼容端点重发成功');
+  expect(await p.chatText({ system: 's', user: 'u' })).toBe('兼容端点重发成功');
+  expect(bodies.map((b) => b['stream'] === true)).toEqual([true, false, false]);
+});
+
+it('模型或输入的 400 不算不支持流式，不重发', async () => {
+  let calls = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    calls += 1;
+    return new Response('{"error":"invalid schema"}', { status: 400 });
+  }) as typeof fetch;
+  await expect(provider(fetchImpl).chatText({ system: 's', user: 'u' })).rejects.toMatchObject({
+    retriable: false,
+  });
+  expect(calls).toBe(1);
+});
+
+it('响应头到手后读取断了，按网络错误重试一次', async () => {
+  let streams = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    if (String(url).endsWith('/responses') && sentBody(init)['input'] === undefined) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    streams += 1;
+    if (streams === 1) {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(new Error('连接中断'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return streamOf([
+      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"重试后的回答"}\n\n',
+      'event: response.completed\ndata: {"type":"response.completed"}\n\n',
+    ]);
+  }) as typeof fetch;
+  expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('重试后的回答');
+  expect(streams).toBe(2);
 });
 
 it('条件 4：流中 response.failed 抛 ModelError，服务端类可重试', async () => {
@@ -141,14 +231,16 @@ it('条件 4：限流类的 error 事件 retriable 为 true，其它为 false', 
       if (String(url).endsWith('/responses') && sentBody(init)['input'] === undefined) {
         return new Response('{"error":"model not specified"}', { status: 400 });
       }
+      // code 与 message 在事件顶层，不套在 error 里
       return streamOf([
-        `event: error\ndata: {"type":"error","error":{"code":"${code}","message":"出错了"}}\n\n`,
+        `event: error\ndata: {"type":"error","code":"${code}","message":"出错了"}\n\n`,
       ]);
     }) as typeof fetch;
   }
   const rateLimited = provider(failing('rate_limit_exceeded')).chatText({ system: 's', user: 'u' });
   await expect(rateLimited).rejects.toBeInstanceOf(ModelError);
   await expect(rateLimited).rejects.toMatchObject({ retriable: true });
+  await expect(rateLimited).rejects.toThrow(/API 错误 429/);
   const bad = provider(failing('invalid_prompt')).chatText({ system: 's', user: 'u' });
   await expect(bad).rejects.toMatchObject({ retriable: false });
 });

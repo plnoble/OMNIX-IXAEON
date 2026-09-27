@@ -158,8 +158,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      // 网关不认识 stream：记住，去掉 stream 重发一次。
-      if (res.status === 400 && body['stream'] === true) {
+      // 只对明确拒绝 stream 的 400 回退：模型、输入、schema 的 400 照旧报错。
+      if (body['stream'] === true && rejectsStream(res.status, text)) {
         this.streamingUnsupported = true;
         return this.requestViaResponses(system, user, jsonSchema, retry);
       }
@@ -172,6 +172,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
       );
     }
     if (!isEventStream(res)) {
+      // 网关忽略 stream、回了普通 JSON：记住，之后不再尝试流式。
+      if (body['stream'] === true) this.streamingUnsupported = true;
       const json = (await res.json()) as {
         output?: Array<{ content?: Array<{ text?: string }> }>;
       };
@@ -184,7 +186,24 @@ export class OpenAIResponsesProvider implements ModelProvider {
       if (texts.length === 0) throw new ModelError('API 返回空文本', true);
       return texts.join('\n');
     }
-    return readResponsesStream(res);
+    return this.readOrRetry(() => readResponsesStream(res), system, user, jsonSchema, retry);
+  }
+
+  /** 响应头到手之后的读取断了，也按网络错误重试一次。 */
+  private async readOrRetry(
+    read: () => Promise<string>,
+    system: string,
+    user: string,
+    jsonSchema: { name: string; schema: Record<string, unknown> } | null,
+    retry: boolean,
+  ): Promise<string> {
+    try {
+      return await read();
+    } catch (err) {
+      if (err instanceof ModelError) throw err;
+      if (retry) return this.request(system, user, jsonSchema, false);
+      throw new ModelError(`网络错误: ${String(err)}`, true);
+    }
   }
 
   /** /chat/completions 路径（DeepSeek 等 OpenAI 兼容服务）。 */
@@ -200,8 +219,9 @@ export class OpenAIResponsesProvider implements ModelProvider {
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-      stream: !this.streamingUnsupported,
     };
+    // 不支持流式的网关连 stream: false 都会拒（它拒绝的是这个未知字段），所以直接不带。
+    if (!this.streamingUnsupported) body['stream'] = true;
     if (jsonSchema) {
       // DeepSeek 的 json_object 模式：提示词内嵌 schema 说明，输出要求 JSON
       body['response_format'] = { type: 'json_object' };
@@ -222,7 +242,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      if (res.status === 400 && body['stream'] === true) {
+      if (body['stream'] === true && rejectsStream(res.status, text)) {
         this.streamingUnsupported = true;
         return this.requestViaChatCompletions(system, user, jsonSchema, retry);
       }
@@ -234,7 +254,10 @@ export class OpenAIResponsesProvider implements ModelProvider {
         res.status === 429 || res.status >= 500,
       );
     }
-    if (isEventStream(res)) return readChatStream(res);
+    if (isEventStream(res)) {
+      return this.readOrRetry(() => readChatStream(res), system, user, jsonSchema, retry);
+    }
+    if (body['stream'] === true) this.streamingUnsupported = true;
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
@@ -279,8 +302,28 @@ export async function listUpstreamModels(opts: {
   return models;
 }
 
+/** 400 里明确提到 stream 才算「不支持流式」，模型或输入的 400 不算。 */
+function rejectsStream(status: number, text: string): boolean {
+  return status === 400 && text.toLowerCase().includes('stream');
+}
+
 function isEventStream(res: Response): boolean {
   return (res.headers.get('content-type') ?? '').includes('text/event-stream');
+}
+
+/**
+ * 流里的错误套进既有的两种前缀：限流写成「API 错误 429」、服务端类写成「API 错误 500」，
+ * 队列和界面按这两个前缀认暂时性错误；其余照「API 错误 400」报，不算暂时性。
+ */
+function streamError(code: string, message: string): ModelError {
+  const text = message.length > 0 ? message : '流式响应失败';
+  if (/rate.?limit/i.test(`${code} ${message}`)) {
+    return new ModelError(`API 错误 429: ${text}`, true);
+  }
+  if (retriableStreamError(code, message)) {
+    return new ModelError(`API 错误 500: ${text}`, true);
+  }
+  return new ModelError(`API 错误 400: ${code} ${text}`.trim(), false);
 }
 
 /** 限流与服务端错误算暂时性，交给队列重试；其余不算。 */
@@ -324,6 +367,8 @@ async function readResponsesStream(res: Response): Promise<string> {
     const event = JSON.parse(data) as {
       type?: string;
       delta?: string;
+      code?: string;
+      message?: string;
       error?: { code?: string; message?: string };
       response?: { error?: { code?: string; message?: string } };
     };
@@ -333,9 +378,7 @@ async function readResponsesStream(res: Response): Promise<string> {
       finished = true;
     } else if (event.type === 'response.failed' || event.type === 'error') {
       const err = event.error ?? event.response?.error;
-      const code = err?.code ?? '';
-      const message = err?.message ?? '流式响应失败';
-      throw new ModelError(`流式错误 ${code}: ${message}`, retriableStreamError(code, message));
+      throw streamError(err?.code ?? event.code ?? '', err?.message ?? event.message ?? '');
     }
   });
   if (!finished && text.length === 0) throw new ModelError('API 返回空文本', true);
@@ -351,11 +394,7 @@ async function readChatStream(res: Response): Promise<string> {
       choices?: Array<{ delta?: { content?: string } }>;
       error?: { code?: string; message?: string };
     };
-    if (event.error) {
-      const code = event.error.code ?? '';
-      const message = event.error.message ?? '流式响应失败';
-      throw new ModelError(`流式错误 ${code}: ${message}`, retriableStreamError(code, message));
-    }
+    if (event.error) throw streamError(event.error.code ?? '', event.error.message ?? '');
     text += event.choices?.[0]?.delta?.content ?? '';
   });
   if (text.length === 0) throw new ModelError('API 返回空文本', true);
