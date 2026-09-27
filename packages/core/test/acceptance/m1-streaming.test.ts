@@ -291,6 +291,18 @@ it('拒绝对象不是 stream 的 400 不回退；stream 被明确禁用时回�
     provider(schemaPropBare.fetchImpl).chatText({ system: 's', user: 'u' }),
   ).rejects.toMatchObject({ retriable: false });
   expect(schemaPropBare.calls()).toBe(1);
+  // 拒绝词写在后面也不回退：schema 里叫 stream 的属性（第八轮审查的反例）
+  const schemaPropAfter = with400('schema property stream is not supported');
+  await expect(
+    provider(schemaPropAfter.fetchImpl).chatText({ system: 's', user: 'u' }),
+  ).rejects.toMatchObject({ retriable: false });
+  expect(schemaPropAfter.calls()).toBe(1);
+  // 值类型错（不是参数被拒）不回退
+  const typeError = with400('stream must be a boolean');
+  await expect(
+    provider(typeError.fetchImpl).chatText({ system: 's', user: 'u' }),
+  ).rejects.toMatchObject({ retriable: false });
+  expect(typeError.calls()).toBe(1);
   // 「stream must be false」：网关明确要求不带 stream，回退重发
   const mustFalse = with400('stream must be false');
   const p2 = provider(mustFalse.fetchImpl);
@@ -306,6 +318,44 @@ it('拒绝对象不是 stream 的 400 不回退；stream 被明确禁用时回�
   const p4 = provider(noStreaming.fetchImpl);
   expect(await p4.chatText({ system: 's', user: 'u' })).toBe('普通成功');
   expect(noStreaming.calls()).toBe(2);
+});
+
+it('结构化错误点名 param=stream 且错误码属「参数被拒」类时回退', async () => {
+  function withJson400(body: string): { fetchImpl: typeof fetch; calls: () => number } {
+    let calls = 0;
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+      const input = sentBody(init)['input'] as unknown[] | undefined;
+      if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+        return new Response('{"error":"model not specified"}', { status: 400 });
+      }
+      calls += 1;
+      if (JSON.parse(String(init?.body ?? '{}'))['stream'] === true) {
+        return new Response(body, { status: 400 });
+      }
+      return new Response(JSON.stringify({ output: [{ content: [{ text: '普通成功' }] }] }), {
+        status: 200,
+      });
+    }) as typeof fetch;
+    return { fetchImpl, calls: () => calls };
+  }
+  // error.param=stream + unsupported_parameter：回退重发
+  const unsupported = withJson400(
+    '{"error":{"code":"unsupported_parameter","param":"stream","message":"Unsupported parameter"}}',
+  );
+  const p1 = provider(unsupported.fetchImpl);
+  expect(await p1.chatText({ system: 's', user: 'u' })).toBe('普通成功');
+  expect(unsupported.calls()).toBe(2);
+  // 同一个实例记住：第二次直接不带 stream
+  expect(await p1.chatText({ system: 's', user: 'u' })).toBe('普通成功');
+  expect(unsupported.calls()).toBe(3);
+  // error.param 指向别的参数：不回退
+  const otherParam = withJson400(
+    '{"error":{"code":"unsupported_parameter","param":"temperature"}}',
+  );
+  await expect(
+    provider(otherParam.fetchImpl).chatText({ system: 's', user: 'u' }),
+  ).rejects.toMatchObject({ retriable: false });
+  expect(otherParam.calls()).toBe(1);
 });
 
 it('条件 5：429、5xx、网络错误都只立即重试一次，第二次失败就抛', async () => {

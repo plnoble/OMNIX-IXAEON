@@ -304,22 +304,48 @@ export async function listUpstreamModels(opts: {
   return models;
 }
 
+/** 结构化错误里点名 stream 的：error.param 是 stream 且错误码属于「参数被拒」类。 */
+function structuredRejectsStream(text: string): boolean {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  const root = obj as Record<string, unknown>;
+  const err = (root['error'] ?? obj) as Record<string, unknown>;
+  if (typeof err !== 'object' || err === null) return false;
+  const param =
+    typeof err['param'] === 'string'
+      ? err['param']
+      : typeof err['parameter'] === 'string'
+        ? err['parameter']
+        : null;
+  if (param !== 'stream' && param !== 'streaming') return false;
+  const code = `${String(err['code'] ?? '')} ${String(err['type'] ?? '')}`.toLowerCase();
+  return /unsupported|unknown|not.enabled|disabled|unrecognized/.test(code);
+}
+
 /**
  * 400 里明确拒绝 stream 这个参数才算「不支持流式」。
- * 按词判断，不按字符距离：把正文拆成小写单词，看 stream 紧挨着的词。
+ * 先认结构化错误（error.param），再按词判断（不按字符距离）：拆成小写单词，看 stream 紧挨着什么。
  *   命中：「unknown parameter: 'stream'」「'stream' is not supported」
  *         「stream parameter is not supported」「stream must be false」
- *         「does not support stream」「stream: unsupported」
- *   不命中：「unsupported schema property 'stream'」（stream 前面隔着 property/schema，
- *         拒绝的是 schema 属性）、「unsupported upstream model」（没有独立的 stream）。
+ *         「does not support stream」「error.param="stream" + unsupported_parameter」
+ *   不命中：「unsupported schema property 'stream'」「schema property stream is not supported」
+ *         （拒绝的是 schema 属性）、「unsupported upstream model」（没有独立的 stream）、
+ *         「stream must be a boolean」（值类型错，不是参数被拒）。
  */
 function rejectsStream(status: number, text: string): boolean {
   if (status !== 400) return false;
+  if (structuredRejectsStream(text)) return true;
   const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
-  // 参数称谓：stream parameter / option / field …
+  // 参数称谓：stream parameter / option / param …
   const PARAM = new Set([
     'parameter',
     'parameters',
+    'param',
+    'params',
     'option',
     'options',
     'argument',
@@ -333,6 +359,10 @@ function rejectsStream(status: number, text: string): boolean {
   const REJECT = new Set(['unsupported', 'unknown', 'invalid', 'disabled']);
   for (let i = 0; i < words.length; i++) {
     if (words[i] !== 'stream' && words[i] !== 'streaming') continue;
+    // 「schema property/field stream」：拒绝的是 schema 里叫 stream 的属性，跳过这个词。
+    const prev = words[i - 1] ?? '';
+    const prev2 = words[i - 2] ?? '';
+    if ((prev === 'property' || prev === 'field') && prev2 === 'schema') continue;
     // 向后：stream [parameter] [is] not supported / unsupported / must be false
     let j = i + 1;
     if (PARAM.has(words[j] ?? '')) j += 1;
