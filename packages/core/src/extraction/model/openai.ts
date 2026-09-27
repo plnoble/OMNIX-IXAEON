@@ -304,15 +304,17 @@ export async function listUpstreamModels(opts: {
   return models;
 }
 
-/** 400 里明确拒绝 stream 这个参数才算「不支持流式」，upstream 等字样不算。 */
+/**
+ * 400 里明确拒绝 stream 这个参数才算「不支持流式」。
+ * 要求出现「拒绝/不支持」类动词，且拒绝对象就是 stream（带词边界）——
+ * 「invalid schema property 'stream'」（schema 字段名）、「unsupported upstream model」都不算。
+ */
 function rejectsStream(status: number, text: string): boolean {
   if (status !== 400) return false;
   const t = text.toLowerCase();
-  // 「'stream' is not supported」「unknown parameter: stream」这类。全部带词边界，
-  // 「unsupported upstream model」不会命中（upstream 里没有独立的 stream）。
   const WORD_STREAM = /(^|[^a-z])stream([^a-z]|$)/;
-  const UNSUPPORTED = /(^|[^a-z])unsupported([^a-z]|$)/;
-  return WORD_STREAM.test(t) || (UNSUPPORTED.test(t) && WORD_STREAM.test(t));
+  if (!WORD_STREAM.test(t)) return false;
+  return /unsupported|not support|unknown parameter|invalid parameter|not enabled|does not/.test(t);
 }
 
 function isEventStream(res: Response): boolean {
@@ -323,15 +325,16 @@ function isEventStream(res: Response): boolean {
  * 流里的错误套进既有的两种前缀：限流写成「API 错误 429」、服务端类写成「API 错误 500」，
  * 队列和界面按这两个前缀认暂时性错误；其余照「API 错误 400」报，不算暂时性。
  * 只认错误码字段，绝不在消息正文里找数字——「超过 512 tokens」这类话不会改变判定。
+ * code 可能是字符串也可能是数字（有的网关给 JSON 数字），统一转成字符串再认。
  */
-function streamError(code: string, message: string): ModelError {
+function streamError(code: string | number, message: string): ModelError {
   const text = message.length > 0 ? message : '流式响应失败';
-  const c = code.toLowerCase();
+  const c = String(code).toLowerCase();
   if (/rate.?limit|429/.test(c)) return new ModelError(`API 错误 429: ${text}`, true);
   if (/server_error|overloaded|unavailable|timeout|(^|[^0-9])5\d\d([^0-9]|$)/.test(c)) {
     return new ModelError(`API 错误 500: ${text}`, true);
   }
-  return new ModelError(`API 错误 400: ${code} ${text}`.trim(), false);
+  return new ModelError(`API 错误 400: ${c} ${text}`.trim(), false);
 }
 
 /**
@@ -375,10 +378,10 @@ async function readResponsesStream(res: Response): Promise<string> {
     const event = JSON.parse(data) as {
       type?: string;
       delta?: string;
-      code?: string;
+      code?: string | number;
       message?: string;
-      error?: { code?: string; message?: string };
-      response?: { error?: { code?: string; message?: string } };
+      error?: { code?: string | number; message?: string };
+      response?: { error?: { code?: string | number; message?: string } };
     };
     if (event.type === 'response.output_text.delta') {
       text += event.delta ?? '';
@@ -411,7 +414,7 @@ async function readChatStream(res: Response): Promise<string> {
     }
     const event = JSON.parse(data) as {
       choices?: Array<{ delta?: { content?: string } }>;
-      error?: { code?: string; message?: string };
+      error?: { code?: string | number; message?: string };
     };
     if (event.error) throw streamError(event.error.code ?? '', event.error.message ?? '');
     text += event.choices?.[0]?.delta?.content ?? '';

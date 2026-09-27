@@ -54,9 +54,10 @@ it('条件 1：/responses 流式，delta 被拆开也能拼回完整文字并通
       return new Response('{"error":"model not specified"}', { status: 400 });
     }
     calls.push(sentBody(init));
-    // 三次读取、两段非空 delta：第一段完整在第 1 块，第二段跨第 2、3 块
+    // 三次读取、两段非空 delta：created 在第 1 块，第一段 delta 也在第 1 块，
+    // 第二段跨第 2、3 块，completed 在第 3 块
     return streamOf([
-      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"{\\"ok\\":"}\n\n',
+      'event: response.created\ndata: {"type":"response.created"}\n\nevent: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"{\\"ok\\":"}\n\n',
       'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"tr',
       'ue}"}\n\nevent: response.completed\ndata: {"type":"response.completed"}\n\n',
     ]);
@@ -204,6 +205,45 @@ it('400 正文提 upstream 不算拒绝 stream，不回退', async () => {
     retriable: false,
   });
   expect(calls).toBe(1);
+});
+
+it('schema 字段名里的 stream 不算拒绝流式，不回退', async () => {
+  let calls = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    calls += 1;
+    return new Response('{"error":"invalid schema property \'stream\'"}', { status: 400 });
+  }) as typeof fetch;
+  await expect(provider(fetchImpl).chatText({ system: 's', user: 'u' })).rejects.toMatchObject({
+    retriable: false,
+  });
+  expect(calls).toBe(1);
+});
+
+it('错误码是 JSON 数字也能认：429 可重试、400 不可重试', async () => {
+  function failing(code: number): typeof fetch {
+    return (async (url: string | URL, init?: RequestInit) => {
+      const input = sentBody(init)['input'] as unknown[] | undefined;
+      if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+        return new Response('{"error":"model not specified"}', { status: 400 });
+      }
+      return streamOf([
+        `event: error\ndata: {"type":"error","code":${code},"message":"数字码"}\n\n`,
+      ]);
+    }) as typeof fetch;
+  }
+  await expect(provider(failing(429)).chatText({ system: 's', user: 'u' })).rejects.toMatchObject({
+    retriable: true,
+  });
+  await expect(provider(failing(503)).chatText({ system: 's', user: 'u' })).rejects.toMatchObject({
+    retriable: true,
+  });
+  await expect(provider(failing(400)).chatText({ system: 's', user: 'u' })).rejects.toMatchObject({
+    retriable: false,
+  });
 });
 
 it('响应头到手后读取断了，按网络错误重试一次', async () => {
