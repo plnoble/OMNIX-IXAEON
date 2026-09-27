@@ -1,13 +1,11 @@
 # D3 Codex 审查
 
-- 时间：2026-09-27T08:35:31.281Z
-- 分支：grok/D3（15b82b7），对照 docs/委派/D3-点要做就开工并回报.md
+- 时间：2026-09-27T08:47:54.267Z
+- 分支：grok/D3（ccc637a），对照 docs/委派/D3-点要做就开工并回报.md
 - Codex：0.158.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改｜`apps/desktop/src/main/codingDispatch.ts:64`：Codex 检查只在 `kick` 中进行；已有自动任务执行时，新任务即使收到“没找到 Codex”回报，仍会被现有 `drain` 在上一任务结束后派发。应在每次自动派发前检查，确保缺失时保持已批准状态。
-- 必须改｜`apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts:320、421`：仍未覆盖“取消正在执行的任务后，后继继续且不重叠执行”；前一个测试没有后继并绕过真实取消入口，后一个只取消排队项。需要人工确认：`coding.cancel`、`runningCount` 是否在执行器实际退出前释放执行名额，并补充对应验收。
-- 必须改｜`docs/委派/交付/D3.md:40–42`：验收只有通过数量，verify 仍写“结果见下”，CI 仍是占位，全文没有对应输出和成功记录；后文宣称已补齐与实际不符，尚不满足交付及合并要求。
-- 建议｜`apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts:457–463`：任务创建顺序和批准顺序完全相同，按任务创建顺序派发也能通过。应逆序批准，并在已有任务执行时积累两个等待项，验证真正按批准先后派发。
-- 建议｜`apps/desktop/src/main/codingDispatch.ts:64–65`：派发拒绝后异常被吞掉，排空直接停止，已有后继任务没有恢复触发或错误提示；应保留错误并明确恢复方式，避免队列静默停住。
-
+必须改：`apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts:329-349`：取消测试在原执行器完成前就移除运行标记，且取消后立即放行，实际重叠仍可能通过；应覆盖完整执行时段，并补手动派发首任务的取消场景。需要人工确认：`CodingOrchestrator.cancel/dispatch` 是否在取消后、执行器真正退出前仍保持互斥。
+必须改：`apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts:497-503`：创建顺序与批准顺序完全一致，也未确保两个任务同时排队，删除排序逻辑仍可能通过；应阻塞前置任务，再按与创建顺序相反的顺序批准两个等待任务，分别验证不同时间戳和相同时间戳的派发顺序。
+必须改：`docs/委派/交付/D3.md:47-48`：仍未贴出 verify 的实际输出，GitHub verify 仍是“推送后补运行号”，不满足交付要求；补齐验证证据。需要人工确认：当前提交对应的分支 CI 已通过。
+建议：`apps/desktop/src/main/taskReport.ts:73-77`：截取前八行之前先拆分、处理整份验证日志，会在主进程产生不必要的内存和计算开销；应收集到八个非空行即停止，并限制总字符数，防止超长单行生成巨大回报。
 结论：需要修改

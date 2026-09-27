@@ -330,9 +330,12 @@ describe('点「要做」就开工并回报', () => {
       const name = task.goal.split('\n')[0]!;
       if (running.length > 0) overlap = true;
       running.push(name);
-      if (name === '先取消') await gate;
-      running.splice(running.indexOf(name), 1);
-      return original(task, workspace, signal);
+      try {
+        if (name === '先取消') await gate;
+        return await original(task, workspace, signal);
+      } finally {
+        running.splice(running.indexOf(name), 1);
+      }
     };
     const first = await proposedTask(h, { goal: '先取消' });
     const second = await proposedTask(h, {
@@ -342,8 +345,11 @@ describe('点「要做」就开工并回报', () => {
     await h.runtime.acceptTodo(first.todoId);
     await vi.waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
     await h.runtime.acceptTodo(second.todoId);
-    // 走任务页的取消入口，不直接调 coding.cancel
+    // 走任务页的取消入口。先不放行：若取消没有拦住执行器，后继会在这里抢跑
     await h.runtime.finishCodingTask(first.taskId, 'cancel');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(overlap).toBe(false);
+    expect(taskStatus(second.taskId)).toBe('queued');
     releaseRun();
     await vi.waitFor(() => expect(taskStatus(second.taskId)).toBe('pending_accept'));
     expect(overlap).toBe(false);
@@ -486,21 +492,35 @@ describe('点「要做」就开工并回报', () => {
     await vi.waitFor(() => expect(taskStatus(first.taskId)).not.toBe('running'));
   });
 
-  it('同一时间戳的两个排队任务按批准先后派发', async () => {
+  it('两个同时排队的任务按批准先后派发，同时间戳也一样', async () => {
     const order: string[] = [];
+    let releaseBlock!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseBlock = resolve;
+    });
     const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
     const original = h.executor.run.bind(h.executor);
     h.executor.run = async (task, workspace, signal) => {
-      order.push(task.goal.split('\n')[0]!);
+      const name = task.goal.split('\n')[0]!;
+      if (name === '挡住') await gate;
+      else order.push(name);
       return original(task, workspace, signal);
     };
-    const a = await proposedTask(h, { goal: '甲' });
-    const b = await proposedTask(h, { goal: '乙', conversationId: a.conversationId });
-    await h.runtime.acceptTodo(a.todoId);
-    await h.runtime.acceptTodo(b.todoId);
-    // 两个批准写成同一个时间：顺序只能靠批准记录的先后
-    db.prepare('UPDATE coding_approvals SET granted_at = ?').run('2026-09-27T00:00:00.000Z');
-    await vi.waitFor(() => expect(order).toEqual(['甲', '乙']));
+    // 先有一个在执行，甲、乙都只能排队；乙先批准、甲后批准，和创建顺序相反
+    const block = await proposedTask(h, { goal: '挡住' });
+    const jia = await proposedTask(h, { goal: '甲', conversationId: block.conversationId });
+    const yi = await proposedTask(h, { goal: '乙', conversationId: block.conversationId });
+    await h.runtime.acceptTodo(block.todoId);
+    await vi.waitFor(() => expect(taskStatus(block.taskId)).toBe('running'));
+    await h.runtime.acceptTodo(yi.todoId);
+    await h.runtime.acceptTodo(jia.todoId);
+    db.prepare('UPDATE coding_approvals SET granted_at = ? WHERE task_id IN (?, ?)').run(
+      '2026-09-27T00:00:00.000Z',
+      yi.taskId,
+      jia.taskId,
+    );
+    releaseBlock();
+    await vi.waitFor(() => expect(order).toEqual(['乙', '甲']));
   });
 
   it('正在执行的任务失败后，排队的下一个照常开始', async () => {
