@@ -588,6 +588,40 @@ describe('点「要做」就开工并回报', () => {
     const [report] = reports(first.conversationId);
     expect(report!.content).toContain('没做成');
   });
+
+  it('手动派发的任务执行中点「要做」，再取消手动任务：后继继续', async () => {
+    let releaseManual!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseManual = resolve;
+    });
+    const order: string[] = [];
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      const name = task.goal.split('\n')[0]!;
+      order.push(name);
+      if (name === '手动的') await gate;
+      return original(task, workspace, signal);
+    };
+    const manual = h.coding.create({
+      projectId: h.projectId,
+      goal: '手动的',
+      scope: ['note.txt'],
+      allowedCommands: [],
+    });
+    await h.coding.approveAndQueue(manual.id);
+    const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
+    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    const queued = await proposedTask(h, { goal: '排队的' });
+    await h.runtime.acceptTodo(queued.todoId);
+    expect(taskStatus(queued.taskId)).toBe('queued');
+    await h.runtime.finishCodingTask(manual.id, 'cancel');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(taskStatus(queued.taskId)).toBe('queued');
+    releaseManual();
+    await running;
+    await vi.waitFor(() => expect(order).toContain('排队的'));
+  });
 });
 
 function reports(conversationId: string) {

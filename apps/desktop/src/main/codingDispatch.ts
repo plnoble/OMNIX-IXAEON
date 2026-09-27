@@ -34,17 +34,15 @@ export class CodingDispatch {
 
   kick(taskId: string): void {
     if (!this.host.db.open || this.codexMissing(taskId)) return;
-    if (this.host.coding.store.runningCount() > 0) this.resumeAfterRunning = true;
-    void this.drain();
+    const running = this.host.coding.store?.runningCount() ?? 0;
+    if (running > 0) this.resumeAfterRunning = true;
+    setTimeout(() => void this.drain(), 0);
   }
 
   onTaskSettled(taskId: string): void {
     if (!this.host.db.open) return;
     this.write(taskId, buildTaskReport(taskReportRow(this.host.db, taskId)));
-    if (this.resumeAfterRunning && this.host.coding.store.runningCount() === 0) {
-      this.resumeAfterRunning = false;
-      void this.drain();
-    }
+    if (this.resumeAfterRunning && this.host.coding.store.runningCount() === 0) void this.drain();
   }
 
   private async drain(): Promise<void> {
@@ -56,6 +54,7 @@ export class CodingDispatch {
         if (!next || this.codexMissing(next.id)) return;
         const done = await this.host.coding.dispatch(next.id).catch(() => null);
         if (!done) return;
+        this.resumeAfterRunning = false;
         this.onTaskSettled(done.id);
       }
     } finally {

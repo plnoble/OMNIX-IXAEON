@@ -1690,8 +1690,7 @@ export class AppRuntime {
     if (todo.status === 'proposed' && todo.linked_kind === 'coding_task' && todo.linked_id) {
       // 拍板「要做」= 批准编码任务并排队；批准失败原样报错，待办不动
       await this.coding.approveAndQueue(todo.linked_id);
-      const taskId = todo.linked_id;
-      setTimeout(() => this.codingDispatch.kick(taskId), 0);
+      this.codingDispatch.kick(todo.linked_id);
     }
     return this.todos.accept(id);
   }
