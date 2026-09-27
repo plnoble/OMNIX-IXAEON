@@ -395,12 +395,11 @@ async function readEvents(res: Response, onEvent: (data: string) => boolean | vo
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-      if (skipLf && buffer.startsWith('\n')) buffer = buffer.slice(1);
-      skipLf = false;
-      // CR 立刻当行结束；若这是 CRLF 的前半，下一块开头的 LF 跳过
-      if (buffer.endsWith('\r')) skipLf = true;
-      buffer = buffer.replace(/\r\n|\r/g, '\n');
+      let chunk = decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      // 上一块以 CR 结束时，新块开头的 LF 是 CRLF 的后半，丢掉，不制造空行
+      if (skipLf && chunk.startsWith('\n')) chunk = chunk.slice(1);
+      skipLf = chunk.endsWith('\r');
+      buffer += chunk.replace(/\r\n|\r/g, '\n');
       for (;;) {
         const split = buffer.indexOf('\n\n');
         if (split < 0) break;

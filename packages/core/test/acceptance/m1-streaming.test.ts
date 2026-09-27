@@ -482,6 +482,26 @@ it('条件 4：限流类的 error 事件 retriable 为 true，其它为 false', 
   expect(bad.calls()).toBe(1);
 });
 
+it('事件内部的 CRLF 跨块时不制造空行，仍能拼回完整 JSON', async () => {
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    // 第 1 块停在 data 行末尾的 \r，第 2 块以 \n 开头接 completed
+    return streamOf([
+      'event: response.output_text.delta\r\ndata: {"type":"response.output_text.delta","delta":"{\\"ok\\":true}"}\r',
+      '\n\r\nevent: response.completed\r\ndata: {"type":"response.completed"}\r\n\r\n',
+    ]);
+  }) as typeof fetch;
+  const result = await provider(fetchImpl).chatStructured({
+    system: 's',
+    user: 'u',
+    schema: z.object({ ok: z.boolean() }),
+  });
+  expect(result).toEqual({ ok: true });
+});
+
 it('CRLF 分隔的流也能读完（事件分隔符跨在两次读取之间）', async () => {
   const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
     const input = sentBody(init)['input'] as unknown[] | undefined;
