@@ -482,6 +482,39 @@ it('条件 4：限流类的 error 事件 retriable 为 true，其它为 false', 
   expect(bad.calls()).toBe(1);
 });
 
+it('code 缺失但 message 明确说限流或服务端错误时，按 429/500 重试', async () => {
+  function topless(message: string): { fetchImpl: typeof fetch; calls: () => number } {
+    let calls = 0;
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+      const input = sentBody(init)['input'] as unknown[] | undefined;
+      if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+        return new Response('{"error":"model not specified"}', { status: 400 });
+      }
+      calls += 1;
+      return streamOf([
+        `event: error\ndata: {"type":"error","code":null,"message":"${message}"}\n\n`,
+      ]);
+    }) as typeof fetch;
+    return { fetchImpl, calls: () => calls };
+  }
+  const limited = topless('Rate limit exceeded');
+  const limitedErr = provider(limited.fetchImpl).chatText({ system: 's', user: 'u' });
+  await expect(limitedErr).rejects.toThrow(/API 错误 429/);
+  await expect(limitedErr).rejects.toMatchObject({ retriable: true });
+  expect(limited.calls()).toBe(2);
+  const internal = topless('Internal server error');
+  const internalErr = provider(internal.fetchImpl).chatText({ system: 's', user: 'u' });
+  await expect(internalErr).rejects.toThrow(/API 错误 500/);
+  await expect(internalErr).rejects.toMatchObject({ retriable: true });
+  expect(internal.calls()).toBe(2);
+  // 消息里带数字的普通错误仍不可重试
+  const tokens = topless('prompt exceeds 512 tokens');
+  await expect(
+    provider(tokens.fetchImpl).chatText({ system: 's', user: 'u' }),
+  ).rejects.toMatchObject({ retriable: false });
+  expect(tokens.calls()).toBe(1);
+});
+
 it('事件内部的 CRLF 跨块时不制造空行，仍能拼回完整 JSON', async () => {
   const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
     const input = sentBody(init)['input'] as unknown[] | undefined;

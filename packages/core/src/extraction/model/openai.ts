@@ -189,7 +189,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
     return this.readOrRetry(() => readResponsesStream(res), system, user, jsonSchema, retry);
   }
 
-  /** 响应头到手之后的读取断了，也按网络错误重试一次。 */
+  /** 响应头到手之后：截断、流里 429/5xx、读取中断重试一次；空文本仍直接抛。 */
   private async readOrRetry(
     read: () => Promise<string>,
     system: string,
@@ -200,7 +200,6 @@ export class OpenAIResponsesProvider implements ModelProvider {
     try {
       return await read();
     } catch (err) {
-      // 截断、流里的 429/5xx、读取中断立即重试一次；空文本仍直接抛，和原来非流式一样。
       const msg = err instanceof ModelError ? err.message : '';
       const once =
         !(err instanceof ModelError) ||
@@ -376,7 +375,7 @@ function isEventStream(res: Response): boolean {
   return (res.headers.get('content-type') ?? '').toLowerCase().includes('text/event-stream');
 }
 
-/** 流里的错误：限流 → API 错误 429，服务端类 → API 错误 500，其余 → API 错误 400。只认 type/code。 */
+/** 流里的错误：限流 → 429，服务端类 → 500，其余 → 400。先认 type/code，code 缺失才看 message 短语，不认数字。 */
 function streamError(
   kind: string | number | undefined,
   code: string | number | undefined,
@@ -387,6 +386,13 @@ function streamError(
   if (/rate.?limit|429/.test(c)) return new ModelError(`API 错误 429: ${text}`, true);
   if (/server_error|overloaded|unavailable|timeout|(^|[^0-9])5\d\d([^0-9]|$)/.test(c)) {
     return new ModelError(`API 错误 500: ${text}`, true);
+  }
+  if (code === undefined || code === null || String(code).trim() === '') {
+    const m = text.toLowerCase();
+    if (/rate.?limit/.test(m)) return new ModelError(`API 错误 429: ${text}`, true);
+    if (/server error|internal error|overloaded|unavailable|timed? out/.test(m)) {
+      return new ModelError(`API 错误 500: ${text}`, true);
+    }
   }
   return new ModelError(`API 错误 400: ${String(code ?? kind ?? '')} ${text}`.trim(), false);
 }
