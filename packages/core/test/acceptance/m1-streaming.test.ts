@@ -488,10 +488,10 @@ it('事件内部的 CRLF 跨块时不制造空行，仍能拼回完整 JSON', as
     if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
       return new Response('{"error":"model not specified"}', { status: 400 });
     }
-    // 第 1 块停在 data 行末尾的 \r，第 2 块以 \n 开头接 completed
+    // 同一事件两条 data: 行，在第一条行末 CR 处拆块；第一行单独不是完整 JSON
     return streamOf([
-      'event: response.output_text.delta\r\ndata: {"type":"response.output_text.delta","delta":"{\\"ok\\":true}"}\r',
-      '\n\r\nevent: response.completed\r\ndata: {"type":"response.completed"}\r\n\r\n',
+      'event: response.output_text.delta\r\ndata: {"type":"response.output_text.delta","delta":"{\\"ok\\":true}"\r',
+      '\ndata: }\r\n\r\nevent: response.completed\r\ndata: {"type":"response.completed"}\r\n\r\n',
     ]);
   }) as typeof fetch;
   const result = await provider(fetchImpl).chatStructured({
@@ -500,6 +500,27 @@ it('事件内部的 CRLF 跨块时不制造空行，仍能拼回完整 JSON', as
     schema: z.object({ ok: z.boolean() }),
   });
   expect(result).toEqual({ ok: true });
+});
+
+it('只收到 completed 没有文字，一次请求就抛空文本，不立即重试', async () => {
+  let calls = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    calls += 1;
+    return streamOf(['event: response.completed\ndata: {"type":"response.completed"}\n\n']);
+  }) as typeof fetch;
+  const err = await provider(fetchImpl)
+    .chatText({ system: 's', user: 'u' })
+    .then(
+      () => null,
+      (e: unknown) => e,
+    );
+  expect(err).toBeInstanceOf(ModelError);
+  expect((err as ModelError).message).toMatch(/空文本/);
+  expect(calls).toBe(1);
 });
 
 it('CRLF 分隔的流也能读完（事件分隔符跨在两次读取之间）', async () => {

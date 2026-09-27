@@ -200,12 +200,17 @@ export class OpenAIResponsesProvider implements ModelProvider {
     try {
       return await read();
     } catch (err) {
-      // 截断、流里的 429/5xx、读取中断：都立即重试一次，第二次失败再抛。
-      const truncated = err instanceof ModelError && err.message.includes('流在完成前结束');
-      const retryable = truncated || !(err instanceof ModelError) || err.retriable;
-      if (!retryable) throw err;
+      // 截断、流里的 429/5xx、读取中断立即重试一次；空文本仍直接抛，和原来非流式一样。
+      const msg = err instanceof ModelError ? err.message : '';
+      const once =
+        !(err instanceof ModelError) ||
+        msg.includes('流在完成前结束') ||
+        msg.startsWith('API 错误 429') ||
+        msg.startsWith('API 错误 500') ||
+        msg.startsWith('网络错误');
+      if (!once) throw err;
       if (retry) return this.request(system, user, jsonSchema, false);
-      if (err instanceof ModelError && !truncated) throw err;
+      if (err instanceof ModelError && !msg.includes('流在完成前结束')) throw err;
       throw new ModelError(`网络错误: ${String(err instanceof Error ? err.message : err)}`, true);
     }
   }

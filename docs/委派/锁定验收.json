@@ -230,7 +230,7 @@
       "title": "慢模型不再超时",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/m1-streaming.test.ts": "2ef97dbc24c8cdf4195b8e08aa97e68fe0f6092e30eb94374665d2c83f84923d"
+        "packages/core/test/acceptance/m1-streaming.test.ts": "3ddd009c0dd87cd6834d9531231122a1efacb182621b8141c6098936df24dba4"
       }
     }
   ]
