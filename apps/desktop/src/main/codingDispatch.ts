@@ -52,13 +52,12 @@ export class CodingDispatch {
       for (;;) {
         if (!this.host.db.open) return;
         const next = this.nextQueued();
-        if (!next) {
-          this.resumeAfterRunning = (this.host.coding.store?.runningCount() ?? 0) > 0;
+        if (!next || this.codexMissing(next.id)) {
+          this.resumeAfterRunning = !next && (this.host.coding.store?.runningCount() ?? 0) > 0;
           return;
         }
-        if (this.codexMissing(next.id)) return;
         const done = await this.host.coding.dispatch(next.id).catch(() => null);
-        if (!done) return;
+        if (!done) return void (this.resumeAfterRunning = true);
         this.resumeAfterRunning = false;
         this.onTaskSettled(done.id);
       }
