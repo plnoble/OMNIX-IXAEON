@@ -101,6 +101,24 @@ import { LocalServer } from './server/localServer.js';
 import { bridgeBlockedReason, bridgeEntry, writeHermesBridgeEntry } from './hermesBridge.js';
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
 import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './researchFetch.js';
+import {
+  buildTaskReport,
+  codexMissingReport,
+  conversationForRun,
+  reportAlreadyWritten,
+  type TaskReportRow,
+} from './taskReport.js';
+
+/** 从任务行抽出回报需要的字段（含迁移 38 的 acceptance_json，契约类型里还没有）。 */
+function taskReportRow(db: CoreDatabase, taskId: string): TaskReportRow {
+  return db
+    .prepare(
+      `SELECT id, goal, status, error, origin_run_id, acceptance_json,
+              verify_status, verify_output, executor_report_json
+       FROM coding_tasks WHERE id = ?`,
+    )
+    .get(taskId) as TaskReportRow;
+}
 import type { TinyFishFetcher } from '@ixaeon/core';
 import { syncBundledExtension } from './extensionBundle.js';
 
@@ -163,6 +181,8 @@ export class AppRuntime {
   private askDeltaSink: ((e: AskDeltaEvent) => void) | null = null;
   /** P2：把等待阶段推到当前窗口。 */
   private askProgressSink: ((e: AskProgressEvent) => void) | null = null;
+  /** D3：编码任务回报写进对话后，让打开着的窗口重新读这一条。 */
+  private taskReportSink: ((e: { conversationId: string }) => void) | null = null;
   /** S1：取消后丢掉迟到的分段，不再写库、不再发事件。 */
   private cancelledAskRuns = new Set<string>();
   /** P1：预热好的空闲问答会话（最多一个），见 prewarmChat。 */
@@ -170,6 +190,13 @@ export class AppRuntime {
   private warming = false;
   /** 这一问用掉了预热会话：答完再备一个。 */
   private rewarmAfterAsk = false;
+  /** D3：自动派发正在排空队列（同一时间只跑一个循环）。 */
+  private codingDispatching = false;
+  /**
+   * D3：Codex 在不在。默认真去找；测试可换成返回 null 的函数。
+   * Object.create 搭的运行时没有这个字段：当作找得到（执行器是替身）。
+   */
+  codexLocator: (() => ReturnType<typeof resolveCodexLocator>) | null = resolveCodexLocator;
   /** S3a：列出后的内存清单（编号 → 路径、授权），30 分钟过期。 */
   private agentSessionLists: Map<
     string,
@@ -1682,8 +1709,83 @@ export class AppRuntime {
     if (todo.status === 'proposed' && todo.linked_kind === 'coding_task' && todo.linked_id) {
       // 拍板「要做」= 批准编码任务并排队；批准失败原样报错，待办不动
       await this.coding.approveAndQueue(todo.linked_id);
+      // D3：点「要做」就开工。派发放到点击返回之后：这次点击立即返回，
+      // 返回时任务还停在已批准（排队），随后才自动开始。
+      const taskId = todo.linked_id;
+      setTimeout(() => this.kickCodingDispatch(taskId), 0);
     }
     return this.todos.accept(id);
+  }
+
+  /**
+   * D3：点「要做」之后自动派发。没有正在执行的任务就立刻开始；有就排着，
+   * 前一个结束（完成、失败、取消都算）后按批准先后开始下一个。
+   * 找不到 Codex：不派发，任务留在已批准，回报「没找到 Codex…」。
+   */
+  private kickCodingDispatch(taskId: string): void {
+    // IXAEON_CODEX_EXE=none 是真机检查主动选替身，不算「没找到」
+    const forcedFake = process.env.IXAEON_CODEX_EXE?.trim() === 'none';
+    if (!forcedFake && this.codexLocator && this.codexLocator() === null) {
+      this.writeTaskReport(taskId, codexMissingReport(taskReportRow(this.db, taskId)));
+      return;
+    }
+    void this.drainCodingQueue();
+  }
+
+  /** 队列里按批准先后派发：同一时间只有一个在执行，结束一个再取下一个。 */
+  private async drainCodingQueue(): Promise<void> {
+    if (this.codingDispatching) return;
+    this.codingDispatching = true;
+    try {
+      for (;;) {
+        // 测试收尾会关库：关了就停，不让迟到的派发变成未处理的异常
+        if (!this.db.open) return;
+        const next = this.nextQueuedTask();
+        if (!next) return;
+        const done = await this.coding
+          .dispatch(next.id)
+          .catch(() => this.coding.store.get(next.id));
+        this.writeTaskReport(done.id, buildTaskReport(taskReportRow(this.db, done.id)));
+      }
+    } finally {
+      this.codingDispatching = false;
+    }
+  }
+
+  /** 已批准（queued）里最早批准的那个；有任务在执行时不取。 */
+  private nextQueuedTask(): { id: string } | null {
+    if (this.coding.store.runningCount() > 0) return null;
+    return (
+      (this.db
+        .prepare(
+          `SELECT t.id FROM coding_tasks t
+           JOIN coding_approvals a ON a.id = t.approval_id
+           WHERE t.status = 'queued'
+           ORDER BY a.granted_at ASC LIMIT 1`,
+        )
+        .get() as { id: string } | undefined) ?? null
+    );
+  }
+
+  /** 往发起任务的那个对话写回报；没有 origin_run_id 或写过同一状态的不写。 */
+  private writeTaskReport(taskId: string, report: ReturnType<typeof buildTaskReport>): void {
+    if (!report) return;
+    const task = taskReportRow(this.db, taskId);
+    if (!task.origin_run_id) return;
+    const conversationId = conversationForRun(this.db, task.origin_run_id);
+    if (!conversationId) return;
+    if (reportAlreadyWritten(this.db, taskId, report.meta.status)) return;
+    this.conversations.appendMessage(conversationId, {
+      role: 'assistant',
+      content: report.content,
+      meta: report.meta,
+    });
+    this.taskReportSink?.({ conversationId });
+  }
+
+  /** 打开着的窗口收到回报后重新读对话。 */
+  setTaskReportSink(sink: ((e: { conversationId: string }) => void) | null): void {
+    this.taskReportSink = sink;
   }
   async rejectTodo(id: string): Promise<Todo> {
     const todo = this.todos.get(id);

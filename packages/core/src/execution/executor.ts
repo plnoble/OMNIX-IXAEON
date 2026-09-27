@@ -104,6 +104,8 @@ const DEFAULT_CODEX_SANDBOX: CodexLocator['sandbox'] = 'workspace-write';
 
 /** 用户已确认的真机隔离默认：workspace-write + 隔离工作区 + 忽略用户更宽配置。 */
 export function resolveCodexLocator(): CodexLocator | null {
+  // IXAEON_CODEX_EXE=none：明确不用真 Codex，走执行器替身（真机检查用）
+  if (process.env.IXAEON_CODEX_EXE?.trim() === 'none') return null;
   const fromEnv = process.env.IXAEON_CODEX_EXE?.trim();
   const localApp = process.env.LOCALAPPDATA;
   const candidates = [

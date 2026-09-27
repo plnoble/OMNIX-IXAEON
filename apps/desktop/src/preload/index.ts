@@ -160,6 +160,11 @@ const api: IxaIpcApi = {
     ipcRenderer.on('ixaeon:ask-progress', handler);
     return () => ipcRenderer.removeListener('ixaeon:ask-progress', handler);
   },
+  onTaskReport: (listener: (e: { conversationId: string }) => void): (() => void) => {
+    const handler = (_e: unknown, event: { conversationId: string }) => listener(event);
+    ipcRenderer.on('ixaeon:task-report', handler);
+    return () => ipcRenderer.removeListener('ixaeon:task-report', handler);
+  },
 };
 
 /** 更新能力（独立于 IxaIpcApi：仅生产构建存在，开发运行为 no-op）。 */
