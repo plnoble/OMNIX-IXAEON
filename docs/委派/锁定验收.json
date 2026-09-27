@@ -224,6 +224,14 @@
         "packages/core/test/acceptance/n2-finding-judgments.test.ts": "6706b891247ee5a281f91fe1f09ffc7533a69beb24a9d93e17eafb3119920ba3",
         "apps/desktop/test/acceptance/n2-finding-judgments-page.test.ts": "689b1ec5cb36874a63bdf4b0994d31510720d4426e9aa5a5514ae3a0aea130b9"
       }
+    },
+    {
+      "id": "M1",
+      "title": "慢模型不再超时",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/m1-streaming.test.ts": "0d55f7577a01c9293b2d0a2a58a3f89ab770f4c61f3f05df28b2b39b28f271c8"
+      }
     }
   ]
 }

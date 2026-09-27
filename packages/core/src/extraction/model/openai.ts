@@ -15,6 +15,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
   private readonly fetchImpl: typeof fetch;
   /** 端点能力探测缓存：null=未探测；true=仅 /chat/completions */
   private useChatCompletions: boolean | null = null;
+  /** M1：这个实例的网关不支持流式（报过 400 或明确拒绝），之后不再尝试。 */
+  private streamingUnsupported = false;
 
   constructor(opts: {
     apiKey: string;
@@ -129,6 +131,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
       ],
       store: false,
     };
+    if (!this.streamingUnsupported) body['stream'] = true;
     if (jsonSchema) {
       body['text'] = {
         format: {
@@ -155,6 +158,11 @@ export class OpenAIResponsesProvider implements ModelProvider {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
+      // 只对明确拒绝 stream 的 400 回退：模型、输入、schema 的 400 照旧报错。
+      if (body['stream'] === true && rejectsStream(res.status, text)) {
+        this.streamingUnsupported = true;
+        return this.requestViaResponses(system, user, jsonSchema, retry);
+      }
       if (retry && (res.status === 429 || res.status >= 500)) {
         return this.request(system, user, jsonSchema, false);
       }
@@ -163,15 +171,47 @@ export class OpenAIResponsesProvider implements ModelProvider {
         res.status === 429 || res.status >= 500,
       );
     }
-    const json = (await res.json()) as { output?: Array<{ content?: Array<{ text?: string }> }> };
-    const texts: string[] = [];
-    for (const part of json.output ?? []) {
-      for (const c of part.content ?? []) {
-        if (typeof c.text === 'string') texts.push(c.text);
+    if (!isEventStream(res)) {
+      // 网关忽略 stream、回了普通 JSON：记住，之后不再尝试流式。
+      if (body['stream'] === true) this.streamingUnsupported = true;
+      const json = (await res.json()) as {
+        output?: Array<{ content?: Array<{ text?: string }> }>;
+      };
+      const texts: string[] = [];
+      for (const part of json.output ?? []) {
+        for (const c of part.content ?? []) {
+          if (typeof c.text === 'string') texts.push(c.text);
+        }
       }
+      if (texts.length === 0) throw new ModelError('API 返回空文本', true);
+      return texts.join('\n');
     }
-    if (texts.length === 0) throw new ModelError('API 返回空文本', true);
-    return texts.join('\n');
+    return this.readOrRetry(() => readResponsesStream(res), system, user, jsonSchema, retry);
+  }
+
+  /** 响应头到手之后：截断、流里 429/5xx、读取中断重试一次；空文本仍直接抛。 */
+  private async readOrRetry(
+    read: () => Promise<string>,
+    system: string,
+    user: string,
+    jsonSchema: { name: string; schema: Record<string, unknown> } | null,
+    retry: boolean,
+  ): Promise<string> {
+    try {
+      return await read();
+    } catch (err) {
+      const msg = err instanceof ModelError ? err.message : '';
+      const once =
+        !(err instanceof ModelError) ||
+        msg.includes('流在完成前结束') ||
+        msg.startsWith('API 错误 429') ||
+        msg.startsWith('API 错误 500') ||
+        msg.startsWith('网络错误');
+      if (!once) throw err;
+      if (retry) return this.request(system, user, jsonSchema, false);
+      if (err instanceof ModelError && !msg.includes('流在完成前结束')) throw err;
+      throw new ModelError(`网络错误: ${String(err instanceof Error ? err.message : err)}`, true);
+    }
   }
 
   /** /chat/completions 路径（DeepSeek 等 OpenAI 兼容服务）。 */
@@ -187,8 +227,9 @@ export class OpenAIResponsesProvider implements ModelProvider {
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-      stream: false,
     };
+    // 不支持流式的网关连 stream: false 都会拒（它拒绝的是这个未知字段），所以直接不带。
+    if (!this.streamingUnsupported) body['stream'] = true;
     if (jsonSchema) {
       // DeepSeek 的 json_object 模式：提示词内嵌 schema 说明，输出要求 JSON
       body['response_format'] = { type: 'json_object' };
@@ -209,6 +250,10 @@ export class OpenAIResponsesProvider implements ModelProvider {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
+      if (body['stream'] === true && rejectsStream(res.status, text)) {
+        this.streamingUnsupported = true;
+        return this.requestViaChatCompletions(system, user, jsonSchema, retry);
+      }
       if (retry && (res.status === 429 || res.status >= 500)) {
         return this.request(system, user, jsonSchema, false);
       }
@@ -217,6 +262,10 @@ export class OpenAIResponsesProvider implements ModelProvider {
         res.status === 429 || res.status >= 500,
       );
     }
+    if (isEventStream(res)) {
+      return this.readOrRetry(() => readChatStream(res), system, user, jsonSchema, retry);
+    }
+    if (body['stream'] === true) this.streamingUnsupported = true;
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
@@ -259,6 +308,188 @@ export async function listUpstreamModels(opts: {
     .filter((m) => m.id.length > 0)
     .sort((a, b) => a.id.localeCompare(b.id));
   return models;
+}
+
+/** 结构化错误：error.param 是 stream 且错误码属于「参数被拒」类。根值可能是 null。 */
+function structuredRejectsStream(text: string): boolean {
+  try {
+    const obj = JSON.parse(text) as unknown;
+    if (obj === null || typeof obj !== 'object') return false;
+    const err = ((obj as Record<string, unknown>)['error'] ?? obj) as Record<string, unknown>;
+    if (typeof err !== 'object' || err === null) return false;
+    const param = [err['param'], err['parameter']].find((p) => typeof p === 'string');
+    if (param !== 'stream' && param !== 'streaming') return false;
+    return /unsupported|unknown|not.enabled|disabled|unrecognized/.test(
+      `${err['code'] ?? ''} ${err['type'] ?? ''}`.toLowerCase(),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 400 明确拒绝 stream 参数才算不支持流式：先认 error.param，再按词看 stream 紧邻什么。
+ * 命中 unknown parameter stream / stream is not supported / stream must be false /
+ * does not support streaming / Streaming is disabled。不命中 schema property stream、
+ * unsupported upstream model、stream must be a boolean。
+ */
+function rejectsStream(status: number, text: string): boolean {
+  if (status !== 400) return false;
+  if (structuredRejectsStream(text)) return true;
+  const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
+  const PARAM = new Set(
+    'parameter parameters param params option options argument arguments field fields flag flags'.split(
+      ' ',
+    ),
+  );
+  const REJECT = new Set(['unsupported', 'unknown', 'invalid', 'disabled']);
+  const AFTER_NOT = new Set(['supported', 'enabled', 'allowed', 'permitted']);
+  const MUST_BE = new Set(['false', 'disabled', 'omitted', 'absent']);
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] !== 'stream' && words[i] !== 'streaming') continue;
+    if ((words[i - 1] === 'property' || words[i - 1] === 'field') && words[i - 2] === 'schema')
+      continue;
+    let j = i + 1;
+    if (PARAM.has(words[j] ?? '')) j += 1;
+    if (words[j] === 'is' || words[j] === 'was' || words[j] === 'are') j += 1;
+    if (
+      words[j] === 'unsupported' ||
+      words[j] === 'disabled' ||
+      (words[j] === 'not' && AFTER_NOT.has(words[j + 1] ?? '')) ||
+      (words[j] === 'must' && words[j + 1] === 'be' && MUST_BE.has(words[j + 2] ?? ''))
+    )
+      return true;
+    let k = i - 1;
+    if (k >= 0 && PARAM.has(words[k] ?? '')) k -= 1;
+    const before = words[k] ?? '';
+    if (
+      REJECT.has(before) ||
+      (['support', 'supported', 'enabled'].includes(before) && words[k - 1] === 'not')
+    )
+      return true;
+  }
+  return false;
+}
+
+function isEventStream(res: Response): boolean {
+  return (res.headers.get('content-type') ?? '').toLowerCase().includes('text/event-stream');
+}
+
+/** 流里的错误：限流 → 429，服务端类 → 500，其余 → 400。先认 type/code，code 缺失才看 message 短语，不认数字。 */
+function streamError(
+  kind: string | number | undefined,
+  code: string | number | undefined,
+  message: string,
+): ModelError {
+  const text = message.length > 0 ? message : '流式响应失败';
+  const c = `${String(kind ?? '')} ${String(code ?? '')}`.toLowerCase();
+  if (/rate.?limit|429/.test(c)) return new ModelError(`API 错误 429: ${text}`, true);
+  if (/server_error|overloaded|unavailable|timeout|(^|[^0-9])5\d\d([^0-9]|$)/.test(c)) {
+    return new ModelError(`API 错误 500: ${text}`, true);
+  }
+  if (code === undefined || code === null || String(code).trim() === '') {
+    const m = text.toLowerCase();
+    if (/rate.?limit/.test(m)) return new ModelError(`API 错误 429: ${text}`, true);
+    if (/server error|internal error|overloaded|unavailable|timed? out/.test(m)) {
+      return new ModelError(`API 错误 500: ${text}`, true);
+    }
+  }
+  return new ModelError(`API 错误 400: ${String(code ?? kind ?? '')} ${text}`.trim(), false);
+}
+
+/** SSE：事件可跨读取拼接；行结束认 LF / CRLF / CR；onEvent 返回 true 即停。 */
+async function readEvents(res: Response, onEvent: (data: string) => boolean | void): Promise<void> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let skipLf = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      let chunk = decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      // 上一块以 CR 结束时，新块开头的 LF 是 CRLF 的后半，丢掉，不制造空行
+      if (skipLf && chunk.startsWith('\n')) chunk = chunk.slice(1);
+      skipLf = chunk.endsWith('\r');
+      buffer += chunk.replace(/\r\n|\r/g, '\n');
+      for (;;) {
+        const split = buffer.indexOf('\n\n');
+        if (split < 0) break;
+        const block = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+        const data = block
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).replace(/^ /, ''))
+          .join('\n');
+        if (data.length > 0 && onEvent(data)) return;
+      }
+      if (done) return;
+    }
+  } finally {
+    reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+/** /responses 的流：累加 output_text.delta，completed 结束，failed / error 抛错。 */
+async function readResponsesStream(res: Response): Promise<string> {
+  let text = '';
+  let finished = false;
+  await readEvents(res, (data) => {
+    const event = JSON.parse(data) as {
+      type?: string;
+      delta?: string;
+      code?: string | number;
+      message?: string;
+      error?: { type?: string | number; code?: string | number; message?: string };
+      response?: { error?: { type?: string | number; code?: string | number; message?: string } };
+    };
+    if (event.type === 'response.output_text.delta') {
+      text += event.delta ?? '';
+      return false;
+    }
+    if (event.type === 'response.completed') {
+      finished = true;
+      return true; // 到头了，停止读取
+    }
+    if (event.type === 'response.failed' || event.type === 'error') {
+      const err = event.error ?? event.response?.error;
+      throw streamError(
+        err?.type ?? event.type,
+        err?.code ?? event.code,
+        err?.message ?? event.message ?? '',
+      );
+    }
+    return false;
+  });
+  // 没等到 completed 就断流 = 截断，不算成功；只收到 completed 没有文字 = 空文本。
+  if (!finished) throw new ModelError('API 返回空文本（流在完成前结束）', true);
+  if (text.length === 0) throw new ModelError('API 返回空文本', true);
+  return text;
+}
+
+/** /chat/completions 的流：累加 delta.content，[DONE] 结束。 */
+async function readChatStream(res: Response): Promise<string> {
+  let text = '';
+  let done = false;
+  await readEvents(res, (data) => {
+    if (data.trim() === '[DONE]') {
+      done = true;
+      return true; // 到头了，停止读取
+    }
+    const event = JSON.parse(data) as {
+      choices?: Array<{ delta?: { content?: string } }>;
+      error?: { type?: string | number; code?: string | number; message?: string };
+    };
+    if (event.error)
+      throw streamError(event.error.type, event.error.code, event.error.message ?? '');
+    text += event.choices?.[0]?.delta?.content ?? '';
+    return false;
+  });
+  // 没等到 [DONE] 就断流 = 截断，不算成功。
+  if (!done) throw new ModelError('API 返回空文本（流在完成前结束）', true);
+  if (text.length === 0) throw new ModelError('API 返回空文本', true);
+  return text;
 }
 
 /** zod 4 → JSON Schema（strict json_schema 要求 additionalProperties: false）。 */
