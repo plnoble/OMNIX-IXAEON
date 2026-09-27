@@ -7,7 +7,7 @@
  * 条件 3：网关忽略 stream 返回普通 JSON 照旧解析；对 stream 报 400 时去掉 stream 重发一次，
  *         之后同一个实例不再带 stream。
  * 条件 4：流中 response.failed / error 事件抛 ModelError；限流与服务端类 retriable = true。
- * 条件 5：429 / 5xx 与网络错误的重试次数不变（由既有测试覆盖，本文件不重复）。
+ * 条件 5：429 / 5xx 与网络错误都只立即重试一次，第二次失败就抛。
  */
 import { expect, it } from 'vitest';
 import { z } from 'zod';
@@ -313,6 +313,11 @@ it('拒绝对象不是 stream 的 400 不回退；stream 被明确禁用时回�
   const p3 = provider(paramNotSupported.fetchImpl);
   expect(await p3.chatText({ system: 's', user: 'u' })).toBe('普通成功');
   expect(paramNotSupported.calls()).toBe(2);
+  // 「Streaming is disabled」：is disabled 也算拒绝，回退
+  const streamingDisabled = with400('Streaming is disabled for this model');
+  const p5 = provider(streamingDisabled.fetchImpl);
+  expect(await p5.chatText({ system: 's', user: 'u' })).toBe('普通成功');
+  expect(streamingDisabled.calls()).toBe(2);
   // 「does not support streaming」：拒绝词在 stream 前面，也要回退
   const noStreaming = with400('The model does not support streaming');
   const p4 = provider(noStreaming.fetchImpl);
@@ -517,4 +522,46 @@ it('没等到完成标记就断流，按网络错误重试，不把截断当成�
   }) as typeof fetch;
   expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('完整回答');
   expect(streams).toBe(2);
+});
+
+it('Content-Type 大小写不敏感：Text/Event-Stream 也按流读', async () => {
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"大小写"}\n\n',
+          ),
+        );
+        controller.enqueue(
+          encoder.encode('event: response.completed\ndata: {"type":"response.completed"}\n\n'),
+        );
+        controller.close();
+      },
+    });
+    return new Response(body, {
+      status: 200,
+      headers: { 'content-type': 'Text/Event-Stream' },
+    });
+  }) as typeof fetch;
+  expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('大小写');
+});
+
+it('SSE 单独用 CR 换行也能读完', async () => {
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    return streamOf([
+      'event: response.output_text.delta\rdata: {"type":"response.output_text.delta","delta":"回车"}\r\r',
+      'event: response.completed\rdata: {"type":"response.completed"}\r\r',
+    ]);
+  }) as typeof fetch;
+  expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('回车');
 });

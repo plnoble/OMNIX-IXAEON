@@ -348,7 +348,7 @@ function rejectsStream(status: number, text: string): boolean {
     const prev = words[i - 1] ?? '';
     const prev2 = words[i - 2] ?? '';
     if ((prev === 'property' || prev === 'field') && prev2 === 'schema') continue;
-    // 向后：stream [parameter] [is] not supported / unsupported / must be false
+    // 向后：stream [parameter] [is] not supported / unsupported / disabled / must be false
     let j = i + 1;
     if (PARAM.has(words[j] ?? '')) j += 1;
     if (words[j] === 'is' || words[j] === 'was' || words[j] === 'are') j += 1;
@@ -358,6 +358,7 @@ function rejectsStream(status: number, text: string): boolean {
     const forward =
       (after === 'not' && ['supported', 'enabled', 'allowed', 'permitted'].includes(afterNext)) ||
       after === 'unsupported' ||
+      after === 'disabled' ||
       (after === 'must' &&
         afterNext === 'be' &&
         ['false', 'disabled', 'omitted', 'absent'].includes(afterNext2));
@@ -377,8 +378,9 @@ function rejectsStream(status: number, text: string): boolean {
   return false;
 }
 
+/** 媒体类型大小写不敏感（规范如此），Content-Type: Text/Event-Stream 也算流。 */
 function isEventStream(res: Response): boolean {
-  return (res.headers.get('content-type') ?? '').includes('text/event-stream');
+  return (res.headers.get('content-type') ?? '').toLowerCase().includes('text/event-stream');
 }
 
 /**
@@ -403,7 +405,7 @@ function streamError(
 
 /**
  * 按 SSE 读：事件可能被拆在两次读取之间，一次读取里也可能有多个事件。
- * 事件分隔兼容 \n\n 与 \r\n\r\n；onEvent 返回 true 表示流已到头，读完即停。
+ * 行结束兼容 LF、CRLF、CR（SSE 规范三种都认）；onEvent 返回 true 表示流已到头，读完即停。
  */
 async function readEvents(res: Response, onEvent: (data: string) => boolean | void): Promise<void> {
   const reader = res.body!.getReader();
@@ -413,7 +415,12 @@ async function readEvents(res: Response, onEvent: (data: string) => boolean | vo
     for (;;) {
       const { done, value } = await reader.read();
       buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      // \r\n 并成 \n；块尾的单独 \r 可能是跨块 \r\n 的前半，留到下一块再判
       buffer = buffer.replace(/\r\n/g, '\n');
+      const pendingCr = buffer.endsWith('\r');
+      if (pendingCr) buffer = buffer.slice(0, -1);
+      buffer = buffer.replace(/\r/g, '\n');
+      if (pendingCr) buffer += done ? '\n' : '\r';
       for (;;) {
         const split = buffer.indexOf('\n\n');
         if (split < 0) break;
