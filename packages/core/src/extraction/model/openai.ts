@@ -200,10 +200,12 @@ export class OpenAIResponsesProvider implements ModelProvider {
     try {
       return await read();
     } catch (err) {
-      // 截断（流在完成前结束）算网络错误，和读取中途断开一样重试一次。
+      // 截断、流里的 429/5xx、读取中断：都立即重试一次，第二次失败再抛。
       const truncated = err instanceof ModelError && err.message.includes('流在完成前结束');
-      if (err instanceof ModelError && !truncated) throw err;
+      const retryable = truncated || !(err instanceof ModelError) || err.retriable;
+      if (!retryable) throw err;
       if (retry) return this.request(system, user, jsonSchema, false);
+      if (err instanceof ModelError && !truncated) throw err;
       throw new ModelError(`网络错误: ${String(err instanceof Error ? err.message : err)}`, true);
     }
   }
@@ -304,91 +306,72 @@ export async function listUpstreamModels(opts: {
   return models;
 }
 
-/** 结构化错误里点名 stream 的：error.param 是 stream 且错误码属于「参数被拒」类。 */
+/** 结构化错误：error.param 是 stream 且错误码属于「参数被拒」类。根值可能是 null。 */
 function structuredRejectsStream(text: string): boolean {
-  let obj: unknown;
   try {
-    obj = JSON.parse(text);
+    const obj = JSON.parse(text) as unknown;
+    if (obj === null || typeof obj !== 'object') return false;
+    const err = ((obj as Record<string, unknown>)['error'] ?? obj) as Record<string, unknown>;
+    if (typeof err !== 'object' || err === null) return false;
+    const param = [err['param'], err['parameter']].find((p) => typeof p === 'string');
+    if (param !== 'stream' && param !== 'streaming') return false;
+    return /unsupported|unknown|not.enabled|disabled|unrecognized/.test(
+      `${err['code'] ?? ''} ${err['type'] ?? ''}`.toLowerCase(),
+    );
   } catch {
     return false;
   }
-  // 正文可能是 JSON null / 数字 / 字符串，取属性前先确认是对象
-  if (obj === null || typeof obj !== 'object') return false;
-  const err = ((obj as Record<string, unknown>)['error'] ?? obj) as Record<string, unknown>;
-  if (typeof err !== 'object' || err === null) return false;
-  const param = [err['param'], err['parameter']].find((p) => typeof p === 'string');
-  if (param !== 'stream' && param !== 'streaming') return false;
-  const code = `${String(err['code'] ?? '')} ${String(err['type'] ?? '')}`.toLowerCase();
-  return /unsupported|unknown|not.enabled|disabled|unrecognized/.test(code);
 }
 
 /**
- * 400 里明确拒绝 stream 这个参数才算「不支持流式」。
- * 先认结构化错误（error.param），再按词判断（不按字符距离）：拆成小写单词，看 stream 紧挨着什么。
- *   命中：「unknown parameter: 'stream'」「'stream' is not supported」
- *         「stream parameter is not supported」「stream must be false」
- *         「does not support stream」「error.param="stream" + unsupported_parameter」
- *   不命中：「schema property stream is not supported」（schema 里叫 stream 的属性）、
- *         「unsupported upstream model」「stream must be a boolean」（值类型错）。
+ * 400 明确拒绝 stream 参数才算不支持流式：先认 error.param，再按词看 stream 紧邻什么。
+ * 命中 unknown parameter stream / stream is not supported / stream must be false /
+ * does not support streaming / Streaming is disabled。不命中 schema property stream、
+ * unsupported upstream model、stream must be a boolean。
  */
 function rejectsStream(status: number, text: string): boolean {
   if (status !== 400) return false;
   if (structuredRejectsStream(text)) return true;
   const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
-  // 参数称谓（stream parameter / option / param …）与单词即拒绝的词
   const PARAM = new Set(
     'parameter parameters param params option options argument arguments field fields flag flags'.split(
       ' ',
     ),
   );
   const REJECT = new Set(['unsupported', 'unknown', 'invalid', 'disabled']);
+  const AFTER_NOT = new Set(['supported', 'enabled', 'allowed', 'permitted']);
+  const MUST_BE = new Set(['false', 'disabled', 'omitted', 'absent']);
   for (let i = 0; i < words.length; i++) {
     if (words[i] !== 'stream' && words[i] !== 'streaming') continue;
-    // 「schema property/field stream」：拒绝的是 schema 里叫 stream 的属性，跳过这个词。
-    const prev = words[i - 1] ?? '';
-    const prev2 = words[i - 2] ?? '';
-    if ((prev === 'property' || prev === 'field') && prev2 === 'schema') continue;
-    // 向后：stream [parameter] [is] not supported / unsupported / disabled / must be false
+    if ((words[i - 1] === 'property' || words[i - 1] === 'field') && words[i - 2] === 'schema')
+      continue;
     let j = i + 1;
     if (PARAM.has(words[j] ?? '')) j += 1;
     if (words[j] === 'is' || words[j] === 'was' || words[j] === 'are') j += 1;
-    const after = words[j] ?? '';
-    const afterNext = words[j + 1] ?? '';
-    const afterNext2 = words[j + 2] ?? '';
-    const forward =
-      (after === 'not' && ['supported', 'enabled', 'allowed', 'permitted'].includes(afterNext)) ||
-      after === 'unsupported' ||
-      after === 'disabled' ||
-      (after === 'must' &&
-        afterNext === 'be' &&
-        ['false', 'disabled', 'omitted', 'absent'].includes(afterNext2));
-    if (forward) return true;
-    // 向前：unknown [parameter] stream / not supported: stream / not support stream
+    if (
+      words[j] === 'unsupported' ||
+      words[j] === 'disabled' ||
+      (words[j] === 'not' && AFTER_NOT.has(words[j + 1] ?? '')) ||
+      (words[j] === 'must' && words[j + 1] === 'be' && MUST_BE.has(words[j + 2] ?? ''))
+    )
+      return true;
     let k = i - 1;
     if (k >= 0 && PARAM.has(words[k] ?? '')) k -= 1;
-    const before = k >= 0 ? (words[k] ?? '') : '';
-    const beforePrev = k >= 1 ? (words[k - 1] ?? '') : '';
-    const backward =
+    const before = words[k] ?? '';
+    if (
       REJECT.has(before) ||
-      (before === 'support' && beforePrev === 'not') ||
-      (before === 'supported' && beforePrev === 'not') ||
-      (before === 'enabled' && beforePrev === 'not');
-    if (backward) return true;
+      (['support', 'supported', 'enabled'].includes(before) && words[k - 1] === 'not')
+    )
+      return true;
   }
   return false;
 }
 
-/** 媒体类型大小写不敏感（规范如此），Content-Type: Text/Event-Stream 也算流。 */
 function isEventStream(res: Response): boolean {
   return (res.headers.get('content-type') ?? '').toLowerCase().includes('text/event-stream');
 }
 
-/**
- * 流里的错误套进既有的两种前缀：限流写成「API 错误 429」、服务端类写成「API 错误 500」，
- * 队列和界面按这两个前缀认暂时性错误；其余照「API 错误 400」报，不算暂时性。
- * 只认结构化错误类别（type 与 code），绝不在消息正文里找数字。
- * type/code 可能是字符串也可能是数字（有的网关给 JSON 数字），统一转成字符串再认。
- */
+/** 流里的错误：限流 → API 错误 429，服务端类 → API 错误 500，其余 → API 错误 400。只认 type/code。 */
 function streamError(
   kind: string | number | undefined,
   code: string | number | undefined,
@@ -403,24 +386,21 @@ function streamError(
   return new ModelError(`API 错误 400: ${String(code ?? kind ?? '')} ${text}`.trim(), false);
 }
 
-/**
- * 按 SSE 读：事件可能被拆在两次读取之间，一次读取里也可能有多个事件。
- * 行结束兼容 LF、CRLF、CR（SSE 规范三种都认）；onEvent 返回 true 表示流已到头，读完即停。
- */
+/** SSE：事件可跨读取拼接；行结束认 LF / CRLF / CR；onEvent 返回 true 即停。 */
 async function readEvents(res: Response, onEvent: (data: string) => boolean | void): Promise<void> {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let skipLf = false;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-      // \r\n 并成 \n；块尾的单独 \r 可能是跨块 \r\n 的前半，留到下一块再判
-      buffer = buffer.replace(/\r\n/g, '\n');
-      const pendingCr = buffer.endsWith('\r');
-      if (pendingCr) buffer = buffer.slice(0, -1);
-      buffer = buffer.replace(/\r/g, '\n');
-      if (pendingCr) buffer += done ? '\n' : '\r';
+      if (skipLf && buffer.startsWith('\n')) buffer = buffer.slice(1);
+      skipLf = false;
+      // CR 立刻当行结束；若这是 CRLF 的前半，下一块开头的 LF 跳过
+      if (buffer.endsWith('\r')) skipLf = true;
+      buffer = buffer.replace(/\r\n|\r/g, '\n');
       for (;;) {
         const split = buffer.indexOf('\n\n');
         if (split < 0) break;

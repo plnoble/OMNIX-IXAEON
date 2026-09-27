@@ -1,11 +1,11 @@
 # M1 Codex 审查
 
-- 时间：2026-09-27T02:55:46.822Z
-- 分支：grok/M1（e60c57e），对照 docs/委派/M1-慢模型不再超时.md
+- 时间：2026-09-27T05:20:42.966Z
+- 分支：grok/M1（125f897），对照 docs/委派/M1-慢模型不再超时.md
 - Codex：0.155.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改：`packages/core/src/extraction/model/openai.ts:358-363`，400 正文为 `Streaming is disabled for this model` 时不会回退：向后匹配未识别 `disabled`，最终直接报错，违反契约 2；需补充处理和验收用例。
-- 建议：`packages/core/src/extraction/model/openai.ts:381`，媒体类型比较应忽略大小写；合法的 `Text/Event-Stream` 会被误判为普通 JSON，并永久禁用该实例的流式请求。
-- 建议：`packages/core/src/extraction/model/openai.ts:415-418`，SSE 还允许单独用 CR 换行；当前只识别 LF、CRLF，这类合法流会被误判为截断并重复请求。
+- 必须改｜`packages/core/src/extraction/model/openai.ts:205`：流内错误码 429/503 被转换成 `ModelError` 后直接抛出，跳过一次立即重试，未保持契约 4 的重试语义；现有流内错误测试只断言 `retriable`，需要补充请求次数断言。
+- 必须改｜`packages/core/src/extraction/model/openai.ts:420–423`：末尾单独的 CR 被暂存，若完成事件以 `\r\r` 结束且连接保持打开，完整事件也无法派发，程序会继续等待读取，甚至超时重试；应立即处理 CR，并跳过随后可能出现的 LF，补充完成事件后不关闭流的测试。
+- 必须改｜`docs/委派/交付/M1.md:11–14`：源码实际为 249 行新增、8 行删除，合计 257 行改动，超过 M1 的 250 行上限；当前仅按新增行数宣称达标，需要缩减改动并更正说明。
 
 结论：需要修改

@@ -417,12 +417,14 @@ it('响应头到手后读取断了，按网络错误重试一次', async () => {
   expect(streams).toBe(2);
 });
 
-it('条件 4：流中 response.failed 抛 ModelError，服务端类可重试', async () => {
+it('条件 4：流中 response.failed 抛 ModelError，服务端类可重试且立即重试一次', async () => {
+  let streams = 0;
   const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
     const input = sentBody(init)['input'] as unknown[] | undefined;
     if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
       return new Response('{"error":"model not specified"}', { status: 400 });
     }
+    streams += 1;
     return streamOf([
       'event: response.failed\ndata: {"type":"response.failed","response":{"error":{"code":"server_error","message":"上游超时"}}}\n\n',
     ]);
@@ -431,38 +433,53 @@ it('条件 4：流中 response.failed 抛 ModelError，服务端类可重试', a
     name: 'ModelError',
     retriable: true,
   });
+  expect(streams).toBe(2);
 });
 
 it('条件 4：限流类的 error 事件 retriable 为 true，其它为 false', async () => {
-  function failing(code: string, message = '出错了'): typeof fetch {
-    return (async (url: string | URL, init?: RequestInit) => {
+  function failing(
+    code: string,
+    message = '出错了',
+  ): { fetchImpl: typeof fetch; calls: () => number } {
+    let calls = 0;
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
       const input = sentBody(init)['input'] as unknown[] | undefined;
       if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
         return new Response('{"error":"model not specified"}', { status: 400 });
       }
-      // code 与 message 在事件顶层，不套在 error 里
+      calls += 1;
       return streamOf([
         `event: error\ndata: {"type":"error","code":"${code}","message":"${message}"}\n\n`,
       ]);
     }) as typeof fetch;
+    return { fetchImpl, calls: () => calls };
   }
-  const rateLimited = provider(failing('rate_limit_exceeded')).chatText({ system: 's', user: 'u' });
-  await expect(rateLimited).rejects.toBeInstanceOf(ModelError);
-  await expect(rateLimited).rejects.toMatchObject({ retriable: true });
-  await expect(rateLimited).rejects.toThrow(/API 错误 429/);
-  // 数字限流码也认，只看 code，不在消息正文里找数字
-  const numeric = provider(failing('429')).chatText({ system: 's', user: 'u' });
-  await expect(numeric).rejects.toMatchObject({ retriable: true });
-  // code=500 认作服务端错误
+  const rateLimited = failing('rate_limit_exceeded');
+  const rateErr = provider(rateLimited.fetchImpl).chatText({ system: 's', user: 'u' });
+  await expect(rateErr).rejects.toBeInstanceOf(ModelError);
+  await expect(rateErr).rejects.toMatchObject({ retriable: true });
+  await expect(rateErr).rejects.toThrow(/API 错误 429/);
+  expect(rateLimited.calls()).toBe(2);
+  const numeric = failing('429');
   await expect(
-    provider(failing('500', '上游错误')).chatText({ system: 's', user: 'u' }),
+    provider(numeric.fetchImpl).chatText({ system: 's', user: 'u' }),
   ).rejects.toMatchObject({ retriable: true });
-  // 消息里带数字的普通错误不算服务端错误
+  expect(numeric.calls()).toBe(2);
+  const server = failing('500', '上游错误');
   await expect(
-    provider(failing('invalid_prompt', '超过 512 tokens')).chatText({ system: 's', user: 'u' }),
+    provider(server.fetchImpl).chatText({ system: 's', user: 'u' }),
+  ).rejects.toMatchObject({ retriable: true });
+  expect(server.calls()).toBe(2);
+  const tokens = failing('invalid_prompt', '超过 512 tokens');
+  await expect(
+    provider(tokens.fetchImpl).chatText({ system: 's', user: 'u' }),
   ).rejects.toMatchObject({ retriable: false });
-  const bad = provider(failing('invalid_prompt')).chatText({ system: 's', user: 'u' });
-  await expect(bad).rejects.toMatchObject({ retriable: false });
+  expect(tokens.calls()).toBe(1);
+  const bad = failing('invalid_prompt');
+  await expect(provider(bad.fetchImpl).chatText({ system: 's', user: 'u' })).rejects.toMatchObject({
+    retriable: false,
+  });
+  expect(bad.calls()).toBe(1);
 });
 
 it('CRLF 分隔的流也能读完（事件分隔符跨在两次读取之间）', async () => {
@@ -564,4 +581,29 @@ it('SSE 单独用 CR 换行也能读完', async () => {
     ]);
   }) as typeof fetch;
   expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('回车');
+});
+
+it('完成事件后连接不关也能立刻结束，不把 CR 完成事件挂住', async () => {
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'event: response.output_text.delta\rdata: {"type":"response.output_text.delta","delta":"不关流"}\r\r',
+          ),
+        );
+        controller.enqueue(
+          encoder.encode('event: response.completed\rdata: {"type":"response.completed"}\r\r'),
+        );
+        // 故意不 close，模拟服务端保持连接
+      },
+    });
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  }) as typeof fetch;
+  expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('不关流');
 });
