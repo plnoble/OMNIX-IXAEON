@@ -50,8 +50,13 @@ export class CodingDispatch {
     this.draining = true;
     try {
       for (;;) {
-        const next = this.host.db.open ? this.nextQueued() : null;
-        if (!next || this.codexMissing(next.id)) return;
+        if (!this.host.db.open) return;
+        const next = this.nextQueued();
+        if (!next) {
+          this.resumeAfterRunning = (this.host.coding.store?.runningCount() ?? 0) > 0;
+          return;
+        }
+        if (this.codexMissing(next.id)) return;
         const done = await this.host.coding.dispatch(next.id).catch(() => null);
         if (!done) return;
         this.resumeAfterRunning = false;

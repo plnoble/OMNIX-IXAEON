@@ -306,8 +306,11 @@ describe('点「要做」就开工并回报', () => {
     await h.runtime.acceptTodo(made.todoId);
     await vi.waitFor(() => expect(reports(made.conversationId)).toHaveLength(1));
     const [report] = reports(made.conversationId);
-    expect(report!.content).toContain('共 12 个');
-    expect(report!.content).not.toContain('f12.txt');
+    const line = report!.content.split('\n').find((l) => l.startsWith('改了 '))!;
+    const listed = line.slice(2).split('，')[0]!.split('、');
+    expect(listed).toHaveLength(10);
+    expect(line).toContain('共 12 个');
+    expect(listed).not.toContain('f12.txt');
   });
 
   it('条件 3：验证没跑时写原因', async () => {
@@ -621,6 +624,38 @@ describe('点「要做」就开工并回报', () => {
     releaseManual();
     await running;
     await vi.waitFor(() => expect(order).toContain('排队的'));
+  });
+
+  it('点击时空闲，派发前有任务抢先执行：那个任务结束后再派', async () => {
+    const order: string[] = [];
+    let releaseBlock!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseBlock = resolve;
+    });
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      const name = task.goal.split('\n')[0]!;
+      order.push(name);
+      if (name === '抢先的') await gate;
+      return original(task, workspace, signal);
+    };
+    const queued = await proposedTask(h, { goal: '排队的' });
+    await h.runtime.acceptTodo(queued.todoId);
+    // 自动派发还没开始，任务页手动派发抢先
+    const manual = h.coding.create({
+      projectId: h.projectId,
+      goal: '抢先的',
+      scope: ['note.txt'],
+      allowedCommands: [],
+    });
+    await h.coding.approveAndQueue(manual.id);
+    const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
+    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    expect(taskStatus(queued.taskId)).toBe('queued');
+    releaseBlock();
+    await running;
+    await vi.waitFor(() => expect(order).toEqual(['抢先的', '排队的']));
   });
 });
 
