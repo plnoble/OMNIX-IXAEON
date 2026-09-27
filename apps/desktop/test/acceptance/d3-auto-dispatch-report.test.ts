@@ -291,6 +291,42 @@ describe('点「要做」就开工并回报', () => {
     expect(report!.content).not.toContain('验收条件');
   });
 
+  it('条件 3：改动超过十个文件时只列十个并写总数', async () => {
+    const files: Record<string, string> = {};
+    for (let i = 1; i <= 12; i += 1) files[`f${i}.txt`] = '改过';
+    const h = setup({ files, claimedSuccess: true }, passingCheck);
+    const made = await proposedTask(h, {
+      goal: '改很多文件',
+      commands: [[process.execPath, '-e', 'process.exit(0)']],
+    });
+    db.prepare(`UPDATE coding_tasks SET scope_json = ? WHERE id = ?`).run(
+      JSON.stringify(Object.keys(files)),
+      made.taskId,
+    );
+    await h.runtime.acceptTodo(made.todoId);
+    await vi.waitFor(() => expect(reports(made.conversationId)).toHaveLength(1));
+    const [report] = reports(made.conversationId);
+    expect(report!.content).toContain('共 12 个');
+    expect(report!.content).not.toContain('f12.txt');
+  });
+
+  it('条件 3：验证没跑时写原因', async () => {
+    const notRun = async () => ({
+      argv: ['node'],
+      exitCode: null,
+      output: '工作区里没有 pnpm',
+      ran: false,
+    });
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true }, notRun);
+    const { todoId, conversationId } = await proposedTask(h, {
+      goal: '没跑验证',
+      commands: [[process.execPath, '-e', 'process.exit(0)']],
+    });
+    await h.runtime.acceptTodo(todoId);
+    await vi.waitFor(() => expect(reports(conversationId)).toHaveLength(1));
+    expect(reports(conversationId)[0]!.content).toContain('验证没跑：工作区里没有 pnpm');
+  });
+
   it('条件 4：验证失败 → 回报含原因', async () => {
     const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true }, failingCheck);
     const { todoId, conversationId } = await proposedTask(h, {
@@ -303,6 +339,7 @@ describe('点「要做」就开工并回报', () => {
     expect(report!.content).toContain('修乱码');
     expect(report!.content).toContain('没做成');
     expect(report!.content).toContain('独立验证失败');
+    expect(report!.content).toContain('断言没过');
     expect(report!.meta).toMatchObject({ status: 'failed' });
   });
 
