@@ -1,10 +1,10 @@
 # M1 Codex 审查
 
-- 时间：2026-09-27T02:03:45.909Z
-- 分支：grok/M1（4c8da94），对照 docs/委派/M1-慢模型不再超时.md
+- 时间：2026-09-27T02:10:44.573Z
+- 分支：grok/M1（27f9fc8），对照 docs/委派/M1-慢模型不再超时.md
 - Codex：0.155.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改｜`packages/core/src/extraction/model/openai.ts:321–322`：固定 12 字符间隔会漏掉明确拒绝流式的 400，例如 `stream parameter is not supported`，导致不回退、不缓存，违反契约 2。应修正识别并补充该用例，同时保留非流式参数错误的反例。
-- 建议｜`docs/委派/交付/M1.md:37`：400 不重发用例不能证明 429／5xx 的立即重试次数，队列重试也不能替代 provider 重试验证。需要人工确认：未提供的既有测试是否分别断言 429、5xx、网络异常只立即重试一次，并纠正覆盖说明。
+- 必须改｜`packages/core/src/extraction/model/openai.ts:325`：正则仍会将 `unsupported schema property stream` 误判为拒绝流式：中间 17 个字符可由 `.{0,16}` 加前置边界匹配，导致普通 schema 错误触发重发并永久禁用流式。应识别被拒绝的参数，补充这一负例，不能靠字符距离判断。
+- 建议｜`packages/core/test/acceptance/m1-streaming.test.ts:10`、`docs/委派/交付/M1.md:37`：需要人工确认：未提供的既有测试是否确实断言了 HTTP 429／5xx、网络错误的一次立即重试及次数上限；当前引用的 400 用例只验证“不重试”，队列重新排队也不能证明立即重试次数，交付说明应准确对应实际断言。
 
 结论：需要修改

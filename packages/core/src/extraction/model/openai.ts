@@ -306,25 +306,60 @@ export async function listUpstreamModels(opts: {
 
 /**
  * 400 里明确拒绝 stream 这个参数才算「不支持流式」。
- * 识别三种形状（stream 都是独立的词，拒绝/禁用词就在 stream 所在的短语里）：
- *   1. 拒绝词紧挨 stream：「'stream' is not supported」「stream is unsupported」
- *   2. stream 带参数后缀：「stream parameter is not supported」「the stream option ...」
- *   3. 禁用词跟在 stream 后：「stream must be false / disabled / omitted」
- * 反例不命中：「invalid schema property 'stream'」（拒绝的是 schema 属性，schema property
- * 在 unsupported 与 stream 之间）、「unsupported upstream model」（没有独立的 stream）。
+ * 按词判断，不按字符距离：把正文拆成小写单词，看 stream 紧挨着的词。
+ *   命中：「unknown parameter: 'stream'」「'stream' is not supported」
+ *         「stream parameter is not supported」「stream must be false」
+ *         「does not support stream」「stream: unsupported」
+ *   不命中：「unsupported schema property 'stream'」（stream 前面隔着 property/schema，
+ *         拒绝的是 schema 属性）、「unsupported upstream model」（没有独立的 stream）。
  */
 function rejectsStream(status: number, text: string): boolean {
   if (status !== 400) return false;
-  const t = text.toLowerCase();
-  const REJECT_WORDS =
-    'unsupported|not supported|does not support|unknown parameter|invalid parameter|not enabled|must be (false|disabled|omitted)';
-  const streamStandalone = /(^|[^a-z])stream([^a-z]|$)/;
-  if (!streamStandalone.test(t)) return false;
-  // stream 后面可以直接跟 parameter/option/field 之类的参数称谓
-  const STREAM_PHRASE = '(^|[^a-z])stream( parameter| option| field)?([^a-z]|$)';
-  const re = new RegExp(`(?:${REJECT_WORDS}).{0,16}${STREAM_PHRASE}`, 's');
-  const re2 = new RegExp(`${STREAM_PHRASE}.{0,16}(?:${REJECT_WORDS})`, 's');
-  return re.test(t) || re2.test(t);
+  const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
+  // 参数称谓：stream parameter / option / field …
+  const PARAM = new Set([
+    'parameter',
+    'parameters',
+    'option',
+    'options',
+    'argument',
+    'arguments',
+    'field',
+    'fields',
+    'flag',
+    'flags',
+  ]);
+  // 单独一个词就表示「拒绝」的
+  const REJECT = new Set(['unsupported', 'unknown', 'invalid', 'disabled']);
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] !== 'stream' && words[i] !== 'streaming') continue;
+    // 向后：stream [parameter] [is] not supported / unsupported / must be false
+    let j = i + 1;
+    if (PARAM.has(words[j] ?? '')) j += 1;
+    if (words[j] === 'is' || words[j] === 'was' || words[j] === 'are') j += 1;
+    const after = words[j] ?? '';
+    const afterNext = words[j + 1] ?? '';
+    const afterNext2 = words[j + 2] ?? '';
+    const forward =
+      (after === 'not' && ['supported', 'enabled', 'allowed', 'permitted'].includes(afterNext)) ||
+      after === 'unsupported' ||
+      (after === 'must' &&
+        afterNext === 'be' &&
+        ['false', 'disabled', 'omitted', 'absent'].includes(afterNext2));
+    if (forward) return true;
+    // 向前：unknown [parameter] stream / not supported: stream / not support stream
+    let k = i - 1;
+    if (k >= 0 && PARAM.has(words[k] ?? '')) k -= 1;
+    const before = k >= 0 ? (words[k] ?? '') : '';
+    const beforePrev = k >= 1 ? (words[k - 1] ?? '') : '';
+    const backward =
+      REJECT.has(before) ||
+      (before === 'support' && beforePrev === 'not') ||
+      (before === 'supported' && beforePrev === 'not') ||
+      (before === 'enabled' && beforePrev === 'not');
+    if (backward) return true;
+  }
+  return false;
 }
 
 function isEventStream(res: Response): boolean {

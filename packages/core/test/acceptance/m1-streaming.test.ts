@@ -285,6 +285,12 @@ it('拒绝对象不是 stream 的 400 不回退；stream 被明确禁用时回�
     provider(schemaProp.fetchImpl).chatText({ system: 's', user: 'u' }),
   ).rejects.toMatchObject({ retriable: false });
   expect(schemaProp.calls()).toBe(1);
+  // 不带引号的写法同样不回退（第七轮审查的反例）
+  const schemaPropBare = with400('unsupported schema property stream');
+  await expect(
+    provider(schemaPropBare.fetchImpl).chatText({ system: 's', user: 'u' }),
+  ).rejects.toMatchObject({ retriable: false });
+  expect(schemaPropBare.calls()).toBe(1);
   // 「stream must be false」：网关明确要求不带 stream，回退重发
   const mustFalse = with400('stream must be false');
   const p2 = provider(mustFalse.fetchImpl);
@@ -295,6 +301,40 @@ it('拒绝对象不是 stream 的 400 不回退；stream 被明确禁用时回�
   const p3 = provider(paramNotSupported.fetchImpl);
   expect(await p3.chatText({ system: 's', user: 'u' })).toBe('普通成功');
   expect(paramNotSupported.calls()).toBe(2);
+  // 「does not support streaming」：拒绝词在 stream 前面，也要回退
+  const noStreaming = with400('The model does not support streaming');
+  const p4 = provider(noStreaming.fetchImpl);
+  expect(await p4.chatText({ system: 's', user: 'u' })).toBe('普通成功');
+  expect(noStreaming.calls()).toBe(2);
+});
+
+it('条件 5：429、5xx、网络错误都只立即重试一次，第二次失败就抛', async () => {
+  function alwaysFail(mode: '429' | '500' | 'network'): { f: typeof fetch; calls: () => number } {
+    let calls = 0;
+    const f = (async (url: string | URL, init?: RequestInit) => {
+      const input = sentBody(init)['input'] as unknown[] | undefined;
+      if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+        return new Response('{"error":"model not specified"}', { status: 400 });
+      }
+      calls += 1;
+      if (mode === 'network') throw new Error('fetch failed');
+      return new Response('synthetic', { status: mode === '429' ? 429 : 500 });
+    }) as typeof fetch;
+    return { f, calls: () => calls };
+  }
+  for (const mode of ['429', '500', 'network'] as const) {
+    const { f, calls } = alwaysFail(mode);
+    const err = await provider(f)
+      .chatText({ system: 's', user: 'u' })
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(err).toBeInstanceOf(ModelError);
+    expect((err as ModelError).retriable).toBe(true);
+    // 一次原始请求 + 一次立即重试，之后不再重试
+    expect(calls()).toBe(2);
+  }
 });
 
 it('响应头到手后读取断了，按网络错误重试一次', async () => {
