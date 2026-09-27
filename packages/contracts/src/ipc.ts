@@ -621,7 +621,6 @@ export interface IxaIpcApi {
   onAskDelta(listener: (e: AskDeltaEvent) => void): () => void;
   /** P2：等待阶段；返回取消订阅。 */
   onAskProgress(listener: (e: AskProgressEvent) => void): () => void;
-  /** D3：编码任务回报写进对话后，让打开着的窗口重新读这一条。 */
   onTaskReport(listener: (e: { conversationId: string }) => void): () => void;
   // 对话（D2/D4）
   listConversations(input?: {

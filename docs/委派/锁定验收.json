@@ -238,7 +238,7 @@
       "title": "点要做就开工并回报",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "d23cff4b392f5066b1e07acfd84df5ceaf6c57311ce7833daa983d17ce320496"
+        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "a092577561573d66b70987e4b3b55ff65b5668f468cf4f42af7c1c21c16bc741"
       }
     }
   ]

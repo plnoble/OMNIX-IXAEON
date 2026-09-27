@@ -250,7 +250,7 @@ describe('点「要做」就开工并回报', () => {
     const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true }, passingCheck);
     const { todoId, conversationId } = await proposedTask(h, {
       goal: '修掉导入时的乱码\n细节不进回报',
-      acceptance: ['note.txt 不再乱码', '别的文件不动'],
+      acceptance: ['打开不再乱码', '别的文件不动'],
       commands: [[process.execPath, '-e', 'process.exit(0)']],
     });
     await h.runtime.acceptTodo(todoId);
@@ -265,14 +265,15 @@ describe('点「要做」就开工并回报', () => {
     );
     expect(report!.content).toContain('修掉导入时的乱码');
     expect(report!.content).not.toContain('细节不进回报');
-    expect(report!.content).toContain('note.txt 不再乱码');
+    expect(report!.content).toContain('打开不再乱码');
     expect(report!.content).toContain('别的文件不动');
     expect(report!.content).toContain('验证通过');
+    // note.txt 不在验收条件里：这条断言只可能被「改动文件」那一行满足
     expect(report!.content).toContain('note.txt');
     expect(report!.content).toContain('去任务页看改动，点接受');
     expect(report!.meta).toMatchObject({ kind: 'task_report', status: 'pending_accept' });
-    // 同一状态不重复写：再走一遍队列排空，回报还是一条
-    await h.runtime['drainCodingQueue']();
+    // 同一状态不重复写：任务还停在 pending_accept，再结算一次，回报仍是一条
+    h.runtime['codingDispatch'].onTaskSettled(report!.meta['taskId'] as string);
     const again = withMeta(h_messages(conversationId)).filter(
       (m) => m.meta['kind'] === 'task_report',
     );
@@ -383,6 +384,66 @@ describe('点「要做」就开工并回报', () => {
       }
     ).n;
     expect(anyReport).toBe(0);
+  });
+
+  it('任务页手动派发的任务还在执行时点「要做」：那个任务结束后自动续上', async () => {
+    let releaseManual!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseManual = resolve;
+    });
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      if (task.goal.startsWith('手动')) await gate;
+      return original(task, workspace, signal);
+    };
+    // 任务页手动建一个已批准的任务并派发（没有 origin_run_id，不写回报）
+    const manual = h.coding.create({
+      projectId: h.projectId,
+      goal: '手动派发的任务',
+      scope: ['note.txt'],
+      allowedCommands: [],
+    });
+    await h.coding.approveAndQueue(manual.id);
+    const running = h.runtime.dispatchCodingTask(manual.id);
+    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    // 手动任务执行中点「要做」：先排队
+    const queued = await proposedTask(h, { goal: '排队的任务' });
+    await h.runtime.acceptTodo(queued.todoId);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(taskStatus(queued.taskId)).toBe('queued');
+    releaseManual();
+    await running;
+    await vi.waitFor(() => expect(taskStatus(queued.taskId)).not.toBe('queued'));
+    await vi.waitFor(() => expect(reports(queued.conversationId)).toHaveLength(1));
+  });
+
+  it('排队中的任务被取消：对话里有一句话回报，下一个照常开始', async () => {
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const first = await proposedTask(h, { goal: '先取消的' });
+    const second = await proposedTask(h, {
+      goal: '后开始的',
+      conversationId: first.conversationId,
+    });
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      if (task.goal.startsWith('先取消')) await gate;
+      return original(task, workspace, signal);
+    };
+    await h.runtime.acceptTodo(first.todoId);
+    await vi.waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
+    await h.runtime.acceptTodo(second.todoId);
+    expect(taskStatus(second.taskId)).toBe('queued');
+    // 第二个还在排队时被取消：要有取消回报
+    h.runtime['codingDispatch'].onTaskSettled(h.coding.cancel(second.taskId).id);
+    const [report] = reports(first.conversationId);
+    expect(report!.content).toBe('「后开始的」取消了。');
+    releaseFirst();
+    await vi.waitFor(() => expect(taskStatus(first.taskId)).not.toBe('running'));
   });
 });
 
