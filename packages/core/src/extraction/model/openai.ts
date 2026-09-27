@@ -312,15 +312,11 @@ function structuredRejectsStream(text: string): boolean {
   } catch {
     return false;
   }
-  const root = obj as Record<string, unknown>;
-  const err = (root['error'] ?? obj) as Record<string, unknown>;
+  // 正文可能是 JSON null / 数字 / 字符串，取属性前先确认是对象
+  if (obj === null || typeof obj !== 'object') return false;
+  const err = ((obj as Record<string, unknown>)['error'] ?? obj) as Record<string, unknown>;
   if (typeof err !== 'object' || err === null) return false;
-  const param =
-    typeof err['param'] === 'string'
-      ? err['param']
-      : typeof err['parameter'] === 'string'
-        ? err['parameter']
-        : null;
+  const param = [err['param'], err['parameter']].find((p) => typeof p === 'string');
   if (param !== 'stream' && param !== 'streaming') return false;
   const code = `${String(err['code'] ?? '')} ${String(err['type'] ?? '')}`.toLowerCase();
   return /unsupported|unknown|not.enabled|disabled|unrecognized/.test(code);
@@ -332,30 +328,19 @@ function structuredRejectsStream(text: string): boolean {
  *   命中：「unknown parameter: 'stream'」「'stream' is not supported」
  *         「stream parameter is not supported」「stream must be false」
  *         「does not support stream」「error.param="stream" + unsupported_parameter」
- *   不命中：「unsupported schema property 'stream'」「schema property stream is not supported」
- *         （拒绝的是 schema 属性）、「unsupported upstream model」（没有独立的 stream）、
- *         「stream must be a boolean」（值类型错，不是参数被拒）。
+ *   不命中：「schema property stream is not supported」（schema 里叫 stream 的属性）、
+ *         「unsupported upstream model」「stream must be a boolean」（值类型错）。
  */
 function rejectsStream(status: number, text: string): boolean {
   if (status !== 400) return false;
   if (structuredRejectsStream(text)) return true;
   const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
-  // 参数称谓：stream parameter / option / param …
-  const PARAM = new Set([
-    'parameter',
-    'parameters',
-    'param',
-    'params',
-    'option',
-    'options',
-    'argument',
-    'arguments',
-    'field',
-    'fields',
-    'flag',
-    'flags',
-  ]);
-  // 单独一个词就表示「拒绝」的
+  // 参数称谓（stream parameter / option / param …）与单词即拒绝的词
+  const PARAM = new Set(
+    'parameter parameters param params option options argument arguments field fields flag flags'.split(
+      ' ',
+    ),
+  );
   const REJECT = new Set(['unsupported', 'unknown', 'invalid', 'disabled']);
   for (let i = 0; i < words.length; i++) {
     if (words[i] !== 'stream' && words[i] !== 'streaming') continue;

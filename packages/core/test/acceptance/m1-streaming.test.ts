@@ -460,18 +460,40 @@ it('条件 4：限流类的 error 事件 retriable 为 true，其它为 false', 
   await expect(bad).rejects.toMatchObject({ retriable: false });
 });
 
-it('CRLF 分隔的流也能读完（跨读取边界）', async () => {
+it('CRLF 分隔的流也能读完（事件分隔符跨在两次读取之间）', async () => {
   const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
     const input = sentBody(init)['input'] as unknown[] | undefined;
     if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
       return new Response('{"error":"model not specified"}', { status: 400 });
     }
+    // 第 1 块末尾停在 `\r\n\r`，`\n` 与 completed 事件在第 2 块
     return streamOf([
-      'event: response.output_text.delta\r\ndata: {"type":"response.output_text.delta","delta":"回车换行"}\r\n\r\n',
-      'event: response.completed\r\ndata: {"type":"response.completed"}\r\n\r\n',
+      'event: response.output_text.delta\r\ndata: {"type":"response.output_text.delta","delta":"回车换行"}\r\n\r',
+      '\n\nevent: response.completed\r\ndata: {"type":"response.completed"}\r\n\r\n',
     ]);
   }) as typeof fetch;
   expect(await provider(fetchImpl).chatText({ system: 's', user: 'u' })).toBe('回车换行');
+});
+
+it('400 正文是 JSON null 不炸：照旧报 API 错误 400，不回退', async () => {
+  let calls = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    calls += 1;
+    return new Response('null', { status: 400 });
+  }) as typeof fetch;
+  const err = await provider(fetchImpl)
+    .chatText({ system: 's', user: 'u' })
+    .then(
+      () => null,
+      (e: unknown) => e,
+    );
+  expect(err).toBeInstanceOf(ModelError);
+  expect((err as ModelError).retriable).toBe(false);
+  expect(calls).toBe(1);
 });
 
 it('没等到完成标记就断流，按网络错误重试，不把截断当成功', async () => {
