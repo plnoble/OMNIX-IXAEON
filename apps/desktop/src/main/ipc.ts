@@ -587,8 +587,8 @@ export function registerIpc(runtime: AppRuntime): void {
       return task;
     },
     approveCodingTask: async (id) => runtime.coding.approveAndQueue(id),
-    dispatchCodingTask: async (id) => runtime.dispatchCodingTask(id),
-    cancelCodingTask: async (id) => runtime.coding.cancel(id),
+    dispatchCodingTask: async (id) => runtime.finishCodingTask(id, 'dispatch'),
+    cancelCodingTask: async (id) => runtime.finishCodingTask(id, 'cancel'),
     acceptCodingTask: async (id) => runtime.coding.accept(id),
     deleteCodingTask: async (id) => {
       const task = runtime.coding.remove(id);

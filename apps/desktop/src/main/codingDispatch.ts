@@ -59,12 +59,10 @@ export class CodingDispatch {
     this.draining = true;
     try {
       for (;;) {
-        if (!this.host.db.open) return;
-        const next = this.nextQueued();
+        const next = this.host.db.open ? this.nextQueued() : null;
         if (!next) return;
-        const done = await this.host.coding
-          .dispatch(next.id)
-          .catch(() => this.host.coding.store.get(next.id));
+        const done = await this.host.coding.dispatch(next.id).catch(() => null);
+        if (!done) return;
         this.onTaskSettled(done.id);
       }
     } finally {
@@ -78,7 +76,7 @@ export class CodingDispatch {
       (this.host.db
         .prepare(
           `SELECT t.id FROM coding_tasks t JOIN coding_approvals a ON a.id = t.approval_id
-           WHERE t.status = 'queued' ORDER BY a.granted_at ASC LIMIT 1`,
+           WHERE t.status = 'queued' ORDER BY a.granted_at ASC, a.rowid ASC LIMIT 1`,
         )
         .get() as { id: string } | undefined) ?? null
     );

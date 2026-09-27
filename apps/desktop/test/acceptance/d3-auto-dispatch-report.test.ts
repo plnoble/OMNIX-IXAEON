@@ -405,7 +405,7 @@ describe('点「要做」就开工并回报', () => {
       allowedCommands: [],
     });
     await h.coding.approveAndQueue(manual.id);
-    const running = h.runtime.dispatchCodingTask(manual.id);
+    const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
     await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
     // 手动任务执行中点「要做」：先排队
     const queued = await proposedTask(h, { goal: '排队的任务' });
@@ -438,12 +438,58 @@ describe('点「要做」就开工并回报', () => {
     await vi.waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
     await h.runtime.acceptTodo(second.todoId);
     expect(taskStatus(second.taskId)).toBe('queued');
-    // 第二个还在排队时被取消：要有取消回报
-    h.runtime['codingDispatch'].onTaskSettled(h.coding.cancel(second.taskId).id);
+    // 第二个还在排队时从任务页取消：要有取消回报（走真实入口）
+    await h.runtime.finishCodingTask(second.taskId, 'cancel');
     const [report] = reports(first.conversationId);
     expect(report!.content).toBe('「后开始的」取消了。');
     releaseFirst();
     await vi.waitFor(() => expect(taskStatus(first.taskId)).not.toBe('running'));
+  });
+
+  it('同一时间戳的两个排队任务按批准先后派发', async () => {
+    const order: string[] = [];
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      order.push(task.goal.split('\n')[0]!);
+      return original(task, workspace, signal);
+    };
+    const a = await proposedTask(h, { goal: '甲' });
+    const b = await proposedTask(h, { goal: '乙', conversationId: a.conversationId });
+    await h.runtime.acceptTodo(a.todoId);
+    await h.runtime.acceptTodo(b.todoId);
+    // 两个批准写成同一个时间：顺序只能靠批准记录的先后
+    db.prepare('UPDATE coding_approvals SET granted_at = ?').run('2026-09-27T00:00:00.000Z');
+    await vi.waitFor(() => expect(order).toEqual(['甲', '乙']));
+  });
+
+  it('正在执行的任务失败后，排队的下一个照常开始', async () => {
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const h = setup({ claimedSuccess: false, summary: '写失败了' });
+    const original = h.executor.run.bind(h.executor);
+    let runs = 0;
+    h.executor.run = async (task, workspace, signal) => {
+      runs += 1;
+      order.push(task.goal.split('\n')[0]!);
+      if (runs === 1) await gate;
+      return original(task, workspace, signal);
+    };
+    const first = await proposedTask(h, { goal: '会失败的' });
+    const second = await proposedTask(h, {
+      goal: '失败后的',
+      conversationId: first.conversationId,
+    });
+    await h.runtime.acceptTodo(first.todoId);
+    await vi.waitFor(() => expect(order).toEqual(['会失败的']));
+    await h.runtime.acceptTodo(second.todoId);
+    releaseFirst();
+    await vi.waitFor(() => expect(order).toEqual(['会失败的', '失败后的']));
+    const [report] = reports(first.conversationId);
+    expect(report!.content).toContain('没做成');
   });
 });
 

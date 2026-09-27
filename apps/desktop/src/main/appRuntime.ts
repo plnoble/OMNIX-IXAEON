@@ -1696,8 +1696,8 @@ export class AppRuntime {
     return this.todos.accept(id);
   }
 
-  async dispatchCodingTask(id: string): Promise<CodingTask> {
-    const done = await this.coding.dispatch(id);
+  async finishCodingTask(id: string, how: 'dispatch' | 'cancel'): Promise<CodingTask> {
+    const done = how === 'dispatch' ? await this.coding.dispatch(id) : this.coding.cancel(id);
     this.codingDispatch.onTaskSettled(done.id);
     return done;
   }
