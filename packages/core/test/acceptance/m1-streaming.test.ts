@@ -246,6 +246,52 @@ it('错误码是 JSON 数字也能认：429 可重试、400 不可重试', async
   });
 });
 
+it('error.type=server_error 没有 code 也可重试', async () => {
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const input = sentBody(init)['input'] as unknown[] | undefined;
+    if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+      return new Response('{"error":"model not specified"}', { status: 400 });
+    }
+    return streamOf([
+      'event: error\ndata: {"type":"error","error":{"type":"server_error","message":"上游炸了"}}\n\n',
+    ]);
+  }) as typeof fetch;
+  await expect(provider(fetchImpl).chatText({ system: 's', user: 'u' })).rejects.toMatchObject({
+    retriable: true,
+  });
+});
+
+it('拒绝对象不是 stream 的 400 不回退；stream 被明确禁用时回退', async () => {
+  function with400(error: string): { fetchImpl: typeof fetch; calls: () => number } {
+    let calls = 0;
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+      const input = sentBody(init)['input'] as unknown[] | undefined;
+      if (String(url).endsWith('/responses') && input !== undefined && input.length === 0) {
+        return new Response('{"error":"model not specified"}', { status: 400 });
+      }
+      calls += 1;
+      if (JSON.parse(String(init?.body ?? '{}'))['stream'] === true) {
+        return new Response(`{"error":"${error}"}`, { status: 400 });
+      }
+      return new Response(JSON.stringify({ output: [{ content: [{ text: '普通成功' }] }] }), {
+        status: 200,
+      });
+    }) as typeof fetch;
+    return { fetchImpl, calls: () => calls };
+  }
+  // 「unsupported schema property 'stream'」：拒绝的是 schema 属性，不是流式参数
+  const schemaProp = with400("unsupported schema property 'stream'");
+  await expect(
+    provider(schemaProp.fetchImpl).chatText({ system: 's', user: 'u' }),
+  ).rejects.toMatchObject({ retriable: false });
+  expect(schemaProp.calls()).toBe(1);
+  // 「stream must be false」：网关明确要求不带 stream，回退重发
+  const mustFalse = with400('stream must be false');
+  const p2 = provider(mustFalse.fetchImpl);
+  expect(await p2.chatText({ system: 's', user: 'u' })).toBe('普通成功');
+  expect(mustFalse.calls()).toBe(2);
+});
+
 it('响应头到手后读取断了，按网络错误重试一次', async () => {
   let streams = 0;
   const fetchImpl = (async (url: string | URL, init?: RequestInit) => {

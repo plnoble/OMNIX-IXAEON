@@ -306,15 +306,21 @@ export async function listUpstreamModels(opts: {
 
 /**
  * 400 里明确拒绝 stream 这个参数才算「不支持流式」。
- * 要求出现「拒绝/不支持」类动词，且拒绝对象就是 stream（带词边界）——
- * 「invalid schema property 'stream'」（schema 字段名）、「unsupported upstream model」都不算。
+ * 识别「stream 前后紧挨着拒绝/禁用词」的组合——拒绝的对象就是 stream 本身：
+ *   "'stream' is not supported" / "unknown parameter: 'stream'" / "stream must be false"
+ * 反例都不命中：「invalid schema property 'stream'」（拒绝的是 schema 属性，
+ * invalid 与 stream 之间隔着别的词）、「unsupported upstream model」（句子里没有独立的 stream）。
  */
 function rejectsStream(status: number, text: string): boolean {
   if (status !== 400) return false;
   const t = text.toLowerCase();
-  const WORD_STREAM = /(^|[^a-z])stream([^a-z]|$)/;
-  if (!WORD_STREAM.test(t)) return false;
-  return /unsupported|not support|unknown parameter|invalid parameter|not enabled|does not/.test(t);
+  const REJECT_WORDS =
+    'unsupported|not supported|does not support|unknown parameter|invalid parameter|not enabled|must be (false|disabled|omitted)';
+  const streamStandalone = /(^|[^a-z])stream([^a-z]|$)/;
+  if (!streamStandalone.test(t)) return false;
+  const re = new RegExp(`(?:${REJECT_WORDS}).{0,12}(^|[^a-z])stream([^a-z]|$)`, 's');
+  const re2 = new RegExp(`(^|[^a-z])stream([^a-z]|$).{0,12}(?:${REJECT_WORDS})`, 's');
+  return re.test(t) || re2.test(t);
 }
 
 function isEventStream(res: Response): boolean {
@@ -324,17 +330,21 @@ function isEventStream(res: Response): boolean {
 /**
  * 流里的错误套进既有的两种前缀：限流写成「API 错误 429」、服务端类写成「API 错误 500」，
  * 队列和界面按这两个前缀认暂时性错误；其余照「API 错误 400」报，不算暂时性。
- * 只认错误码字段，绝不在消息正文里找数字——「超过 512 tokens」这类话不会改变判定。
- * code 可能是字符串也可能是数字（有的网关给 JSON 数字），统一转成字符串再认。
+ * 只认结构化错误类别（type 与 code），绝不在消息正文里找数字。
+ * type/code 可能是字符串也可能是数字（有的网关给 JSON 数字），统一转成字符串再认。
  */
-function streamError(code: string | number, message: string): ModelError {
+function streamError(
+  kind: string | number | undefined,
+  code: string | number | undefined,
+  message: string,
+): ModelError {
   const text = message.length > 0 ? message : '流式响应失败';
-  const c = String(code).toLowerCase();
+  const c = `${String(kind ?? '')} ${String(code ?? '')}`.toLowerCase();
   if (/rate.?limit|429/.test(c)) return new ModelError(`API 错误 429: ${text}`, true);
   if (/server_error|overloaded|unavailable|timeout|(^|[^0-9])5\d\d([^0-9]|$)/.test(c)) {
     return new ModelError(`API 错误 500: ${text}`, true);
   }
-  return new ModelError(`API 错误 400: ${c} ${text}`.trim(), false);
+  return new ModelError(`API 错误 400: ${String(code ?? kind ?? '')} ${text}`.trim(), false);
 }
 
 /**
@@ -380,8 +390,8 @@ async function readResponsesStream(res: Response): Promise<string> {
       delta?: string;
       code?: string | number;
       message?: string;
-      error?: { code?: string | number; message?: string };
-      response?: { error?: { code?: string | number; message?: string } };
+      error?: { type?: string | number; code?: string | number; message?: string };
+      response?: { error?: { type?: string | number; code?: string | number; message?: string } };
     };
     if (event.type === 'response.output_text.delta') {
       text += event.delta ?? '';
@@ -393,7 +403,11 @@ async function readResponsesStream(res: Response): Promise<string> {
     }
     if (event.type === 'response.failed' || event.type === 'error') {
       const err = event.error ?? event.response?.error;
-      throw streamError(err?.code ?? event.code ?? '', err?.message ?? event.message ?? '');
+      throw streamError(
+        err?.type ?? event.type,
+        err?.code ?? event.code,
+        err?.message ?? event.message ?? '',
+      );
     }
     return false;
   });
@@ -414,9 +428,10 @@ async function readChatStream(res: Response): Promise<string> {
     }
     const event = JSON.parse(data) as {
       choices?: Array<{ delta?: { content?: string } }>;
-      error?: { code?: string | number; message?: string };
+      error?: { type?: string | number; code?: string | number; message?: string };
     };
-    if (event.error) throw streamError(event.error.code ?? '', event.error.message ?? '');
+    if (event.error)
+      throw streamError(event.error.type, event.error.code, event.error.message ?? '');
     text += event.choices?.[0]?.delta?.content ?? '';
     return false;
   });
