@@ -33,21 +33,14 @@ export class CodingDispatch {
   constructor(private readonly host: CodingDispatchHost) {}
 
   kick(taskId: string): void {
-    if (!this.host.db.open) return;
-    // IXAEON_CODEX_EXE=none 是真机检查主动选替身，不算「没找到」
-    const forcedFake = process.env.IXAEON_CODEX_EXE?.trim() === 'none';
-    if (!forcedFake && this.host.codexLocator && this.host.codexLocator() === null) {
-      this.write(taskId, codexMissingReport(taskReportRow(this.host.db, taskId)));
-      return;
-    }
+    if (!this.host.db.open || this.codexMissing(taskId)) return;
     if (this.host.coding.store.runningCount() > 0) this.resumeAfterRunning = true;
     void this.drain();
   }
 
   onTaskSettled(taskId: string): void {
     if (!this.host.db.open) return;
-    const row = taskReportRow(this.host.db, taskId);
-    this.write(taskId, buildTaskReport(row));
+    this.write(taskId, buildTaskReport(taskReportRow(this.host.db, taskId)));
     if (this.resumeAfterRunning && this.host.coding.store.runningCount() === 0) {
       this.resumeAfterRunning = false;
       void this.drain();
@@ -60,7 +53,7 @@ export class CodingDispatch {
     try {
       for (;;) {
         const next = this.host.db.open ? this.nextQueued() : null;
-        if (!next) return;
+        if (!next || this.codexMissing(next.id)) return;
         const done = await this.host.coding.dispatch(next.id).catch(() => null);
         if (!done) return;
         this.onTaskSettled(done.id);
@@ -68,6 +61,13 @@ export class CodingDispatch {
     } finally {
       this.draining = false;
     }
+  }
+
+  private codexMissing(taskId: string): boolean {
+    const none = process.env.IXAEON_CODEX_EXE?.trim() === 'none';
+    if (none || !this.host.codexLocator || this.host.codexLocator() !== null) return false;
+    this.write(taskId, codexMissingReport(taskReportRow(this.host.db, taskId)));
+    return true;
   }
 
   private nextQueued(): { id: string } | null {
@@ -83,11 +83,11 @@ export class CodingDispatch {
   }
 
   private write(taskId: string, report: TaskReportMessage | null): void {
-    if (!report) return;
-    const task = taskReportRow(this.host.db, taskId);
-    if (!task.origin_run_id) return;
-    const conversationId = conversationForRun(this.host.db, task.origin_run_id);
-    if (!conversationId) return;
+    const task = report ? taskReportRow(this.host.db, taskId) : null;
+    const conversationId = task?.origin_run_id
+      ? conversationForRun(this.host.db, task.origin_run_id)
+      : null;
+    if (!report || !conversationId) return;
     if (reportAlreadyWritten(this.host.db, taskId, report.meta.status)) return;
     this.host.conversations.appendMessage(conversationId, {
       role: 'assistant',

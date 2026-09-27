@@ -317,26 +317,39 @@ describe('点「要做」就开工并回报', () => {
     expect(report!.meta).toMatchObject({ status: 'failed' });
   });
 
-  it('条件 4：取消 → 一句话回报', async () => {
+  it('条件 4：取消正在执行的任务 → 一句话回报，后继继续且不重叠', async () => {
     let releaseRun!: () => void;
     const gate = new Promise<void>((resolve) => {
       releaseRun = resolve;
     });
+    const running: string[] = [];
+    let overlap = false;
     const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
     const original = h.executor.run.bind(h.executor);
     h.executor.run = async (task, workspace, signal) => {
-      await gate;
+      const name = task.goal.split('\n')[0]!;
+      if (running.length > 0) overlap = true;
+      running.push(name);
+      if (name === '先取消') await gate;
+      running.splice(running.indexOf(name), 1);
       return original(task, workspace, signal);
     };
-    const { todoId, taskId, conversationId } = await proposedTask(h, { goal: '修乱码' });
-    await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(taskStatus(taskId)).toBe('running'));
-    h.coding.cancel(taskId);
+    const first = await proposedTask(h, { goal: '先取消' });
+    const second = await proposedTask(h, {
+      goal: '取消后的',
+      conversationId: first.conversationId,
+    });
+    await h.runtime.acceptTodo(first.todoId);
+    await vi.waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
+    await h.runtime.acceptTodo(second.todoId);
+    // 走任务页的取消入口，不直接调 coding.cancel
+    await h.runtime.finishCodingTask(first.taskId, 'cancel');
     releaseRun();
-    await vi.waitFor(() => expect(reports(conversationId)).toHaveLength(1));
-    const [report] = reports(conversationId);
-    expect(report!.content).toBe('「修乱码」取消了。');
-    expect(report!.meta).toMatchObject({ status: 'cancelled' });
+    await vi.waitFor(() => expect(taskStatus(second.taskId)).toBe('pending_accept'));
+    expect(overlap).toBe(false);
+    const texts = reports(first.conversationId).map((r) => r.content);
+    expect(texts.some((t) => t === '「先取消」取消了。')).toBe(true);
+    expect(texts.some((t) => t.includes('取消后的'))).toBe(true);
   });
 
   it('条件 5：找不到 Codex → 不派发，任务停在已批准，对话里回报', async () => {
@@ -353,6 +366,33 @@ describe('点「要做」就开工并回报', () => {
     expect(report!.content).toContain('没找到 Codex');
     expect(report!.content).toContain('任务页点派发');
     expect(report!.meta).toMatchObject({ kind: 'task_report', status: 'codex_missing' });
+  });
+
+  it('条件 5：已有任务在执行时才发现没有 Codex，新任务不被派发', async () => {
+    let releaseRun!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      await gate;
+      return original(task, workspace, signal);
+    };
+    const first = await proposedTask(h, { goal: '先跑的' });
+    await h.runtime.acceptTodo(first.todoId);
+    await vi.waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
+    // 执行中途 Codex 没了
+    h.runtime.codexLocator = () => null;
+    const second = await proposedTask(h, {
+      goal: '不该派发',
+      conversationId: first.conversationId,
+    });
+    await h.runtime.acceptTodo(second.todoId);
+    await vi.waitFor(() => expect(reports(first.conversationId).length).toBeGreaterThan(0));
+    releaseRun();
+    await vi.waitFor(() => expect(taskStatus(first.taskId)).not.toBe('running'));
+    expect(taskStatus(second.taskId)).toBe('queued');
   });
 
   it('条件 6：没有 origin_run_id 的任务做完 → 不往任何对话写', async () => {

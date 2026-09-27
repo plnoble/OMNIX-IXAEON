@@ -73,7 +73,7 @@ function failed(row: TaskReportRow): string {
   const head = (row.verify_output ?? '')
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l.length > 0)
+    .filter((l) => l)
     .slice(0, MAX_OUTPUT_LINES);
   return [
     `「${firstLine(row.goal)}」没做成。`,

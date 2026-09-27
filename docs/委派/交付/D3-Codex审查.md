@@ -1,13 +1,13 @@
 # D3 Codex 审查
 
-- 时间：2026-09-27T08:24:42.016Z
-- 分支：grok/D3（8388e0a），对照 docs/委派/D3-点要做就开工并回报.md
+- 时间：2026-09-27T08:35:31.281Z
+- 分支：grok/D3（15b82b7），对照 docs/委派/D3-点要做就开工并回报.md
 - Codex：0.158.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改｜`apps/desktop/src/main/ipc.ts:591`、`apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts:442`：任务页取消仍直接调用 `coding.cancel`，排队任务取消后不会生成回报；测试手动补调 `onTaskSettled`，掩盖了入口遗漏。须接通实际取消入口，并通过该入口验收。
-- 必须改｜`apps/desktop/src/main/codingDispatch.ts:80–81`：仅按 `granted_at` 排序，同一时间戳的多个排队任务没有确定的批准顺序，可能乱序派发；须保留批准先后，并补同时间戳场景的测试。
-- 必须改｜`apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts:217–247、421–446`：顺序测试只有一个等待任务，倒序调度也能通过；取消测试取消的是等待项，未验证正在执行的任务失败或取消后继续派发。须补多个等待项及失败、取消后的续派测试。
-- 建议｜`apps/desktop/src/main/codingDispatch.ts:65–68`：需要人工确认：`dispatch` 拒绝时是否保证任务离开 `queued`。当前吞掉异常后立即循环，若状态仍为 `queued`，会不断重试同一任务，阻塞后续任务甚至主进程；应增加无进展时的退出保护。
-- 必须改｜`docs/委派/交付/D3.md:37–39、65`：声称“本轮补”验证证据，但验收仍记为旧的 9 条，`verify` 输出和 GitHub CI 结果仍是占位。须补当前 11 条验收及 `verify` 输出；需要人工确认：当前分支提交的 GitHub verify 是否通过。
+- 必须改｜`apps/desktop/src/main/codingDispatch.ts:64`：Codex 检查只在 `kick` 中进行；已有自动任务执行时，新任务即使收到“没找到 Codex”回报，仍会被现有 `drain` 在上一任务结束后派发。应在每次自动派发前检查，确保缺失时保持已批准状态。
+- 必须改｜`apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts:320、421`：仍未覆盖“取消正在执行的任务后，后继继续且不重叠执行”；前一个测试没有后继并绕过真实取消入口，后一个只取消排队项。需要人工确认：`coding.cancel`、`runningCount` 是否在执行器实际退出前释放执行名额，并补充对应验收。
+- 必须改｜`docs/委派/交付/D3.md:40–42`：验收只有通过数量，verify 仍写“结果见下”，CI 仍是占位，全文没有对应输出和成功记录；后文宣称已补齐与实际不符，尚不满足交付及合并要求。
+- 建议｜`apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts:457–463`：任务创建顺序和批准顺序完全相同，按任务创建顺序派发也能通过。应逆序批准，并在已有任务执行时积累两个等待项，验证真正按批准先后派发。
+- 建议｜`apps/desktop/src/main/codingDispatch.ts:64–65`：派发拒绝后异常被吞掉，排空直接停止，已有后继任务没有恢复触发或错误提示；应保留错误并明确恢复方式，避免队列静默停住。
 
 结论：需要修改
