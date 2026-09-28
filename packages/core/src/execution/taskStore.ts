@@ -325,9 +325,11 @@ export class CodingTaskStore {
   }
 
   assertChangedPathsInScope(task: CodingTask, changed: string[]): void {
-    // 规范化后再比：`src/`、`./src`、`src` 是同一个范围，别让写法差异误报越界。
-    const norm = (p: string): string =>
-      p.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
+    // 规范化后再比：`src/`、`./src`、`src` 是同一个范围；`./` 与 `.` 都是整个项目。
+    const norm = (p: string): string => {
+      const n = p.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
+      return n === '' ? '.' : n;
+    };
     const scope = (JSON.parse(task.scope_json) as string[]).map(norm);
     for (const rel of changed) {
       const n = norm(rel);

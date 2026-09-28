@@ -24,8 +24,15 @@ afterEach(() => {
 });
 
 describe('范围写法规范化', () => {
-  for (const scope of ['src', 'src/', './src']) {
-    it(`范围写成「${scope}」：src/hello.txt 不算越界`, () => {
+  const cases: Array<[string, string]> = [
+    ['src', 'src'],
+    ['src/', 'src'],
+    ['./src', 'src'],
+    ['.', '.'],
+    ['./', '.'],
+  ];
+  for (const [scope, label] of cases) {
+    it(`范围写成「${scope}」：${label === '.' ? '整个项目' : 'src/hello.txt'} 不算越界`, () => {
       dir = mkdtempSync(join(tmpdir(), 'ixa-d1-scope-'));
       db = openDatabase(join(dir, 'ixaeon.db'));
       migrate(db);
@@ -46,11 +53,18 @@ describe('范围写法规范化', () => {
         task.id,
       );
       const stored = store.get(task.id);
-      expect(() => store.assertChangedPathsInScope(stored, ['src/hello.txt'])).not.toThrow();
-      expect(() => store.assertChangedPathsInScope(stored, ['./src/hello.txt'])).not.toThrow();
-      expect(() => store.assertChangedPathsInScope(stored, ['other/x.txt'])).toThrow(
-        /超出批准范围/,
-      );
+      if (label === '.') {
+        // 整个项目：根下与子目录里的改动都不算越界
+        expect(() => store.assertChangedPathsInScope(stored, ['hello.txt'])).not.toThrow();
+        expect(() => store.assertChangedPathsInScope(stored, ['src/hello.txt'])).not.toThrow();
+        expect(() => store.assertChangedPathsInScope(stored, ['other/x.txt'])).not.toThrow();
+      } else {
+        expect(() => store.assertChangedPathsInScope(stored, ['src/hello.txt'])).not.toThrow();
+        expect(() => store.assertChangedPathsInScope(stored, ['./src/hello.txt'])).not.toThrow();
+        expect(() => store.assertChangedPathsInScope(stored, ['other/x.txt'])).toThrow(
+          /超出批准范围/,
+        );
+      }
     });
   }
 });
