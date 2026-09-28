@@ -1,7 +1,8 @@
 /**
  * D4（契约 5）：改动包——`<数据目录>/patches/<任务 id>/` 下按原路径放改动后的
  * 文件，外加 manifest.json（changed/added/deleted/conflict 四个数组）。
- * 项目自己的 manifest.json 会被固定清单位置顶替，原文件挪到 manifest.json.project。
+ * 项目自己的 manifest.json 会被清单顶替，内容另存 manifest.json.project
+ * （撞名处理是执行方自定方案，待整合方定——见交付说明已知缺口）。
  */
 import {
   cpSync,
@@ -9,7 +10,6 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
-  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -39,7 +39,7 @@ export function buildPatch(
   changed: string[],
   baseHashes: Record<string, string | null>,
   conflict: string[],
-): void {
+): { displacedManifest: boolean } {
   const MANIFEST = 'manifest.json';
   const manifest: Record<'changed' | 'added' | 'deleted' | 'conflict', string[]> = {
     changed: [],
@@ -47,17 +47,19 @@ export function buildPatch(
     deleted: [],
     conflict,
   };
-  let displaced: string | null = null;
+  let displaced = false;
   for (const raw of changed) {
     const rel = normalizeRel(raw);
     const src = join(workspace, rel);
     if (rel === MANIFEST) {
-      // 项目自己的清单与固定清单位置撞名：内容不丢，挪到 manifest.json.project。
-      try {
-        displaced = readFileSync(src, 'utf8');
-        manifest.changed.push(`${rel}（原文件在 ${MANIFEST}.project）`);
-      } catch {
-        manifest.added.push(rel);
+      // 项目自己的 manifest.json 与固定清单位置撞名：清单按普通文件**如实**分类
+      // （不混说明文字），内容另存 manifest.json.project；撞名处理待整合方定（已知缺口）。
+      if (existsSync(src) && statSync(src).isFile()) {
+        safeWrite(dir, `${MANIFEST}.project`, src);
+        displaced = true;
+        (baseHashes[raw] == null ? manifest.added : manifest.changed).push(rel);
+      } else {
+        manifest.deleted.push(rel);
       }
       continue;
     }
@@ -81,6 +83,6 @@ export function buildPatch(
     }
   }
   mkdirSync(dir, { recursive: true });
-  if (displaced !== null) writeFileSync(join(dir, `${MANIFEST}.project`), displaced);
   writeFileSync(join(dir, MANIFEST), JSON.stringify(manifest, null, 2));
+  return { displacedManifest: displaced };
 }
