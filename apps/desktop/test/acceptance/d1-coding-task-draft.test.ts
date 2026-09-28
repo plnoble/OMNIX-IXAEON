@@ -14,6 +14,15 @@
  *
  * 桥接调用不在提问的异步上下文里（真 Hermes 经 MCP 服务转 HTTP 进来），
  * 所以测试里替身会话挂起模拟「正在回答」，桥接调用从提问的异步链之外发起。
+ *
+ * 整合方复审时定（2026-09-28）：
+ * - 条件 3 扩成「正在回答的不止一个（不论是不是项目对话）→ 报错『同时有多个对话在回答，
+ *   分不清是哪个，请稍后再提』」。所有对话的 Hermes 共用一个桥令牌，分不出是谁调的工具；
+ *   一个项目对话加一个个人对话同时在回答时，若默认算给项目对话，个人对话里的一句话就会
+ *   在项目里建出任务。
+ * - 补一条：没写 scope 的草案（缺省整个项目，存成 ['.']）点「要做」派发后，改项目里的文件
+ *   （含子目录）不算越界、能走到等你验收。执行器的范围检查只认「等于或在其下」，'.' 不被当成
+ *   整个项目的话，每个没写范围的任务都会以「改动超出批准范围」失败，场景一在这里就断了。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -309,7 +318,7 @@ describe('聊天里提编码任务草案', () => {
     await waitActive(runtime, 2);
     await expect(
       runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
-    ).rejects.toThrow('同时有多个项目对话在回答，分不清是哪个，请稍后再提');
+    ).rejects.toThrow('同时有多个对话在回答，分不清是哪个，请稍后再提');
     expect(taskCount()).toBe(0);
     askA.release();
     askB.release();
@@ -317,10 +326,8 @@ describe('聊天里提编码任务草案', () => {
     await askB.askPromise;
   });
 
-  it('对照：项目对话和个人对话同时在回答 → 不建草案', async () => {
-    // 契约 3 的成功路径只认「恰好一个正在回答」；两个提问同时挂着就不满足。
-    // 该报哪种错（「只能在项目对话里提」还是「稍后再提」）规格没写死，留给整合方定；
-    // 这里只钉住：不建任务。见交付说明「已知缺口」。
+  it('条件 3（整合方定）：项目对话和个人对话同时在回答 → 报「多个对话在回答」，不建草案', async () => {
+    // 分不出是哪个对话调的工具：不能默认算给项目对话（可能是个人对话里的请求）。
     const { runtime, conversations, project } = setup();
     const projectConv = conversations.create({ projectId: project.id });
     const personalConv = conversations.create({ projectId: null });
@@ -329,7 +336,7 @@ describe('聊天里提编码任务草案', () => {
     await waitActive(runtime, 2);
     await expect(
       runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
-    ).rejects.toThrow();
+    ).rejects.toThrow('同时有多个对话在回答，分不清是哪个，请稍后再提');
     expect(taskCount()).toBe(0);
     projectAsk.release();
     personalAsk.release();
@@ -502,6 +509,48 @@ describe('聊天里提编码任务草案', () => {
       }))
       .find((m) => m.meta['kind'] === 'task_report');
     expect(report?.content).toContain('还没有独立验收');
+  });
+
+  it('整合方补：没写 scope 的草案派发后，改项目里的文件（含子目录）不算越界', async () => {
+    const writer = {
+      name: 'd1-writer',
+      async run(_task: unknown, workspace: string) {
+        writeFileSync(join(workspace, 'hello.txt'), '你好');
+        mkdirSync(join(workspace, 'sub', 'deep'), { recursive: true });
+        writeFileSync(join(workspace, 'sub', 'deep', 'x.txt'), '合成');
+        return {
+          claimedSuccess: true,
+          summary: '写好了',
+          changedPaths: ['hello.txt', 'sub/deep/x.txt'],
+          testsModified: false,
+          raw: '',
+        };
+      },
+    };
+    const { runtime, conversations, todos, project } = setup({
+      executor: writer as unknown as FakeCodingExecutor,
+    });
+    const conv = conversations.create({ projectId: project.id });
+    const ask = startAsk(runtime, conv.id, project.id);
+    await waitActive(runtime, 1);
+    const res = (await runtime.hermesTool('propose_coding_task', {
+      goal: '加一个 hello.txt，写上你好',
+      acceptance: ['项目里有 hello.txt，内容是你好'],
+    })) as { taskId: string };
+    ask.release();
+    await ask.askPromise;
+    const [todo] = todos.list({ status: ['proposed'] }).filter((t) => t.linked_id === res.taskId);
+    await runtime.acceptTodo(todo!.id);
+    await vi.waitFor(
+      () => {
+        const row = db
+          .prepare('SELECT status, error FROM coding_tasks WHERE id = ?')
+          .get(res.taskId) as { status: string; error: string | null };
+        expect(row.error ?? '').not.toContain('超出批准范围');
+        expect(row.status).toBe('pending_accept');
+      },
+      { timeout: 5000 },
+    );
   });
 
   it('条件 6：名单、MCP 声明、本地服务放行都有这个工具', async () => {

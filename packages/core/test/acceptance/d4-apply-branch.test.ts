@@ -26,6 +26,13 @@
  *
  * 契约 6 的对话回报与任务页显示在 apps/desktop/test/acceptance/d4-landing-report.test.ts
  * （回报走 D3 的桌面机制，核心层测不到）。
+ *
+ * 整合方复审时定（2026-09-28）：
+ * - 改动包的清单照执行方的写法：`<数据目录>/patches/<任务 id>/manifest.json`，四个数组
+ *   changed / added / deleted / conflict。
+ * - 补一条：临时工作树建在 IXAEON 自己的数据目录里——不在你的项目文件夹里，也不在它旁边。
+ *   成功后它被清掉，别的断言看不出建在哪；建在项目里会惊动你那边开着的开发服务器和文件
+ *   监视器，建在项目旁边就又弄脏了放项目的文件夹（用户 2026-09-28 刚指出过这类问题）。
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -34,11 +41,12 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import {
   CodingOrchestrator,
@@ -696,4 +704,44 @@ it('契约 2：这次没有改动文件 → 不建分支也不生成改动包', 
   expect(r.applied_at).toBeNull();
   expect(git(h.root, ['branch', '--list'])).toBe(branchesBefore);
   expect(existsSync(patchDir(h.dataDir, taskId))).toBe(false);
+});
+
+it('整合方补：临时工作树建在 IXAEON 的数据目录里，不在你的项目文件夹里、也不在它旁边', async () => {
+  const h = harness({ gitRepo: true, grant: true });
+  // post-checkout 在新建的工作树里跑：记下它的位置
+  const hooksHome = tempDir('ixa-d4-where-');
+  const hooks = join(hooksHome, 'hooks');
+  mkdirSync(hooks);
+  const record = join(hooksHome, 'where.txt').replaceAll('\\', '/');
+  const hook = join(hooks, 'post-checkout');
+  writeFileSync(
+    hook,
+    ['#!/bin/sh', `git rev-parse --show-toplevel >> "${record}"`, 'exit 0', ''].join('\n'),
+  );
+  chmodSync(hook, 0o755); // POSIX 上没有执行位钩子会被跳过
+  git(h.root, ['config', 'core.hooksPath', hooks]);
+  const taskId = await acceptWith(h, { 'note.txt': '改过了' });
+  expect(row(taskId).applied_ref).toBe(`ixaeon/${taskId.slice(0, 8)}`);
+  const fold = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
+  // 临时工作树已经删了，取不到它的真实路径：找最长的还在的上级取真实路径再接上余下部分
+  // （CI 的 Windows 临时目录是 RUNNER~1 这类短名，git 报的是长名，直接比字符串会误判）
+  const canonical = (p: string): string => {
+    let head = resolve(p);
+    const tail: string[] = [];
+    while (!existsSync(head) && dirname(head) !== head) {
+      tail.unshift(basename(head));
+      head = dirname(head);
+    }
+    return fold(join(realpathSync.native(head), ...tail));
+  };
+  const inside = (parent: string, child: string) =>
+    canonical(child).startsWith(canonical(parent) + sep);
+  const seen = readFileSync(record, 'utf8').split(/\r?\n/).filter(Boolean);
+  expect(seen.length).toBeGreaterThan(0);
+  for (const where of seen) {
+    expect(inside(h.dataDir, where)).toBe(true);
+    expect(inside(h.root, where)).toBe(false);
+    expect(inside(dirname(h.root), where) && !inside(h.dataDir, where)).toBe(false);
+  }
+  expect(worktreeCount(h.root)).toBe(1);
 });

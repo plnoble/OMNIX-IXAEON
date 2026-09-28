@@ -240,6 +240,25 @@
       "files": {
         "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "75f5e60ecc4971b5f9a11a6a614286548002caf25fc39cdd8430e68fa49713d0"
       }
+    },
+    {
+      "id": "D1",
+      "title": "聊天里说「把 X 做了」生成编码任务草案",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "9a939b8b7b28576c61fa7d8088070bb90a7251c3423c3be0cea942a800ca00dc",
+        "packages/core/test/acceptance/d1-convention.test.ts": "7c980df3d8de0143870b246719f41fd4caf78ee6aa5928aac45c4aa75a0b377c"
+      }
+    },
+    {
+      "id": "D4",
+      "title": "接受后在项目仓库里建分支提交",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/d4-apply-branch.test.ts": "232ff8af0125c246ac4623dffc052152c08ba127109c4c027c2e15a808d83e18",
+        "apps/desktop/test/acceptance/d4-landing-report.test.ts": "28b26d09aadb6863a5d8c18ba30c95e7840fd7e10e2ef2bb57d73b99ab24395b",
+        "apps/desktop/test/acceptance/d4-tasks-page.test.ts": "a5f5c84663903b96c338c818047519f7a344c50f2e7179b78e778020de85bba6"
+      }
     }
   ]
 }
