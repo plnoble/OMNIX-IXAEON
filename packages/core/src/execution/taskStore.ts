@@ -133,9 +133,13 @@ export class CodingTaskStore {
     goal: string;
     scope: string[];
     allowedCommands: string[][];
+    /** 验收条件（D1：聊天里提任务时写下，回报时逐条列出）。 */
+    acceptance?: string[];
     contextDigest?: string;
     timeoutMs?: number;
     dispatchKey?: string | null;
+    /** D1：桥接调用不在提问的异步上下文里，发起方要显式传是哪一轮。缺省仍从上下文取。 */
+    originRunId?: string | null;
     now?: string;
   }): CodingTask {
     const project = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(input.projectId) as
@@ -177,8 +181,9 @@ export class CodingTaskStore {
            id, project_id, goal, scope_json, workspace_path, snapshot_ref, context_digest,
            allowed_commands_json, timeout_ms, status, version, approval_id, dispatch_key,
            generation, executor_name, executor_report_json, verify_status, verify_exit_code,
-           verify_output, tests_modified, accepted_at, error, created_at, updated_at, origin_run_id
-         ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'draft', 1, NULL, ?, 0, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?)`,
+           verify_output, tests_modified, accepted_at, error, created_at, updated_at, origin_run_id,
+           acceptance_json
+         ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'draft', 1, NULL, ?, 0, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -192,8 +197,10 @@ export class CodingTaskStore {
         now,
         now,
         // G04：提问期间建的任务记住是哪一轮（ask() 按它归属）。
-        // 没在提问里建的（任务页手动建、旧数据）为 null，不出现在任何回答上。
-        currentAskRunId(),
+        // 没在提问里建的（任务页手动建、旧数据）为 null，不出现在任何回答上；
+        // 桥接路（D1）不在上下文里，由发起方显式传。
+        input.originRunId !== undefined ? input.originRunId : currentAskRunId(),
+        JSON.stringify(input.acceptance ?? []),
       );
     return this.get(id);
   }
@@ -322,7 +329,9 @@ export class CodingTaskStore {
     for (const rel of changed) {
       const n = rel.replaceAll('\\', '/');
       this.assertPathInWorkspace(task, join(task.workspace_path!, n));
-      const allowed = scope.some((s) => n === s || n.startsWith(`${s}/`));
+      const allowed = scope.some(
+        (s) => s === '.' || s === './' || n === s || n.startsWith(`${s}/`),
+      );
       if (!allowed) {
         throw new IxaError(ErrorCodes.PATH_ESCAPE, `改动超出批准范围：${n}`);
       }
