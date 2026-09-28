@@ -142,6 +142,7 @@ interface Harness {
   root: string;
   gitRepo: boolean;
   coding: CodingOrchestrator;
+  executor: CodingExecutor;
   projectId: string;
   /** 替身下次派发要写进副本的文件。派发前改这里。 */
   files: Record<string, string>;
@@ -186,6 +187,7 @@ function harness(
     gitRepo,
     projectId: project.id,
     files,
+    executor,
     coding: new CodingOrchestrator(db, executor, dataDir),
   };
 }
@@ -280,6 +282,15 @@ async function acceptWith(
 }
 
 const PASSING_COMMAND = [[process.execPath, '-e', 'process.exit(0)']];
+
+/**
+ * 契约 3：基线指纹是派发时记下、要存得住的——换一个新建的编排器实例来接受，
+ * 只许从存档（执行报告/库）里读，放在内存里的实现过不了。
+ */
+async function acceptOnFresh(h: Harness, taskId: string): Promise<void> {
+  const fresh = new CodingOrchestrator(db!, h.executor, h.dataDir);
+  await fresh.accept(taskId);
+}
 
 it('条件 1：接受后建分支，提交正好这两处，已有暂存/未提交/未跟踪原样，也不推送', async () => {
   const h = harness({ gitRepo: true, grant: true });
@@ -393,7 +404,7 @@ it('条件 3：派发之后你又提交了同一个文件 → 不建分支，改
   writeFileSync(join(h.root, 'note.txt'), '你后来提交的');
   commitAll(h.root, '你的提交');
   const before = repoFingerprint(h.root);
-  await h.coding.accept(task.id);
+  await acceptOnFresh(h, task.id);
   const r = row(task.id);
   expect(git(h.root, ['branch', '--list', `ixaeon/${task.id.slice(0, 8)}*`])).toBe('');
   expectPatchRef(h, task.id);
@@ -407,15 +418,85 @@ it('条件 3：派发之后你又提交了同一个文件 → 不建分支，改
   expect(repoFingerprint(h.root)).toEqual(before);
 });
 
+it('条件 3：派发后你提交了执行器要新增的文件（基线记为不存在）→ 也算冲突', async () => {
+  const h = harness({ gitRepo: true, grant: true });
+  useFiles(h, { 'new.txt': '执行器写的' });
+  const task = h.coding.create({
+    projectId: h.projectId,
+    goal: '加个新文件',
+    scope: ['new.txt'],
+    allowedCommands: [],
+  });
+  await h.coding.approveAndQueue(task.id);
+  await h.coding.dispatch(task.id);
+  // 派发之后、接受之前，你先一步提交了同名的新文件（基线里它记为不存在）
+  writeFileSync(join(h.root, 'new.txt'), '你写的');
+  commitAll(h.root, '你的新文件');
+  await acceptOnFresh(h, task.id);
+  expect(git(h.root, ['branch', '--list', `ixaeon/${task.id.slice(0, 8)}*`])).toBe('');
+  expectPatchRef(h, task.id);
+  expect(row(task.id).apply_error ?? '').toContain('new.txt');
+  const m = manifest(h.dataDir, task.id);
+  expect(sorted(m.conflict)).toEqual(['new.txt']);
+  expect(sorted(m.added)).toEqual(['new.txt']);
+  expect(m.changed).toEqual([]);
+  // 改动包里放执行器的版本；你提交的版本留在你的工作区
+  expect(readFileSync(join(patchDir(h.dataDir, task.id), 'new.txt'), 'utf8')).toBe('执行器写的');
+  expect(readFileSync(join(h.root, 'new.txt'), 'utf8')).toBe('你写的');
+  expect(worktreeCount(h.root)).toBe(1);
+});
+
+it('契约 4：分支从接受时的 HEAD 建——派发后你提交了别的文件，也在分支里', async () => {
+  const h = harness({ gitRepo: true, grant: true });
+  useFiles(h, { 'note.txt': '改过了' });
+  const task = h.coding.create({
+    projectId: h.projectId,
+    goal: '改说明',
+    scope: ['note.txt'],
+    allowedCommands: [],
+  });
+  const base = git(h.root, ['rev-parse', 'HEAD']);
+  await h.coding.approveAndQueue(task.id);
+  await h.coding.dispatch(task.id);
+  // 派发之后、接受之前，你提交了执行器没碰的另一个文件
+  writeFileSync(join(h.root, 'other.txt'), '你后来提交的');
+  commitAll(h.root, '你的新提交');
+  const userCommit = git(h.root, ['rev-parse', 'HEAD']);
+  expect(userCommit).not.toBe(base);
+  await acceptOnFresh(h, task.id);
+  const branch = `ixaeon/${task.id.slice(0, 8)}`;
+  expect(row(task.id).applied_ref).toBe(branch);
+  // 分支的父提交就是接受时的新 HEAD，不是派发时的旧基线
+  expect(git(h.root, ['rev-parse', `${branch}^`])).toBe(userCommit);
+  expect(git(h.root, ['show', `${branch}:other.txt`])).toBe('你后来提交的');
+  expect(git(h.root, ['show', `${branch}:note.txt`])).toBe('改过了');
+  expect(
+    git(h.root, ['diff', '--name-only', `main...${branch}`])
+      .split('\n')
+      .sort(),
+  ).toEqual(['note.txt']);
+  expect(worktreeCount(h.root)).toBe(1);
+});
+
 it('条件 4：快照时文件有没提交的改动 → 同冲突，不建分支', async () => {
   const h = harness({ gitRepo: true, grant: true });
+  useFiles(h, { 'note.txt': '代理改的' });
+  // 批准建副本之前就把没提交的改动放进去：快照（hashWorkspace(before)）会记下它
   writeFileSync(join(h.root, 'note.txt'), '还没提交的改动');
-  const taskId = await acceptWith(h, { 'note.txt': '代理改的' }, { goal: '覆盖说明' });
-  const r = row(taskId);
-  expect(git(h.root, ['branch', '--list', `ixaeon/${taskId.slice(0, 8)}*`])).toBe('');
-  expectPatchRef(h, taskId);
+  const task = h.coding.create({
+    projectId: h.projectId,
+    goal: '覆盖说明',
+    scope: ['note.txt'],
+    allowedCommands: [],
+  });
+  await h.coding.approveAndQueue(task.id);
+  await h.coding.dispatch(task.id);
+  await acceptOnFresh(h, task.id);
+  const r = row(task.id);
+  expect(git(h.root, ['branch', '--list', `ixaeon/${task.id.slice(0, 8)}*`])).toBe('');
+  expectPatchRef(h, task.id);
   expect(r.apply_error ?? '').toContain('note.txt');
-  expect(sorted(manifest(h.dataDir, taskId).conflict)).toEqual(['note.txt']);
+  expect(sorted(manifest(h.dataDir, task.id).conflict)).toEqual(['note.txt']);
   // 用户没提交的改动原样留着
   expect(readFileSync(join(h.root, 'note.txt'), 'utf8')).toBe('还没提交的改动');
   expect(git(h.root, ['status', '--porcelain'])).toContain('note.txt');
@@ -549,36 +630,22 @@ it('条件 8：提交被钩子拒绝 → 没有残留临时工作树，改走改
   expect(sorted(manifest(h.dataDir, taskId).changed)).toEqual(['note.txt']);
 });
 
-it('条件 8：写文件撞上同名目录 → 临时工作树照样清掉，改走改动包', async () => {
-  // HEAD 里 d 是个目录；执行器把副本里的 d 换成文件，往工作树里写必失败。
-  // 实现得清干净临时工作树，再改走改动包。
-  const mutator: CodingExecutor = {
-    name: 'fake',
-    run: async (_task, workspace) => {
-      rmSync(join(workspace, 'd'), { recursive: true, force: true });
-      writeFileSync(join(workspace, 'd'), '现在是文件');
-      return {
-        claimedSuccess: true,
-        summary: '目录换文件',
-        changedPaths: ['d', 'd/a.txt'],
-        testsModified: false,
-        raw: '',
-      };
-    },
-  };
-  const h = harness({ gitRepo: true, grant: true, executor: mutator });
-  mkdirSync(join(h.root, 'd'));
-  writeFileSync(join(h.root, 'd', 'a.txt'), '目录内容');
-  commitAll(h.root, '先有目录');
-  const taskId = await runTask(h, { goal: '目录换文件', scope: ['d', 'd/a.txt'] });
-  expect(git(h.root, ['branch', '--list', 'ixaeon/*'])).toBe('');
-  expect(worktreeCount(h.root)).toBe(1);
+it('条件 8：建工作树这步就被挡（post-checkout 钩子拒绝）→ 没有残留，改走改动包', async () => {
+  // git worktree add 会跑 post-checkout 钩子；钩子退出非零则建树失败，
+  // 而且半成品工作树和已建出的分支 git 都不会自己回收——实现必须清干净再改走改动包。
+  const h = harness({ gitRepo: true, grant: true });
+  const hooks = join(h.root, 'hooks');
+  mkdirSync(hooks);
+  const hook = join(hooks, 'post-checkout');
+  writeFileSync(hook, '#!/bin/sh\nexit 1\n');
+  chmodSync(hook, 0o755); // POSIX 上没有执行位钩子会被跳过，就白挂了
+  git(h.root, ['config', 'core.hooksPath', hooks]);
+  const taskId = await acceptWith(h, { 'note.txt': '建树被拒' });
   expectPatchRef(h, taskId);
-  expect(readFileSync(join(patchDir(h.dataDir, taskId), 'd'), 'utf8')).toBe('现在是文件');
-  const m = manifest(h.dataDir, taskId);
-  expect(sorted(m.added)).toEqual(['d']);
-  expect(sorted(m.deleted)).toEqual(['d/a.txt']);
-  expect(m.changed).toEqual([]);
+  expect(worktreeCount(h.root)).toBe(1);
+  expect(git(h.root, ['branch', '--list', 'ixaeon/*'])).toBe('');
+  expect(readFileSync(join(patchDir(h.dataDir, taskId), 'note.txt'), 'utf8')).toBe('建树被拒');
+  expect(sorted(manifest(h.dataDir, taskId).changed)).toEqual(['note.txt']);
 });
 
 it('契约 2：这次没有改动文件 → 不建分支也不生成改动包', async () => {

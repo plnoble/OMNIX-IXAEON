@@ -1,20 +1,16 @@
 # D4 Codex 审查
 
-- 时间：2026-09-28T08:49:35.814Z
-- 分支：grok/D4（9d2e034），对照 docs/委派/D4-接受后在项目里建分支.md
+- 时间：2026-09-28T11:22:29.578Z
+- 分支：grok/D4（6634a9e），对照 docs/委派/D4-接受后在项目里建分支.md
 - Codex：0.158.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改｜`docs/委派/交付/D4.md:13、27`：送审说明声称已有两份、18 条补强测试，但完整 diff 仍只有旧版 9 条，桌面测试也未出现。需要人工确认：补强版本是否尚未提交或 diff 已过期；交付说明、测试结果与送审分支必须一致。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:309`：钩子没有设置执行权限，POSIX 上 Git 会跳过它，无法可靠触发提交失败，正确实现也会因此验收失败。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:168–179、206–223`：工作区保护只从干净仓库起测，指纹也不记录文件内容和完整暂存差异；无法发现已有暂存、未暂存或未跟踪内容被覆盖，未充分覆盖条件 1。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:250–256`：用户提交发生在 `dispatch` 之前，不是条件 3 要求的派发之后；只在派发时检查冲突、接受时不复查的实现仍能通过。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:284–294`：授权只测流程开始前撤销，未覆盖接受前撤销、有效授权不包含项目、父目录授权包含项目及项目缺少根目录，无法落实契约 2 的落地前授权核对。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:188–203、258–281`：把改动包全部文件拼成文本搜索路径，不能证明清单存在或正确区分修改、新增、删除及冲突；还漏验新增文件内容、删除落地和 `applied_ref` 精确指向包目录，契约 4、5 未覆盖完整。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:305–315`：清理仅测提交失败，未覆盖工作树建立后写入等中途失败，也未断言成功后的工作树清理，无法覆盖条件 8 和契约 4、7。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:148–150`：批准、派发后直接接受，没有检查此前尚未落地；提前创建分支或改动包的实现仍能通过，漏验“只在接受之后落地”。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:88–91、206–224`：仓库没有远端，也没有推送副作用断言；有远端时自动推送的实现可能通过全部测试，漏验明确的“不推送”约束。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:154–165、221–222`：从未读取或断言 `applied_at`，提交正文只检查任务 id，没有检查验证结果，漏验成功时间和提交正文契约。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:239`：分支重名用例只检查数据库字符串，没有确认 `-2` 分支实际存在并包含改动；仅填写成功引用的实现也能通过条件 2。
-- 必须改｜`docs/委派/交付/D4.md:13`、`packages/core/test/acceptance/d4-apply-branch.test.ts:206–224、317–332`：实际 diff 未包含对话回报或任务页展示测试，建分支、改动包、没有改动三种回报及追加语义均未验证，契约 6 缺失。
+- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:552–581`：目录换文件并不必然写入失败，先删除旧文件和空目录即可成功；当前测试会拒绝合法实现，也无法证明失败发生在工作树建立之后。应注入确定的写入故障再验证清理。
+- 必须改｜`apps/desktop/test/acceptance/d4-landing-report.test.ts:190`：直接调用新增的 `runtime.acceptCodingTask`，没有覆盖实际 IPC 接受入口；即使现有 IPC 仍调用 `runtime.coding.accept`、用户点击后没有对话回报，这些测试也能通过。
+- 必须改｜`apps/desktop/test/acceptance/d4-landing-report.test.ts:202–207`：列表对象包含字段不能证明任务页显示了落地结果；页面完全不渲染分支、改动包和错误原因也能通过，遗漏契约 6 的界面要求。
+- 必须改｜`apps/desktop/test/acceptance/d4-landing-report.test.ts:221–223`：失败回报只检查固定短语和任务 id，没有核对失败原因、实际改动包路径及追加行为；缺少原因、路径错误或覆盖原回报均可能通过。
+- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:305–309`：三点差异比较不能证明分支从接受时的当前 `HEAD` 建立；缺少“派发后提交其他文件”的成功场景，使用过期基线、遗漏用户新提交的实现仍可能通过，应核对新提交的父节点。
+- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:390–396`：派发和接受始终使用同一个实例，没有验证契约 3 要求的原始指纹持久化；仅在内存保存指纹的实现也能通过，应覆盖重新加载任务后接受的场景。
+- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:381–422`：冲突测试只涉及原有文件，没有覆盖“原本不存在的新文件在派发后被用户提交”；遗漏契约 3 的不存在基线，忽略新增路径冲突并覆盖用户文件的实现仍能通过。
+- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:227–236`：测试自行固定了 `manifest.json` 及四个字段，规格只规定清单内容，未规定此格式。需要人工确认：整合方是否批准了这个新增输出接口；未经确认不应将其锁成验收条件。
 
 结论：需要修改
