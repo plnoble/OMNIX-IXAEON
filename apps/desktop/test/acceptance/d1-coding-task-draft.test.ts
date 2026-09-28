@@ -178,10 +178,11 @@ describe('聊天里提编码任务草案', () => {
     expect(res.note).toContain('不要说已经做完');
     const row = db
       .prepare(
-        'SELECT project_id, origin_run_id, acceptance_json, status, scope_json, allowed_commands_json FROM coding_tasks WHERE id = ?',
+        'SELECT project_id, goal, origin_run_id, acceptance_json, status, scope_json, allowed_commands_json FROM coding_tasks WHERE id = ?',
       )
       .get(res.taskId) as {
       project_id: string;
+      goal: string;
       origin_run_id: string | null;
       acceptance_json: string | null;
       status: string;
@@ -189,6 +190,7 @@ describe('聊天里提编码任务草案', () => {
       allowed_commands_json: string;
     };
     expect(row.project_id).toBe(project.id);
+    expect(row.goal).toBe('加一个 hello.txt，写上你好');
     expect(row.status).toBe('draft');
     expect(JSON.parse(row.acceptance_json ?? 'null')).toEqual([
       '项目里有 hello.txt，内容是你好',
@@ -242,6 +244,47 @@ describe('聊天里提编码任务草案', () => {
       runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
     ).rejects.toThrow('编码任务只能在项目对话里提');
     expect(taskCount()).toBe(0);
+  });
+
+  it('条件 2/契约 3：没有正在回答时，参数里带了合法项目也不认', async () => {
+    // 契约 3「参数里带的项目一律不认」：不能拿参数里的项目兜底
+    const { runtime, conversations, projects } = setup();
+    const other = projects.create({
+      name: '合成项目二',
+      rootPath: join(dir, 'project2'),
+      description: null,
+    });
+    void conversations;
+    await expect(
+      runtime.hermesTool('propose_coding_task', {
+        goal: '加个文件',
+        acceptance: ['有文件'],
+        projectId: other.id,
+      }),
+    ).rejects.toThrow('编码任务只能在项目对话里提');
+    expect(taskCount()).toBe(0);
+  });
+
+  it('条件 2/契约 3：只有个人对话在回答时，参数里带了合法项目也不认', async () => {
+    const { runtime, conversations, projects } = setup();
+    const other = projects.create({
+      name: '合成项目二',
+      rootPath: join(dir, 'project2'),
+      description: null,
+    });
+    const conv = conversations.create({ projectId: null });
+    const ask = startAsk(runtime, conv.id, null, '随便聊聊');
+    await waitActive(runtime, 1);
+    await expect(
+      runtime.hermesTool('propose_coding_task', {
+        goal: '加个文件',
+        acceptance: ['有文件'],
+        projectId: other.id,
+      }),
+    ).rejects.toThrow('编码任务只能在项目对话里提');
+    expect(taskCount()).toBe(0);
+    ask.release();
+    await ask.askPromise;
   });
 
   it('条件 2：正在回答的对话不属于项目 → 报错，不建任务', async () => {
@@ -315,6 +358,16 @@ describe('聊天里提编码任务草案', () => {
       ['单条条件为空字符串', { goal: '加个文件', acceptance: [''] }],
       ['单条条件为空白字符串', { goal: '加个文件', acceptance: ['   '] }],
       ['scope 越出项目（..）', { goal: '加个文件', acceptance: ['有文件'], scope: '../outside' }],
+      ['scope 越出项目（裸 ..）', { goal: '加个文件', acceptance: ['有文件'], scope: '..' }],
+      [
+        'scope 越出项目（Windows 反斜杠）',
+        { goal: '加个文件', acceptance: ['有文件'], scope: '..\\outside' },
+      ],
+      ['scope 越出项目（根路径）', { goal: '加个文件', acceptance: ['有文件'], scope: '/outside' }],
+      [
+        'scope 越出项目（嵌套越界）',
+        { goal: '加个文件', acceptance: ['有文件'], scope: 'a/b/../../..' },
+      ],
       [
         'scope 越出项目（绝对路径）',
         { goal: '加个文件', acceptance: ['有文件'], scope: 'C:\\tmp' },
@@ -465,6 +518,31 @@ describe('聊天里提编码任务草案', () => {
     expect(Object.keys(def?.inputSchema ?? {})).toEqual(
       expect.arrayContaining(['goal', 'acceptance', 'scope']),
     );
+    // 注册的 schema 本身要校验输入（raw shape 的每个字段自带 safeParse，字段级核对）：
+    // scope 声明成必填、acceptance 声明成字符串、上限写松，这里都会挂。
+    const shape = (def?.inputSchema ?? {}) as Record<
+      string,
+      { safeParse: (value: unknown) => { success: boolean } }
+    >;
+    expect(shape['goal']!.safeParse('加个文件').success).toBe(true);
+    expect(shape['goal']!.safeParse('字'.repeat(2000)).success).toBe(true); // 目标上限 2000 字，含
+    expect(shape['goal']!.safeParse('字'.repeat(2001)).success).toBe(false);
+    expect(shape['goal']!.safeParse(undefined).success).toBe(false); // 必填
+    expect(shape['acceptance']!.safeParse(['有文件']).success).toBe(true);
+    expect(shape['acceptance']!.safeParse(undefined).success).toBe(false); // 必填
+    expect(shape['acceptance']!.safeParse('有文件').success).toBe(false); // 必须是数组
+    expect(shape['acceptance']!.safeParse([]).success).toBe(false); // 至少 1 条
+    expect(shape['acceptance']!.safeParse(Array.from({ length: 8 }, () => '条件')).success).toBe(
+      true,
+    ); // 上限 8 条，含
+    expect(shape['acceptance']!.safeParse(Array.from({ length: 9 }, () => '条件')).success).toBe(
+      false,
+    );
+    expect(shape['acceptance']!.safeParse(['']).success).toBe(false); // 单条至少 1 字
+    expect(shape['acceptance']!.safeParse(['字'.repeat(200)]).success).toBe(true); // 单条上限 200 字，含
+    expect(shape['acceptance']!.safeParse(['字'.repeat(201)]).success).toBe(false);
+    expect(shape['scope']!.safeParse('docs').success).toBe(true);
+    expect(shape['scope']!.safeParse(undefined).success).toBe(true); // scope 可省略
     // 真正调一次注册进去的处理函数：名称和参数要原样转给调用通道，返回值原样回来
     const forwarded = (await handlers.get('propose_coding_task')!({
       goal: '加个文件',
