@@ -57,8 +57,16 @@ beforeEach(() => {
     }),
     // 授权没过：不落地，显示原因
     task('denied', { apply_error: '没有这个项目目录的读取授权' }),
-    // 没有改动：如实写
-    task('nothing', {}),
+    // 没有改动：执行报告里确实没有任何改动路径，如实写
+    task('nothing', {
+      executor_report_json:
+        '{"claimedSuccess":true,"summary":"没改文件","changedPaths":[],"testsModified":false,"raw":""}',
+    }),
+    // 有改动但没落地（旧版本完成、改动还在副本里）：不能当成「没有改动」
+    task('stuck', {
+      executor_report_json:
+        '{"claimedSuccess":true,"summary":"改了","changedPaths":["note.txt"],"testsModified":false,"raw":""}',
+    }),
   ];
   harness.listCodingTasks.mockImplementation(async () => ({
     notice: '合成说明',
@@ -114,5 +122,11 @@ describe('任务页显示落地结果（契约 6）', () => {
     await render();
     const card = $('task-nothing')?.textContent ?? '';
     expect(card).toContain('没有改动');
+  });
+
+  it('有改动但没落地的任务：不能当成「没有改动」', async () => {
+    await render();
+    const card = $('task-stuck')?.textContent ?? '';
+    expect(card).not.toContain('没有改动');
   });
 });

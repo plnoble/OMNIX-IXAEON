@@ -240,6 +240,38 @@ describe('接受之后把落地结果回报给原对话', () => {
     expect(landing.content.replaceAll('\\', '/')).toContain(patchPath.replaceAll('\\', '/'));
   });
 
+  it('没能建分支（你先一步提交了同一个文件）：回报点名冲突原因，改动包位置', async () => {
+    const h = setup({ gitRepo: true });
+    const { todoId, taskId, conversationId } = await proposedTask(h, {
+      goal: '把说明写清楚',
+      files: { 'note.txt': '改过了' },
+    });
+    await h.runtime.acceptTodo(todoId);
+    await vi.waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
+    // 派发之后、接受之前，你在项目里提交了同一个文件 → 建分支被冲突挡下
+    writeFileSync(join(h.root, 'note.txt'), '你先提交的');
+    execFileSync('git', ['add', 'note.txt'], { cwd: h.root });
+    execFileSync(
+      'git',
+      ['-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-m', '用户的新提交'],
+      { cwd: h.root },
+    );
+    const before = reports(conversationId);
+    await h.runtime.acceptCodingTask(taskId);
+    const all = reports(conversationId);
+    expect(all.length).toBe(before.length + 1); // 追加一条，不是改写
+    const landing = all[all.length - 1]!;
+    expect(landing.meta['taskId']).toBe(taskId);
+    expect(landing.content).toMatch(/没能建分支（[^）]+），改动包在/);
+    expect(landing.content).toContain('note.txt'); // 原因点名冲突文件
+    const patchPath = join(dir, 'data', 'patches', taskId);
+    expect(landing.content.replaceAll('\\', '/')).toContain(patchPath.replaceAll('\\', '/'));
+    // 你提交的版本留在原地
+    expect(execFileSync('git', ['show', 'HEAD:note.txt'], { cwd: h.root, encoding: 'utf8' })).toBe(
+      '你先提交的',
+    );
+  });
+
   it('没有改动：回报里如实写「没有改动」，追加不改写', async () => {
     const h = setup({ gitRepo: true });
     const { todoId, taskId, conversationId } = await proposedTask(h, {

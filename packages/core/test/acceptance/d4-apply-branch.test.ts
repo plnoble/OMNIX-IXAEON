@@ -591,11 +591,10 @@ it('条件 6：有效授权在别处、项目不在其内 → 不落地', async 
 
 it('条件 6：授权目录只是字符串前缀相同、并不包含项目 → 不落地', async () => {
   // 授权路径取项目根去掉最后一个字符（如授权 …/root-abc12、项目根是 …/root-abc123）：
-  // 字符串前缀相同，但它不是项目根的祖先目录——拿 startsWith 判「包含」的实现会误判成已授权
+  // 字符串前缀相同，但它不是项目根的祖先目录——拿 startsWith 判「包含」的实现会误判成已授权。
+  // grantFolder 不要求目录存在，不用真建这个目录。
   const h = harness({ gitRepo: true, grant: false });
-  const prefixDir = h.root.slice(0, -1);
-  mkdirSync(prefixDir);
-  new PermissionService(db!).grantFolder(prefixDir);
+  new PermissionService(db!).grantFolder(h.root.slice(0, -1));
   const taskId = await acceptWith(h, { 'note.txt': '不该落地' });
   const r = row(taskId);
   expect(r.applied_ref).toBeNull();
@@ -661,6 +660,7 @@ it('条件 8：提交被钩子拒绝 → 没有残留临时工作树，改走改
   git(h.root, ['config', 'core.hooksPath', hooks]);
   const taskId = await acceptWith(h, { 'note.txt': '钩子会拒绝' });
   expectPatchRef(h, taskId);
+  expect(row(taskId).apply_error ?? '').not.toBe(''); // 写明失败原因
   expect(worktreeCount(h.root)).toBe(1);
   expect(git(h.root, ['branch', '--list', 'ixaeon/*'])).toBe('');
   expect(readFileSync(join(patchDir(h.dataDir, taskId), 'note.txt'), 'utf8')).toBe('钩子会拒绝');
@@ -679,6 +679,7 @@ it('条件 8：建工作树这步就被挡（post-checkout 钩子拒绝）→ �
   git(h.root, ['config', 'core.hooksPath', hooks]);
   const taskId = await acceptWith(h, { 'note.txt': '建树被拒' });
   expectPatchRef(h, taskId);
+  expect(row(taskId).apply_error ?? '').not.toBe(''); // 写明失败原因
   expect(worktreeCount(h.root)).toBe(1);
   expect(git(h.root, ['branch', '--list', 'ixaeon/*'])).toBe('');
   expect(readFileSync(join(patchDir(h.dataDir, taskId), 'note.txt'), 'utf8')).toBe('建树被拒');
