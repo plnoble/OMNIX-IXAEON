@@ -142,6 +142,13 @@ describe('提编码任务草案的约定', () => {
   it('记忆桥开着：约定里写 mcp__ixaeon__propose_coding_task，点「要做」才开工', async () => {
     const text = await dispatchedPrompt(true);
     expect(text).toContain('mcp__ixaeon__propose_coding_task');
+    // 契约 6：什么时候该提（写代码、修 bug、加功能），写清目标和能验收的条件
+    expect(text).toContain('写代码');
+    expect(text).toContain('修 bug');
+    expect(text).toContain('加功能');
+    expect(text).toContain('写清目标');
+    expect(text).toContain('验收');
+    // 草案要点「要做」才开工，不要自己说已经做完
     expect(text).toContain('「要做」');
     expect(text).toContain('不要自己说已经做完');
     // 原有的记忆路由约定还在

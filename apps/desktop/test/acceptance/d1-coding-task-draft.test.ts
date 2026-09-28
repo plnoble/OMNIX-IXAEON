@@ -71,7 +71,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function setup() {
+function setup(
+  opts: { executor?: FakeCodingExecutor; runCheck?: CodingOrchestrator['runCheck'] } = {},
+) {
   const root = join(dir, 'project');
   mkdirSync(root, { recursive: true });
   writeFileSync(join(root, 'note.txt'), '合成文件');
@@ -79,7 +81,12 @@ function setup() {
   const project = projects.create({ name: '合成项目', rootPath: root, description: null });
   const conversations = new ConversationStore(db);
   const todos = new TodoStore(db);
-  const coding = new CodingOrchestrator(db, new FakeCodingExecutor(), join(dir, 'data'));
+  const coding = new CodingOrchestrator(
+    db,
+    opts.executor ?? new FakeCodingExecutor(),
+    join(dir, 'data'),
+    opts.runCheck as never,
+  );
   const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
   Object.assign(runtime, {
     db,
@@ -267,22 +274,20 @@ describe('聊天里提编码任务草案', () => {
     await askB.askPromise;
   });
 
-  it('对照：一个项目对话加一个个人对话同时在回答 → 用那个项目', async () => {
+  it('对照：项目对话和个人对话同时在回答 → 不建草案', async () => {
+    // 契约 3 的成功路径只认「恰好一个正在回答」；两个提问同时挂着就不满足。
+    // 该报哪种错（「只能在项目对话里提」还是「稍后再提」）规格没写死，留给整合方定；
+    // 这里只钉住：不建任务。见交付说明「已知缺口」。
     const { runtime, conversations, project } = setup();
     const projectConv = conversations.create({ projectId: project.id });
     const personalConv = conversations.create({ projectId: null });
     const projectAsk = startAsk(runtime, projectConv.id, project.id);
     const personalAsk = startAsk(runtime, personalConv.id, null, '随便聊聊');
     await waitActive(runtime, 2);
-    const res = (await runtime.hermesTool('propose_coding_task', {
-      goal: '加个文件',
-      acceptance: ['有文件'],
-    })) as { taskId: string; project: string };
-    expect(res.project).toBe('合成项目');
-    const row = db.prepare('SELECT project_id FROM coding_tasks WHERE id = ?').get(res.taskId) as {
-      project_id: string;
-    };
-    expect(row.project_id).toBe(project.id);
+    await expect(
+      runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
+    ).rejects.toThrow();
+    expect(taskCount()).toBe(0);
     projectAsk.release();
     personalAsk.release();
     await projectAsk.askPromise;
@@ -307,6 +312,8 @@ describe('聊天里提编码任务草案', () => {
       ['条件 0 条', { goal: '加个文件', acceptance: [] }],
       ['条件多于 8 条', { goal: '加个文件', acceptance: Array.from({ length: 9 }, () => '条件') }],
       ['单条条件超 200 字', { goal: '加个文件', acceptance: ['字'.repeat(201)] }],
+      ['单条条件为空字符串', { goal: '加个文件', acceptance: [''] }],
+      ['单条条件为空白字符串', { goal: '加个文件', acceptance: ['   '] }],
       ['scope 越出项目（..）', { goal: '加个文件', acceptance: ['有文件'], scope: '../outside' }],
       [
         'scope 越出项目（绝对路径）',
@@ -349,17 +356,103 @@ describe('聊天里提编码任务草案', () => {
     await ask.askPromise;
   });
 
+  it('约束：草案不批准、不派发、不跑任何命令（回答结束后也一样）', async () => {
+    let executorRuns = 0;
+    let checks = 0;
+    const executor = new FakeCodingExecutor();
+    const original = executor.run.bind(executor);
+    executor.run = async (task, workspace, signal) => {
+      executorRuns += 1;
+      return original(task, workspace, signal);
+    };
+    const runCheck = async () => {
+      checks += 1;
+      return { argv: ['node'], exitCode: 0, output: '', ran: true };
+    };
+    const { runtime, conversations, project } = setup({ executor, runCheck });
+    const conv = conversations.create({ projectId: project.id });
+    const ask = startAsk(runtime, conv.id, project.id);
+    await waitActive(runtime, 1);
+    const res = (await runtime.hermesTool('propose_coding_task', {
+      goal: '加一个 hello.txt',
+      acceptance: ['项目里有 hello.txt'],
+    })) as { taskId: string };
+    const during = db
+      .prepare('SELECT status, approval_id FROM coding_tasks WHERE id = ?')
+      .get(res.taskId) as { status: string; approval_id: string | null };
+    expect(during.status).toBe('draft');
+    expect(during.approval_id).toBeNull();
+    expect(
+      (db.prepare('SELECT COUNT(*) AS n FROM coding_approvals').get() as { n: number }).n,
+    ).toBe(0);
+    ask.release();
+    await ask.askPromise;
+    // 回答结束后也没有任何动静：没批准、没派发、没跑命令，还是草案
+    const after = db
+      .prepare('SELECT status, approval_id FROM coding_tasks WHERE id = ?')
+      .get(res.taskId) as { status: string; approval_id: string | null };
+    expect(after.status).toBe('draft');
+    expect(after.approval_id).toBeNull();
+    expect(executorRuns).toBe(0);
+    expect(checks).toBe(0);
+  });
+
+  it('契约 4：验证命令留空的草案，验收回报里如实写「还没有独立验收」', async () => {
+    const { runtime, conversations, todos, project } = setup();
+    const conv = conversations.create({ projectId: project.id });
+    const ask = startAsk(runtime, conv.id, project.id);
+    await waitActive(runtime, 1);
+    const res = (await runtime.hermesTool('propose_coding_task', {
+      goal: '把说明写清楚',
+      acceptance: ['note.txt 里有一句话'],
+      scope: 'note.txt',
+    })) as { taskId: string };
+    ask.release();
+    await ask.askPromise;
+    const [todo] = todos.list({ status: ['proposed'] }).filter((t) => t.linked_id === res.taskId);
+    // 点「要做」走 D3 的自动派发；验证命令为空 → pending_accept 的回报如实写明
+    await runtime.acceptTodo(todo!.id);
+    await vi.waitFor(() => {
+      const status = (
+        db.prepare('SELECT status FROM coding_tasks WHERE id = ?').get(res.taskId) as {
+          status: string;
+        }
+      ).status;
+      expect(status).toBe('pending_accept');
+    });
+    const msgs = db
+      .prepare('SELECT content, meta_json FROM messages WHERE conversation_id = ? ORDER BY seq')
+      .all(conv.id) as Array<{ content: string; meta_json: string }>;
+    const report = msgs
+      .map((m) => ({
+        content: m.content,
+        meta: JSON.parse(m.meta_json) as Record<string, unknown>,
+      }))
+      .find((m) => m.meta['kind'] === 'task_report');
+    expect(report?.content).toContain('还没有独立验收');
+  });
+
   it('条件 6：名单、MCP 声明、本地服务放行都有这个工具', async () => {
     // 契约 1：HERMES_BRIDGE_TOOLS 名单里有 propose_coding_task
     expect(HERMES_BRIDGE_TOOLS).toContain('propose_coding_task');
-    // 契约 1：Hermes 用的 MCP 服务同步声明它（替身服务只记录注册）
+    // 契约 1：Hermes 用的 MCP 服务同步声明它（替身服务记录注册与处理函数）
     const registered: Array<{ name: string; inputSchema: Record<string, unknown> }> = [];
+    const handlers = new Map<string, (args: unknown) => Promise<unknown>>();
     const stubServer = {
-      registerTool: (name: string, def: { inputSchema: Record<string, unknown> }) => {
+      registerTool: (
+        name: string,
+        def: { inputSchema: Record<string, unknown> },
+        handler: (args: unknown) => Promise<unknown>,
+      ) => {
         registered.push({ name, inputSchema: def.inputSchema });
+        handlers.set(name, handler);
       },
     };
-    registerHermesBridgeTools(stubServer as never, async () => ({ taskId: 'stub' }));
+    const toolCalls: Array<[string, Record<string, unknown>]> = [];
+    registerHermesBridgeTools(stubServer as never, async (name, args) => {
+      toolCalls.push([name, args]);
+      return { taskId: 'stub' };
+    });
     expect(registered.map((r) => r.name)).toEqual(
       expect.arrayContaining([
         'search_memory',
@@ -372,6 +465,15 @@ describe('聊天里提编码任务草案', () => {
     expect(Object.keys(def?.inputSchema ?? {})).toEqual(
       expect.arrayContaining(['goal', 'acceptance', 'scope']),
     );
+    // 真正调一次注册进去的处理函数：名称和参数要原样转给调用通道，返回值原样回来
+    const forwarded = (await handlers.get('propose_coding_task')!({
+      goal: '加个文件',
+      acceptance: ['有文件'],
+    })) as { content: Array<{ text: string }> };
+    expect(toolCalls).toEqual([
+      ['propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }],
+    ]);
+    expect(JSON.parse(forwarded.content[0]!.text)).toEqual({ taskId: 'stub' });
     // 契约 1：本地服务的 /api/hermes/tool 照名单放行
     let config: AppConfig = {
       ...defaultAppConfig(),
