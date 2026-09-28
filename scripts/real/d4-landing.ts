@@ -1,4 +1,4 @@
-/**
+﻿/**
  * D4 真机检查：临时目录里建一个合成的 git 仓库当项目，走完整的
  * 「建任务 → 执行器替身改文件 → 接受」（不调用真 Codex），贴
  * git branch / git log --stat <分支> -1 / git status 的输出，证明
@@ -71,7 +71,7 @@ const scenario = (name: string, files: Record<string, string>) => {
   });
   await coding.approveAndQueue(task.id);
   await coding.dispatch(task.id);
-  const done = coding.accept(task.id);
+  const done = await coding.accept(task.id);
   const branch = `ixaeon/${task.id.slice(0, 8)}`;
   console.log(`\n=== 场景 1：git 仓库 → 建分支（applied_ref=${done.applied_ref}）`);
   console.log('--- git branch：');
@@ -105,7 +105,7 @@ const scenario = (name: string, files: Record<string, string>) => {
     '-m',
     '用户的新提交',
   ]);
-  const done = coding.accept(task.id);
+  const done = await coding.accept(task.id);
   console.log(`\n=== 场景 2：派发后用户提交了同一文件 → 改动包（applied_ref=${done.applied_ref}）`);
   console.log(`apply_error：${done.apply_error}`);
   console.log(`清单：${readFileSync(join(done.applied_ref!, 'manifest.json'), 'utf8').trim()}`);
@@ -126,7 +126,7 @@ const scenario = (name: string, files: Record<string, string>) => {
   });
   await coding.approveAndQueue(task.id);
   await coding.dispatch(task.id);
-  const done = coding.accept(task.id);
+  const done = await coding.accept(task.id);
   console.log(`\n=== 场景 3：不是 git 仓库 → 改动包（applied_ref=${done.applied_ref}）`);
   console.log(`apply_error：${done.apply_error}`);
   console.log(`清单：${readFileSync(join(done.applied_ref!, 'manifest.json'), 'utf8').trim()}`);

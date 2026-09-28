@@ -42,17 +42,15 @@ export function splitCommandLine(line: string): { argv: string[]; unclosed: bool
   return { argv, unclosed: inQuote };
 }
 
-/** 落地结果一行（D4 契约 6：任务页同样显示）。 */
+/** 落地结果一行（D4 契约 6：任务页同样显示；文案与桌面回报同款）。 */
 function landingLine(t: CodingTask): string {
   if (t.applied_ref && /^ixaeon\//.test(t.applied_ref)) {
     return `已在项目仓库建分支 ${t.applied_ref}（没有推送，也没动你的工作区）。要合并：git merge ${t.applied_ref}`;
   }
-  if (t.applied_ref) {
-    return `改动包在 ${t.applied_ref}（${t.apply_error ?? '原因未记录'}）`;
-  }
+  if (t.applied_ref) return `改动包在 ${t.applied_ref}（${t.apply_error ?? '原因未记录'}）`;
   if (t.apply_error) return t.apply_error;
   if (t.status !== 'completed') return '';
-  // 零改动看执行报告，不看落地字段为空：有改动但没落地的旧任务不能误标「没有改动」。
+  // 零改动看执行报告：有改动但没落地的旧任务不能误标「没有改动」。
   const changed = t.executor_report_json
     ? ((JSON.parse(t.executor_report_json) as { changedPaths?: string[] }).changedPaths ?? [])
     : [];

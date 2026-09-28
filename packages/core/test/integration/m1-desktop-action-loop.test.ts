@@ -188,7 +188,7 @@ console.log('ALL_CHECKS_PASSED');
     expect(dispatched.verify_output).toContain('ALL_CHECKS_PASSED');
 
     // 4. 用户在桌面最终验收产物，转为 completed
-    const accepted = coding.accept(task.id);
+    const accepted = await coding.accept(task.id);
     expect(accepted.status).toBe('completed');
 
     // 4. 核验生成的工作记录（work_runs）

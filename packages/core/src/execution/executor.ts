@@ -598,7 +598,7 @@ export class CodingOrchestrator {
     });
   }
 
-  accept(taskId: string): CodingTask {
+  async accept(taskId: string): Promise<CodingTask> {
     const task = this.store.get(taskId);
     if (task.status !== 'pending_accept') {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '只有待用户接受的任务可以接受');
@@ -613,7 +613,7 @@ export class CodingOrchestrator {
     });
     // D4：接受之后落地——建分支 / 改动包；结果写回任务行，失败不吞掉接受本身。
     try {
-      const outcome = landTask(this.db, accepted, this.dataDir);
+      const outcome = await landTask(this.db, accepted, this.dataDir);
       return this.store.setLanding(taskId, {
         appliedRef: outcome.ref,
         applyError: outcome.reason,
