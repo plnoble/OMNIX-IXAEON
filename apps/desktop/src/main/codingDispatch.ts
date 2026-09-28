@@ -54,8 +54,8 @@ export class CodingDispatch {
         const done = await this.host.coding.dispatch(next.id).catch((err: unknown) => {
           // 互斥拒绝：等当前任务结束再来；别的拒绝：任务照旧排队，本轮跳过不卡后面的
           const conflict = (err as { code?: string })?.code === ErrorCodes.CONFLICT;
-          if (conflict) this.resumeAfterRunning = true;
-          else skipped.push(next.id);
+          this.resumeAfterRunning = conflict;
+          if (!conflict) skipped.push(next.id);
           return null;
         });
         if (!done && this.resumeAfterRunning) return;

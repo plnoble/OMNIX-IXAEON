@@ -734,6 +734,45 @@ describe('点「要做」就开工并回报', () => {
     await vi.waitFor(() => expect(order).toEqual(['后面的']));
     expect(taskStatus(blocked.taskId)).toBe('queued');
   });
+
+  it('手动任务结束后队首派发被拒：跳过它继续派后面的', async () => {
+    let releaseRun!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const order: string[] = [];
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      order.push(task.goal.split('\n')[0]!);
+      if (task.goal.startsWith('手动的')) await gate;
+      return original(task, workspace, signal);
+    };
+    const manual = h.coding.create({
+      projectId: h.projectId,
+      goal: '手动的',
+      scope: ['note.txt'],
+      allowedCommands: [],
+    });
+    await h.coding.approveAndQueue(manual.id);
+    const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
+    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    const blocked = await proposedTask(h, { goal: '被拒的' });
+    const next = await proposedTask(h, {
+      goal: '后面的',
+      conversationId: blocked.conversationId,
+    });
+    await h.runtime.acceptTodo(blocked.todoId);
+    await h.runtime.acceptTodo(next.todoId);
+    db.prepare('UPDATE coding_approvals SET revoked_at = ? WHERE task_id = ?').run(
+      new Date().toISOString(),
+      blocked.taskId,
+    );
+    releaseRun();
+    await running;
+    await vi.waitFor(() => expect(order).toEqual(['手动的', '后面的']));
+    expect(taskStatus(blocked.taskId)).toBe('queued');
+  });
 });
 
 function reports(conversationId: string) {
