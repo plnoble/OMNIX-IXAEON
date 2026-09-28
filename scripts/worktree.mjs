@@ -17,7 +17,7 @@
  * 命令输出（日志）写进各自工作目录的 .logs/（已在 .gitignore），随工作目录一起删。
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 function git(args, opts = {}) {
@@ -140,6 +140,9 @@ if (cmd === 'root') {
       continue;
     }
     must(['worktree', 'remove', '--force', wt.path]);
+    // Windows 上 git 删不干净依赖目录（路径太长、目录链接），文件夹会留下一大半。
+    // 用 Node 删剩下的：遇到目录链接只删链接本身，不会顺着删到链接指向的地方。
+    if (existsSync(wt.path)) rmSync(wt.path, { recursive: true, force: true, maxRetries: 3 });
     // 上面已核对分支已并入 origin/main，删本地分支不丢提交（共用检出目录的 main 可能落后，-d 会误拒）
     git(['branch', '-D', wt.branch]);
     console.log(`已删 ${wt.path}（${wt.branch}）`);
