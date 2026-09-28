@@ -330,6 +330,12 @@ export const codingTaskSchema = z.object({
   error: z.string().nullable(),
   created_at: isoDateTimeSchema,
   updated_at: isoDateTimeSchema,
+  // 迁移 38（D1/D4）：聊天里提任务时的验收条件；接受后的落地结果——
+  // 建出的分支名或补丁目录、落地时间、没落成的原因。
+  acceptance_json: z.string().nullable(),
+  applied_ref: z.string().nullable(),
+  applied_at: isoDateTimeSchema.nullable(),
+  apply_error: z.string().nullable(),
 });
 export type CodingTask = z.infer<typeof codingTaskSchema>;
 

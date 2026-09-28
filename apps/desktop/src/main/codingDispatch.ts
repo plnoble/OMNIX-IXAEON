@@ -4,6 +4,7 @@ import {
   buildTaskReport,
   codexMissingReport,
   conversationForRun,
+  landingReport,
   reportAlreadyWritten,
   type TaskReportMessage,
   type TaskReportRow,
@@ -36,6 +37,12 @@ export class CodingDispatch {
     if (!this.host.db.open) return;
     this.write(taskId, buildTaskReport(taskReportRow(this.host.db, taskId)));
     if (this.resumeAfterRunning && this.host.coding.store.runningCount() === 0) void this.drain();
+  }
+
+  /** D4：接受之后的落地回报（追加，不改写「等你验收」那条）。 */
+  writeLanding(taskId: string): void {
+    if (!this.host.db.open) return;
+    this.write(taskId, landingReport(taskReportRow(this.host.db, taskId)));
   }
 
   private async drain(): Promise<void> {

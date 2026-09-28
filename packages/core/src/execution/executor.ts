@@ -14,6 +14,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { ErrorCodes, IxaError, type CodingTask } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { CodingTaskStore } from './taskStore.js';
+import { landTask } from './landing.js';
 import { SkillCandidateStore } from '../runtime/skills.js';
 
 const PLACEHOLDER_VERIFY = ['node', '-e', 'process.exit(0)'];
@@ -39,6 +40,11 @@ export interface ExecutorReport {
   changedPaths: string[];
   testsModified: boolean;
   raw: string;
+  /**
+   * D4（契约 3）：派发时记下每个改动文件**改之前**的指纹（hashWorkspace(before)），
+   * 新文件记为 null（不存在）。落地时与项目当前 HEAD 比对，对不上就是冲突。
+   */
+  baseHashes?: Record<string, string | null>;
 }
 
 export interface CodingExecutor {
@@ -472,7 +478,15 @@ export class CodingOrchestrator {
       const changed = uniquePaths([...claimed, ...actualChanged]);
       this.store.assertChangedPathsInScope(task, changed);
       const testsModified = changed.some((p) => /test/i.test(p)) || report.testsModified;
-      const merged: ExecutorReport = { ...report, changedPaths: changed, testsModified };
+      // D4：改之前每个文件的指纹（新文件 null），存进执行报告，落地时比对 HEAD。
+      const baseHashes: Record<string, string | null> = {};
+      for (const rel of changed) baseHashes[rel] = before.get(rel) ?? null;
+      const merged: ExecutorReport = {
+        ...report,
+        changedPaths: changed,
+        testsModified,
+        baseHashes,
+      };
       if (!report.claimedSuccess) {
         const failed = this.store.setStatus(taskId, 'failed', {
           executorName: this.executor.name,
@@ -594,9 +608,25 @@ export class CodingOrchestrator {
     }
     const now = new Date().toISOString();
     this.recordWorkRun(task, task.verify_status === 'passed' ? 'success' : 'partial', now);
-    return this.store.setStatus(taskId, 'completed', {
+    const accepted = this.store.setStatus(taskId, 'completed', {
       acceptedAt: now,
     });
+    // D4：接受之后落地——建分支 / 改动包；结果写回任务行，失败不吞掉接受本身。
+    try {
+      const outcome = landTask(this.db, accepted, this.dataDir);
+      return this.store.setLanding(taskId, {
+        appliedRef: outcome.ref,
+        applyError: outcome.reason,
+        now: new Date().toISOString(),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.split('\n')[0]! : String(err);
+      return this.store.setLanding(taskId, {
+        appliedRef: null,
+        applyError: `落地出错：${msg}`,
+        now: new Date().toISOString(),
+      });
+    }
   }
 
   private recordWorkRun(

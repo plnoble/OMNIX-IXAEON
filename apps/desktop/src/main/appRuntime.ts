@@ -1701,6 +1701,17 @@ export class AppRuntime {
     return done;
   }
 
+  /**
+   * D4：任务页点「接受」——核心 accept（含落地：建分支 / 改动包），再把落地结果
+   * 追加回报给发起任务的原对话（契约 6）。IPC 的 acceptCodingTask 走这里，
+   * 不再直调 coding.accept（那会落地了也不回报）。
+   */
+  async acceptCodingTask(id: string): Promise<CodingTask> {
+    const done = await this.coding.accept(id);
+    this.codingDispatch.writeLanding(done.id);
+    return done;
+  }
+
   async rejectTodo(id: string): Promise<Todo> {
     const todo = this.todos.get(id);
     const rejectable = todo.status === 'proposed' || todo.status === 'accepted';

@@ -196,6 +196,7 @@ export {
   type ExecutorReport,
   type IndependentCheck,
 } from './execution/executor.js';
+export { landTask, type LandingOutcome } from './execution/landing.js';
 export {
   locateHermes,
   hermesSpawnEnv,

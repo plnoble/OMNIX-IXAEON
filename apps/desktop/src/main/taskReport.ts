@@ -13,6 +13,10 @@ export interface TaskReportRow {
   verify_status: string | null;
   verify_output: string | null;
   executor_report_json: string | null;
+  // D4：落地结果（迁移 38）。
+  applied_ref: string | null;
+  applied_at: string | null;
+  apply_error: string | null;
 }
 
 export interface TaskReportMessage {
@@ -84,6 +88,34 @@ const reportOf = (row: TaskReportRow, content: string, status: string): TaskRepo
   content,
   meta: { kind: 'task_report', taskId: row.id, status },
 });
+
+/**
+ * D4（契约 6）：接受之后的落地回报，追加在「等你验收」那条后面。
+ * 建了分支：说清分支名、没推送、没动工作区、怎么合并；
+ * 没能建分支：写明原因与改动包位置；没有改动：如实写。
+ */
+export function landingReport(row: TaskReportRow): TaskReportMessage | null {
+  if (row.status !== 'completed') return null;
+  if (row.applied_ref && /^ixaeon\//.test(row.applied_ref)) {
+    const branch = row.applied_ref;
+    return reportOf(
+      row,
+      `已在项目仓库建分支 ${branch}（没有推送，也没动你的工作区）。要合并：git merge ${branch}`,
+      'landed_branch',
+    );
+  }
+  if (row.applied_ref) {
+    return reportOf(
+      row,
+      `没能建分支（${row.apply_error ?? '原因未记录'}），改动包在 ${row.applied_ref}`,
+      'landed_patch',
+    );
+  }
+  if (row.apply_error) {
+    return reportOf(row, `没能落地（${row.apply_error}）。`, 'landing_denied');
+  }
+  return reportOf(row, '这次没有改动文件，没有落地。', 'no_changes');
+}
 
 export function buildTaskReport(row: TaskReportRow): TaskReportMessage | null {
   if (row.status === 'pending_accept') return reportOf(row, pendingAccept(row), row.status);
