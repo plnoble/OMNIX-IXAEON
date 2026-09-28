@@ -93,6 +93,7 @@ import {
   type SetupInput,
   type Todo,
   type TodoStatus,
+  type CodingTask,
   type TodoView,
   type WorkRun,
 } from '@ixaeon/contracts';
@@ -101,6 +102,7 @@ import { LocalServer } from './server/localServer.js';
 import { bridgeBlockedReason, bridgeEntry, writeHermesBridgeEntry } from './hermesBridge.js';
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
 import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './researchFetch.js';
+import { CodingDispatch } from './codingDispatch.js';
 import type { TinyFishFetcher } from '@ixaeon/core';
 import { syncBundledExtension } from './extensionBundle.js';
 
@@ -163,6 +165,7 @@ export class AppRuntime {
   private askDeltaSink: ((e: AskDeltaEvent) => void) | null = null;
   /** P2：把等待阶段推到当前窗口。 */
   private askProgressSink: ((e: AskProgressEvent) => void) | null = null;
+  taskReportSink: ((e: { conversationId: string }) => void) | null = null;
   /** S1：取消后丢掉迟到的分段，不再写库、不再发事件。 */
   private cancelledAskRuns = new Set<string>();
   /** P1：预热好的空闲问答会话（最多一个），见 prewarmChat。 */
@@ -170,6 +173,11 @@ export class AppRuntime {
   private warming = false;
   /** 这一问用掉了预热会话：答完再备一个。 */
   private rewarmAfterAsk = false;
+  private codingDispatchRef: CodingDispatch | null = null;
+  private get codingDispatch(): CodingDispatch {
+    return (this.codingDispatchRef ??= new CodingDispatch(this));
+  }
+  codexLocator: (() => ReturnType<typeof resolveCodexLocator>) | null = resolveCodexLocator;
   /** S3a：列出后的内存清单（编号 → 路径、授权），30 分钟过期。 */
   private agentSessionLists: Map<
     string,
@@ -1682,9 +1690,17 @@ export class AppRuntime {
     if (todo.status === 'proposed' && todo.linked_kind === 'coding_task' && todo.linked_id) {
       // 拍板「要做」= 批准编码任务并排队；批准失败原样报错，待办不动
       await this.coding.approveAndQueue(todo.linked_id);
+      this.codingDispatch.kick(todo.linked_id);
     }
     return this.todos.accept(id);
   }
+
+  async finishCodingTask(id: string, how: 'dispatch' | 'cancel'): Promise<CodingTask> {
+    const done = how === 'dispatch' ? await this.coding.dispatch(id) : this.coding.cancel(id);
+    this.codingDispatch.onTaskSettled(done.id);
+    return done;
+  }
+
   async rejectTodo(id: string): Promise<Todo> {
     const todo = this.todos.get(id);
     const rejectable = todo.status === 'proposed' || todo.status === 'accepted';
@@ -1695,6 +1711,7 @@ export class AppRuntime {
         .get(todo.linked_id) as { status: string } | undefined;
       if (row && !['completed', 'failed', 'cancelled'].includes(row.status)) {
         this.coding.cancel(todo.linked_id);
+        this.codingDispatch.onTaskSettled(todo.linked_id);
       }
     }
     return this.todos.reject(id);

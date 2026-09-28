@@ -181,6 +181,14 @@ export function AskPage({
   }, []);
 
   useEffect(() => {
+    const off = api.onTaskReport?.((e) => {
+      if (shownId.current === e.conversationId)
+        void openConversation(e.conversationId).catch((err) => setError(errMsg(err)));
+    });
+    return () => off?.();
+  }, [openConversation]);
+
+  useEffect(() => {
     if (!api.onAskDelta) return;
     const off = api.onAskDelta((e) => {
       const w = waiting.current;

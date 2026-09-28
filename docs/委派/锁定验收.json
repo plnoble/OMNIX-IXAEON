@@ -232,6 +232,14 @@
       "files": {
         "packages/core/test/acceptance/m1-streaming.test.ts": "0d55f7577a01c9293b2d0a2a58a3f89ab770f4c61f3f05df28b2b39b28f271c8"
       }
+    },
+    {
+      "id": "D3",
+      "title": "点要做就开工并回报",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "75f5e60ecc4971b5f9a11a6a614286548002caf25fc39cdd8430e68fa49713d0"
+      }
     }
   ]
 }
