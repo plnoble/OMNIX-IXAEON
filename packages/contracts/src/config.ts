@@ -112,7 +112,8 @@ export const DATA_DIR_LAYOUT = {
  * 这个模块只在主进程用；非法值（空、非数字、越界）退回默认，不落到 0。
  */
 function httpPort(): number {
-  const raw = process.env['IXAEON_HTTP_PORT'];
+  // 整合方抽查补：约定包也会被界面进程引用；没有 process 的环境里别在加载时就报错
+  const raw = typeof process === 'undefined' ? undefined : process.env['IXAEON_HTTP_PORT'];
   const port = raw === undefined ? 43191 : Number(raw);
   return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 43191;
 }

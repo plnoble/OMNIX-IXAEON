@@ -431,9 +431,15 @@ async function readEvents(res: Response, onEvent: (data: string) => boolean | vo
   }
 }
 
-/** /responses 的流：累加 output_text.delta，completed 结束，failed / error 抛错。 */
+/**
+ * /responses 的流：累加 output_text.delta，completed 结束，failed / error 抛错。
+ * 整合方抽查补（2026-09-28）：有的兼容网关的「流」只发 created 和 completed，全文放在
+ * completed 的 response.output 里、一段 delta 都没有——只认 delta 的话，每次都判成空文本，
+ * 重试也一样，分析、判定、翻译全停。没收到 delta 时改用 completed 里的全文。
+ */
 async function readResponsesStream(res: Response): Promise<string> {
   let text = '';
+  let completedText = '';
   let finished = false;
   await readEvents(res, (data) => {
     const event = JSON.parse(data) as {
@@ -442,7 +448,10 @@ async function readResponsesStream(res: Response): Promise<string> {
       code?: string | number;
       message?: string;
       error?: { type?: string | number; code?: string | number; message?: string };
-      response?: { error?: { type?: string | number; code?: string | number; message?: string } };
+      response?: {
+        error?: { type?: string | number; code?: string | number; message?: string };
+        output?: Array<{ content?: Array<{ text?: string }> }>;
+      };
     };
     if (event.type === 'response.output_text.delta') {
       text += event.delta ?? '';
@@ -450,6 +459,11 @@ async function readResponsesStream(res: Response): Promise<string> {
     }
     if (event.type === 'response.completed') {
       finished = true;
+      completedText = (event.response?.output ?? [])
+        .flatMap((part) => part.content ?? [])
+        .map((c) => (typeof c.text === 'string' ? c.text : ''))
+        .filter((t) => t.length > 0)
+        .join('\n');
       return true; // 到头了，停止读取
     }
     if (event.type === 'response.failed' || event.type === 'error') {
@@ -464,30 +478,44 @@ async function readResponsesStream(res: Response): Promise<string> {
   });
   // 没等到 completed 就断流 = 截断，不算成功；只收到 completed 没有文字 = 空文本。
   if (!finished) throw new ModelError('API 返回空文本（流在完成前结束）', true);
+  if (text.length === 0) text = completedText;
   if (text.length === 0) throw new ModelError('API 返回空文本', true);
   return text;
 }
 
-/** /chat/completions 的流：累加 delta.content，[DONE] 结束。 */
+/**
+ * /chat/completions 的流：累加 delta.content，[DONE] 结束。
+ * 整合方抽查补（2026-09-28）：有的网关发完带 finish_reason 的那一块就断开、不发 [DONE]；
+ * 看到 finish_reason 也算正常结束。最后一块用 message.content 而不是 delta 的也收下。
+ */
 async function readChatStream(res: Response): Promise<string> {
   let text = '';
   let done = false;
+  let finishedByReason = false;
   await readEvents(res, (data) => {
     if (data.trim() === '[DONE]') {
       done = true;
       return true; // 到头了，停止读取
     }
     const event = JSON.parse(data) as {
-      choices?: Array<{ delta?: { content?: string } }>;
+      choices?: Array<{
+        delta?: { content?: string };
+        message?: { content?: string };
+        finish_reason?: string | null;
+      }>;
       error?: { type?: string | number; code?: string | number; message?: string };
     };
     if (event.error)
       throw streamError(event.error.type, event.error.code, event.error.message ?? '');
-    text += event.choices?.[0]?.delta?.content ?? '';
+    const choice = event.choices?.[0];
+    text += choice?.delta?.content ?? choice?.message?.content ?? '';
+    if (choice?.finish_reason) finishedByReason = true;
     return false;
   });
-  // 没等到 [DONE] 就断流 = 截断，不算成功。
-  if (!done) throw new ModelError('API 返回空文本（流在完成前结束）', true);
+  // 没等到 [DONE]、也没见到 finish_reason 就断流 = 截断，不算成功。
+  if (!done && !finishedByReason) {
+    throw new ModelError('API 返回空文本（流在完成前结束）', true);
+  }
   if (text.length === 0) throw new ModelError('API 返回空文本', true);
   return text;
 }
