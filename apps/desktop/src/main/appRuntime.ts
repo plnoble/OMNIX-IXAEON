@@ -1701,9 +1701,6 @@ export class AppRuntime {
     return done;
   }
 
-  setTaskReportSink(sink: ((e: { conversationId: string }) => void) | null): void {
-    this.taskReportSink = sink;
-  }
   async rejectTodo(id: string): Promise<Todo> {
     const todo = this.todos.get(id);
     const rejectable = todo.status === 'proposed' || todo.status === 'accepted';

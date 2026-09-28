@@ -330,6 +330,27 @@ describe('点「要做」就开工并回报', () => {
     expect(reports(conversationId)[0]!.content).toContain('验证没跑：工作区里没有 pnpm');
   });
 
+  it('条件 3：两个对话各有一个任务，回报只写进各自的来源对话', async () => {
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true }, passingCheck);
+    const first = await proposedTask(h, {
+      goal: '第一个对话的任务',
+      commands: [[process.execPath, '-e', 'process.exit(0)']],
+    });
+    const other = h.conversations.create({ projectId: h.projectId });
+    const second = await proposedTask(h, {
+      goal: '第二个对话的任务',
+      conversationId: other.id,
+      commands: [[process.execPath, '-e', 'process.exit(0)']],
+    });
+    await h.runtime.acceptTodo(first.todoId);
+    await vi.waitFor(() => expect(reports(first.conversationId)).toHaveLength(1));
+    await h.runtime.acceptTodo(second.todoId);
+    await vi.waitFor(() => expect(reports(other.id)).toHaveLength(1));
+    expect(reports(first.conversationId)[0]!.content).toContain('第一个对话的任务');
+    expect(reports(other.id)[0]!.content).toContain('第二个对话的任务');
+    expect(reports(first.conversationId)).toHaveLength(1);
+  });
+
   it('条件 4：验证失败 → 回报含原因', async () => {
     const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true }, failingCheck);
     const { todoId, conversationId } = await proposedTask(h, {
@@ -688,6 +709,30 @@ describe('点「要做」就开工并回报', () => {
     releaseRun();
     await running;
     await vi.waitFor(() => expect(order).toEqual(['手动的', '稍后的']));
+  });
+
+  it('派发被拒的任务不卡住后面的：跳过它继续派下一个', async () => {
+    const order: string[] = [];
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      order.push(task.goal.split('\n')[0]!);
+      return original(task, workspace, signal);
+    };
+    const blocked = await proposedTask(h, { goal: '被拒的' });
+    const next = await proposedTask(h, {
+      goal: '后面的',
+      conversationId: blocked.conversationId,
+    });
+    await h.runtime.acceptTodo(blocked.todoId);
+    await h.runtime.acceptTodo(next.todoId);
+    // 撤销被拒任务的批准：liveApproval 会拒绝派发
+    db.prepare('UPDATE coding_approvals SET revoked_at = ? WHERE task_id = ?').run(
+      new Date().toISOString(),
+      blocked.taskId,
+    );
+    await vi.waitFor(() => expect(order).toEqual(['后面的']));
+    expect(taskStatus(blocked.taskId)).toBe('queued');
   });
 });
 

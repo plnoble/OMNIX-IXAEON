@@ -60,8 +60,10 @@ function pendingAccept(row: TaskReportRow): string {
   if (acceptance.length > 0) lines.push('验收条件：', ...acceptance.map((a) => `- ${a}`));
   lines.push(verifyLine(row));
   const changed = stringList(row.executor_report_json, 'changedPaths');
-  const more = changed.length > MAX_CHANGED ? `，共 ${changed.length} 个` : '';
-  if (changed.length > 0) lines.push(`改了 ${changed.slice(0, MAX_CHANGED).join('、')}${more}`);
+  if (changed.length > 0)
+    lines.push(
+      `改了 ${changed.slice(0, MAX_CHANGED).join('、')}${changed.length > MAX_CHANGED ? `，共 ${changed.length} 个` : ''}`,
+    );
   lines.push('去任务页看改动，点接受。');
   return lines.join('\n');
 }
