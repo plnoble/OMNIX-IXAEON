@@ -1,16 +1,13 @@
 # D4 Codex 审查
 
-- 时间：2026-09-28T11:22:29.578Z
-- 分支：grok/D4（6634a9e），对照 docs/委派/D4-接受后在项目里建分支.md
+- 时间：2026-09-28T11:56:11.032Z
+- 分支：grok/D4（159b881），对照 docs/委派/D4-接受后在项目里建分支.md
 - Codex：0.158.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:552–581`：目录换文件并不必然写入失败，先删除旧文件和空目录即可成功；当前测试会拒绝合法实现，也无法证明失败发生在工作树建立之后。应注入确定的写入故障再验证清理。
-- 必须改｜`apps/desktop/test/acceptance/d4-landing-report.test.ts:190`：直接调用新增的 `runtime.acceptCodingTask`，没有覆盖实际 IPC 接受入口；即使现有 IPC 仍调用 `runtime.coding.accept`、用户点击后没有对话回报，这些测试也能通过。
-- 必须改｜`apps/desktop/test/acceptance/d4-landing-report.test.ts:202–207`：列表对象包含字段不能证明任务页显示了落地结果；页面完全不渲染分支、改动包和错误原因也能通过，遗漏契约 6 的界面要求。
-- 必须改｜`apps/desktop/test/acceptance/d4-landing-report.test.ts:221–223`：失败回报只检查固定短语和任务 id，没有核对失败原因、实际改动包路径及追加行为；缺少原因、路径错误或覆盖原回报均可能通过。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:305–309`：三点差异比较不能证明分支从接受时的当前 `HEAD` 建立；缺少“派发后提交其他文件”的成功场景，使用过期基线、遗漏用户新提交的实现仍可能通过，应核对新提交的父节点。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:390–396`：派发和接受始终使用同一个实例，没有验证契约 3 要求的原始指纹持久化；仅在内存保存指纹的实现也能通过，应覆盖重新加载任务后接受的场景。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:381–422`：冲突测试只涉及原有文件，没有覆盖“原本不存在的新文件在派发后被用户提交”；遗漏契约 3 的不存在基线，忽略新增路径冲突并覆盖用户文件的实现仍能通过。
-- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:227–236`：测试自行固定了 `manifest.json` 及四个字段，规格只规定清单内容，未规定此格式。需要人工确认：整合方是否批准了这个新增输出接口；未经确认不应将其锁成验收条件。
+- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:174–178`：所有用例都填写了项目根目录，遗漏契约 2 的“没有根目录”分支；需验证接受时根目录为空也不落地，并记录规定的授权错误。
+- 必须改｜`packages/core/test/acceptance/d4-apply-branch.test.ts:581–589`：授权反例只有完全无关的目录，错误的字符串 `startsWith` 判断也能通过；需补“授权 project、项目位于 project-other”的反例，验证文件夹授权边界。
+- 必须改｜`apps/desktop/test/acceptance/d4-tasks-page.test.ts:90–95`：分支卡片只断言分支名和“没有推送”，遗漏契约 6 要求同样显示的工作区保护说明及 `git merge <分支>` 指引，页面缺少这些信息仍会通过。
+- 建议｜`docs/委派/交付/D4.md:91–92`：需要人工确认：整合方是否认可测试写死的清单格式和 `AppRuntime.acceptCodingTask` 入口；这些尚未由规格确定，锁定后执行方不能自行改名或改字段。
+- 建议｜`apps/desktop/test/acceptance/d4-landing-report.test.ts:83–90`：桌面测试未像核心测试那样隔离 Git 全局配置，本机的提交签名或全局钩子可能使合成仓库初始化失败；应采用相同的配置隔离。
 
 结论：需要修改

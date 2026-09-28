@@ -87,11 +87,13 @@ async function render(): Promise<void> {
 const $ = (testId: string) => container.querySelector(`[data-testid="${testId}"]`);
 
 describe('任务页显示落地结果（契约 6）', () => {
-  it('建了分支的任务：卡片上显示分支名，写明没有推送', async () => {
+  it('建了分支的任务：卡片上显示分支名、没推送、没动工作区、怎么合并', async () => {
     await render();
     const card = $('task-landed')?.textContent ?? '';
     expect(card).toContain('ixaeon/abcd1234');
     expect(card).toContain('没有推送');
+    expect(card).toContain('没动你的工作区');
+    expect(card).toContain('git merge ixaeon/abcd1234');
   });
 
   it('改动包的任务：卡片上显示位置和原因', async () => {

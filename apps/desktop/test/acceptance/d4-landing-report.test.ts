@@ -45,8 +45,14 @@ vi.mock('electron', () => ({
 
 let dir: string;
 let db: CoreDatabase;
+const savedGit: Record<string, string | undefined> = {};
 
 beforeEach(() => {
+  // 与核心验收测试同样隔开 git 全局配置：本机的提交签名或全局钩子不能影响合成仓库
+  for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM']) {
+    savedGit[key] = process.env[key];
+    process.env[key] = 'nul';
+  }
   dir = mkdtempSync(join(tmpdir(), 'ixaeon-d4r-'));
   db = openDatabase(join(dir, 'ixaeon.db'));
   migrate(db);
@@ -54,6 +60,10 @@ beforeEach(() => {
 
 afterEach(async () => {
   if (db.open) db.close();
+  for (const key of Object.keys(savedGit)) {
+    if (savedGit[key] === undefined) delete process.env[key];
+    else process.env[key] = savedGit[key];
+  }
   // 落地的工作树、副本可能还占着文件，删不掉就等一下再试
   for (let i = 0; i < 5; i += 1) {
     try {

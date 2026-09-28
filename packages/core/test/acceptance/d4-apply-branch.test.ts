@@ -589,6 +589,43 @@ it('条件 6：有效授权在别处、项目不在其内 → 不落地', async 
   expect(git(h.root, ['branch', '--list', 'ixaeon/*'])).toBe('');
 });
 
+it('条件 6：授权目录只是字符串前缀相同、并不包含项目 → 不落地', async () => {
+  // 授权路径取项目根去掉最后一个字符（如授权 …/root-abc12、项目根是 …/root-abc123）：
+  // 字符串前缀相同，但它不是项目根的祖先目录——拿 startsWith 判「包含」的实现会误判成已授权
+  const h = harness({ gitRepo: true, grant: false });
+  const prefixDir = h.root.slice(0, -1);
+  mkdirSync(prefixDir);
+  new PermissionService(db!).grantFolder(prefixDir);
+  const taskId = await acceptWith(h, { 'note.txt': '不该落地' });
+  const r = row(taskId);
+  expect(r.applied_ref).toBeNull();
+  expect(r.apply_error ?? '').toContain('没有这个项目目录的读取授权');
+  expect(existsSync(patchDir(h.dataDir, taskId))).toBe(false);
+  expect(git(h.root, ['branch', '--list', 'ixaeon/*'])).toBe('');
+});
+
+it('条件 6：接受时项目没有根目录 → 不落地，写明原因', async () => {
+  const h = harness({ gitRepo: true, grant: true });
+  useFiles(h, { 'note.txt': '代理改的' });
+  const task = h.coding.create({
+    projectId: h.projectId,
+    goal: '改说明',
+    scope: ['note.txt'],
+    allowedCommands: [],
+  });
+  await h.coding.approveAndQueue(task.id);
+  await h.coding.dispatch(task.id);
+  // 接受之前项目没了根目录（目录解绑或没设置）
+  db!.prepare('UPDATE projects SET root_path = NULL WHERE id = ?').run(h.projectId);
+  await h.coding.accept(task.id);
+  const r = row(task.id);
+  expect(r.applied_ref).toBeNull();
+  expect(r.applied_at).toBeNull();
+  expect(r.apply_error ?? '').toContain('没有这个项目目录的读取授权');
+  expect(existsSync(patchDir(h.dataDir, task.id))).toBe(false);
+  expect(git(h.root, ['branch', '--list', 'ixaeon/*'])).toBe('');
+});
+
 it('条件 6：授权给父目录（项目在授权范围之内）→ 照常建分支', async () => {
   const h = harness({ gitRepo: true, grantParent: true });
   const taskId = await acceptWith(h, { 'note.txt': '照常落地' });
