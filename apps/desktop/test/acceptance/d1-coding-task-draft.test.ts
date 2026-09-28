@@ -174,8 +174,8 @@ describe('聊天里提编码任务草案', () => {
     })) as { taskId: string; status: string; project: string; note: string };
     expect(res.status).toBe('draft');
     expect(res.project).toBe('合成项目');
-    expect(res.note).toContain('「要做」');
-    expect(res.note).toContain('不要说已经做完');
+    // 契约 5：note 文案规格写死，逐字核对
+    expect(res.note).toBe('草案已建：用户在这条回答下面点「要做」才会开工；不要说已经做完');
     const row = db
       .prepare(
         'SELECT project_id, goal, origin_run_id, acceptance_json, status, scope_json, allowed_commands_json FROM coding_tasks WHERE id = ?',
@@ -242,7 +242,7 @@ describe('聊天里提编码任务草案', () => {
     const { runtime } = setup();
     await expect(
       runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
-    ).rejects.toThrow('编码任务只能在项目对话里提');
+    ).rejects.toThrow('编码任务只能在项目对话里提（先选项目、开新对话）');
     expect(taskCount()).toBe(0);
   });
 
@@ -261,7 +261,7 @@ describe('聊天里提编码任务草案', () => {
         acceptance: ['有文件'],
         projectId: other.id,
       }),
-    ).rejects.toThrow('编码任务只能在项目对话里提');
+    ).rejects.toThrow('编码任务只能在项目对话里提（先选项目、开新对话）');
     expect(taskCount()).toBe(0);
   });
 
@@ -281,7 +281,7 @@ describe('聊天里提编码任务草案', () => {
         acceptance: ['有文件'],
         projectId: other.id,
       }),
-    ).rejects.toThrow('编码任务只能在项目对话里提');
+    ).rejects.toThrow('编码任务只能在项目对话里提（先选项目、开新对话）');
     expect(taskCount()).toBe(0);
     ask.release();
     await ask.askPromise;
@@ -294,7 +294,7 @@ describe('聊天里提编码任务草案', () => {
     await waitActive(runtime, 1);
     await expect(
       runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
-    ).rejects.toThrow('编码任务只能在项目对话里提');
+    ).rejects.toThrow('编码任务只能在项目对话里提（先选项目、开新对话）');
     expect(taskCount()).toBe(0);
     ask.release();
     await ask.askPromise;
@@ -349,6 +349,10 @@ describe('聊天里提编码任务草案', () => {
     })) as { status: string };
     expect(ok.status).toBe('draft');
     const cases: Array<[string, Record<string, unknown>]> = [
+      ['缺 goal', { acceptance: ['有文件'] }],
+      ['缺 acceptance', { goal: '加个文件' }],
+      ['goal 不是字符串', { goal: 42, acceptance: ['有文件'] }],
+      ['acceptance 不是数组', { goal: '加个文件', acceptance: '有文件' }],
       ['目标为空', { goal: '', acceptance: ['有文件'] }],
       ['目标是空白', { goal: '   ', acceptance: ['有文件'] }],
       ['目标超 2000 字', { goal: '字'.repeat(2001), acceptance: ['有文件'] }],
@@ -379,6 +383,21 @@ describe('聊天里提编码任务草案', () => {
       });
     }
     // 只有开头那次合法调用建了任务，非法参数一次都没建
+    expect(taskCount()).toBe(1);
+    ask.release();
+    await ask.askPromise;
+  });
+
+  it('条件 4 对照：合法上限都能建出草案（目标 2000 字、8 条条件、单条 200 字）', async () => {
+    const { runtime, conversations, project } = setup();
+    const conv = conversations.create({ projectId: project.id });
+    const ask = startAsk(runtime, conv.id, project.id);
+    await waitActive(runtime, 1);
+    const res = (await runtime.hermesTool('propose_coding_task', {
+      goal: '字'.repeat(2000),
+      acceptance: Array.from({ length: 8 }, () => '条'.repeat(200)),
+    })) as { status: string };
+    expect(res.status).toBe('draft');
     expect(taskCount()).toBe(1);
     ask.release();
     await ask.askPromise;
