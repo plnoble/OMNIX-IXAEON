@@ -147,9 +147,9 @@ describe('提编码任务草案的约定', () => {
     expect(text).toContain('修 bug');
     expect(text).toContain('加功能');
     expect(text).toContain('写清目标');
-    expect(text).toContain('验收');
-    // 草案要点「要做」才开工，不要自己说已经做完
-    expect(text).toContain('「要做」');
+    expect(text).toContain('能验收的条件');
+    // 草案要用户点「要做」才开工，不要自己说已经做完
+    expect(text).toContain('点「要做」才开工');
     expect(text).toContain('不要自己说已经做完');
     // 原有的记忆路由约定还在
     expect(text).toContain('mcp__ixaeon__search_memory');
