@@ -51,8 +51,8 @@
    改 main 一律在你自己的**操作目录**里做，不在用户和整合方共用的检出目录（`OMNIX-IXAEON析衍`）里提交——那里可能有别人没提交的改动，会被一起扫进你的提交：
 
    ```bash
-   git worktree add --detach ../ixaeon-ops origin/main      # 只需一次，之后照任务目录一样装好依赖
-   cd ../ixaeon-ops && git fetch origin && git checkout --detach origin/main
+   node scripts/worktree.mjs ops      # 建好或更新你的操作目录（停在 origin/main），打印它的路径
+   cd <上面打印的路径>
    # 改 docs/委派/队列.md 这一行
    git commit -am "领 <任务号>：…" && git push origin HEAD:main
    ```
@@ -60,8 +60,10 @@
 2. **一个任务一个分支、一个工作目录，不在共用目录里改**（多方同时在共用目录里改，会互相挡住）：
 
    ```bash
-   git worktree add ../ixaeon-<任务号> -b <你的名字>/<任务号>
+   node scripts/worktree.mjs add <任务号> <你的名字>   # 建在统一的位置，分支 <你的名字>/<任务号>，装好依赖，打印路径
    ```
+
+   **工作目录只用这个脚本建**，统一放在 `Worktrees/IXAEON/` 下（与放项目的文件夹平级，脚本算好路径；本机是 `D:\Agent\Worktrees\IXAEON`）。不要建在仓库旁边、也不要放进放项目的文件夹——2026-09-28 用户指出，照原来的 `../ixaeon-<任务号>` 写法，放项目的文件夹里堆了 30 多个工作目录。命令输出（验证、审查、真机检查的日志）写进当前工作目录的 `.logs/`（已在 .gitignore），不要写到仓库外面；要留作证据的原样贴进交付说明。
 
 3. 读委派单或规格：改哪些文件、不许碰什么、验收条件、要跑哪个真机检查，都写在里面。写死的接口不改名、不加字段。
 
@@ -99,12 +101,13 @@
 2. 分支的 CI 是绿的，然后在你的操作目录里（见「领活」）：
 
    ```bash
-   cd ../ixaeon-ops && git fetch origin && git checkout --detach origin/main
+   cd "$(node scripts/worktree.mjs ops)"    # 操作目录，停在最新的 origin/main
    git merge --no-ff origin/<你的名字>/<任务号>
    node scripts/acceptance.mjs done <任务号>
    # 队列里这一行改成「已完成（日期）」
    node scripts/verify.mjs
    git add -A && git commit -m "并入 <任务号> …" && git push origin HEAD:main
+   node scripts/worktree.mjs clean          # 删掉已并入 main、没有未提交改动的工作目录（连同本地分支）
    ```
 
 3. 推送后看 main 上的 CI。红了：立刻修，修不了就 `git revert` 这次合并并在交付说明里写清楚。

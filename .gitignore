@@ -45,3 +45,5 @@ apps/desktop/test/review/.*-verify/
 
 # 审核脚本的本地证据目录（scripts/real/global-audit-*.mjs 写这里）
 .audit-global-*/
+# 工作目录里的命令输出（验证、审查、真机检查的日志），不进仓库
+.logs/
