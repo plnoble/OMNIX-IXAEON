@@ -22,7 +22,6 @@ export interface CodingDispatchHost {
 }
 
 export class CodingDispatch {
-  private draining = false;
   private resumeAfterRunning = false;
 
   constructor(private readonly host: CodingDispatchHost) {}
@@ -40,31 +39,25 @@ export class CodingDispatch {
   }
 
   private async drain(): Promise<void> {
-    if (this.draining) return;
-    this.draining = true;
     const skipped: string[] = [];
-    try {
-      for (;;) {
-        if (!this.host.db.open) return;
-        const next = this.nextQueued(skipped);
-        if (!next || this.codexMissing(next.id)) {
-          this.resumeAfterRunning = !next && (this.host.coding.store?.runningCount() ?? 0) > 0;
-          return;
-        }
-        const done = await this.host.coding.dispatch(next.id).catch((err: unknown) => {
-          // 互斥拒绝：等当前任务结束再来；别的拒绝：任务照旧排队，本轮跳过不卡后面的
-          const conflict = (err as { code?: string })?.code === ErrorCodes.CONFLICT;
-          this.resumeAfterRunning = conflict;
-          if (!conflict) skipped.push(next.id);
-          return null;
-        });
-        if (!done && this.resumeAfterRunning) return;
-        if (!done) continue;
-        this.resumeAfterRunning = false;
-        this.onTaskSettled(done.id);
+    for (;;) {
+      if (!this.host.db.open) return;
+      const next = this.nextQueued(skipped);
+      if (!next || this.codexMissing(next.id)) {
+        this.resumeAfterRunning = !next && (this.host.coding.store?.runningCount() ?? 0) > 0;
+        return;
       }
-    } finally {
-      this.draining = false;
+      const done = await this.host.coding.dispatch(next.id).catch((err: unknown) => {
+        // 互斥拒绝：等当前任务结束再来；别的拒绝：任务照旧排队，本轮跳过不卡后面的
+        const conflict = (err as { code?: string })?.code === ErrorCodes.CONFLICT;
+        this.resumeAfterRunning = conflict;
+        if (!conflict) skipped.push(next.id);
+        return null;
+      });
+      if (!done && this.resumeAfterRunning) return;
+      if (!done) continue;
+      this.resumeAfterRunning = false;
+      this.onTaskSettled(done.id);
     }
   }
 

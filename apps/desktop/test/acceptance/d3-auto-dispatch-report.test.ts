@@ -773,6 +773,30 @@ describe('点「要做」就开工并回报', () => {
     await vi.waitFor(() => expect(order).toEqual(['手动的', '后面的']));
     expect(taskStatus(blocked.taskId)).toBe('queued');
   });
+
+  it('取消后执行器立即结束：后继照常开始', async () => {
+    const order: string[] = [];
+    const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
+    const original = h.executor.run.bind(h.executor);
+    h.executor.run = async (task, workspace, signal) => {
+      order.push(task.goal.split('\n')[0]!);
+      return original(task, workspace, signal);
+    };
+    const manual = h.coding.create({
+      projectId: h.projectId,
+      goal: '手动的',
+      scope: ['note.txt'],
+      allowedCommands: [],
+    });
+    await h.coding.approveAndQueue(manual.id);
+    const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
+    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    const queued = await proposedTask(h, { goal: '排队的' });
+    await h.runtime.acceptTodo(queued.todoId);
+    await h.runtime.finishCodingTask(manual.id, 'cancel');
+    await running;
+    await vi.waitFor(() => expect(order).toEqual(['手动的', '排队的']));
+  });
 });
 
 function reports(conversationId: string) {
