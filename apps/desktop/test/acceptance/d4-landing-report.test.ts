@@ -82,6 +82,7 @@ interface Harness {
   coding: CodingOrchestrator;
   executor: FakeCodingExecutor;
   projectId: string;
+  root: string;
   /** 替身派发时要写进副本的文件；派发（点「要做」）前改这里。 */
   files: Record<string, string>;
 }
@@ -131,7 +132,7 @@ function setup(opts: { gitRepo?: boolean } = {}): Harness {
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
   });
-  return { runtime, conversations, todos, coding, executor, projectId: project.id, files };
+  return { runtime, conversations, todos, coding, executor, projectId: project.id, root, files };
 }
 
 /** 走真实提问链路建一个带 origin_run_id 的编码任务草案，并挂成待办。 */

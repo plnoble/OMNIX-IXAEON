@@ -126,7 +126,8 @@ describe('任务页显示落地结果（契约 6）', () => {
 
   it('有改动但没落地的任务：不能当成「没有改动」', async () => {
     await render();
-    const card = $('task-stuck')?.textContent ?? '';
-    expect(card).not.toContain('没有改动');
+    const card = $('task-stuck');
+    expect(card).not.toBeNull(); // 卡片得在，别让漏渲染误判成通过
+    expect(card?.textContent ?? '').not.toContain('没有改动');
   });
 });
