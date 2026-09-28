@@ -146,7 +146,7 @@ describe.skipIf(!canRun)('写 Hermes 配置（本机 Hermes 真实写入与加�
   }, 120_000);
 
   it.skipIf(!existsSync(MCP_DIST))(
-    'Hermes 的 MCP 客户端真能拉起记忆桥服务：只看到三个工具，名字带 mcp__ixaeon__ 前缀',
+    'Hermes 的 MCP 客户端真能拉起记忆桥服务：看到名单里的工具，名字带 mcp__ixaeon__ 前缀',
     () => {
       const home = tempHome().home!;
       const spec = {
@@ -179,6 +179,7 @@ describe.skipIf(!canRun)('写 Hermes 配置（本机 Hermes 真实写入与加�
       expect(m, (r.stderr ?? '').slice(-800)).not.toBeNull();
       expect(JSON.parse(m![1]!)).toEqual([
         'mcp__ixaeon__get_evidence',
+        'mcp__ixaeon__propose_coding_task',
         'mcp__ixaeon__record_observation',
         'mcp__ixaeon__search_memory',
       ]);

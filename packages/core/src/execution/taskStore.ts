@@ -325,13 +325,14 @@ export class CodingTaskStore {
   }
 
   assertChangedPathsInScope(task: CodingTask, changed: string[]): void {
-    const scope = (JSON.parse(task.scope_json) as string[]).map((s) => s.replaceAll('\\', '/'));
+    // 规范化后再比：`src/`、`./src`、`src` 是同一个范围，别让写法差异误报越界。
+    const norm = (p: string): string =>
+      p.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
+    const scope = (JSON.parse(task.scope_json) as string[]).map(norm);
     for (const rel of changed) {
-      const n = rel.replaceAll('\\', '/');
+      const n = norm(rel);
       this.assertPathInWorkspace(task, join(task.workspace_path!, n));
-      const allowed = scope.some(
-        (s) => s === '.' || s === './' || n === s || n.startsWith(`${s}/`),
-      );
+      const allowed = scope.some((s) => s === '.' || n === s || n.startsWith(`${s}/`));
       if (!allowed) {
         throw new IxaError(ErrorCodes.PATH_ESCAPE, `改动超出批准范围：${n}`);
       }
