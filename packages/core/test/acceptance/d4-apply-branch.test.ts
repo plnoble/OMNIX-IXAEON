@@ -362,12 +362,19 @@ it('条件 2：分支名已存在时用 -2', async () => {
   git(h.root, ['branch', `ixaeon/${task.id.slice(0, 8)}`]);
   useFiles(h, { 'note.txt': '第二版' });
   const before = repoFingerprint(h.root);
+  const existingBefore = git(h.root, ['rev-parse', `ixaeon/${task.id.slice(0, 8)}`]);
   await h.coding.approveAndQueue(task.id);
   await h.coding.dispatch(task.id);
   await h.coding.accept(task.id);
   const r = row(task.id);
-  expect(r.applied_ref).toBe(`ixaeon/${task.id.slice(0, 8)}-2`);
+  const branch2 = `ixaeon/${task.id.slice(0, 8)}-2`;
+  expect(r.applied_ref).toBe(branch2);
   expect(r.applied_at).not.toBeNull();
+  // -2 分支真的存在，改动落在它上面；占住名字的原分支没被动，工作树清干净
+  expect(git(h.root, ['branch', '--list', branch2])).toBe(branch2);
+  expect(git(h.root, ['show', `${branch2}:note.txt`])).toBe('第二版');
+  expect(git(h.root, ['rev-parse', `ixaeon/${task.id.slice(0, 8)}`])).toBe(existingBefore);
+  expect(worktreeCount(h.root)).toBe(1);
   expect(repoFingerprint(h.root)).toEqual(before);
 });
 
