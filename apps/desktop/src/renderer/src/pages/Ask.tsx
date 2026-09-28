@@ -181,12 +181,11 @@ export function AskPage({
   }, []);
 
   useEffect(() => {
-    if (!api.onTaskReport) return;
-    const off = api.onTaskReport((e) => {
-      if (shownId.current !== e.conversationId) return;
-      void openConversation(e.conversationId).catch((err) => setError(errMsg(err)));
+    const off = api.onTaskReport?.((e) => {
+      if (shownId.current === e.conversationId)
+        void openConversation(e.conversationId).catch((err) => setError(errMsg(err)));
     });
-    return () => off();
+    return () => off?.();
   }, [openConversation]);
 
   useEffect(() => {

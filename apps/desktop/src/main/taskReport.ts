@@ -30,10 +30,9 @@ export function conversationForRun(db: CoreDatabase, runId: string): string | nu
 export function reportAlreadyWritten(db: CoreDatabase, taskId: string, status: string): boolean {
   const row = db
     .prepare(
-      `SELECT 1 AS n FROM messages WHERE json_extract(meta_json, '$.kind') = 'task_report'
-         AND json_extract(meta_json, '$.taskId') = ? AND json_extract(meta_json, '$.status') = ?`,
+      `SELECT 1 FROM messages WHERE json_extract(meta_json, '$.kind') = 'task_report' AND json_extract(meta_json, '$.taskId') = ? AND json_extract(meta_json, '$.status') = ?`,
     )
-    .get(taskId, status) as { n: number } | undefined;
+    .get(taskId, status);
   return row != null;
 }
 

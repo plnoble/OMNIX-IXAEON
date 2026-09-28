@@ -10,13 +10,7 @@ import {
 } from './taskReport.js';
 
 export function taskReportRow(db: CoreDatabase, taskId: string): TaskReportRow {
-  return db
-    .prepare(
-      `SELECT id, goal, status, error, origin_run_id, acceptance_json,
-              verify_status, verify_output, executor_report_json
-       FROM coding_tasks WHERE id = ?`,
-    )
-    .get(taskId) as TaskReportRow;
+  return db.prepare('SELECT * FROM coding_tasks WHERE id = ?').get(taskId) as TaskReportRow;
 }
 
 export interface CodingDispatchHost {
@@ -64,10 +58,8 @@ export class CodingDispatch {
           else skipped.push(next.id);
           return null;
         });
-        if (!done) {
-          if (this.resumeAfterRunning) return;
-          continue;
-        }
+        if (!done && this.resumeAfterRunning) return;
+        if (!done) continue;
         this.resumeAfterRunning = false;
         this.onTaskSettled(done.id);
       }
