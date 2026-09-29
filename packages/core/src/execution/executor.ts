@@ -676,6 +676,8 @@ export async function defaultCheck(
     execPath: string,
     versions: NodeJS.ProcessVersions,
   ) => Record<string, string> = electronRunAsNodeEnv,
+  // 验收测试用「默认 envFn + 注入 versions.electron」走生产默认路径。
+  versions: NodeJS.ProcessVersions = process.versions,
 ): Promise<IndependentCheck> {
   if (isPlaceholderVerifyCommand(argv)) {
     return {
@@ -730,7 +732,7 @@ export async function defaultCheck(
       // Electron 可执行文件——当被派生的程序就是它自己时，注入
       // ELECTRON_RUN_AS_NODE=1 才会当 node 跑，否则再启动一个应用实例
       // （验证命令没跑，还多出一个窗口）。普通 node 环境不加。
-      const extraEnv = envFn(exe, process.execPath, process.versions);
+      const extraEnv = envFn(exe, process.execPath, versions);
       const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {}, extraEnv);
       return {
         argv,

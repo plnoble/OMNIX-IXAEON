@@ -52,6 +52,12 @@ try {
   console.log(`main execPath=${mainExec}`);
   console.log(`versions.electron=${electronVersion}`);
 
+  const codingState0 = await page.evaluate(() => window.ixaeon.listCodingTasks());
+  console.log(`运行中的执行器: ${codingState0.executor}（必须为 fake——不调用真 Codex）`);
+  if (codingState0.executor !== 'fake') {
+    console.error('执行器不是 fake，拒绝继续（不调用真 Codex）');
+    process.exit(2);
+  }
   await page
     .evaluate(async () => {
       await window.ixaeon.completeSetup({

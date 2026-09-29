@@ -64,6 +64,42 @@ describe('V1 条件 1：Electron 当 node 用注入 ELECTRON_RUN_AS_NODE=1', () 
     expect(r.exitCode).toBe(7);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it('默认路径 + 模拟 Electron：生产默认 envFn 判定，子进程收到变量（通过，退出 0）', async () => {
+    // envFn 不传（走生产默认实现），只用 versions 参数模拟 process.versions.electron。
+    const dir = mkdtempSync(join(tmpdir(), 'ixaeon-v1-'));
+    const versions = { ...process.versions, electron: '44.1.1' };
+    const r = await defaultCheck(
+      [
+        process.execPath,
+        '-e',
+        "console.log('RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE ?? 'NONE'))",
+      ],
+      dir,
+      undefined,
+      undefined,
+      versions,
+    );
+    expect(r.ran).toBe(true);
+    expect(r.exitCode).toBe(0);
+    expect(r.output).toContain('RUN_AS_NODE=1');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('默认路径 + 模拟 Electron：失败例退出码 7 如实', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ixaeon-v1-'));
+    const versions = { ...process.versions, electron: '44.1.1' };
+    const r = await defaultCheck(
+      [process.execPath, '-e', 'process.exit(7)'],
+      dir,
+      undefined,
+      undefined,
+      versions,
+    );
+    expect(r.ran).toBe(true);
+    expect(r.exitCode).toBe(7);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 describe('V1 条件 2：普通 node 不注入；验证照常执行、退出码如实', () => {
