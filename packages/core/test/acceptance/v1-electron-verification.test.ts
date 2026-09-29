@@ -10,7 +10,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { electronRunAsNodeEnv, runControlledVerifyCommand } from '../../src/execution/executor.js';
+import {
+  defaultCheck,
+  electronRunAsNodeEnv,
+  runControlledVerifyCommand,
+} from '../../src/execution/executor.js';
+
+/** 常量：注入式 envFn（模拟 Electron 判定为真）。 */
+const FORCE_RUN_AS_NODE = () => ({ ELECTRON_RUN_AS_NODE: '1' });
+const FORCE_NONE = () => ({});
 
 describe('V1 条件 1：Electron 当 node 用注入 ELECTRON_RUN_AS_NODE=1', () => {
   it('被派生的程序就是本进程自己且本进程是 Electron → 注入', () => {
@@ -22,6 +30,39 @@ describe('V1 条件 1：Electron 当 node 用注入 ELECTRON_RUN_AS_NODE=1', () 
   it('exe 与本进程不同（即使 Electron）→ 不注入', () => {
     const versions = { ...process.versions, electron: '44.1.1' };
     expect(electronRunAsNodeEnv('node.exe', 'C:/fake/IXAEON.exe', versions)).toEqual({});
+  });
+
+  it('配线级：默认检查计算出的环境确实传进真实子进程（通过例，退出 0）', async () => {
+    // 删掉 defaultCheck 里的 envFn 传入也会让「环境没到子进程」暴露：
+    // 注入 FORCE_RUN_AS_NODE 后子进程应打印 RUN_AS_NODE=1。
+    const dir = mkdtempSync(join(tmpdir(), 'ixaeon-v1-'));
+    const r = await defaultCheck(
+      [
+        process.execPath,
+        '-e',
+        "console.log('RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE ?? 'NONE'))",
+      ],
+      dir,
+      undefined,
+      FORCE_RUN_AS_NODE,
+    );
+    expect(r.ran).toBe(true);
+    expect(r.exitCode).toBe(0);
+    expect(r.output).toContain('RUN_AS_NODE=1');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('配线级：注入空环境 → 子进程无该变量（失败例，退出码 7 如实）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ixaeon-v1-'));
+    const r = await defaultCheck(
+      [process.execPath, '-e', 'process.exit(7)'],
+      dir,
+      undefined,
+      FORCE_NONE,
+    );
+    expect(r.ran).toBe(true);
+    expect(r.exitCode).toBe(7);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

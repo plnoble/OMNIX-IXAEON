@@ -665,10 +665,17 @@ export class CodingOrchestrator {
   }
 }
 
-async function defaultCheck(
+export async function defaultCheck(
   argv: string[],
   cwd: string,
   signal?: AbortSignal,
+  // V1 可注入环境计算（默认按「本进程是否 Electron」判定）：验收测试用它
+  // 模拟 Electron 环境做真实派发，证明计算出的环境确实传进子进程。
+  envFn: (
+    exe: string,
+    execPath: string,
+    versions: NodeJS.ProcessVersions,
+  ) => Record<string, string> = electronRunAsNodeEnv,
 ): Promise<IndependentCheck> {
   if (isPlaceholderVerifyCommand(argv)) {
     return {
@@ -723,7 +730,7 @@ async function defaultCheck(
       // Electron 可执行文件——当被派生的程序就是它自己时，注入
       // ELECTRON_RUN_AS_NODE=1 才会当 node 跑，否则再启动一个应用实例
       // （验证命令没跑，还多出一个窗口）。普通 node 环境不加。
-      const extraEnv = electronRunAsNodeEnv(exe, process.execPath, process.versions);
+      const extraEnv = envFn(exe, process.execPath, process.versions);
       const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {}, extraEnv);
       return {
         argv,

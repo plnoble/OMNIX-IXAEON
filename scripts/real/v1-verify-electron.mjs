@@ -14,7 +14,8 @@
 import { createRequire } from 'node:module';
 const desktopRequire = createRequire(new URL('../../apps/desktop/package.json', import.meta.url));
 const { _electron: electron } = desktopRequire('playwright');
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -73,6 +74,25 @@ try {
     const windowsBefore = await app.evaluate(
       ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
     );
+    // 观察多出实例的更强手段（窗口计数只看到当前进程）：
+    // 1) 主进程计数：electron.exe 且命令行含本应用 main 路径的进程数——
+    //    修复后验证子进程是「同一 exe + ELECTRON_RUN_AS_NODE」短命令，不含
+    //    应用 main 路径；修复前的 bug 会再拉起一个含 main 路径的应用实例。
+    // 2) 日志文件计数：bug 实例会写一条自己的「运行时初始化」日志。
+    const countAppMains = () =>
+      execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          "(Get-CimInstance Win32_Process -Filter \"Name='electron.exe'\" | Where-Object { $_.CommandLine -like '*--permission*' }).Count",
+        ],
+        { encoding: 'utf8', windowsHide: true },
+      ).trim();
+    const countLogs = () =>
+      readdirSync(join(dataDir, 'logs')).filter((f) => f.endsWith('.log')).length;
+    const mainsBefore = countAppMains();
+    const logsBefore = countLogs();
     const task = await page.evaluate(
       async (args) =>
         window.ixaeon.createCodingTask({
@@ -100,15 +120,23 @@ try {
     const windowsAfter = await app.evaluate(
       ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
     );
+    const mainsAfter = countAppMains();
+    const logsAfter = countLogs();
     console.log(`\n=== ${label}`);
     console.log(
       `任务终态: ${status}（期望 ${expectPassed ? 'pending_accept/passed' : 'failed/failed'}）`,
     );
     console.log(`窗口数: 派发前 ${windowsBefore} → 派发后 ${windowsAfter}`);
+    console.log(
+      `带 --permission 的 electron.exe 进程数（修复后为 0，bug 实例会存活）: ${mainsBefore} → ${mainsAfter}`,
+    );
+    console.log(`数据目录日志文件数: ${logsBefore} → ${logsAfter}`);
     const ok =
       status === (expectPassed ? 'pending_accept/passed' : 'failed/failed') &&
       windowsAfter === windowsBefore &&
-      windowsAfter === 1;
+      windowsAfter === 1 &&
+      mainsAfter === mainsBefore &&
+      logsAfter === logsBefore;
     console.log(`判定: ${ok ? 'PASS' : 'FAIL'}`);
     if (!ok) process.exitCode = 1;
   };
