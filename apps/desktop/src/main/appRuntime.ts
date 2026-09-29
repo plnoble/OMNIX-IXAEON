@@ -1916,7 +1916,7 @@ export class AppRuntime {
    * 必须携带 previewRestore 签发的一次性凭证（不允许绕过预览）。
    */
   async restoreData(previewToken: string): Promise<{ ok: true; restartRequired: true }> {
-    await this.stopServer();
+    await this.stopServer('restore');
     // 修复 F3：不再在凭证校验前清空待分析状态 —— 无效/过期凭证等早期失败
     // 必须完整保留原运行时（含待补分析计时器）。清理移入 closeCurrentDb 回调：
     // 只有校验全部通过、即将替换磁盘数据时才停止后台任务。
@@ -2168,12 +2168,17 @@ export class AppRuntime {
     this.logger.info('运行时已停止');
   }
 
-  /** 停止本地 HTTP 服务（数据恢复前调用，避免恢复期间并发访问）。 */
-  private async stopServer(): Promise<void> {
+  /**
+   * 停止本地 HTTP 服务。
+   * V1：日志文案按原因区分——正常退出写「本地服务已停止」，只有数据恢复前
+   * 调用（reason='restore'）才写「…（数据恢复）」，不再误导读日志的人
+   * （2026-09-24 整合方排查时被误导过）。
+   */
+  private async stopServer(reason: 'normal' | 'restore' = 'normal'): Promise<void> {
     if (this.fastify) {
       await this.fastify.close();
       this.fastify = null;
-      this.logger.info('本地服务已停止（数据恢复）');
+      this.logger.info(reason === 'restore' ? '本地服务已停止（数据恢复）' : '本地服务已停止');
     }
   }
 

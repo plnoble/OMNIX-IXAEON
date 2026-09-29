@@ -302,11 +302,12 @@ function spawnArgv(
   timeoutMs: number,
   signal: AbortSignal,
   _dropEnv: Record<string, string>,
+  extraEnv: Record<string, string> = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(exe, argv, {
       cwd,
-      env: minimalChildEnv(),
+      env: { ...minimalChildEnv(), ...extraEnv },
       windowsHide: true,
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -718,7 +719,12 @@ async function defaultCheck(
     const onOuterAbort = () => abort.abort();
     signal?.addEventListener('abort', onOuterAbort, { once: true });
     try {
-      const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {});
+      // V1：IXAEON 开发版与打包版都跑在 Electron 里，process.execPath 是
+      // Electron 可执行文件——当被派生的程序就是它自己时，注入
+      // ELECTRON_RUN_AS_NODE=1 才会当 node 跑，否则再启动一个应用实例
+      // （验证命令没跑，还多出一个窗口）。普通 node 环境不加。
+      const extraEnv = electronRunAsNodeEnv(exe, process.execPath, process.versions);
+      const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {}, extraEnv);
       return {
         argv,
         exitCode: raw.exitCode,
@@ -740,6 +746,22 @@ async function defaultCheck(
 
 function uniquePaths(paths: string[]): string[] {
   return [...new Set(paths.map((p) => p.replaceAll('\\', '/')))];
+}
+
+/**
+ * V1：被派生的可执行文件就是「本进程自己」且本进程是 Electron
+ * （process.versions.electron 有值）时，子进程要 ELECTRON_RUN_AS_NODE=1
+ * 才按 node 跑；普通 node 环境不注入。纯函数便于验收测试两分支各测。
+ */
+export function electronRunAsNodeEnv(
+  exe: string,
+  execPath: string,
+  versions: NodeJS.ProcessVersions,
+): Record<string, string> {
+  if (exe === execPath && versions.electron !== undefined) {
+    return { ELECTRON_RUN_AS_NODE: '1' };
+  }
+  return {};
 }
 
 /**
