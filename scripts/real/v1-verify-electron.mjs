@@ -24,27 +24,36 @@ const dataDir = join(root, 'data');
 const fakeLocal = join(root, 'localappdata');
 mkdirSync(fakeLocal, { recursive: true });
 
-const occupied = await fetch('http://127.0.0.1:43191/api/health', {
-  signal: AbortSignal.timeout(1000),
-}).then(
-  () => true,
-  () => false,
-);
-if (occupied) {
-  console.error('43191 被占（本机正在跑 IXAEON？），拒绝打扰，未检查。');
-  process.exit(2);
-}
+let app = null;
+const cleanup = () => {
+  if (app) void app.close().catch(() => undefined);
+  try {
+    rmSync(root, { recursive: true, force: true });
+  } catch {
+    /* 无害残留（Windows 句柄延迟），不覆盖主错误 */
+  }
+};
 
-const app = await electron.launch({
-  args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(root, 'profile')}`],
-  env: {
-    ...process.env,
-    IXAEON_DATA_DIR: dataDir,
-    LOCALAPPDATA: fakeLocal, // 让 resolveCodexLocator 找不到真 Codex → Fake 执行器
-    IXAEON_FAKE_MODEL: '1',
-  },
-});
 try {
+  const occupied = await fetch('http://127.0.0.1:43191/api/health', {
+    signal: AbortSignal.timeout(1000),
+  }).then(
+    () => true,
+    () => false,
+  );
+  if (occupied) {
+    throw new Error('43191 被占（本机正在跑 IXAEON？），拒绝打扰，未检查。');
+  }
+
+  app = await electron.launch({
+    args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(root, 'profile')}`],
+    env: {
+      ...process.env,
+      IXAEON_DATA_DIR: dataDir,
+      LOCALAPPDATA: fakeLocal, // 让 resolveCodexLocator 找不到真 Codex → Fake 执行器
+      IXAEON_FAKE_MODEL: '1',
+    },
+  });
   const page = await app.firstWindow();
   // 主进程视角：真是 Electron 在跑，execPath 是 Electron 可执行文件
   const mainExec = await app.evaluate(({ app: ea }) => ea.getPath('exe'));
@@ -160,6 +169,5 @@ try {
   // 失败例：命令本身非零退出 → 验证失败如实反映
   await runOne('验证失败例（退出码 7 → failed）', [mainExec, '-e', 'process.exit(7)'], false);
 } finally {
-  await app.close().catch(() => undefined);
-  rmSync(root, { recursive: true, force: true });
+  cleanup();
 }
