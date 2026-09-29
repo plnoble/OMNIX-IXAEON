@@ -259,14 +259,6 @@
         "apps/desktop/test/acceptance/d4-landing-report.test.ts": "28b26d09aadb6863a5d8c18ba30c95e7840fd7e10e2ef2bb57d73b99ab24395b",
         "apps/desktop/test/acceptance/d4-tasks-page.test.ts": "a5f5c84663903b96c338c818047519f7a344c50f2e7179b78e778020de85bba6"
       }
-    },
-    {
-      "id": "V1",
-      "title": "V1 验证命令在应用里跑不再拉起新窗口",
-      "status": "queued",
-      "files": {
-        "packages/core/test/acceptance/v1-electron-verification.test.ts": "5ac1a9749a65fd97658514324b92b71606f2d27a7d0ea077a7f934ccc8ab4e1a"
-      }
     }
   ]
 }

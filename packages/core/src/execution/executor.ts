@@ -734,7 +734,7 @@ export async function defaultCheck(
       // ELECTRON_RUN_AS_NODE=1 才会当 node 跑，否则再启动一个应用实例
       // （验证命令没跑，还多出一个窗口）。普通 node 环境不加。
       // 附加环境只此一项（布尔判定），白名单外变量仍带不进来。
-      const extraEnv = runAsNode(exe, process.execPath, versions)
+      const extraEnv: Record<string, string> = runAsNode(exe, process.execPath, versions)
         ? { ELECTRON_RUN_AS_NODE: '1' }
         : {};
       const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {}, extraEnv);
