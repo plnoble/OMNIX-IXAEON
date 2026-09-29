@@ -22,15 +22,7 @@
  * 原样输出写 stdout；退出码 0 = 实验跑完（不代表结论方向）。
  */
 import { spawnSync } from 'node:child_process';
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -70,7 +62,7 @@ function buildProject() {
       "import dep from 'dep';",
       "import { readFileSync } from 'node:fs';",
       "console.log('DEP_VALUE=' + dep.depVersion());",
-      "// 读一个依赖目录里的文件（模拟测试读取类型声明等）",
+      '// 读一个依赖目录里的文件（模拟测试读取类型声明等）',
       "const decl = readFileSync(new URL('../node_modules/dep/index.js', import.meta.url), 'utf8');",
       "console.log('DECL_LEN=' + decl.length);",
     ].join('\n'),
@@ -127,16 +119,29 @@ function experiment() {
     [
       "import { writeFileSync } from 'node:fs';",
       "const target = new URL('./node_modules/dep/probe-written.txt', import.meta.url);",
-      "try {",
+      'try {',
       "  writeFileSync(target, 'written-through-junction');",
       "  console.log('WRITE_OK (危险：真实依赖被写入)');",
-      "} catch (e) {",
+      '} catch (e) {',
       "  console.log('WRITE_BLOCKED: ' + e.code + ' ' + e.message);",
-      "}",
+      '}',
     ].join('\n'),
   );
-  runNode('write-through-junction', [`--allow-fs-read=${copy}`, `--allow-fs-write=${copy}`], writeProbe, copy);
-  const probeFile = join(proj, 'node_modules', '.pnpm', 'dep@1.0.0', 'node_modules', 'dep', 'probe-written.txt');
+  runNode(
+    'write-through-junction',
+    [`--allow-fs-read=${copy}`, `--allow-fs-write=${copy}`],
+    writeProbe,
+    copy,
+  );
+  const probeFile = join(
+    proj,
+    'node_modules',
+    '.pnpm',
+    'dep@1.0.0',
+    'node_modules',
+    'dep',
+    'probe-written.txt',
+  );
   log(`[verify] 真实依赖里是否真的出现了写入文件: ${existsSync(probeFile)}`);
   if (existsSync(probeFile)) {
     rmSync(probeFile); // 清理实验产物
@@ -164,7 +169,9 @@ function experiment() {
 
   // 汇总
   log('\n== 结论要点（脚本自动判定） ==');
-  log(`只授权 copy 时 junction 读取: ${r1.exit === 0 ? '成功(按链接路径判权)' : '失败(按真实路径判权)'}`);
+  log(
+    `只授权 copy 时 junction 读取: ${r1.exit === 0 ? '成功(按链接路径判权)' : '失败(按真实路径判权)'}`,
+  );
   log(`加授权真实 node_modules 后读取: ${r2.exit === 0 ? '成功' : '仍失败(见输出)'}`);
   log(
     `写保护: ${

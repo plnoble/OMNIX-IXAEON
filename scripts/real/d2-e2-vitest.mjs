@@ -9,7 +9,7 @@
  * 4. 输出最小旗标集与安全边界评估。
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -64,7 +64,10 @@ if (added.status !== 0) {
 }
 
 // 项目代码：TS + vitest 测试（含类型注解、esm 导入）
-writeFileSync(join(proj, 'src', 'math.ts'), 'export function add(a: number, b: number): number {\n  return a + b;\n}\n');
+writeFileSync(
+  join(proj, 'src', 'math.ts'),
+  'export function add(a: number, b: number): number {\n  return a + b;\n}\n',
+);
 writeFileSync(
   join(proj, 'src', 'math.test.ts'),
   [
@@ -72,7 +75,7 @@ writeFileSync(
     "import { add } from './math.ts';",
     "describe('add', () => {",
     "  it('adds', () => { expect(add(1, 2)).toBe(3); });",
-    "});",
+    '});',
   ].join('\n'),
 );
 
@@ -111,10 +114,19 @@ const withAddons = [...base, '--allow-addons'];
 const variants = [
   ['A 基础+addons（副本读+真实nm读+副本写+workspace标记）', withAddons],
   ['B A + --allow-worker（tinypool worker 线程）', [...withAddons, '--allow-worker']],
-  ['C B + --allow-child-process（esbuild.exe 等子进程）', [...withAddons, '--allow-worker', '--allow-child-process']],
+  [
+    'C B + --allow-child-process（esbuild.exe 等子进程）',
+    [...withAddons, '--allow-worker', '--allow-child-process'],
+  ],
   [
     'D C + tmp 读写（tinypool/vite 落临时目录）',
-    [...withAddons, '--allow-worker', '--allow-child-process', `--allow-fs-read=${tmp}`, `--allow-fs-write=${tmp}`],
+    [
+      ...withAddons,
+      '--allow-worker',
+      '--allow-child-process',
+      `--allow-fs-read=${tmp}`,
+      `--allow-fs-write=${tmp}`,
+    ],
   ],
 ];
 let lastGood = null;

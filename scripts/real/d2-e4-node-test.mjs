@@ -15,7 +15,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const out = [];
-const log = (l) => { out.push(l); console.log(l); };
+const log = (l) => {
+  out.push(l);
+  console.log(l);
+};
 
 const root = join(tmpdir(), `ixaeon-d2-e4-${process.pid}`);
 const proj = join(root, 'proj');
@@ -24,7 +27,9 @@ const copy = join(root, 'copy');
 // 1) 执行验证的 node 是谁
 log(`== 1) 执行验证的 node ==`);
 log(`系统 node: ${process.execPath} @ ${process.version}`);
-log(`--experimental-strip-types 在本版 node：${process.allowedNodeEnvironmentFlags.has('--experimental-strip-types') ? '可识别' : '未知'}`);
+log(
+  `--experimental-strip-types 在本版 node：${process.allowedNodeEnvironmentFlags.has('--experimental-strip-types') ? '可识别' : '未知'}`,
+);
 const unpacked = 'D:/Agent/Project/OMNIX-IXAEON析衍/apps/desktop/release/win-unpacked/IXAEON.exe';
 if (existsSync(unpacked)) {
   // 打包应用的"node"= IXAEON.exe（Electron）。executor 的 isNode 检查
@@ -36,7 +41,9 @@ if (existsSync(unpacked)) {
     timeout: 30_000,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
   });
-  log(`打包 IXAEON.exe + ELECTRON_RUN_AS_NODE=1: exit=${t1.status} 输出=${(t1.stdout ?? '').trim() || '(无)'}`);
+  log(
+    `打包 IXAEON.exe + ELECTRON_RUN_AS_NODE=1: exit=${t1.status} 输出=${(t1.stdout ?? '').trim() || '(无)'}`,
+  );
   const t2 = spawnSync(unpacked, ['-e', 'console.log("AS_NODE=" + process.versions.node)'], {
     encoding: 'utf8',
     timeout: 15_000,
@@ -62,7 +69,7 @@ writeFileSync(
     '  label: string;',
     '}',
     'export function add(a: number, b: number): AddResult {',
-    "  return { value: a + b, label: `sum=${a + b}` };",
+    '  return { value: a + b, label: `sum=${a + b}` };',
     '}',
   ].join('\n'),
 );
@@ -73,8 +80,8 @@ writeFileSync(
     "import assert from 'node:assert/strict';",
     "import { add } from './math.ts';",
     "test('add returns erasable-typed result', () => {",
-    "  const r = add(1, 2);",
-    "  assert.equal(r.value, 3);",
+    '  const r = add(1, 2);',
+    '  assert.equal(r.value, 3);',
     "  assert.equal(r.label, 'sum=3');",
     '});',
   ].join('\n'),
@@ -118,10 +125,7 @@ log(`${run2.stdout ?? ''}\n${run2.stderr ?? ''}`.trim().split('\n').slice(-8).jo
 
 // 4) 覆盖面：不可剥离语法（enum）在纯类型剥离下失败
 log(`\n== 4) 不可剥离语法（enum）==`);
-writeFileSync(
-  join(copy, 'src', 'kind.ts'),
-  'export enum Kind { A = "a", B = "b" }\n',
-);
+writeFileSync(join(copy, 'src', 'kind.ts'), 'export enum Kind { A = "a", B = "b" }\n');
 const run3 = spawnSync(
   process.execPath,
   [
