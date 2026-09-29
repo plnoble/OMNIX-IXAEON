@@ -11,7 +11,7 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
  * 入口级静态引用会让整个服务起不来（见 vite.config.ts 双入口说明）。
  */
 
-export const DESKTOP_PORT = 43191;
+export const DESKTOP_PORT = Number(process.env.IXAEON_DESKTOP_PORT ?? 43191);
 export const BASE_URL = `http://127.0.0.1:${DESKTOP_PORT}`;
 
 export function resolveToken(): string {

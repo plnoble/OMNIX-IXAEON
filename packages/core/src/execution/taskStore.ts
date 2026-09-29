@@ -325,10 +325,19 @@ export class CodingTaskStore {
   }
 
   assertChangedPathsInScope(task: CodingTask, changed: string[]): void {
-    // 规范化后再比：`src/`、`./src`、`src` 是同一个范围；`./` 与 `.` 都是整个项目。
+    // 规范化后再比：`src/`、`./src`、`src/.`、`././src`、`src` 是同一个范围；
+    // `./` 与 `.` 都是整个项目。
     const norm = (p: string): string => {
-      const n = p.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
-      return n === '' ? '.' : n;
+      let n = p.replaceAll('\\', '/');
+      while (n.startsWith('./')) n = n.slice(2);
+      while (n.length > 1 && n.endsWith('/')) n = n.slice(0, -1);
+      if (n === '/.' || n === '.') return '.';
+      // 逐段去掉末尾的 `/.`（`src/.` → `src`）与中间的空段
+      const segs = n
+        .split('/')
+        .filter((s) => s.length > 0 && s !== '.')
+        .join('/');
+      return segs === '' ? '.' : segs;
     };
     const scope = (JSON.parse(task.scope_json) as string[]).map(norm);
     for (const rel of changed) {
