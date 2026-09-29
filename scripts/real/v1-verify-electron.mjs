@@ -55,8 +55,8 @@ try {
   const codingState0 = await page.evaluate(() => window.ixaeon.listCodingTasks());
   console.log(`运行中的执行器: ${codingState0.executor}（必须为 fake——不调用真 Codex）`);
   if (codingState0.executor !== 'fake') {
-    console.error('执行器不是 fake，拒绝继续（不调用真 Codex）');
-    process.exit(2);
+    // 抛错走 finally 清理（exit(2) 会跳过 finally、留下 Electron 实例与临时目录）
+    throw new Error('行器不是 fake，拒绝继续（不调用真 Codex）');
   }
   await page
     .evaluate(async () => {

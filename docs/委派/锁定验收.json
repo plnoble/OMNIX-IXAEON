@@ -265,7 +265,7 @@
       "title": "V1 验证命令在应用里跑不再拉起新窗口",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/v1-electron-verification.test.ts": "bfac3bea672288c8a5b1a59063337b548514dd5bf4c8c6b4fa5d545bcbef112a"
+        "packages/core/test/acceptance/v1-electron-verification.test.ts": "5ac1a9749a65fd97658514324b92b71606f2d27a7d0ea077a7f934ccc8ab4e1a"
       }
     }
   ]

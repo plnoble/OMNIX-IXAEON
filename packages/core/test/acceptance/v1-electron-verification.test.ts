@@ -17,8 +17,8 @@ import {
 } from '../../src/execution/executor.js';
 
 /** 常量：注入式 envFn（模拟 Electron 判定为真）。 */
-const FORCE_RUN_AS_NODE = () => ({ ELECTRON_RUN_AS_NODE: '1' });
-const FORCE_NONE = () => ({});
+const FORCE_RUN_AS_NODE = () => true;
+const FORCE_NONE = () => false;
 
 describe('V1 条件 1：Electron 当 node 用注入 ELECTRON_RUN_AS_NODE=1', () => {
   it('被派生的程序就是本进程自己且本进程是 Electron → 注入', () => {
@@ -159,6 +159,66 @@ describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
       }
     ).stopServer('restore');
     expect(logCalls).toEqual(['本地服务已停止', '本地服务已停止（数据恢复）']);
+  });
+
+  it('路径级：stop() 正常退出路径走默认原因（删除注入或改错默认必红）', async () => {
+    // 走 stop() 真实调用链：jobs.stop → idle → stopServer()（不传原因）
+    // → invalidateContext → db.close → 「运行时已停止」。stop() 不显式传
+    // 'normal'，靠 stopServer 默认值——把默认值改成 restore 文案这里就红。
+    const { AppRuntime } = await import('../../../../../apps/desktop/src/main/appRuntime.js');
+    const logCalls: string[] = [];
+    const logger = {
+      info: (m: string) => logCalls.push(m),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child() {
+        return this;
+      },
+    };
+    const runtime = Object.create(AppRuntime.prototype) as InstanceType<typeof AppRuntime>;
+    Object.assign(runtime, {
+      fastify: { close: async () => undefined },
+      logger,
+      jobs: { stop: vi.fn(), idle: async () => undefined },
+      invalidateContext: vi.fn(),
+      db: { close: vi.fn() },
+    });
+    await (runtime as unknown as { stop(): Promise<void> }).stop();
+    expect(logCalls).toContain('本地服务已停止');
+    expect(logCalls).not.toContain('本地服务已停止（数据恢复）');
+    expect(logCalls[logCalls.length - 1]).toBe('运行时已停止');
+  });
+
+  it('路径级：restoreData 入口传 restore 原因（删掉该参数必红）', async () => {
+    // restoreData 第一行调用 stopServer('restore')，随后校验凭证（伪造
+    // 凭证会抛错）——只要第一行日志是「（数据恢复）」即证明调用路径
+    // 存在；把该参数删掉就会打出普通文案，本测试变红。
+    const { AppRuntime } = await import('../../../../../apps/desktop/src/main/appRuntime.js');
+    const logCalls: string[] = [];
+    const logger = {
+      info: (m: string) => logCalls.push(m),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child() {
+        return this;
+      },
+    };
+    const runtime = Object.create(AppRuntime.prototype) as InstanceType<typeof AppRuntime>;
+    Object.assign(runtime, {
+      fastify: { close: async () => undefined },
+      logger,
+      db: { close: vi.fn() },
+      jobs: { stop: vi.fn() },
+      localServer: { stopBackgroundTasks: vi.fn() },
+      vault: null,
+      dataDir: 'C:/nonexistent-v1',
+    });
+    await expect(
+      (runtime as unknown as { restoreData(t: string): Promise<unknown> }).restoreData(
+        'fake-token',
+      ),
+    ).rejects.toThrow();
+    expect(logCalls[0]).toBe('本地服务已停止（数据恢复）');
   });
 
   it('服务没启动时不写日志（与旧行为一致）', async () => {

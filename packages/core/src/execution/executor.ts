@@ -669,14 +669,15 @@ export async function defaultCheck(
   argv: string[],
   cwd: string,
   signal?: AbortSignal,
-  // V1 可注入环境计算（默认按「本进程是否 Electron」判定）：验收测试用它
-  // 模拟 Electron 环境做真实派发，证明计算出的环境确实传进子进程。
-  envFn: (
-    exe: string,
-    execPath: string,
-    versions: NodeJS.ProcessVersions,
-  ) => Record<string, string> = electronRunAsNodeEnv,
-  // 验收测试用「默认 envFn + 注入 versions.electron」走生产默认路径。
+  // V1 可注入判定（默认按「本进程是否 Electron 且派生自己」判定）。契约：
+  // 计算出的附加环境**只能是** ELECTRON_RUN_AS_NODE 一项（布尔决定），
+  // 不给任意环境变量开口子——白名单以外的变量仍带不进子进程。
+  runAsNode: (exe: string, execPath: string, versions: NodeJS.ProcessVersions) => boolean = (
+    exe,
+    execPath,
+    versions,
+  ) => electronRunAsNodeEnv(exe, execPath, versions).ELECTRON_RUN_AS_NODE === '1',
+  // 验收测试用「默认 runAsNode + 注入 versions.electron」走生产默认路径。
   versions: NodeJS.ProcessVersions = process.versions,
 ): Promise<IndependentCheck> {
   if (isPlaceholderVerifyCommand(argv)) {
@@ -732,7 +733,10 @@ export async function defaultCheck(
       // Electron 可执行文件——当被派生的程序就是它自己时，注入
       // ELECTRON_RUN_AS_NODE=1 才会当 node 跑，否则再启动一个应用实例
       // （验证命令没跑，还多出一个窗口）。普通 node 环境不加。
-      const extraEnv = envFn(exe, process.execPath, versions);
+      // 附加环境只此一项（布尔判定），白名单外变量仍带不进来。
+      const extraEnv = runAsNode(exe, process.execPath, versions)
+        ? { ELECTRON_RUN_AS_NODE: '1' }
+        : {};
       const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {}, extraEnv);
       return {
         argv,
