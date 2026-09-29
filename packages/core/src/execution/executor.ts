@@ -8,7 +8,6 @@ import {
   readlinkSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -17,9 +16,6 @@ import type { CoreDatabase } from '../db/database.js';
 import { CodingTaskStore } from './taskStore.js';
 import { landTask, toLf } from './landing.js';
 import { SkillCandidateStore } from '../runtime/skills.js';
-
-/** 读文件并按 LF 归一（与落地侧同一套归一，见 dispatch 的 baseHashes）。 */
-const toLfBytes = (buf: Buffer): Buffer => toLf(buf);
 
 const PLACEHOLDER_VERIFY = ['node', '-e', 'process.exit(0)'];
 
@@ -453,7 +449,12 @@ export class CodingOrchestrator {
     this.currentAbort = new AbortController();
     const generation = task.generation;
     const workspace = task.workspace_path!;
+    // 范围守卫用字节级指纹（执行前后对比）；建分支冲突核对用 LF 归一的
+    // **执行前**指纹（与落地侧 blobHash 同一套归一）。注意必须在 executor.run
+    // 之前取——执行后重读文件拿到的是改动后的内容，与 HEAD 必然不一致，
+    // 会把每个干净文件都误判成冲突（接手时真机撞出的回归）。
     const before = hashWorkspace(workspace);
+    const beforeLf = hashWorkspace(workspace, { lfNormalize: true });
     this.store.setStatus(taskId, 'running', { executorName: this.executor.name });
     try {
       const bg = this.store.taskBackground(task);
@@ -483,16 +484,9 @@ export class CodingOrchestrator {
       this.store.assertChangedPathsInScope(task, changed);
       const testsModified = changed.some((p) => /test/i.test(p)) || report.testsModified;
       // D4：改之前每个文件的指纹（新文件 null），存进执行报告，落地时比对 HEAD。
-      // 指纹按 LF 归一（与落地侧 blobHash 同一套归一）——autocrlf/eol=crlf 的仓库里
-      // 工作区是 CRLF、blob 是 LF，直接比字节会把干净文件误判成冲突。
+      // 用执行前 LF 归一指纹（beforeLf）——不是执行后的文件内容。
       const baseHashes: Record<string, string | null> = {};
-      for (const rel of changed) {
-        const src = join(workspace, rel);
-        baseHashes[rel] =
-          existsSync(src) && statSync(src).isFile()
-            ? createHash('sha256').update(toLfBytes(readFileSync(src))).digest('hex')
-            : null;
-      }
+      for (const rel of changed) baseHashes[rel] = beforeLf.get(rel) ?? null;
       const merged: ExecutorReport = {
         ...report,
         changedPaths: changed,
@@ -805,7 +799,7 @@ export async function runControlledVerifyCommand(
   return defaultCheck(argv, cwd, signal);
 }
 
-function hashWorkspace(root: string): Map<string, string> {
+function hashWorkspace(root: string, opts: { lfNormalize?: boolean } = {}): Map<string, string> {
   const map = new Map<string, string>();
   const walk = (dir: string) => {
     if (!existsSync(dir)) return;
@@ -821,7 +815,11 @@ function hashWorkspace(root: string): Map<string, string> {
       if (st.isDirectory()) walk(abs);
       else {
         const rel = relative(root, abs).replaceAll('\\', '/');
-        map.set(rel, createHash('sha256').update(readFileSync(abs)).digest('hex'));
+        const buf = readFileSync(abs);
+        // D4 接手修复：baseHashes 用途的指纹按 LF 归一（与落地侧 blobHash 同一套），
+        // 防 autocrlf/eol=crlf 仓库把干净文件误判冲突；范围守卫用途仍字节级。
+        const hashed = opts.lfNormalize ? toLf(buf) : buf;
+        map.set(rel, createHash('sha256').update(hashed).digest('hex'));
       }
     }
   };
