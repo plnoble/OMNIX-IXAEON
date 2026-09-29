@@ -73,16 +73,27 @@ async function gitTry(cwd: string, args: string[]): Promise<string | null> {
   }
 }
 const shaBuf = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex');
+/** CRLF → LF（字节级替换，防 autocrlf/eol=crlf 下「干净文件」被误判冲突）。派发侧基线与落地侧 blob 共用。 */
+export const toLf = (buf: Buffer): Buffer => {
+  const out: number[] = [];
+  for (let i = 0; i < buf.length; i += 1) {
+    if (buf[i] === 13 && buf[i + 1] === 10) {
+      out.push(10);
+      i += 1;
+    } else out.push(buf[i]!);
+  }
+  return Buffer.from(out);
+};
 
 /**
  * 指定提交里这个文件的内容指纹。区分三种情况：
  * - 文件不在该提交（git 报 does not exist / bad object / pathspec）→ null，与基线「不存在」对齐；
- * - 在，读出了 → 指纹；
+ * - 在，读出了 → 指纹（换行按 LF 归一后再比一次，防 autocrlf/eol=crlf 误判）；
  * - 读取失败（超时、超缓冲等）→ 抛错——**不能当不存在**，否则会放过冲突。
  */
 async function blobHash(root: string, rev: string, rel: string): Promise<string | null> {
   const r = await gitBuf(root, ['cat-file', 'blob', `${rev}:${rel}`]);
-  if (r.ok) return shaBuf(r.buf);
+  if (r.ok) return shaBuf(toLf(r.buf));
   if (/does not exist|not a valid object|pathspec|ambiguous|exists/i.test(r.stderr)) return null;
   throw new Error(`读取 ${rel} 在 ${rev.slice(0, 8)} 的内容失败：${r.stderr.split('\n')[0]}`);
 }
@@ -195,11 +206,13 @@ export async function landTask(
     ours = true;
     for (const rel of changed) {
       const src = join(workspace, rel);
-      const dest = join(wt, rel);
+      // 工作树检出的是整个仓库：写入/删除目标都带上仓库子目录偏移（gitRel）。
+      const inTree = gitRel(rel);
+      const dest = join(wt, inTree);
       if (existsSync(src) && statSync(src).isFile()) {
-        safeWrite(wt, rel, src);
+        safeWrite(wt, inTree, src);
         // :(literal) 关掉 git 的路径通配，文件名里的 [] * 才按字面处理。
-        await gitText(wt, ['add', '--', `:(literal)${gitRel(rel)}`]);
+        await gitText(wt, ['add', '--', `:(literal)${inTree}`]);
       } else {
         // 删除同样过符号链接检查：链接指向外面时拒绝，防删到工作树之外。
         let cur = dirname(dest);
@@ -210,7 +223,7 @@ export async function landTask(
           cur = dirname(cur);
         }
         rmSync(dest, { force: true });
-        await gitText(wt, ['rm', '-q', '--ignore-unmatch', '--', `:(literal)${gitRel(rel)}`]);
+        await gitText(wt, ['rm', '-q', '--ignore-unmatch', '--', `:(literal)${inTree}`]);
       }
     }
     // 兜底身份看全（姓名 + 邮箱都要有），配置残缺照样提交得成。

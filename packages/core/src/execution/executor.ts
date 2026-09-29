@@ -8,14 +8,18 @@ import {
   readlinkSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { ErrorCodes, IxaError, type CodingTask } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { CodingTaskStore } from './taskStore.js';
-import { landTask } from './landing.js';
+import { landTask, toLf } from './landing.js';
 import { SkillCandidateStore } from '../runtime/skills.js';
+
+/** 读文件并按 LF 归一（与落地侧同一套归一，见 dispatch 的 baseHashes）。 */
+const toLfBytes = (buf: Buffer): Buffer => toLf(buf);
 
 const PLACEHOLDER_VERIFY = ['node', '-e', 'process.exit(0)'];
 
@@ -479,8 +483,16 @@ export class CodingOrchestrator {
       this.store.assertChangedPathsInScope(task, changed);
       const testsModified = changed.some((p) => /test/i.test(p)) || report.testsModified;
       // D4：改之前每个文件的指纹（新文件 null），存进执行报告，落地时比对 HEAD。
+      // 指纹按 LF 归一（与落地侧 blobHash 同一套归一）——autocrlf/eol=crlf 的仓库里
+      // 工作区是 CRLF、blob 是 LF，直接比字节会把干净文件误判成冲突。
       const baseHashes: Record<string, string | null> = {};
-      for (const rel of changed) baseHashes[rel] = before.get(rel) ?? null;
+      for (const rel of changed) {
+        const src = join(workspace, rel);
+        baseHashes[rel] =
+          existsSync(src) && statSync(src).isFile()
+            ? createHash('sha256').update(toLfBytes(readFileSync(src))).digest('hex')
+            : null;
+      }
       const merged: ExecutorReport = {
         ...report,
         changedPaths: changed,
@@ -612,8 +624,13 @@ export class CodingOrchestrator {
       acceptedAt: now,
     });
     // D4：接受之后落地——建分支 / 改动包；结果写回任务行，失败不吞掉接受本身。
+    // 落地是异步的：期间任务可能被并发删除——landTask 已对这种情况返回 orphan 结果
+    // 并记审计；这里再核一次，任务没了就不写库（写了会抛「不存在」），如实返回。
     try {
       const outcome = await landTask(this.db, accepted, this.dataDir);
+      if (this.db.prepare('SELECT 1 FROM coding_tasks WHERE id = ?').get(taskId) == null) {
+        return accepted;
+      }
       return this.store.setLanding(taskId, {
         appliedRef: outcome.ref,
         applyError: outcome.reason,
@@ -621,6 +638,9 @@ export class CodingOrchestrator {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message.split('\n')[0]! : String(err);
+      if (this.db.prepare('SELECT 1 FROM coding_tasks WHERE id = ?').get(taskId) == null) {
+        return accepted;
+      }
       return this.store.setLanding(taskId, {
         appliedRef: null,
         applyError: `落地出错：${msg}`,

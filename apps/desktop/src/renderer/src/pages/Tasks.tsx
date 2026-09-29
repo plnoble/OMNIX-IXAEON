@@ -45,7 +45,8 @@ export function splitCommandLine(line: string): { argv: string[]; unclosed: bool
 /** 落地结果一行（D4 契约 6：任务页同样显示；文案与桌面回报同款）。 */
 function landingLine(t: CodingTask): string {
   if (t.applied_ref && /^ixaeon\//.test(t.applied_ref)) {
-    return `已在项目仓库建分支 ${t.applied_ref}（没有推送，也没动你的工作区）。要合并：git merge ${t.applied_ref}`;
+    const base = `已在项目仓库建分支 ${t.applied_ref}（没有推送，也没动你的工作区）。要合并：git merge ${t.applied_ref}`;
+    return t.apply_error ? `${base}。注意：${t.apply_error}` : base;
   }
   if (t.applied_ref) return `改动包在 ${t.applied_ref}（${t.apply_error ?? '原因未记录'}）`;
   if (t.apply_error) return t.apply_error;

@@ -53,9 +53,12 @@ export function buildPatch(
     const src = join(workspace, rel);
     if (rel === MANIFEST) {
       // 项目自己的 manifest.json 与固定清单位置撞名：清单按普通文件**如实**分类
-      // （不混说明文字），内容另存 manifest.json.project；撞名处理待整合方定（已知缺口）。
+      // （不混说明文字），内容另存 manifest.json.project（该名也被改时顺延 .2/.3…，
+      // 谁都不覆盖谁）；撞名处理待整合方定（已知缺口）。
       if (existsSync(src) && statSync(src).isFile()) {
-        safeWrite(dir, `${MANIFEST}.project`, src);
+        let keep = `${MANIFEST}.project`;
+        for (let n = 2; existsSync(join(dir, keep)); n += 1) keep = `${MANIFEST}.project.${n}`;
+        safeWrite(dir, keep, src);
         displaced = true;
         (baseHashes[raw] == null ? manifest.added : manifest.changed).push(rel);
       } else {
