@@ -160,8 +160,15 @@ for (const q of questions) {
       const hermesHome = join(dir, 'hermes-home');
       mkdirSync(hermesHome, { recursive: true });
       const q = (s: string): string => `"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+      // 接手补充（prep）：真实 Hermes 的认证多半由启动环境的变量注入（config.yaml
+      // 里通常没有密钥行）——克隆到临时 HOME 时把这些占位符从当前环境展开，密钥
+      // 只进临时文件、用完即删、不打印；环境里没有的变量原样保留。
+      const expandEnv = (cfg: string): string =>
+        cfg.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (raw, name) =>
+          process.env[name] !== undefined ? (process.env[name] as string) : raw,
+        );
       const yaml =
-        baseCfg.trimEnd() +
+        expandEnv(baseCfg.trimEnd()) +
         '\n' +
         [
           'mcp_servers:',
