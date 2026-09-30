@@ -7,8 +7,8 @@
  */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, rmSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { isPathInside } from '../paths.js';
 import { buildPatch, normalizeRel, safeWrite } from './patchPack.js';
 import { recordAudit } from '../audit.js';
@@ -71,6 +71,23 @@ async function gitTry(cwd: string, args: string[]): Promise<string | null> {
   } catch {
     return null;
   }
+}
+/**
+ * git 报的工作树路径与我们手里的是不是同一个：git 存的是解析后的长名，我们的
+ * 可能是短名（RUNNER~1），分隔符、大小写（Windows）也可能不同。
+ */
+function samePath(a: string, b: string): boolean {
+  const canon = (p: string): string => {
+    let real = p.trim();
+    try {
+      real = join(realpathSync.native(dirname(real)), basename(real));
+    } catch {
+      // 上级目录不存在：按原样比
+    }
+    const s = real.replaceAll('\\', '/').replace(/\/+$/, '');
+    return process.platform === 'win32' ? s.toLowerCase() : s;
+  };
+  return canon(a) === canon(b);
 }
 const shaBuf = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex');
 /** CRLF → LF（字节级替换，防 autocrlf/eol=crlf 下「干净文件」被误判冲突）。派发侧基线与落地侧 blob 共用。 */
@@ -135,8 +152,9 @@ export async function landTask(
   const toplevel = await gitTry(root, ['rev-parse', '--show-toplevel']);
   if (toplevel === null) return toPatch('项目不是 git 仓库', []);
   // 项目可能登记在仓库子目录：git 路径都相对仓库根（冲突核对、add、rm 一致）。
+  // 偏移直接问 git：自己拿两条路径相减，Windows 短名（RUNNER~1）对上长名会算出 ../..。
   const repoRoot = toplevel.trim();
-  const offset = normalizeRel(relative(repoRoot, resolve(root)));
+  const offset = normalizeRel(((await gitTry(root, ['rev-parse', '--show-prefix'])) ?? '').trim());
   const gitRel = (rel: string): string => (offset === '' ? rel : `${offset}/${rel}`);
   // 冲突核对与建树绑定同一个 HEAD 提交，两读可变 HEAD 会被竞态绕过。
   const head = (await gitTry(root, ['rev-parse', 'HEAD']))?.trim();
@@ -171,7 +189,11 @@ export async function landTask(
     const listed = await gitTry(repoRoot, ['worktree', 'list', '--porcelain']);
     if (listed === null) {
       residue = '无法核对工作树注册（git worktree list 失败）';
-    } else if (listed.includes(wt.replaceAll('\\', '/'))) {
+    } else if (
+      listed
+        .split('\n')
+        .some((l) => l.startsWith('worktree ') && samePath(l.slice('worktree '.length), wt))
+    ) {
       if ((await gitTry(repoRoot, ['worktree', 'remove', '--force', wt])) === null) {
         residue = `工作树没清干净：${wt}`;
       }
@@ -200,7 +222,7 @@ export async function landTask(
       const of = at
         ? (await gitTry(repoRoot, ['branch', '--list', branch, '--format=%(worktreepath)']))?.trim()
         : '';
-      if (of === wt.replaceAll('\\', '/')) ours = true; // 指向我们的临时工作树才是我们的
+      if (of && samePath(of, wt)) ours = true; // 指向我们的临时工作树才是我们的
       throw err;
     }
     ours = true;
