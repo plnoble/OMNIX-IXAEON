@@ -9,13 +9,14 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { copyProjectWorkspace } from '../../packages/core/src/execution/workspaceCopy.js';
 import { defaultCheck } from '../../packages/core/src/execution/executor.js';
 import {
@@ -26,6 +27,11 @@ import {
 const log = (...a: unknown[]) => console.log(...a);
 const root = resolve(import.meta.dirname, '..', '..');
 
+/** 系统 corepack 的 JS 入口（node 直跑，不依赖 PATH 里的 .cmd shim；Windows 必用）。 */
+function joinProcessNodeCorepack(): string {
+  return join(dirname(process.execPath), 'node_modules', 'corepack', 'dist', 'corepack.js');
+}
+
 function shell(
   cmd: string,
   args: string[],
@@ -33,6 +39,8 @@ function shell(
 ) {
   const r = spawnSync(cmd, args, {
     encoding: 'utf8',
+    // pnpm 等 .cmd shim 在 Windows 上必须经 shell 派生
+    shell: process.platform === 'win32',
     timeout: 300_000,
     windowsHide: true,
     ...opts,
@@ -52,7 +60,11 @@ function makeNodeModulesTree(dir: string) {
   writeFileSync(join(dir, 'packages', 'sub', 'src', 'x.ts'), 'export const x = 1;\n');
 }
 
-function makeVitestProject(dir: string, vitestConfig: boolean, mode: 'pass' | 'fail' | 'forever') {
+async function makeVitestProject(
+  dir: string,
+  vitestConfig: boolean,
+  mode: 'pass' | 'fail' | 'forever',
+) {
   mkdirSync(join(dir, 'src'), { recursive: true });
   writeFileSync(
     join(dir, 'src', 'add.ts'),
@@ -81,9 +93,25 @@ function makeVitestProject(dir: string, vitestConfig: boolean, mode: 'pass' | 'f
   // 真 vitest：用主仓库的同版本安装（离线装不上就如实报告）
   const vitestReal = join(dir, 'node_modules', 'vitest', 'vitest.mjs');
   if (!existsSync(vitestReal)) {
-    const add = shell('pnpm', ['add', '-w', '-D', 'vitest'], { cwd: dir });
-    if (add.status !== 0 || !existsSync(vitestReal)) {
-      throw new Error('vitest 安装失败（如实报告）：' + add.out.slice(0, 300));
+    // pnpm 11 在光秃目录里会「already up to date」而不装——先放 package.json
+    if (!existsSync(join(dir, 'package.json'))) {
+      writeFileSync(join(dir, 'package.json'), '{"name":"d2-real-project","private":true}\n');
+    }
+    const add = shell(
+      process.execPath,
+      [joinProcessNodeCorepack(), 'pnpm', 'add', '-D', 'vitest@4.1.11', '--prefer-offline'],
+      {
+        cwd: dir,
+      },
+    );
+    if (!existsSync(vitestReal)) {
+      // 只要入口文件真的装上了就算成；非零退出多半是安装后脚本告警，原样贴出
+      throw new Error(
+        'vitest 安装失败（如实报告）：status=' + add.status + '\n' + add.out.slice(0, 600),
+      );
+    }
+    if (add.status !== 0) {
+      log('[安装告警] pnpm 非零退出但 vitest 已装好，原样贴出：\n' + add.out.slice(0, 400));
     }
   }
   makeNodeModulesTree(dir);
@@ -92,7 +120,13 @@ function makeVitestProject(dir: string, vitestConfig: boolean, mode: 'pass' | 'f
 const listing = (dir: string): string[] => {
   const out: string[] = [];
   const walk = (d: string) => {
-    for (const name of readdirSync(d)) {
+    let names;
+    try {
+      names = readdirSync(d);
+    } catch {
+      return;
+    }
+    for (const name of names) {
       const abs = join(d, name);
       const rel = abs.slice(dir.length + 1).replaceAll('\\', '/');
       out.push(rel + (existsSync(abs) && statSync(abs).isDirectory() ? '/' : ''));
@@ -106,8 +140,8 @@ async function phase1() {
   const base = mkdtempSync(join(tmpdir(), 'ixa-d2-real1-'));
   log('== phase1: 不需要授权的检查 ==\n');
 
-  // 真机检查 1：从没授权过的新数据目录 → 检查报没授权、没有弹窗（0 次派生）
-  const dataDir = join(base, 'data');
+  // 每个数据目录对应一个专用 CODEX_HOME、一次 UAC 授权；用固定数据目录（跨次保留），授权一次长期有效
+  const dataDir = process.env.IXAEON_D2_PHASE2_DATA ?? join(tmpdir(), 'ixa-d2-phase2-data');
   mkdirSync(dataDir, { recursive: true });
   const auth = await checkSandboxAuth(dataDir);
   log('[1] checkSandboxAuth(新数据目录) =', JSON.stringify(auth));
@@ -188,7 +222,7 @@ async function electronAsNodeDependencyTier(base: string, dataDir: string) {
   );
   log('[补充5] Electron 可执行文件存在：' + existsSync(electron));
   const proj = join(base, 'proj-electron');
-  makeVitestProject(proj, true, 'pass');
+  await makeVitestProject(proj, true, 'pass');
   const copy = join(base, 'copy-electron');
   copyProjectWorkspace(proj, copy);
   const r = await defaultCheck(
@@ -211,8 +245,6 @@ async function phase2() {
   const dataDir = join(base, 'data');
   mkdirSync(dataDir, { recursive: true });
 
-  // 补充 5：授权前先跑一次（不依赖授权，只依赖已生成的身份；跳过这一步先展示环境事实）
-  // 补充 5：Electron 当 node 跑依赖档通过例（授权无关，先跑出来涨证据）
   await electronAsNodeDependencyTier(base, dataDir);
 
   // 真机检查 2：发起授权（会弹一次 UAC——运行前已请用户点「是」）
@@ -223,12 +255,83 @@ async function phase2() {
     rmSync(base, { recursive: true, force: true });
     return;
   }
-  const authNow = await checkSandboxAuth(dataDir);
+  // helper 等落位文件在授权命令返回后异步出现：轮询几秒再判
+  const pollAuth = async (): Promise<Awaited<ReturnType<typeof checkSandboxAuth>>> => {
+    let last: Awaited<ReturnType<typeof checkSandboxAuth>> = { ok: false, reason: 'unauthorized' };
+    for (let i = 0; i < 8; i += 1) {
+      last = await checkSandboxAuth(dataDir);
+      if (last.ok) return last;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+    return last;
+  };
+  let authNow = await pollAuth();
+  if (!authNow.ok) {
+    // 首轮 UAC 可能只完成 helper 落位，cap_sid 生成在再一轮提权后落定——再试一次
+    log(
+      '[2] 首轮授权后检查仍 ' +
+        JSON.stringify(authNow) +
+        '；再发起一次授权（若再弹 UAC 请点「是」）。',
+    );
+    const req2 = await requestSandboxAuth(dataDir);
+    log('[2] requestSandboxAuth(二次) =', JSON.stringify(req2));
+    authNow = await pollAuth();
+  }
+  if (!authNow.ok) {
+    log('[2] 两次授权后检查仍未过。诊断转储（专用 HOME 落在哪、装了哪些）：');
+    const home = join(dataDir, 'codex-sandbox-home');
+    try {
+      const walk = (d: string, depth: number): string[] => {
+        if (depth > 3) return [];
+        const out: string[] = [];
+        let names;
+        try {
+          names = readdirSync(d);
+        } catch {
+          return [`${d}: (不可读)`];
+        }
+        for (const name of names) {
+          const abs = join(d, name);
+          const st = statSync(abs);
+          if (st.isDirectory()) out.push(`D ${abs}`, ...walk(abs, depth + 1));
+          else out.push(`F ${abs} (${st.size}B)`);
+        }
+        return out.slice(0, 60);
+      };
+      if (home) log(walk(home, 0).join('\n'));
+      const slog = join(home, '.sandbox', 'sandbox.log');
+      if (existsSync(slog)) {
+        log('[sandbox.log 尾部]\n' + readFileSync(slog, 'utf8').split('\n').slice(-12).join('\n'));
+      } else {
+        log('[sandbox.log] 不存在');
+      }
+      const cap = join(home, 'cap_sid');
+      if (existsSync(cap)) {
+        const parsed = JSON.parse(readFileSync(cap, 'utf8'));
+        log(
+          '[cap_sid] 键：' +
+            Object.keys(parsed).join(', ') +
+            '；workspace_by_cwd 目录数：' +
+            Object.keys(parsed.workspace_by_cwd ?? {}).length,
+        );
+      } else {
+        log('[cap_sid] 不存在');
+      }
+    } catch (e) {
+      log('[诊断转储失败] ' + String(e).slice(0, 200));
+    }
+    log('[2] 如实停下（后续真沙箱不跑）。');
+    rmSync(base, { recursive: true, force: true });
+    return;
+  }
   log('[2] 授权后 checkSandboxAuth =', JSON.stringify(authNow), '\n');
+
+  // 补充 5：Electron 当 node 跑依赖档通过例（授权后，和真实应用一致）
+  await electronAsNodeDependencyTier(base, dataDir);
 
   for (const mode of ['pass', 'fail'] as const) {
     const proj = join(base, `proj-${mode}`);
-    makeVitestProject(proj, true, mode);
+    await makeVitestProject(proj, true, mode);
     const copy = join(base, `copy-${mode}`);
     copyProjectWorkspace(proj, copy);
     const realBefore = ['node_modules', 'packages/sub/node_modules'].map((rel) =>
@@ -262,7 +365,7 @@ async function phase2() {
   // 经链接写真实依赖被拦（D2b 结论再验）
   {
     const proj = join(base, 'proj-pierce');
-    makeVitestProject(proj, true, 'pass');
+    await makeVitestProject(proj, true, 'pass');
     const copy = join(base, 'copy-pierce');
     copyProjectWorkspace(proj, copy);
     writeFileSync(
@@ -294,7 +397,7 @@ async function phase2() {
   // 补充 6：取消——跑一个永远等着的测试，3 秒后取消，确认没留进程
   {
     const proj = join(base, 'proj-cancel');
-    makeVitestProject(proj, false, 'forever');
+    await makeVitestProject(proj, false, 'forever');
     const copy = join(base, 'copy-cancel');
     copyProjectWorkspace(proj, copy);
     // 复审整改：先记机器当前 codex/node 进程号，取消后再比对，只报新多出来

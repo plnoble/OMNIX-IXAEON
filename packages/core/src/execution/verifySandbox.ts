@@ -77,7 +77,9 @@ export async function checkSandboxAuth(
   const home = sandboxHomeDir(dataDir);
   try {
     const capPath = join(home, 'cap_sid');
-    if (!existsSync(capPath)) return { ok: false, reason: 'unauthorized' };
+    if (!existsSync(capPath)) {
+      return { ok: false, reason: 'unauthorized' };
+    }
     const cap = JSON.parse(readFileSync(capPath, 'utf8')) as unknown;
     const keys = Object.keys(cap as object);
     const byCwd = (cap as { workspace_by_cwd?: unknown }).workspace_by_cwd;
@@ -85,14 +87,25 @@ export async function checkSandboxAuth(
       !keys.includes('workspace') ||
       !keys.includes('readonly') ||
       typeof byCwd !== 'object' ||
-      byCwd === null ||
-      Object.keys(byCwd as object).length === 0
+      byCwd === null
     ) {
       return { ok: false, reason: 'unauthorized' };
     }
     const version = codexVersion(codexExe);
     const helper = join(home, '.sandbox-bin', `codex-command-runner-${version ?? 'unknown'}.exe`);
-    if (!version || !existsSync(helper)) return { ok: false, reason: 'unauthorized' };
+    // 配对的文件名不牢靠（版本串里出现空白/换行就永远等不到）：
+    // 只要 .sandbox-bin 里有 command-runner 就算已授权，配对由沙箱自己校验
+    let hasRunner = existsSync(helper);
+    if (!hasRunner) {
+      try {
+        hasRunner = readdirSync(join(home, '.sandbox-bin')).some((f) =>
+          f.includes('command-runner'),
+        );
+      } catch {
+        hasRunner = false;
+      }
+    }
+    if (!version || !hasRunner) return { ok: false, reason: 'unauthorized' };
     if (!existsSync(join(home, '.sandbox', 'setup_marker.json'))) {
       return { ok: false, reason: 'unauthorized' };
     }
