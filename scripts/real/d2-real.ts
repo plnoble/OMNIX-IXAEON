@@ -173,11 +173,47 @@ async function phase1() {
   log('\n[phase1 done]');
 }
 
+async function electronAsNodeDependencyTier(base: string, dataDir: string) {
+  // 补充 5：用仓库的 Electron 可执行文件当 node（ELECTRON_RUN_AS_NODE=1）跑一遍
+  // 依赖档通过例——process.execPath 是 Electron 的形态与真实应用一致。
+  const electron = join(
+    root,
+    'node_modules',
+    '.pnpm',
+    'electron@44.1.1',
+    'node_modules',
+    'electron',
+    'dist',
+    'electron.exe',
+  );
+  log('[补充5] Electron 可执行文件存在：' + existsSync(electron));
+  const proj = join(base, 'proj-electron');
+  makeVitestProject(proj, true, 'pass');
+  const copy = join(base, 'copy-electron');
+  copyProjectWorkspace(proj, copy);
+  const r = await defaultCheck(
+    ['ixaeon:vitest', 'run', 'src/add.test.ts'],
+    copy,
+    undefined,
+    undefined,
+    { ...process.versions, electron: '44.1.1' } as NodeJS.ProcessVersions,
+    { projectRoot: proj, dataDir },
+  );
+  log(
+    `[补充5] Electron 形态依赖档通过例：ran=${r.ran} exitCode=${r.exitCode}（期望 ran=true exitCode=0）`,
+  );
+  log('  输出尾部：\n' + r.output.split('\n').slice(-10).join('\n'));
+}
+
 async function phase2() {
   const base = mkdtempSync(join(tmpdir(), 'ixa-d2-real2-'));
   log('== phase2: 授权后的真实沙箱 ==\n');
   const dataDir = join(base, 'data');
   mkdirSync(dataDir, { recursive: true });
+
+  // 补充 5：授权前先跑一次（不依赖授权，只依赖已生成的身份；跳过这一步先展示环境事实）
+  // 补充 5：Electron 当 node 跑依赖档通过例（授权无关，先跑出来涨证据）
+  await electronAsNodeDependencyTier(base, dataDir);
 
   // 真机检查 2：发起授权（会弹一次 UAC——运行前已请用户点「是」）
   const req = await requestSandboxAuth(dataDir);
@@ -261,6 +297,19 @@ async function phase2() {
     makeVitestProject(proj, false, 'forever');
     const copy = join(base, 'copy-cancel');
     copyProjectWorkspace(proj, copy);
+    // 复审整改：先记机器当前 codex/node 进程号，取消后再比对，只报新多出来
+    // 且还活着的（不数全机总数——用户桌面上的 Codex 和我们自己都有这些进程）
+    const pidSnapshot = () =>
+      new Set(
+        shell('powershell.exe', [
+          '-NoProfile',
+          '-Command',
+          "Get-CimInstance Win32_Process -Filter \"Name='codex.exe' or Name='node.exe'\" | Select-Object -ExpandProperty ProcessId",
+        ])
+          .out.split(/\s+/)
+          .filter(Boolean),
+      );
+    const beforePids = pidSnapshot();
     const ac = new AbortController();
     const p = defaultCheck(
       ['ixaeon:vitest', 'run', 'src/add.test.ts'],
@@ -272,13 +321,11 @@ async function phase2() {
     );
     setTimeout(() => ac.abort(), 3_000);
     const r = await p;
-    const leftovers = shell('powershell.exe', [
-      '-NoProfile',
-      '-Command',
-      "(Get-CimInstance Win32_Process -Filter \"Name='codex.exe' or Name='node.exe'\").Count",
-    ]).out.trim();
+    await new Promise((res) => setTimeout(res, 1_500)); // 给进程树退出留时间
+    const afterPids = pidSnapshot();
+    const leftovers = [...afterPids].filter((pid) => !beforePids.has(pid));
     log(
-      `[6] 取消后结果 ran=${r.ran} exitCode=${r.exitCode}；残留进程数（codex+node 机器当前）：${leftovers}`,
+      `[6] 取消后结果 ran=${r.ran} exitCode=${r.exitCode}；新多出来还活着的 codex/node 进程：${leftovers.length === 0 ? '无' : leftovers.join(',')}`,
     );
     log('[6] 注：机器上若有其他工作在途进程数不为 0，需人工比对（本机此刻无运行中的 IXAEON）。\n');
   }
