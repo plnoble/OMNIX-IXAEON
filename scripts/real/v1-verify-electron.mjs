@@ -25,8 +25,16 @@ const fakeLocal = join(root, 'localappdata');
 mkdirSync(fakeLocal, { recursive: true });
 
 let app = null;
-const cleanup = () => {
-  if (app) void app.close().catch(() => undefined);
+const cleanup = async () => {
+  if (app) {
+    try {
+      // 先等应用真正关闭（Codex 审查建议：避免与 Electron 的退出写入并发）
+      await app.close();
+    } catch {
+      /* 可能已关闭；继续清理 */
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
   try {
     rmSync(root, { recursive: true, force: true });
   } catch {
@@ -169,5 +177,5 @@ try {
   // 失败例：命令本身非零退出 → 验证失败如实反映
   await runOne('验证失败例（退出码 7 → failed）', [mainExec, '-e', 'process.exit(7)'], false);
 } finally {
-  cleanup();
+  await cleanup();
 }
