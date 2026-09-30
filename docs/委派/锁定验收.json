@@ -267,6 +267,17 @@
       "files": {
         "packages/core/test/acceptance/v1-electron-verification.test.ts": "5ac1a9749a65fd97658514324b92b71606f2d27a7d0ea077a7f934ccc8ab4e1a"
       }
+    },
+    {
+      "id": "D2",
+      "title": "D2 编码任务的独立验证按档位进沙箱",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/d2-tier-zero-dep.test.ts": "03b5db363fb4276eb7909adc78fee79565bc56fd7dec7eee918b1a2fa9aecd98",
+        "packages/core/test/acceptance/d2-copy-junction.test.ts": "ba5a204c0b66a554104f42c83b4ddf46fdded8d6849621e41bcc656abe302e71",
+        "packages/core/test/acceptance/d2-sandbox-tier.test.ts": "bcc62954ae95727b5ac19c5f42f5c4ff335f0da3707ed8936f0a48b35e6a137b",
+        "packages/core/test/acceptance/d2-wiring.test.ts": "80d18812db105fe9ee9addeb395f77d263ab5cd8fa85c208632e5eb6fb94fbb5"
+      }
     }
   ]
 }
