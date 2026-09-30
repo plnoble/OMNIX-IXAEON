@@ -302,11 +302,12 @@ function spawnArgv(
   timeoutMs: number,
   signal: AbortSignal,
   _dropEnv: Record<string, string>,
+  extraEnv: Record<string, string> = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(exe, argv, {
       cwd,
-      env: minimalChildEnv(),
+      env: { ...minimalChildEnv(), ...extraEnv },
       windowsHide: true,
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -664,10 +665,20 @@ export class CodingOrchestrator {
   }
 }
 
-async function defaultCheck(
+export async function defaultCheck(
   argv: string[],
   cwd: string,
   signal?: AbortSignal,
+  // V1 可注入判定（默认按「本进程是否 Electron 且派生自己」判定）。契约：
+  // 计算出的附加环境**只能是** ELECTRON_RUN_AS_NODE 一项（布尔决定），
+  // 不给任意环境变量开口子——白名单以外的变量仍带不进子进程。
+  runAsNode: (exe: string, execPath: string, versions: NodeJS.ProcessVersions) => boolean = (
+    exe,
+    execPath,
+    versions,
+  ) => electronRunAsNodeEnv(exe, execPath, versions).ELECTRON_RUN_AS_NODE === '1',
+  // 验收测试用「默认 runAsNode + 注入 versions.electron」走生产默认路径。
+  versions: NodeJS.ProcessVersions = process.versions,
 ): Promise<IndependentCheck> {
   if (isPlaceholderVerifyCommand(argv)) {
     return {
@@ -718,7 +729,15 @@ async function defaultCheck(
     const onOuterAbort = () => abort.abort();
     signal?.addEventListener('abort', onOuterAbort, { once: true });
     try {
-      const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {});
+      // V1：IXAEON 开发版与打包版都跑在 Electron 里，process.execPath 是
+      // Electron 可执行文件——当被派生的程序就是它自己时，注入
+      // ELECTRON_RUN_AS_NODE=1 才会当 node 跑，否则再启动一个应用实例
+      // （验证命令没跑，还多出一个窗口）。普通 node 环境不加。
+      // 附加环境只此一项（布尔判定），白名单外变量仍带不进来。
+      const extraEnv: Record<string, string> = runAsNode(exe, process.execPath, versions)
+        ? { ELECTRON_RUN_AS_NODE: '1' }
+        : {};
+      const raw = await spawnArgv(exe, finalArgv, cwd, 60_000, abort.signal, {}, extraEnv);
       return {
         argv,
         exitCode: raw.exitCode,
@@ -740,6 +759,22 @@ async function defaultCheck(
 
 function uniquePaths(paths: string[]): string[] {
   return [...new Set(paths.map((p) => p.replaceAll('\\', '/')))];
+}
+
+/**
+ * V1：被派生的可执行文件就是「本进程自己」且本进程是 Electron
+ * （process.versions.electron 有值）时，子进程要 ELECTRON_RUN_AS_NODE=1
+ * 才按 node 跑；普通 node 环境不注入。纯函数便于验收测试两分支各测。
+ */
+export function electronRunAsNodeEnv(
+  exe: string,
+  execPath: string,
+  versions: NodeJS.ProcessVersions,
+): Record<string, string> {
+  if (exe === execPath && versions.electron !== undefined) {
+    return { ELECTRON_RUN_AS_NODE: '1' };
+  }
+  return {};
 }
 
 /**

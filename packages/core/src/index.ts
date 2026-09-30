@@ -192,6 +192,8 @@ export {
   DEFAULT_NOTE_VERIFY,
   isPlaceholderVerifyCommand,
   runControlledVerifyCommand,
+  defaultCheck,
+  electronRunAsNodeEnv,
   type CodingExecutor,
   type ExecutorReport,
   type IndependentCheck,
