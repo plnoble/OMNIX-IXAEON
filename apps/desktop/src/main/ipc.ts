@@ -586,7 +586,15 @@ export function registerIpc(runtime: AppRuntime): void {
       });
       return task;
     },
-    approveCodingTask: async (id) => runtime.coding.approveAndQueue(id),
+    // P4：批准前查项目绑定（没绑文件夹就拦，同一条文案）；查不到任务由批准流程自己报错
+    approveCodingTask: async (id) => runtime.approveCodingTask(id),
+    // P4：绑定文件夹——只收票据；票据经存档桥消费（渲染层直接传路径不认）
+    bindProjectFolder: async (input) => {
+      const paths = consumeTicket(input.ticket, 'import');
+      const rootPath = paths[0];
+      if (!rootPath) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '票据无效或已经用过');
+      return runtime.bindProjectFolder(input.projectId, rootPath);
+    },
     dispatchCodingTask: async (id) => runtime.finishCodingTask(id, 'dispatch'),
     cancelCodingTask: async (id) => runtime.finishCodingTask(id, 'cancel'),
     // D4：走 acceptCodingTask（落地 + 追加回报），不再直调 coding.accept

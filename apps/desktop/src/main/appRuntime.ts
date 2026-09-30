@@ -1,6 +1,6 @@
 import { app, safeStorage } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   ArchiveService,
@@ -1442,9 +1442,11 @@ export class AppRuntime {
       .get(conversationId) as { project_id: string | null } | undefined;
     if (!conv?.project_id) throw new IxaError(ErrorCodes.VALIDATION_FAILED, ONLY_PROJECT);
     const project = this.db
-      .prepare('SELECT id, name FROM projects WHERE id = ?')
-      .get(conv.project_id) as { id: string; name: string } | undefined;
+      .prepare('SELECT id, name, root_path FROM projects WHERE id = ?')
+      .get(conv.project_id) as { id: string; name: string; root_path: string | null } | undefined;
     if (!project) throw new IxaError(ErrorCodes.VALIDATION_FAILED, ONLY_PROJECT);
+    // P4：没绑文件夹的项目不派编码任务（三个入口同一条文案）
+    this.assertProjectFolderBound(project.id);
     const task = this.coding.create({
       projectId: project.id,
       goal,
@@ -1759,11 +1761,85 @@ export class AppRuntime {
     // 先看待办能不能改成「要做」：已经不是等你拍板的（连点两下、别处改过），
     // 直接由 accept 报状态冲突，不能先把编码任务批准了、待办却改不成
     if (todo.status === 'proposed' && todo.linked_kind === 'coding_task' && todo.linked_id) {
+      // P4：项目没绑文件夹 → 不批准不派发，待办保持等你拍板（同一条文案）
+      this.assertTaskProjectBound(todo.linked_id);
       // 拍板「要做」= 批准编码任务并排队；批准失败原样报错，待办不动
       await this.coding.approveAndQueue(todo.linked_id);
       this.codingDispatch.kick(todo.linked_id);
     }
     return this.todos.accept(id);
+  }
+
+  /**
+   * P4：任务页「批准」走这里（不再由 IPC 直调 coding.approveAndQueue）。
+   * 只有「查得到任务且它的项目没绑文件夹」才拦；查不到的交批准流程自己报错。
+   */
+  async approveCodingTask(id: string): Promise<CodingTask> {
+    this.assertTaskProjectBound(id);
+    return this.coding.approveAndQueue(id);
+  }
+
+  /** P4：给已有项目绑定文件夹（业务逻辑；IPC 消费票据后把它交给本方法）。 */
+  async bindProjectFolder(projectId: string, folderPath: string): Promise<Project> {
+    const project = this.projects.get(projectId);
+    if (!project) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在：${projectId}`);
+    const storedAbs = resolve(folderPath);
+    if (!existsSync(storedAbs)) {
+      throw new IxaError(ErrorCodes.NOT_FOUND, `文件夹不存在：${storedAbs}`);
+    }
+    if (project.root_path) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        `项目已经绑定过文件夹：${project.root_path}（本单不做换绑）`,
+      );
+    }
+    // 别的项目绑着同一文件夹（规范形比较：真实路径展开 8.3 短名、统一斜杠、
+    // Windows 不分大小写）→ 拒绝并带上那个项目的名字
+    const canon = (p: string): string => {
+      let r = resolve(p);
+      try {
+        r = realpathSync.native(r);
+      } catch {
+        // 沿用词法规范形
+      }
+      r = r.replaceAll('\\', '/').replace(/\/+$/, '');
+      return process.platform === 'win32' ? r.toLowerCase() : r;
+    };
+    const targetCanon = canon(storedAbs);
+    for (const other of this.projects.list()) {
+      if (other.id === project.id || !other.root_path) continue;
+      if (canon(other.root_path) === targetCanon) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          `这个文件夹已经绑在项目「${other.name}」上了（本单不做换绑）`,
+        );
+      }
+    }
+    const grant = this.permissions.grantFolder(storedAbs);
+    const updated = this.projects.rebindRoot(project.id, storedAbs);
+    recordAudit(this.db, 'project.folder_bound', { projectId, grantId: grant.id });
+    return updated;
+  }
+
+  /** P4：项目没绑文件夹 → 三处入口同一条文案（项目不存在不拦，交给后续流程）。 */
+  private assertProjectFolderBound(projectId: string): void {
+    const project = this.db
+      .prepare('SELECT root_path FROM projects WHERE id = ?')
+      .get(projectId) as { root_path: string | null } | undefined;
+    if (project && !project.root_path) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '这个项目还没绑定文件夹：先在项目页点「绑定文件夹」，再派编码任务。',
+      );
+    }
+  }
+
+  /** P4：任务页/待办入口——查得到任务而其项目没绑文件夹才拦；查不到的不拦。 */
+  private assertTaskProjectBound(taskId: string): void {
+    const task = this.db.prepare('SELECT project_id FROM coding_tasks WHERE id = ?').get(taskId) as
+      { project_id: string } | undefined;
+    if (!task) return;
+    this.assertProjectFolderBound(task.project_id);
   }
 
   async finishCodingTask(id: string, how: 'dispatch' | 'cancel'): Promise<CodingTask> {

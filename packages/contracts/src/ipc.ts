@@ -792,6 +792,8 @@ export interface IxaIpcApi {
     projectId?: string | null;
   }): Promise<CodingTask>;
   approveCodingTask(id: string): Promise<CodingTask>;
+  /** P4：给已有项目绑定文件夹——渲染层只传票据（对话框开出的一次性目录票据）。 */
+  bindProjectFolder(input: { ticket: string; projectId: string }): Promise<Project>;
   dispatchCodingTask(id: string): Promise<CodingTask>;
   cancelCodingTask(id: string): Promise<CodingTask>;
   acceptCodingTask(id: string): Promise<CodingTask>;

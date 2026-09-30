@@ -10,11 +10,20 @@
  * - `hermesTool('propose_coding_task', …)` 在没绑文件夹的项目对话上 → rejects 同一条文案；
  * - `acceptTodo` / `approveCodingTask` 在没绑文件夹的项目上 → rejects 同一条文案，
  *   任务与待办都不动。
+ *
+ * 整合方锁定前修（2026-10-01，拿一个最小原型实现跑过：原版 10 条里 5 条挂在测试自己身上）：
+ * - 授权与项目路径一律按规范形比（`grantFolder` 存的是 resolve 后的反斜杠路径；CI 的临时目录
+ *   是 8.3 短名，实现取了真实路径就是长名）。原来按正斜杠字符串比，实现对了也查不到；
+ * - 条件 4 照 D1 真的发起一轮提问（`runtime.ask` + 挂起的替身会话）。原来只塞了会话、没有
+ *   「正在回答」，报的是「只能在项目对话里提」，测不到没绑文件夹这一拦；
+ * - 建编码任务补 `allowedCommands: []`（库里这一列不许为空）；运行时补 `codingDispatchRef` 替身
+ *   （`acceptTodo` 批准后会踢一下派发）；条件 1 补「审计正好一条」。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { AgentSession } from '@ixaeon/core';
 import {
   CodingOrchestrator,
   ConversationStore,
@@ -109,6 +118,9 @@ function setup() {
     semanticBackfillRun: null,
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
+    // acceptTodo 批准后会踢一下 D3 的自动派发（codingDispatch 是懒建的 getter，底下存在
+    // codingDispatchRef）；本单不测派发，替身什么都不做
+    codingDispatchRef: { kick: () => undefined },
   });
   return { runtime, projects, permissions, conversations, todos, coding, modelCalls };
 }
@@ -122,19 +134,80 @@ const sourceCount = (): number =>
 const jobRows = (): number => (db.prepare('SELECT count(*) n FROM jobs').get() as { n: number }).n;
 const auditCount = (kind: string): number =>
   (db.prepare('SELECT count(*) n FROM audit_events WHERE kind = ?').get(kind) as { n: number }).n;
+/** 路径的规范形：尽量取真实路径（短名→长名），分隔符统一、去掉尾斜杠，Windows 上不分大小写。 */
+function canon(p: string): string {
+  let r = resolve(p);
+  try {
+    r = realpathSync.native(r);
+  } catch {
+    // 不存在就只做词法规范化
+  }
+  r = r.replaceAll('\\', '/').replace(/\/+$/, '');
+  return process.platform === 'win32' ? r.toLowerCase() : r;
+}
+const sameFolder = (a: string | null | undefined, b: string): boolean =>
+  !!a && canon(a) === canon(b);
+/** 这个文件夹的有效文件夹授权（按规范形比，不按字符串比）。 */
 const folderGrantRows = (abs: string): Array<{ id: string }> =>
-  db
-    .prepare(
-      "SELECT id FROM permissions WHERE scope_type='folder' AND status='active' AND lower(locator)=lower(?)",
-    )
-    .all(abs.replaceAll('\\', '/')) as Array<{ id: string }>;
+  (
+    db
+      .prepare("SELECT id, locator FROM permissions WHERE scope_type='folder' AND status='active'")
+      .all() as Array<{ id: string; locator: string }>
+  ).filter((g) => sameFolder(g.locator, abs));
 
 /** 没绑文件夹的项目 + 一条等你拍板的编码待办（绕过会被拦住的 propose 路径，直接落库）。 */
 function seedUnboundDraft(h: ReturnType<typeof setup>, projectId: string) {
-  const task = h.coding.create({ projectId, goal: '把 note.txt 写好', scope: ['note.txt'] });
+  const task = h.coding.create({
+    projectId,
+    goal: '把 note.txt 写好',
+    scope: ['note.txt'],
+    allowedCommands: [],
+  });
   const title = '把 note.txt 写好';
   const todo = h.todos.propose({ title, linked: { kind: 'coding_task', id: task.id } });
   return { taskId: task.id, todo };
+}
+
+/** 开一轮「正在回答」的提问（照 D1）：替身会话挂起，等 finish 才收尾。 */
+function startAsk(runtime: AppRuntime, conversationId: string, projectId: string) {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  runtime['askSessions'].set(conversationId, {
+    run: async (input: { runId?: string }) => {
+      await gate;
+      return {
+        answer: '好。',
+        citations: [],
+        notice: '',
+        usedChars: 1,
+        modelName: 'hermes',
+        engine: 'hermes',
+        runId: input.runId ?? 'fake',
+        steps: [],
+        memoryUsed: [],
+      };
+    },
+    cancel: () => undefined,
+    getEngineSessionId: () => 's-p4',
+  } as unknown as AgentSession);
+  // 提问本身怎么收尾不归本单测：结果吞掉，不留未处理的拒绝
+  const done = runtime
+    .ask({ conversationId, projectId, question: '加个文件' })
+    .catch(() => undefined);
+  return {
+    finish: async () => {
+      release();
+      await done;
+    },
+  };
+}
+
+async function waitActive(runtime: AppRuntime, n: number): Promise<void> {
+  const map = runtime['activeAskRuns'] as Map<string, string>;
+  for (let i = 0; i < 300 && map.size < n; i += 1) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect(map.size).toBe(n);
 }
 
 describe('P4 验收条件 1：绑定成功——路径、授权、审计、返回', () => {
@@ -146,8 +219,13 @@ describe('P4 验收条件 1：绑定成功——路径、授权、审计、返�
 
     const updated = (await h.runtime.bindProjectFolder(p.id, f)) as { root_path: string | null };
 
-    expect(updated.root_path && resolve(updated.root_path)).toBe(resolve(f));
+    expect(
+      sameFolder(updated.root_path, f),
+      `返回的项目应带着选的文件夹：${updated.root_path}`,
+    ).toBe(true);
+    expect(sameFolder(h.projects.get(p.id)!.root_path, f)).toBe(true);
     expect(folderGrantRows(f).length).toBe(before + 1);
+    expect(auditCount('project.folder_bound')).toBe(1);
     const audit = db
       .prepare("SELECT detail_json FROM audit_events WHERE kind = 'project.folder_bound'")
       .get() as { detail_json: string };
@@ -188,9 +266,7 @@ describe('P4 验收条件 3：拒绝——已绑定 / 绑到别的项目 / 项�
     const grants = folderGrantRows(f1).length;
     const audits = auditCount('project.folder_bound');
     await expect(h.runtime.bindProjectFolder(p.id, f2)).rejects.toThrow(/已经绑|绑定过/);
-    expect(h.projects.get(p.id)!.root_path && resolve(h.projects.get(p.id)!.root_path!)).toBe(
-      resolve(f1),
-    );
+    expect(sameFolder(h.projects.get(p.id)!.root_path, f1)).toBe(true);
     expect(folderGrantRows(f1).length).toBe(grants);
     expect(folderGrantRows(f2).length).toBe(0);
     expect(auditCount('project.folder_bound')).toBe(audits);
@@ -236,60 +312,25 @@ describe('P4 验收条件 4：D1 聊天里提编码任务——没绑文件夹�
     const p = h.projects.create({ name: '未绑定项目', rootPath: null, description: null });
     const f = folder('w');
     const conv = h.conversations.create({ projectId: p.id });
-    // 模拟「正在回答」的项目对话（照 D1 的挂起会话）
-    let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
-    h.runtime['askSessions'].set(conv.id, {
-      run: async () => {
-        await gate;
-        return {
-          answer: 'x',
-          citations: [],
-          notice: '',
-          usedChars: 1,
-          modelName: 'hermes',
-          engine: 'hermes',
-          runId: 'r',
-          steps: [],
-          memoryUsed: [],
-        };
-      },
-    } as never);
+    // 真的发起一轮「正在回答」的提问（照 D1）：工具认的是 activeAskRuns
+    const ask = startAsk(h.runtime, conv.id, p.id);
+    await waitActive(h.runtime, 1);
 
     await expect(
       h.runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
     ).rejects.toThrow(UNBOUND_MESSAGE);
     expect(taskCount()).toBe(0);
     expect(auditCount('hermes.propose_coding_task')).toBe(0);
-    release();
 
+    // 绑好之后，同一个对话（还在回答）再提同样的话：能建出草案
     await h.runtime.bindProjectFolder(p.id, f);
-    // 绑好后再提同样的话：能建出草案（再来一轮「正在回答」）
-    const conv2 = h.conversations.create({ projectId: p.id });
-    let release2!: () => void;
-    const gate2 = new Promise<void>((r) => (release2 = r));
-    h.runtime['askSessions'].set(conv2.id, {
-      run: async () => {
-        await gate2;
-        return {
-          answer: 'x',
-          citations: [],
-          notice: '',
-          usedChars: 1,
-          modelName: 'hermes',
-          engine: 'hermes',
-          runId: 'r2',
-          steps: [],
-          memoryUsed: [],
-        };
-      },
-    } as never);
     const res = (await h.runtime.hermesTool('propose_coding_task', {
       goal: '加个文件',
       acceptance: ['有文件'],
     })) as { status: string };
     expect(res.status).toBe('draft');
-    release2();
+    expect(taskCount()).toBe(1);
+    await ask.finish();
   });
 });
 
@@ -321,8 +362,18 @@ describe('P4 验收条件 6：任务页「批准」——没绑文件夹拦，�
       rootPath: folder('bw'),
       description: null,
     });
-    const t1 = h.coding.create({ projectId: unbound.id, goal: '写 note.txt', scope: ['note.txt'] });
-    const t2 = h.coding.create({ projectId: bound.id, goal: '写 note.txt', scope: ['note.txt'] });
+    const t1 = h.coding.create({
+      projectId: unbound.id,
+      goal: '写 note.txt',
+      scope: ['note.txt'],
+      allowedCommands: [],
+    });
+    const t2 = h.coding.create({
+      projectId: bound.id,
+      goal: '写 note.txt',
+      scope: ['note.txt'],
+      allowedCommands: [],
+    });
 
     await expect(h.runtime.approveCodingTask(t1.id)).rejects.toThrow(UNBOUND_MESSAGE);
     expect(taskStatus(t1.id)).toBe('draft');
