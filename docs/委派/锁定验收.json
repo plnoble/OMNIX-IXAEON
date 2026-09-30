@@ -278,6 +278,14 @@
         "packages/core/test/acceptance/d2-sandbox-tier.test.ts": "bcc62954ae95727b5ac19c5f42f5c4ff335f0da3707ed8936f0a48b35e6a137b",
         "packages/core/test/acceptance/d2-wiring.test.ts": "80d18812db105fe9ee9addeb395f77d263ab5cd8fa85c208632e5eb6fb94fbb5"
       }
+    },
+    {
+      "id": "P4",
+      "title": "P4 给已有项目绑定文件夹；没绑文件夹的项目不派编码任务",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/p4-project-folder.test.ts": "863384b70d48d9383796ab845f44e3896c876664ebef6543ceb904ef7f4be8b6"
+      }
     }
   ]
 }
