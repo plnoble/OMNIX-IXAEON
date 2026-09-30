@@ -1,16 +1,11 @@
 import { test, expect, _electron as electron } from '@playwright/test';
+import { assertDefaultPortFree } from './ui-port-guard';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 async function seedPendingWork() {
-  const occupied = await fetch('http://127.0.0.1:43191/api/health', {
-    signal: AbortSignal.timeout(1000),
-  }).then(
-    () => true,
-    () => false,
-  );
-  expect(occupied, 'Do not touch an existing service').toBe(false);
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-needs-ui-'));
   const app = await electron.launch({
     args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(dir, 'profile')}`],
@@ -112,13 +107,7 @@ test('LUI02: after correction the superseded predecessor must not remain in Inbo
 });
 
 test('LUI03: defer→re-enter→restart→resume keeps reasons and confirmation intact', async () => {
-  const occupied = await fetch('http://127.0.0.1:43191/api/health', {
-    signal: AbortSignal.timeout(1000),
-  }).then(
-    () => true,
-    () => false,
-  );
-  expect(occupied, 'Do not touch an existing service').toBe(false);
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-needs-ui-defer-'));
   const launch = () =>
     electron.launch({

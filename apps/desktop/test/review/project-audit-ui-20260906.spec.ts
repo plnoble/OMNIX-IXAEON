@@ -1,16 +1,11 @@
 import { test, expect, _electron as electron } from '@playwright/test';
+import { assertDefaultPortFree } from './ui-port-guard';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 test('UI01: successful MCP work-result writeback must actually be visible in the project UI', async () => {
-  const occupied = await fetch('http://127.0.0.1:43191/api/health', {
-    signal: AbortSignal.timeout(1000),
-  }).then(
-    () => true,
-    () => false,
-  );
-  expect(occupied, 'Do not touch an existing user service').toBe(false);
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-project-ui-audit-'));
   const env = { ...process.env, IXAEON_DATA_DIR: dir, IXAEON_FAKE_MODEL: '1' };
   const app = await electron.launch({

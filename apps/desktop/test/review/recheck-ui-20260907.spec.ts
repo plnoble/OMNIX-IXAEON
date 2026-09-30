@@ -1,16 +1,11 @@
 import { test, expect, _electron as electron } from '@playwright/test';
+import { assertDefaultPortFree } from './ui-port-guard';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 test('BUI01: recent work must expose recorded failed tests and unfinished work, not just its summary', async () => {
-  const occupied = await fetch('http://127.0.0.1:43191/api/health', {
-    signal: AbortSignal.timeout(1000),
-  }).then(
-    () => true,
-    () => false,
-  );
-  expect(occupied, 'Do not touch an existing service').toBe(false);
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-recheck-ui-'));
   const app = await electron.launch({
     args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(dir, 'profile')}`],
@@ -98,13 +93,7 @@ test('BUI01: recent work must expose recorded failed tests and unfinished work, 
 });
 
 test('BUI02: work-run details survive app restart (persisted, not just in-memory state)', async () => {
-  const occupied = await fetch('http://127.0.0.1:43191/api/health', {
-    signal: AbortSignal.timeout(1000),
-  }).then(
-    () => true,
-    () => false,
-  );
-  expect(occupied, 'Do not touch an existing service').toBe(false);
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-recheck-restart-'));
   const launch = () =>
     electron.launch({
