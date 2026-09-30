@@ -4,7 +4,7 @@ import { dirname, join, relative } from 'node:path';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { spawnSync } from 'node:child_process';
 
-const FORBIDDEN_DIRS = new Set([
+export const FORBIDDEN_DIRS = new Set([
   'node_modules',
   '.git',
   'dist',

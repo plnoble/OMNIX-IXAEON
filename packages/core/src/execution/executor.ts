@@ -17,6 +17,7 @@ import { ErrorCodes, IxaError, type CodingTask } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { CodingTaskStore } from './taskStore.js';
 import { landTask, toLf } from './landing.js';
+import { FORBIDDEN_DIRS } from './workspaceCopy.js';
 import { SkillCandidateStore } from '../runtime/skills.js';
 import {
   checkSandboxAuth,
@@ -802,46 +803,85 @@ function findFirstLink(dir: string): string | null {
   return hit;
 }
 
+/** 复审整改 5：把 copyProjectWorkspace 的跳过目录集合导出来复用（.git、dist 等不链）。 */
+export { FORBIDDEN_DIRS as WORKSPACE_COPY_FORBIDDEN_DIRS } from './workspaceCopy.js';
+
 /** 依赖档准备/还原：派生前建链接，跑完（无论结局）拆干净。 */
 function prepareDependencyCopy(
   copy: string,
   projectRoot: string,
-): { cleanup: () => void; realDeps: string[]; tmp: string } {
+): { cleanup: () => void; realDeps: string[]; tmp: string } | { error: string } {
+  // 复审整改 5：项目里找 node_modules 时跳过与 copyProjectWorkspace 一样的目录
+  const rels = collectNodeModulesDirs(projectRoot);
+  // 预检：副本里要放链接的任一位置已经有东西 → 整单不跑，绝不覆盖执行器的东西
+  for (const rel of rels) {
+    if (existsSync(join(copy, rel))) {
+      return { error: `副本里已有 node_modules（${rel}）：依赖档不跑，不覆盖已有的内容。` };
+    }
+  }
+
   const madeLinks: string[] = [];
   const madeDirs: string[] = [];
   const realDeps: string[] = [];
-  const before = (p: string) => existsSync(p);
-  for (const rel of collectNodeModulesDirs(projectRoot)) {
-    const link = join(copy, rel);
-    if (!before(dirname(link))) {
-      madeDirs.push(dirname(link));
-      mkdirSync(dirname(link), { recursive: true });
-    }
-    symlinkSync(join(projectRoot, rel), link, 'junction');
-    madeLinks.push(rel);
-    realDeps.push(join(projectRoot, rel));
-  }
   const marker = join(copy, 'pnpm-workspace.yaml');
-  const markerMade = !before(marker);
-  if (markerMade) writeFileSync(marker, '');
-  const tmp = join(copy, '.ixaeon-tmp');
-  mkdirSync(tmp, { recursive: true });
+  const markerMade = !existsSync(marker);
+  // 复审整改 5：.ixaeon-tmp 已被占就换名字，绝不删副本里本来就有的东西
+  let tmpPath = join(copy, '.ixaeon-tmp');
+  let n = 1;
+  while (existsSync(tmpPath)) {
+    n += 1;
+    tmpPath = join(copy, `.ixaeon-tmp-${n}`);
+  }
+
   const cleanup = () => {
     for (const rel of madeLinks) {
       // 只删链接本身，不跟进目标（Node 的 rm 对 junction/symlink 不递归进目标）
       rmSync(join(copy, rel), { recursive: true, force: true });
     }
-    if (markerMade) rmSync(marker, { force: true });
-    rmSync(tmp, { recursive: true, force: true });
     for (const d of madeDirs.slice().reverse()) {
       try {
-        rmdirSync(d); // 只删空目录；有别的就留着（顺带当作新内容，还原不了就报错暴露）
+        rmdirSync(d); // 只删空目录；非空说明有别的东西，保留并暴露
       } catch {
         /* 非空：保留 */
       }
     }
+    if (markerMade) rmSync(marker, { force: true });
+    rmSync(tmpPath, { recursive: true, force: true });
   };
-  return { cleanup, realDeps, tmp };
+
+  // 复审整改 5：准备到一半出错也要先拆干净再冒出去
+  try {
+    for (const rel of rels) {
+      const link = join(copy, rel);
+      // 逐层记录所有要新建的上级目录（mkdir recursive 可能一次建好几层）
+      let d = dirname(link);
+      const missing: string[] = [];
+      while (!existsSync(d) && !madeDirs.includes(d)) {
+        missing.push(d);
+        const parent = dirname(d);
+        if (parent === d) break;
+        d = parent;
+      }
+      for (const md of missing.reverse()) {
+        mkdirSync(md);
+        madeDirs.push(md);
+      }
+      symlinkSync(join(projectRoot, rel), link, 'junction');
+      madeLinks.push(rel);
+      realDeps.push(join(projectRoot, rel));
+    }
+  } catch (err) {
+    try {
+      cleanup();
+    } catch {
+      /* 清理尽力而为 */
+    }
+    throw err;
+  }
+
+  if (markerMade) writeFileSync(marker, '');
+  mkdirSync(tmpPath, { recursive: true });
+  return { cleanup, realDeps, tmp: tmpPath };
 }
 
 /** 编排层默认 runCheck：4 参数（argv, cwd, signal, context）→ defaultCheck 第 6 参数。 */
@@ -1024,6 +1064,14 @@ async function checkDependencyTier(
   }
 
   const prepared = prepareDependencyCopy(cwd, projectRoot);
+  if ('error' in prepared) {
+    return {
+      argv: ['ixaeon:vitest', ...args],
+      exitCode: null,
+      output: prepared.error,
+      ran: false,
+    };
+  }
   try {
     const home = sandboxHomeDir(dataDir);
     ensureSandboxProfileConfig(home, cwd, prepared.realDeps);
@@ -1042,15 +1090,12 @@ async function checkDependencyTier(
         sargs: string[],
         opts: { cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal; timeoutMs: number },
       ) => spawnSandboxProcess(cmd, sargs, opts));
-    const codexExe = locateCodexExecutable();
-    if (!codexExe) {
-      return {
-        argv: ['ixaeon:vitest', ...args],
-        exitCode: null,
-        output: '依赖档沙箱检查未过：codex_missing，不派生，不算验证。',
-        ran: false,
-      };
-    }
+    // 复审整改 1：授权检查通过后不再判 Codex 在不在（检查函数已经保证；替身派生
+    // 不许被本机没有 Codex 卡住——CI 上没有 Codex，13 条替身测试因此挂过）。
+    // 真派生时拿默认安装位置的路径；起不来就按「派生出错」记。
+    const codexExe =
+      locateCodexExecutable() ??
+      join(process.env.LOCALAPPDATA || 'C:/nonexistent', 'OpenAI', 'Codex', 'bin', 'codex.exe');
     const codexArgs = [
       'sandbox',
       'windows',
@@ -1066,6 +1111,9 @@ async function checkDependencyTier(
       'run',
       '--config-loader',
       'runner',
+      // 复审整改 4：vitest 4.1.11 没有可用的缓存目录参数；--no-cache 下
+      // node_modules 一个文件都不写（默认缓存经链接写真实依赖会被拒）
+      '--no-cache',
       ...rest,
     ];
     const effectiveSignal = signal ?? new AbortController().signal;

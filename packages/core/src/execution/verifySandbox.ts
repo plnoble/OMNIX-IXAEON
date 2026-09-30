@@ -13,7 +13,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 export type SandboxAuthError = 'unsupported_platform' | 'codex_missing' | 'unauthorized';
 export type SandboxAuthResult = { ok: true } | { ok: false; reason: SandboxAuthError };
@@ -119,9 +118,11 @@ export async function requestSandboxAuth(dataDir: string): Promise<SandboxAuthRe
   const codexExe = locateCodexExecutable();
   if (!codexExe) return { ok: false, reason: 'codex_missing' };
   const home = sandboxHomeDir(dataDir);
-  // 授权只做「检查没过」才进来：先把专用 HOME 与档案配置铺好，
-  // 授权命令本身不需要真的副本（-C 指到系统临时目录即可）。
-  ensureSandboxProfileConfig(home, tmpdir(), []);
+  // 复审整改 2：-C 与 write 条目绝不用系统临时目录——提权 setup 会给写入根
+  // 加访问权限并永久保留；用数据目录里专用的空目录。
+  const probeDir = join(home, 'auth-probe');
+  mkdirSync(probeDir, { recursive: true });
+  ensureSandboxProfileConfig(home, probeDir, []);
   const r = spawnSync(
     codexExe,
     [
@@ -132,7 +133,7 @@ export async function requestSandboxAuth(dataDir: string): Promise<SandboxAuthRe
       '-c',
       'windows.sandbox="elevated"',
       '-C',
-      tmpdir(),
+      probeDir,
       '--',
       'cmd',
       '/c',
@@ -142,7 +143,8 @@ export async function requestSandboxAuth(dataDir: string): Promise<SandboxAuthRe
       encoding: 'utf8',
       timeout: 120_000,
       windowsHide: true,
-      env: { ...process.env, CODEX_HOME: home },
+      // 复审整改 2：派生环境走白名单，不传整份 process.env
+      env: { ...whitelistedEnv(), CODEX_HOME: home },
     },
   );
   const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
@@ -150,6 +152,36 @@ export async function requestSandboxAuth(dataDir: string): Promise<SandboxAuthRe
     return { ok: false, reason: 'unauthorized' };
   }
   return { ok: true };
+}
+
+/** 派生环境白名单（与 executor.minimalChildEnv 同一张清单，本模块不能反向依赖 executor）。 */
+function whitelistedEnv(): NodeJS.ProcessEnv {
+  const keep = [
+    'PATH',
+    'PATHEXT',
+    'SystemRoot',
+    'SYSTEMROOT',
+    'windir',
+    'TEMP',
+    'TMP',
+    'TMPDIR',
+    'USERPROFILE',
+    'HOMEDRIVE',
+    'HOMEPATH',
+    'HOME',
+    'ComSpec',
+    'COMSPEC',
+    'ProgramFiles',
+    'ProgramW6432',
+    'LANG',
+    'LC_ALL',
+  ];
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of keep) {
+    const v = process.env[key];
+    if (v) env[key] = v;
+  }
+  return env;
 }
 
 const slash = (p: string) => p.replaceAll('\\', '/').replace(/\/$/, '');
@@ -168,6 +200,8 @@ export function ensureSandboxProfileConfig(
   mkdirSync(home, { recursive: true });
   const lines = [
     `[permissions.${SANDBOX_PROFILE}]`,
+    `[permissions.${SANDBOX_PROFILE}.workspace_roots]`,
+    `${tomlQuote(copyDir).replace('/**', '')} = true`,
     `[permissions.${SANDBOX_PROFILE}.filesystem]`,
     `${tomlQuote(copyDir)} = "write"`,
     ...readonlyDirs.map((d) => `${tomlQuote(d)} = "read"`),
