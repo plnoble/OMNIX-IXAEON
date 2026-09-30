@@ -18,7 +18,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 
 function git(args, opts = {}) {
   const r = spawnSync('git', args, { encoding: 'utf8', ...opts });
@@ -124,9 +124,21 @@ if (cmd === 'root') {
   const dry = args.includes('--dry-run');
   must(['fetch', 'origin', '--prune']);
   const main = mainRoot();
+  // 共用检出目录、执行方的操作目录 ops、整合方的整合目录 int 都是常驻的：不管停在哪个
+  // 分支都不删（2026-10-01 整合目录临时停在一个已并入的分支上，被当成任务目录删了）。
+  // 命令正在里面跑的那个目录也不删。
+  const norm = (p) => (process.platform === 'win32' ? resolve(p).toLowerCase() : resolve(p));
+  const keep = new Set(
+    [main, join(worktreesRoot(), 'ops'), join(worktreesRoot(), 'int')].map(norm),
+  );
+  const here = norm(process.cwd());
   let removed = 0;
   for (const wt of listWorktrees()) {
-    if (wt.path === resolve(main) || wt.detached || !wt.branch) continue;
+    if (keep.has(norm(wt.path)) || wt.detached || !wt.branch) continue;
+    if (here === norm(wt.path) || here.startsWith(norm(wt.path) + sep)) {
+      console.log(`留着 ${wt.path}（${wt.branch}）：命令正在这个目录里跑`);
+      continue;
+    }
     const merged = git(['merge-base', '--is-ancestor', wt.branch, 'origin/main']).code === 0;
     const dirty = git(['-C', wt.path, 'status', '--porcelain']).out.length > 0;
     if (!merged || dirty) {
