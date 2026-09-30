@@ -98,13 +98,15 @@ let pauseRequests = [];
 /** 准备自签证书（证书复用上次生成或用 PowerShell 现生成 PFX）。 */
 function ensureCert() {
   if (fs.existsSync(CERT_PFX)) return;
-  const tmpPfx = 'D:\\Agent\\Temp\\ixaeon-e2e-cert.pfx';
+  const tmpPfx = path.join(os.tmpdir(), 'ixaeon-e2e-cert.pfx');
   if (fs.existsSync(tmpPfx)) {
     fs.copyFileSync(tmpPfx, CERT_PFX);
     return;
   }
   // 生成自签证书（chatgpt.com SAN）
   const ps = [
+    // CI（windows-latest）第一次跑到这里时 Cert: PSDrive 与安全模块未必自动加载
+    `$ErrorActionPreference='Continue'; Import-Module Microsoft.PowerShell.Security -ErrorAction SilentlyContinue; Import-Module PKI -ErrorAction SilentlyContinue; if (-not (Get-PSDrive -Name Cert -ErrorAction SilentlyContinue)) { New-PSDrive -Name Cert -PSProvider Certificate -Root (Join-Path $env:APPDATA 'Microsoft') -Scope Global | Out-Null }; $ErrorActionPreference='Stop'`,
     `$c = New-SelfSignedCertificate -DnsName 'chatgpt.com','*.chatgpt.com','localhost' -CertStoreLocation 'Cert:\\CurrentUser\\My' -NotAfter (Get-Date).AddYears(2) -FriendlyName 'IXAEON e2e self-signed'`,
     `$p = ConvertTo-SecureString -String '${CERT_PASS}' -Force -AsPlainText`,
     `Export-PfxCertificate -Cert $c -FilePath '${tmpPfx}' -Password $p | Out-Null`,
