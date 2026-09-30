@@ -53,3 +53,10 @@ jobs:
 
       - name: 门禁（与本机 node scripts/verify.mjs 相同）
         run: node scripts/verify.mjs
+
+      # V2：桌面端到端测试接进门禁（本机先 build 再 e2e——verify.mjs 的 build
+      # 步骤已生成 out/main；CI 上没有正在运行的 IXAEON，端口是空的）。
+      # extension / serial 两段的 CI 移植留待后续（runner 上扩展 service worker
+      # 注册不起来，见 V2 交付说明的已知缺口）。
+      - name: 端到端测试（desktop）
+        run: node scripts/test-e2e.mjs desktop

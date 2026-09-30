@@ -294,10 +294,16 @@ test.describe('D6 聊天界面', () => {
     await page.getByTestId(`todo-card-accept-${todoId}`).click();
     await expect(page.getByTestId(`todo-card-accept-${todoId}`)).toHaveCount(0);
     await expect(todoCard).toContainText('要做');
-    // 待办页：这条进「要做」，底下任务显示排队中
+    // 待办页：这条进「要做」，底下任务按 D3 自动派发——立刻开工，显示进行中
     await page.getByTestId('nav-todos').click();
     await expect(page.getByTestId('todo-section-accepted')).toContainText('写一条 note.txt');
-    await expect(page.getByTestId(`todo-linked-${todoId}`)).toContainText('排队中');
+    // D3 第 1 条正向断言：点要做后自动派发真的在走——轮询徽章直到离开排队/批准期，
+    // 出现派发后的状态（fake 执行器很快，可能直接进入验证/待验收/完成）。
+    const linkedBadge = page.getByTestId(`todo-linked-${todoId}`);
+    await expect(linkedBadge).toContainText('编码任务：', { timeout: 20_000 });
+    await expect
+      .poll(async () => (await linkedBadge.textContent()) ?? '', { timeout: 30_000 })
+      .toMatch(/进行中|等验证|等你验收|已完成/);
 
     await app.close();
     expect(pageErrors).toEqual([]);

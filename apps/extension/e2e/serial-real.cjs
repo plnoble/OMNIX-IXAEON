@@ -154,6 +154,7 @@ async function main() {
       await window.ixaeon.completeSetup({
         dataDir: null,
         modelName: 'gpt-5.2',
+        apiBaseUrl: '',
         apiKey: '',
         projectName: 'SerialTest',
         projectRootPath: null,
@@ -171,9 +172,7 @@ async function main() {
   if (typeof pairCode !== 'string') throw new Error('配对码获取失败');
 
   // 直接读真实 SQLite（断言强度高于经渲染层转发；避免 evaluate 通道竞态）
-  const Database = require(
-    path.join(ROOT, 'apps', 'desktop', 'node_modules', 'better-sqlite3'),
-  );
+  const Database = require(path.join(ROOT, 'apps', 'desktop', 'node_modules', 'better-sqlite3'));
   const dbPath = path.join(dataDir, 'ixaeon.db');
   const chatgptSources = async () => {
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -223,16 +222,22 @@ async function main() {
   await popup.waitForSelector('#pair-code', { state: 'visible' });
   await popup.fill('#pair-code', pairCode);
   await popup.click('#pair-submit');
-  const paired = await waitFor(async () => {
-    const t = await popup.locator('#status-connected').textContent();
-    return typeof t === 'string' && t.includes('已连接');
-  }, 15_000, '真实配对成功（popup 已连接）');
+  const paired = await waitFor(
+    async () => {
+      const t = await popup.locator('#status-connected').textContent();
+      return typeof t === 'string' && t.includes('已连接');
+    },
+    15_000,
+    '真实配对成功（popup 已连接）',
+  );
   ok(paired, '真实配对成功');
   await popup.close();
 
   // 5) 正式对话采集 → 真实数据库
   const browserPage = await context.newPage();
-  await browserPage.goto('https://chatgpt.com/c/serial-formal-001', { waitUntil: 'domcontentloaded' });
+  await browserPage.goto('https://chatgpt.com/c/serial-formal-001', {
+    waitUntil: 'domcontentloaded',
+  });
   await waitFor(
     async () => (await chatgptSources()).some((s) => s.externalId === '/c/serial-formal-001'),
     25_000,
@@ -346,10 +351,7 @@ async function main() {
   );
   const afterPromotion = await chatgptSources();
   const draftLeftovers = afterPromotion.filter((s) => s.externalId.startsWith('page:'));
-  ok(
-    draftLeftovers.length === 0,
-    '转正后临时来源已合并（不重复建档）',
-  );
+  ok(draftLeftovers.length === 0, '转正后临时来源已合并（不重复建档）');
   ok(afterPromotion.length === beforeDraft + 1, '转正后来源总数正确');
 
   // 汇总

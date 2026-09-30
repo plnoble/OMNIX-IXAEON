@@ -59,14 +59,7 @@ const EXT_DIR = path.join(WORK, 'ext');
 const PROFILES = path.join(WORK, 'profiles');
 const CERT_PFX = path.join(WORK, 'chatgpt-mock.pfx');
 const CERT_PASS = 'ixaeon-e2e';
-const RELEASE_SHOTS = path.join(
-  __dirname,
-  '..',
-  '..',
-  'desktop',
-  'release',
-  'screenshots',
-);
+const RELEASE_SHOTS = path.join(__dirname, '..', '..', 'desktop', 'release', 'screenshots');
 
 let failed = 0;
 function ok(cond, label) {
@@ -98,21 +91,70 @@ let pauseRequests = [];
 /** 准备自签证书（证书复用上次生成或用 PowerShell 现生成 PFX）。 */
 function ensureCert() {
   if (fs.existsSync(CERT_PFX)) return;
-  const tmpPfx = 'D:\\Agent\\Temp\\ixaeon-e2e-cert.pfx';
+  const tmpPfx = path.join(os.tmpdir(), 'ixaeon-e2e-cert.pfx');
   if (fs.existsSync(tmpPfx)) {
     fs.copyFileSync(tmpPfx, CERT_PFX);
     return;
   }
-  // 生成自签证书（chatgpt.com SAN）
-  const ps = [
-    `$c = New-SelfSignedCertificate -DnsName 'chatgpt.com','*.chatgpt.com','localhost' -CertStoreLocation 'Cert:\\CurrentUser\\My' -NotAfter (Get-Date).AddYears(2) -FriendlyName 'IXAEON e2e self-signed'`,
-    `$p = ConvertTo-SecureString -String '${CERT_PASS}' -Force -AsPlainText`,
-    `Export-PfxCertificate -Cert $c -FilePath '${tmpPfx}' -Password $p | Out-Null`,
-  ].join('; ');
-  const res = spawnSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8' });
-  if (res.status !== 0) {
-    throw new Error(`生成自签证书失败: ${res.stderr}`);
+  // 优先 openssl（windows-latest runner 自带 Git 的 openssl；稳定、不依赖 PS 模块状态）；
+  // 生成 chatgpt.com / *.chatgpt.com / localhost SAN 的自签 PFX。
+  const keyPem = path.join(os.tmpdir(), 'ixaeon-e2e-key.pem');
+  const certPem = path.join(os.tmpdir(), 'ixaeon-e2e-cert.pem');
+  const openSSLCandidates = [
+    'openssl',
+    'C:\\Program Files\\Git\\usr\\bin\\openssl.exe',
+    'C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe',
+  ];
+  let ok = false;
+  for (const openssl of openSSLCandidates) {
+    const req = spawnSync(
+      openssl,
+      [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        keyPem,
+        '-out',
+        certPem,
+        '-days',
+        '730',
+        '-subj',
+        '//CN=chatgpt.com',
+        '-addext',
+        'subjectAltName=DNS:chatgpt.com,DNS:*.chatgpt.com,DNS:localhost',
+      ],
+      { encoding: 'utf8' },
+    );
+    if (req.status !== 0) continue;
+    const p12 = spawnSync(
+      openssl,
+      [
+        'pkcs12',
+        '-export',
+        '-out',
+        tmpPfx,
+        '-inkey',
+        keyPem,
+        '-in',
+        certPem,
+        '-passout',
+        `pass:${CERT_PASS}`,
+      ],
+      { encoding: 'utf8' },
+    );
+    if (p12.status === 0) {
+      ok = true;
+      break;
+    }
   }
+  if (!ok) {
+    throw new Error('生成自签证书失败：openssl 不可用或生成失败（CI 兜底路径未打通），如实报告。');
+  }
+  fs.rmSync(keyPem, { force: true });
+  fs.rmSync(certPem, { force: true });
   fs.copyFileSync(tmpPfx, CERT_PFX);
 }
 
@@ -289,7 +331,7 @@ async function main() {
       await page.bringToFront();
       await page.goto(CONV_URL, { waitUntil: 'domcontentloaded' });
       await page.title();
-      const { sw, origin } = await captureExtOrigin(context);
+      const { sw, origin } = await captureExtOrigin(context, 30_000);
       ok(sw !== null && origin !== null, 'service worker started');
 
       const popup = await context.newPage();
@@ -393,8 +435,7 @@ async function main() {
       await page.evaluate(() => {
         const turns = document.querySelectorAll('[data-message-author-role="assistant"]');
         const last = turns[turns.length - 1];
-        last.querySelector('.text').textContent =
-          '正在思考。答案是：把原文与当前理解分开存储。';
+        last.querySelector('.text').textContent = '正在思考。答案是：把原文与当前理解分开存储。';
       });
       await page.waitForTimeout(800);
       eq(batches.length, beforeStreaming, 'still no submit while streaming');
