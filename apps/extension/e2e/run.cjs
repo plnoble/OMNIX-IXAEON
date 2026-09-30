@@ -331,7 +331,7 @@ async function main() {
       await page.bringToFront();
       await page.goto(CONV_URL, { waitUntil: 'domcontentloaded' });
       await page.title();
-      const { sw, origin } = await captureExtOrigin(context);
+      const { sw, origin } = await captureExtOrigin(context, 30_000);
       ok(sw !== null && origin !== null, 'service worker started');
 
       const popup = await context.newPage();
