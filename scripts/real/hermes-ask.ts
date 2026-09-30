@@ -16,6 +16,7 @@
  * apps/mcp/dist）。
  * 问题要合成的、不带用户的个人信息。每类情况都要问到：该触发的、不该触发的。
  */
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,6 +40,7 @@ import {
   locateHermes,
   migrate,
   openDatabase,
+  type CoreDatabase,
 } from '../../packages/core/src/index.js';
 import { AppRuntime } from '../../apps/desktop/src/main/appRuntime.js';
 import { LocalServer } from '../../apps/desktop/src/main/server/localServer.js';
@@ -71,13 +73,17 @@ if (asProject && !existsSync(repoMcp)) {
 }
 
 /** 完整桥链的本地端：随机端口上的真实 LocalServer + 真实 AppRuntime.hermesTool。 */
-async function startBridgeServer(dir: string): Promise<{
+async function startBridgeServer(
+  dir: string,
+  db: CoreDatabase,
+): Promise<{
   port: number;
   token: string;
+  runtime: AppRuntime;
   close: () => Promise<void>;
 }> {
-  const db = openDatabase(join(dir, 'bridge.db'));
-  migrate(db);
+  // 整合方补（2026-09-30）：桥与会话用同一个库。原来桥开自己的 bridge.db，库里没有合成项目、
+  // 也没有「正在回答」的登记，模型真调了 propose_coding_task 也只会被拒「只能在项目对话里提」。
   const token = 'real-check-bridge-token-'.padEnd(64, '0');
   const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
   Object.assign(runtime, {
@@ -119,9 +125,9 @@ async function startBridgeServer(dir: string): Promise<{
   return {
     port: (app.server.address() as { port: number }).port,
     token,
+    runtime,
     close: async () => {
       await app.close();
-      db.close();
     },
   };
 }
@@ -147,7 +153,7 @@ for (const q of questions) {
         rootPath: root,
         description: null,
       }).id;
-      bridge = await startBridgeServer(join(dir, 'bridge'));
+      bridge = await startBridgeServer(join(dir, 'bridge'), db);
       // Hermes 用临时 HOME：合成 config.yaml＝用户配置原样克隆（模型网关等照常可用，
       // 含密钥但只进临时文件、用完即删、不打印）＋追加 mcp_servers.ixaeon 登记
       // 我们的 MCP 桥（指向临时端口）。
@@ -183,6 +189,12 @@ for (const q of questions) {
           '',
         ].join('\n');
       writeFileSync(join(hermesHome, 'config.yaml'), yaml);
+      // 整合方补（2026-09-30）：真实 Hermes 的密钥多在 HOME 下的 .env，不在 config.yaml 里。
+      // 只克隆 config.yaml 时临时 HOME 没有密钥，网关回 401。一并复制（只进临时目录、用完即删、不打印）。
+      const userEnv = real.home ? join(real.home, '.env') : '';
+      if (userEnv && existsSync(userEnv)) {
+        writeFileSync(join(hermesHome, '.env'), readFileSync(userEnv));
+      }
       process.env.HERMES_HOME = hermesHome;
       process.env.IXAEON_HERMES_HOME = hermesHome;
       process.env.IXAEON_HERMES_EXE = real.exe;
@@ -196,7 +208,9 @@ for (const q of questions) {
     );
     const toolCalls: string[] = [];
     const adapter = new HermesRuntimeAdapter(broker, undefined, () => ({
-      chatModel: null,
+      // 整合方补：和应用一样按设置里的聊天模型启动 Hermes（IXAEON_CHAT_MODEL）；不给就用
+      // Hermes 配置里的默认模型——那可能是网关上已经没有通道的旧模型（09-29 真机遇到 503）。
+      chatModel: process.env.IXAEON_CHAT_MODEL?.trim() || null,
       // MCP 令牌已写进合成配置，不走网关环境展开。
       bridgeToken: null,
     }));
@@ -208,7 +222,14 @@ for (const q of questions) {
       mcpBridgedTools: [],
       ...(asProject ? { memoryBridge: true } : {}),
     });
-    const r = await session.run({ goal: q, projectId });
+    // 和真实应用一样：提问期间登记「这个项目对话正在回答」，runId 与会话一致，
+    // 桥收到 propose_coding_task 时才认得是哪个项目、挂到哪一轮。
+    const runId = randomUUID();
+    const conversationId =
+      bridge && projectId ? new ConversationStore(db).create({ projectId }).id : null;
+    if (bridge && conversationId) bridge.runtime['activeAskRuns'].set(conversationId, runId);
+    const r = await session.run({ goal: q, projectId, runId });
+    if (bridge && conversationId) bridge.runtime['activeAskRuns'].delete(conversationId);
     const sec = Math.round((Date.now() - t0) / 1000);
     console.log(`\n=== 问：${q}｜引擎 ${r.engine}｜模型 ${r.modelName}｜${sec} 秒`);
     console.log(

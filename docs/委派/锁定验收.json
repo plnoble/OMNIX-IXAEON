@@ -244,7 +244,7 @@
     {
       "id": "D1",
       "title": "聊天里说「把 X 做了」生成编码任务草案",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "9a939b8b7b28576c61fa7d8088070bb90a7251c3423c3be0cea942a800ca00dc",
         "packages/core/test/acceptance/d1-convention.test.ts": "7c980df3d8de0143870b246719f41fd4caf78ee6aa5928aac45c4aa75a0b377c"
