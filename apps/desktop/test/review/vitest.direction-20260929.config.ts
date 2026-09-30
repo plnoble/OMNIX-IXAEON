@@ -8,6 +8,6 @@ export default defineConfig({
       'apps/desktop/test/review/direction-round2-93ecaed.test.ts',
     ],
     fileParallelism: false,
-    testTimeout: 30000,
+    testTimeout: 10000, // 与合并前原配置一致（Codex 建议：不放宽超时）
   },
 });

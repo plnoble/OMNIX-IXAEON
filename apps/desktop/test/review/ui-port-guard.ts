@@ -11,8 +11,11 @@ import { expect } from '@playwright/test';
 export async function assertDefaultPortFree(port = 43191): Promise<void> {
   let occupied: boolean;
   try {
+    // redirect:'manual'：任何响应（含重定向页）都拿得到结果 → 判被占；
+    // 不跟随重定向，避免「服务把自己重定向到一个拒绝连接的地址」被误判为空闲。
     await fetch(`http://127.0.0.1:${port}/api/health`, {
       signal: AbortSignal.timeout(1000),
+      redirect: 'manual',
     });
     // 端口上有东西在响应（哪怕是错误响应）——不是空闲
     occupied = true;
