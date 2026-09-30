@@ -238,6 +238,16 @@ test.describe('D6 聊天界面', () => {
     ).run(randomUUID(), firstConvId, new Date().toISOString(), new Date().toISOString());
 
     const project = db.prepare('SELECT id FROM projects LIMIT 1').get() as { id: string };
+    // P4 起没绑文件夹的项目不派编码任务：给合成项目配一个合成文件夹（放一个文件，副本
+    // 不能是空的），和从项目页「绑定文件夹」得到的一样——设 root_path + 一条文件夹授权
+    const projectRoot = join(dataDir, 'synthetic-project');
+    mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(join(projectRoot, 'note.txt'), '合成项目的合成文件\n');
+    db.prepare('UPDATE projects SET root_path = ? WHERE id = ?').run(projectRoot, project.id);
+    db.prepare(
+      `INSERT INTO permissions (id, scope_type, locator, mode, status, granted_at, revoked_at)
+       VALUES (?, 'folder', ?, 'continuous', 'active', ?, NULL)`,
+    ).run(randomUUID(), projectRoot, new Date().toISOString());
     const now = new Date().toISOString();
     const taskId = randomUUID();
     db.prepare(
