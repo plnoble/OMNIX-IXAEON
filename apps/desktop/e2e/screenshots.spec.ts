@@ -125,7 +125,8 @@ test.describe('截图采集', () => {
 
     // 9. 总览
     await page.getByTestId('nav-overview').click();
-    await expect(page.getByTestId('state-card')).toBeVisible();
+    // V2：总览页已是「个人视角」，旧 state-card 不存在
+    await expect(page.getByTestId('page-overview')).toBeVisible();
     await page.screenshot({ path: join(shotDir, '09-overview.png') });
 
     const shots = [

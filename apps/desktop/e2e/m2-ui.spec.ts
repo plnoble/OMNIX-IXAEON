@@ -79,7 +79,10 @@ const SCENARIOS: ScenarioDef[] = [
     sources: [
       {
         id: 'S1',
-        docLines: ['用户：项目日志现在有点乱，你有什么建议？', 'AI：建议启用远程项目日志服务。C12_S1_PROPOSAL'],
+        docLines: [
+          '用户：项目日志现在有点乱，你有什么建议？',
+          'AI：建议启用远程项目日志服务。C12_S1_PROPOSAL',
+        ],
         modelItems: [
           {
             type: 'decision',
@@ -196,8 +199,18 @@ const SCENARIOS: ScenarioDef[] = [
     ],
     // 不自动选边：双方都保留、都是 disputed、都没有被替用户确认或否决
     dbExpect: [
-      { statement: '桌面端打包框架选择方案甲', state: 'disputed', confirmation: 'none', needsReview: true },
-      { statement: '桌面端打包框架选择方案乙', state: 'disputed', confirmation: 'none', needsReview: true },
+      {
+        statement: '桌面端打包框架选择方案甲',
+        state: 'disputed',
+        confirmation: 'none',
+        needsReview: true,
+      },
+      {
+        statement: '桌面端打包框架选择方案乙',
+        state: 'disputed',
+        confirmation: 'none',
+        needsReview: true,
+      },
     ],
   },
   {
@@ -320,8 +333,8 @@ test.describe('M2 六类语义场景界面级验收（C12 + RF07）', () => {
       'utf8',
     );
 
-    process.env.IXAEON_TEST_DIALOG_RESPONSES = `documents|${ALL_SOURCES.map(
-      (src) => join(dataDir, `${src.id}.md`),
+    process.env.IXAEON_TEST_DIALOG_RESPONSES = `documents|${ALL_SOURCES.map((src) =>
+      join(dataDir, `${src.id}.md`),
     ).join(',')}`;
 
     app = await electron.launch({
@@ -422,11 +435,12 @@ test.describe('M2 六类语义场景界面级验收（C12 + RF07）', () => {
       // 3) 真实界面操作
       const firstStatement = sc.sources[0]!.modelItems[0]!.statement as string;
       if (sc.uiAction.kind === 'confirm' || sc.uiAction.kind === 'reject') {
-        await page.getByTestId('nav-inbox').click();
-        const row = page.locator('.project-row', { hasText: firstStatement });
+        // V2：E6 之后待讨论页只放冲突等少数条目，确认/不采纳在理解页操作
+        await page.getByTestId('nav-understanding').click();
+        const row = page.locator('.item-row', { hasText: firstStatement });
         await expect(row).toBeVisible();
         if (sc.uiAction.kind === 'confirm') {
-          await row.getByRole('button', { name: '确认正确' }).click();
+          await row.getByRole('button', { name: /^(采纳|确认正确)$/ }).click();
         } else {
           await row.getByRole('button', { name: '不采纳' }).click();
         }
@@ -467,7 +481,9 @@ test.describe('M2 六类语义场景界面级验收（C12 + RF07）', () => {
           expect(hit.length, `${sc.id} 持久化条目应存在：${exp.statement}`).toBeGreaterThan(0);
           for (const item of hit) {
             if (exp.state) {
-              expect(item.state, `${sc.id}「${exp.statement}」state 应为 ${exp.state}`).toBe(exp.state);
+              expect(item.state, `${sc.id}「${exp.statement}」state 应为 ${exp.state}`).toBe(
+                exp.state,
+              );
             }
             if (exp.confirmation) {
               expect(

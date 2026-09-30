@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 
 export default defineConfig({
   testDir: '.',
+  globalSetup: './global-setup.ts',
   timeout: 90_000,
   retries: 0,
   workers: 1,

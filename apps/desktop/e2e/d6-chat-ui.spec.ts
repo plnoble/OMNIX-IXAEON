@@ -294,10 +294,10 @@ test.describe('D6 聊天界面', () => {
     await page.getByTestId(`todo-card-accept-${todoId}`).click();
     await expect(page.getByTestId(`todo-card-accept-${todoId}`)).toHaveCount(0);
     await expect(todoCard).toContainText('要做');
-    // 待办页：这条进「要做」，底下任务显示排队中
+    // 待办页：这条进「要做」，底下任务按 D3 自动派发——立刻开工，显示进行中
     await page.getByTestId('nav-todos').click();
     await expect(page.getByTestId('todo-section-accepted')).toContainText('写一条 note.txt');
-    await expect(page.getByTestId(`todo-linked-${todoId}`)).toContainText('排队中');
+    await expect(page.getByTestId(`todo-linked-${todoId}`)).toContainText('进行中');
 
     await app.close();
     expect(pageErrors).toEqual([]);

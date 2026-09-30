@@ -12,7 +12,8 @@ function findDesktopDir(): string {
       return dir;
     }
     const parent = join(dir, '..');
-    if (parent === dir) throw new Error('找不到 out/main/index.js（请先 build 并在 apps/desktop 下运行）');
+    if (parent === dir)
+      throw new Error('找不到 out/main/index.js（请先 build 并在 apps/desktop 下运行）');
     dir = parent;
   }
 }
@@ -33,6 +34,8 @@ async function launchApp(env: Record<string, string>): Promise<ElectronApplicati
 }
 
 test.describe('桌面应用冒烟（含修复回归）', () => {
+  // V2：前后依赖同一实例（向导只走一次）——串行，前面挂掉的不在新实例上乱跑
+  test.describe.configure({ mode: 'serial' });
   let app: ElectronApplication;
   let page: Page;
   let dataDir: string;
@@ -129,9 +132,11 @@ test.describe('桌面应用冒烟（含修复回归）', () => {
 
   test('总览显示状态与服务端口', async () => {
     await page.getByTestId('nav-overview').click();
-    await expect(page.getByTestId('state-card')).toBeVisible();
-    await expect(page.getByTestId('state-server')).toContainText('127.0.0.1:43191');
-    await expect(page.getByTestId('state-setup')).toHaveText('已完成');
+    // V2：总览页已被 W1b/E1 重写为「个人视角」，state-* 三枚旧 testid 不存在，
+    // 换成现行页面：视图可见、覆盖行含项目计数、数据行含本地服务端口。
+    await expect(page.getByTestId('page-overview')).toBeVisible();
+    await expect(page.getByTestId('overview-coverage')).toContainText('项目 1');
+    await expect(page.getByTestId('page-overview')).toContainText('本地服务 127.0.0.1:43191');
   });
 
   test('设置页 MCP 片段：命令可执行 + 入口文件存在 + 令牌经环境变量', async () => {
