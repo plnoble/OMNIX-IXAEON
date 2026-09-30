@@ -771,6 +771,8 @@ function collectNodeModulesDirs(root: string): string[] {
         out.push(relative(root, abs).replaceAll('\\', '/'));
         continue; // 不往里钻（里面的 node_modules 是依赖自己带的，不链）
       }
+      // 复审整改 5：与 copyProjectWorkspace 同规则，跳过 .git/dist/build 等目录
+      if (FORBIDDEN_DIRS.has(ent.name)) continue;
       walk(abs);
     }
   };
@@ -804,8 +806,6 @@ function findFirstLink(dir: string): string | null {
 }
 
 /** 复审整改 5：把 copyProjectWorkspace 的跳过目录集合导出来复用（.git、dist 等不链）。 */
-export { FORBIDDEN_DIRS as WORKSPACE_COPY_FORBIDDEN_DIRS } from './workspaceCopy.js';
-
 /** 依赖档准备/还原：派生前建链接，跑完（无论结局）拆干净。 */
 function prepareDependencyCopy(
   copy: string,
