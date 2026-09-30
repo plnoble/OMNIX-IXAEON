@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test';
+import { assertDefaultPortFree } from './ui-port-guard';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -81,6 +82,7 @@ async function launchWithOneItem() {
 }
 
 test('UND01: confirm keeps the user on the understanding page (no full reload)', async () => {
+  await assertDefaultPortFree();
   const { app, page } = await launchWithOneItem();
   try {
     const items = await page.evaluate(async () => {
@@ -100,6 +102,7 @@ test('UND01: confirm keeps the user on the understanding page (no full reload)',
 });
 
 test('UND02: clicking correct makes the dialog visible in-viewport', async () => {
+  await assertDefaultPortFree();
   const { app, page } = await launchWithOneItem();
   try {
     const items = await page.evaluate(async () => {

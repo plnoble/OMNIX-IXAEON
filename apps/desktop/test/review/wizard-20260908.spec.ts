@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test';
+import { assertDefaultPortFree } from './ui-port-guard';
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -13,6 +14,7 @@ import { join, resolve } from 'node:path';
  * Key 保存失败警告在 B09-B10 已有契约级覆盖。
  */
 test('WIZ01: finish feedback visible, project optional, default dir completes in place', async () => {
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-wiz-'));
   const app = await electron.launch({
     args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(dir, 'profile')}`],
@@ -41,6 +43,7 @@ test('WIZ01: finish feedback visible, project optional, default dir completes in
 });
 
 test('WIZ02: custom dir via picker flow shows restart notice in-viewport', async () => {
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-wiz2-'));
   const customData = join(dir, 'chosen-data');
   mkdirSync(customData, { recursive: true });
