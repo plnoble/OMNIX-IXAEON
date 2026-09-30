@@ -253,7 +253,7 @@
     {
       "id": "D4",
       "title": "接受后在项目仓库里建分支提交",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/d4-apply-branch.test.ts": "232ff8af0125c246ac4623dffc052152c08ba127109c4c027c2e15a808d83e18",
         "apps/desktop/test/acceptance/d4-landing-report.test.ts": "28b26d09aadb6863a5d8c18ba30c95e7840fd7e10e2ef2bb57d73b99ab24395b",
