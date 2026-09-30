@@ -202,11 +202,12 @@ describe('P0 可信基础相邻输入检查与全边界验收 (P0-A 至 P0-D)', 
     ).rejects.toThrow(/证据绑定的方法与当前方法不一致/);
   });
 
-  it('P0-B03 [负向对照] 纯打印变体（console.warn/info）无实质产物检验，坚决拒绝', async () => {
+  it('P0-B03 [负向对照] 纯打印变体（console.warn/info / console.log）无实质产物检验，坚决拒绝', async () => {
     const s = candidate();
     const task = await workspace();
     const invoke = ipcRuntime();
 
+    // warn/info 变体
     await expect(
       invoke('evaluateSkillWithEvidence', {
         id: s.id,
@@ -214,6 +215,19 @@ describe('P0 可信基础相邻输入检查与全边界验收 (P0-A 至 P0-D)', 
         method: 'Fake print method',
         benefit: 'Claims improvement without check',
         command: [process.execPath, '-e', "console.warn('assert'); console.info('ok');"],
+      }),
+    ).rejects.toThrow(/验证命令必须实质检验任务产物或状态/);
+
+    // console.log 变体（C3 合并时并入原 F01 的独有变体，去向见交付说明对照表）
+    const s2 = candidate();
+    const task2 = await workspace();
+    await expect(
+      invoke('evaluateSkillWithEvidence', {
+        id: s2.id,
+        taskId: task2.id,
+        method: 'Method never executed',
+        benefit: 'Unsupported claim',
+        command: [process.execPath, '-e', "console.log('assert')"],
       }),
     ).rejects.toThrow(/验证命令必须实质检验任务产物或状态/);
   });

@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test';
+import { assertDefaultPortFree } from './ui-port-guard';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -9,6 +10,7 @@ import { join, resolve } from 'node:path';
  * P3「看不到重新分析」→ 来源详情页常驻「重新分析」按钮。
  */
 test('SRC01: import folder button imports recursive text files as sources', async () => {
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-src-folder-'));
   const proj = join(dir, 'proj');
   mkdirSync(join(proj, 'docs', 'sub'), { recursive: true });
@@ -61,6 +63,7 @@ test('SRC01: import folder button imports recursive text files as sources', asyn
 });
 
 test('SRC02: source detail has a persistent reanalyze button', async () => {
+  await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-src-reanalyze-'));
   const doc = join(dir, 'doc.md');
   writeFileSync(doc, '# 文档\n\nSRC02_EVIDENCE 内容\n');

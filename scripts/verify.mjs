@@ -146,20 +146,11 @@ results.push(
 );
 
 results.push(
-  run('review-f71da15（M0/M1 边界与预算复审 10 项，修复 RR01-RR08 回归）', [
+  run('review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
-    'apps/desktop/test/review/vitest.review-f71da15-20260916.config.ts',
-  ]),
-);
-
-results.push(
-  run('review-p0-boundaries（P0 可信基础相邻输入与契约边界 12 项）', [
-    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
-    'run',
-    '--config',
-    'apps/desktop/test/review/vitest.review-p0-boundaries-20260916.config.ts',
+    'apps/desktop/test/review/vitest.review-p0-f71da15-20260929.config.ts',
   ]),
 );
 
@@ -191,7 +182,7 @@ results.push(
 );
 
 results.push(
-  run('review-p2-evolution-upgrade（P2 自演进、受控实验、版本批准与安全回滚 5 项）', [
+  run('review-p2（P2 受控实验与安全回滚 5 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -218,11 +209,11 @@ results.push(
 );
 
 results.push(
-  run('review-direction-round2（二次复审 12 项回归）', [
+  run('review-direction-merged（方向质量/复审/二轮复审合并套件 44 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
-    'apps/desktop/test/review/vitest.direction-round2-93ecaed.config.ts',
+    'apps/desktop/test/review/vitest.direction-20260929.config.ts',
   ]),
 );
 
@@ -290,6 +281,17 @@ results.push(
     '-c',
     'apps/desktop/test/review/playwright.understanding-20260908.config.ts',
     '--output=apps/desktop/test/review/.understanding-verify',
+  ]),
+);
+
+// C3：真实用户反馈的两组界面回归（文件夹导入/重新分析 + 设置向导）接入门禁
+results.push(
+  run('review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron）', [
+    resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
+    'test',
+    '-c',
+    'apps/desktop/test/review/playwright.sources-wizard-20260929.config.ts',
+    '--output=apps/desktop/test/review/.sources-wizard-20260929-out',
   ]),
 );
 

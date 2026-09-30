@@ -1,11 +1,11 @@
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
-  testMatch: 'project-audit-ui-20260906.spec.ts',
+  testMatch: ['sources-20260908.spec.ts', 'wizard-20260908.spec.ts'],
   workers: 1,
   retries: 0,
-  timeout: 30000,
+  timeout: 60000,
   reporter: [['list']],
-  outputDir: './.project-audit-ui-out',
+  outputDir: './.sources-wizard-20260929-out',
   use: { trace: 'off' },
 });

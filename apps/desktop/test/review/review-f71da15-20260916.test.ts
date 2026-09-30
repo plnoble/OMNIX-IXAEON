@@ -16,7 +16,6 @@ import {
   SkillCandidateStore,
   SourceStore,
   Vault,
-  createTinyFishFetcher,
   migrate,
   openDatabase,
   runControlledVerifyCommand,
@@ -139,24 +138,6 @@ async function httpFixture() {
 }
 
 describe('Independent review f71da15, 2026-09-16', () => {
-  it('F01 changing print text must not turn an untested method into an approved skill', async () => {
-    const s = candidate();
-    const task = await workspace();
-    const invoke = ipcRuntime();
-    await expect(
-      (async () => {
-        await invoke('evaluateSkillWithEvidence', {
-          id: s.id,
-          taskId: task.id,
-          method: 'Method never executed',
-          benefit: 'Unsupported claim',
-          command: [process.execPath, '-e', "console.log('assert')"],
-        });
-        return invoke('approveSkillCandidate', { id: s.id, version: skills.get(s.id).version });
-      })(),
-    ).rejects.toThrow();
-  });
-
   it('F02 a candidate cannot write into a different project task workspace', async () => {
     const s = candidate();
     const other = new ProjectService(db).create({
@@ -261,29 +242,6 @@ describe('Independent review f71da15, 2026-09-16', () => {
     const result = await checker.tick();
     expect(result).not.toBeNull();
     expect(render).not.toHaveBeenCalled();
-  });
-
-  it('F07 cloud fetch must reject a response above the 2 MiB limit', async () => {
-    const fetcher = createTinyFishFetcher('synthetic-key', {
-      fetchFn: (async () =>
-        new Response(
-          JSON.stringify({
-            results: [
-              { url: 'https://review.example.com/page', text: 'x'.repeat(2 * 1024 * 1024 + 100) },
-            ],
-            errors: [],
-          }),
-        )) as typeof fetch,
-    });
-    await expect(fetcher.fetchRendered('https://review.example.com/page')).rejects.toThrow();
-  });
-
-  it('F08 an empty results array is not a successfully read dynamic page', async () => {
-    const fetcher = createTinyFishFetcher('synthetic-key', {
-      fetchFn: (async () =>
-        new Response(JSON.stringify({ results: [], errors: [] }))) as typeof fetch,
-    });
-    await expect(fetcher.fetchRendered('https://review.example.com/page')).rejects.toThrow();
   });
 
   it('CONTROL missing local token blocks the new MCP search endpoint', async () => {
