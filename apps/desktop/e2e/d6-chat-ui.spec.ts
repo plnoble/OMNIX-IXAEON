@@ -297,7 +297,9 @@ test.describe('D6 聊天界面', () => {
     // 待办页：这条进「要做」，底下任务按 D3 自动派发——立刻开工，显示进行中
     await page.getByTestId('nav-todos').click();
     await expect(page.getByTestId('todo-section-accepted')).toContainText('写一条 note.txt');
-    await expect(page.getByTestId(`todo-linked-${todoId}`)).not.toContainText('排队中', {
+    // D3 后状态词不再固定：无运行中任务→自动开工（进行中），有→排着（排队中）。
+    // 状态机归 D3 锁定评审测试；这里只断言待办卡带上了编码任务徽章。
+    await expect(page.getByTestId(`todo-linked-${todoId}`)).toContainText('编码任务：', {
       timeout: 20_000,
     });
 
