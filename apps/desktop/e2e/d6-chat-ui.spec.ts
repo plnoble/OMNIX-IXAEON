@@ -31,6 +31,9 @@ function launchEnv(dataDir: string, scriptPath: string): Record<string, string> 
   return {
     ...process.env,
     IXAEON_DATA_DIR: dataDir,
+    // 编码任务一律走执行器替身：装了 Codex 的机器上不许真的派 Codex（花额度、进用户的沙箱），
+    // 没装的机器（CI）上也不会因为「没装 Codex」而不派发、一直排队
+    IXAEON_CODEX_EXE: 'none',
     IXAEON_FAKE_MODEL: '1',
     IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
     IXAEON_HERMES_EXE: '',

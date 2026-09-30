@@ -342,6 +342,7 @@ test.describe('M2 六类语义场景界面级验收（C12 + RF07）', () => {
       env: {
         ...process.env,
         IXAEON_DATA_DIR: dataDir,
+        IXAEON_CODEX_EXE: 'none',
         IXAEON_FAKE_MODEL: '1',
         IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
       },

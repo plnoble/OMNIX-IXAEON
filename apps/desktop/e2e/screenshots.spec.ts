@@ -58,6 +58,7 @@ test.describe('截图采集', () => {
       env: {
         ...process.env,
         IXAEON_DATA_DIR: dataDir,
+        IXAEON_CODEX_EXE: 'none',
         IXAEON_FAKE_MODEL: '1',
         IXAEON_TEST_DIALOG_RESPONSES: `documents|${importDoc};directory|${dataDir}`,
       } as Record<string, string>,

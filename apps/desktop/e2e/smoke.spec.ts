@@ -58,6 +58,7 @@ test.describe('桌面应用冒烟（含修复回归）', () => {
     );
     app = await launchApp({
       IXAEON_DATA_DIR: dataDir,
+      IXAEON_CODEX_EXE: 'none',
       // 对话框 stub：documents 选择 seed-notes.md；directory 选择 dataDir
       IXAEON_TEST_DIALOG_RESPONSES: `documents|${importDoc};directory|${dataDir}`,
     });
