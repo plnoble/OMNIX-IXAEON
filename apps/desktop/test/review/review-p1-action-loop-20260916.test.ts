@@ -151,7 +151,7 @@ describe('P1-A 桌面说一个目标，真正办成一件事', () => {
     expect(executed.verify_exit_code).toBe(0);
 
     // 用户在桌面确认接受产物
-    const accepted = coding.accept(task.id);
+    const accepted = await coding.accept(task.id);
     expect(accepted.status).toBe('completed');
     expect(accepted.accepted_at).toBeTruthy();
 

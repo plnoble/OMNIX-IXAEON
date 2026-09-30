@@ -1,4 +1,4 @@
-import type { CoreDatabase } from '@ixaeon/core';
+import { landingText, type CoreDatabase } from '@ixaeon/core';
 
 const MAX_CHANGED = 10;
 const MAX_OUTPUT_LINES = 8;
@@ -13,6 +13,10 @@ export interface TaskReportRow {
   verify_status: string | null;
   verify_output: string | null;
   executor_report_json: string | null;
+  // D4：落地结果（迁移 38）。
+  applied_ref: string | null;
+  applied_at: string | null;
+  apply_error: string | null;
 }
 
 export interface TaskReportMessage {
@@ -84,6 +88,25 @@ const reportOf = (row: TaskReportRow, content: string, status: string): TaskRepo
   content,
   meta: { kind: 'task_report', taskId: row.id, status },
 });
+
+/**
+ * D4（契约 6）：接受之后的落地回报，追加在「等你验收」那条后面（文案与任务页共用 landingText）。
+ */
+export function landingReport(row: TaskReportRow): TaskReportMessage | null {
+  if (row.status !== 'completed') return null;
+  if (row.applied_ref && /^ixaeon\//.test(row.applied_ref)) {
+    return reportOf(row, landingText(row), 'landed_branch');
+  }
+  if (row.applied_ref) {
+    return reportOf(
+      row,
+      `没能建分支（${row.apply_error ?? '原因未记录'}），改动包在 ${row.applied_ref}`,
+      'landed_patch',
+    );
+  }
+  if (row.apply_error) return reportOf(row, `没能落地（${row.apply_error}）。`, 'landing_denied');
+  return reportOf(row, landingText(row), 'no_changes');
+}
 
 export function buildTaskReport(row: TaskReportRow): TaskReportMessage | null {
   if (row.status === 'pending_accept') return reportOf(row, pendingAccept(row), row.status);

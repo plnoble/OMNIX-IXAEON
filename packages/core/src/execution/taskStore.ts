@@ -64,6 +64,11 @@ function toTask(row: Record<string, unknown>): CodingTask {
     error: (row['error'] as string | null) ?? null,
     created_at: row['created_at'] as string,
     updated_at: row['updated_at'] as string,
+    // D4（迁移 38）：落地结果——分支名或补丁目录、落地时间、没落成的原因。
+    applied_ref: (row['applied_ref'] as string | null) ?? null,
+    applied_at: (row['applied_at'] as string | null) ?? null,
+    apply_error: (row['apply_error'] as string | null) ?? null,
+    acceptance_json: (row['acceptance_json'] as string | null) ?? null,
   };
 }
 
@@ -491,6 +496,24 @@ export class CodingTaskStore {
         now,
         id,
       );
+    return this.get(id);
+  }
+
+  /**
+   * D4：接受之后写落地结果（applied_ref / applied_at / apply_error）。
+   * ref 与 error 二选一：落地成功 ref 非空、error 为空；没落地（授权、没改动）两者皆空；
+   * 改走改动包则 ref 是补丁目录、error 写原因。
+   */
+  setLanding(
+    id: string,
+    input: { appliedRef: string | null; applyError: string | null; now: string },
+  ): CodingTask {
+    this.db
+      .prepare(
+        `UPDATE coding_tasks SET applied_ref = ?, applied_at = ?, apply_error = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(input.appliedRef, input.appliedRef ? input.now : null, input.applyError, input.now, id);
     return this.get(id);
   }
 

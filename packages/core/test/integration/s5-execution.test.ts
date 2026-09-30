@@ -164,7 +164,7 @@ describe('A20 结果不冒充验收', () => {
     expect(failed.status).toBe('failed');
     expect(failed.verify_status).toBe('failed');
     expect(failed.error).toMatch(/独立验证失败/);
-    expect(() => failOrch.accept(failed.id)).toThrow();
+    await expect(failOrch.accept(failed.id)).rejects.toThrow();
 
     const skipOrch = new CodingOrchestrator(
       db,
@@ -311,7 +311,7 @@ describe('研究发现开草案', () => {
     });
     await orch.approveAndQueue(task.id);
     const done = await orch.dispatch(task.id);
-    orch.accept(done.id);
+    await orch.accept(done.id);
     const removed = orch.remove(done.id);
     expect(removed.status).toBe('completed');
     expect(() => orch.store.get(done.id)).toThrow(/不存在/);
