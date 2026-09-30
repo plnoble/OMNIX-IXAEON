@@ -112,6 +112,7 @@ const api: IxaIpcApi = {
   createCodingDraftFromFinding: (input) =>
     ipcRenderer.invoke('ixaeon:createCodingDraftFromFinding', input),
   approveCodingTask: (id) => ipcRenderer.invoke('ixaeon:approveCodingTask', id),
+  bindProjectFolder: (input) => ipcRenderer.invoke('ixaeon:bindProjectFolder', input),
   dispatchCodingTask: (id) => ipcRenderer.invoke('ixaeon:dispatchCodingTask', id),
   cancelCodingTask: (id) => ipcRenderer.invoke('ixaeon:cancelCodingTask', id),
   acceptCodingTask: (id) => ipcRenderer.invoke('ixaeon:acceptCodingTask', id),

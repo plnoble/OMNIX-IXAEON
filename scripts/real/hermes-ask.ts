@@ -53,11 +53,13 @@ const Fastify = desktopRequire('fastify') as typeof FastifyDefault;
 
 const argv = process.argv.slice(2);
 const asProject = argv[0] === '--project';
-if (asProject) argv.shift();
+// P4 真机检查：建不绑文件夹的项目，其余和 --project 一样（问开发请求要拦在建草案前）
+const asProjectUnbound = argv[0] === '--project-unbound';
+if (asProject || asProjectUnbound) argv.shift();
 const questions = argv;
 if (questions.length === 0) {
   console.error(
-    '用法：node_modules/.bin/jiti scripts/real/hermes-ask.ts [--project] "问题一" "问题二" …',
+    '用法：node_modules/.bin/jiti scripts/real/hermes-ask.ts [--project|--project-unbound] "问题一" "问题二" …',
   );
   process.exit(2);
 }
@@ -67,7 +69,7 @@ if (!real.found || !real.exe) {
   process.exit(2);
 }
 const repoMcp = join(import.meta.dirname, '..', '..', 'apps', 'mcp', 'dist', 'index.mjs');
-if (asProject && !existsSync(repoMcp)) {
+if ((asProject || asProjectUnbound) && !existsSync(repoMcp)) {
   console.error('apps/mcp/dist 不存在：先跑 node scripts/build.mjs（或 verify）再真机检查。');
   process.exit(2);
 }
@@ -144,13 +146,13 @@ for (const q of questions) {
   const savedExe = process.env.IXAEON_HERMES_EXE;
   const t0 = Date.now();
   try {
-    if (asProject) {
+    if (asProject || asProjectUnbound) {
       const root = join(dir, 'proj');
       mkdirSync(root, { recursive: true });
       writeFileSync(join(root, 'note.txt'), '合成项目的合成文件\n');
       projectId = new ProjectService(db).create({
-        name: '合成项目',
-        rootPath: root,
+        name: asProjectUnbound ? '合成项目（未绑定）' : '合成项目',
+        rootPath: asProjectUnbound ? null : root,
         description: null,
       }).id;
       bridge = await startBridgeServer(join(dir, 'bridge'), db);
@@ -226,14 +228,16 @@ for (const q of questions) {
     // 桥收到 propose_coding_task 时才认得是哪个项目、挂到哪一轮。
     const runId = randomUUID();
     const conversationId =
-      bridge && projectId ? new ConversationStore(db).create({ projectId }).id : null;
+      bridge && projectId && (asProject || asProjectUnbound)
+        ? new ConversationStore(db).create({ projectId }).id
+        : null;
     if (bridge && conversationId) bridge.runtime['activeAskRuns'].set(conversationId, runId);
     const r = await session.run({ goal: q, projectId, runId });
     if (bridge && conversationId) bridge.runtime['activeAskRuns'].delete(conversationId);
     const sec = Math.round((Date.now() - t0) / 1000);
     console.log(`\n=== 问：${q}｜引擎 ${r.engine}｜模型 ${r.modelName}｜${sec} 秒`);
     console.log(
-      `--- 项目对话：${asProject ? '是（合成项目，完整桥链：临时端口本地服务 + MCP 桥 + 真 Hermes）' : '否'}；本轮工具调用（${toolCalls.length} 次）：${JSON.stringify(toolCalls)}`,
+      `--- 项目对话：${asProject || asProjectUnbound ? '是（合成项目，完整桥链：临时端口本地服务 + MCP 桥 + 真 Hermes）' : '否'}；本轮工具调用（${toolCalls.length} 次）：${JSON.stringify(toolCalls)}`,
     );
     const drafts = db
       .prepare('SELECT id, goal, status, acceptance_json FROM coding_tasks ORDER BY created_at')

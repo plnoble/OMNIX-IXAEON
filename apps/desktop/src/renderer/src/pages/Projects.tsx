@@ -197,6 +197,21 @@ export function ProjectsPage({
     void reload();
   }, [reload]);
 
+  const bindFolder = async (projectId: string) => {
+    setBusy(true);
+    try {
+      // 只传一次性目录票据；渲染层不直接给路径（P4 契约 2/条件 7）
+      const picked = await api.pickFiles('directory');
+      if (!picked || picked.ticket === undefined) return;
+      await api.bindProjectFolder({ ticket: picked.ticket, projectId });
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const create = async () => {
     if (form.name.trim().length === 0) {
       setError('项目名不能为空');
@@ -321,7 +336,21 @@ export function ProjectsPage({
                 <div className="project-main">
                   <strong>{p.name}</strong>
                   <span className={`badge badge-${p.status}`}>{projectStatusLabel(p.status)}</span>
-                  <span className="muted">{p.root_path ?? '构想（未绑定目录）'}</span>
+                  {p.root_path ? (
+                    <span className="muted">{p.root_path}</span>
+                  ) : (
+                    <>
+                      <span className="muted">构想（未绑定目录）</span>
+                      <Button
+                        kind="ghost"
+                        disabled={busy}
+                        testId={`project-bind-folder-${p.id}`}
+                        onClick={() => bindFolder(p.id)}
+                      >
+                        绑定文件夹
+                      </Button>
+                    </>
+                  )}
                   {p.purpose && (
                     <span className="muted" style={{ display: 'block', fontSize: 12 }}>
                       目的：{p.purpose}

@@ -282,7 +282,7 @@
     {
       "id": "P4",
       "title": "P4 给已有项目绑定文件夹；没绑文件夹的项目不派编码任务",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/p4-project-folder.test.ts": "863384b70d48d9383796ab845f44e3896c876664ebef6543ceb904ef7f4be8b6"
       }
