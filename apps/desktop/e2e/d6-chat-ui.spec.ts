@@ -297,13 +297,13 @@ test.describe('D6 聊天界面', () => {
     // 待办页：这条进「要做」，底下任务按 D3 自动派发——立刻开工，显示进行中
     await page.getByTestId('nav-todos').click();
     await expect(page.getByTestId('todo-section-accepted')).toContainText('写一条 note.txt');
-    // D3 第 1 条：点要做后照旧批准并排队——徽章必须离开「草稿/等批准」，
-    // 进入排队/运行/验证/待验收/完成之一（状态词随自动派发进度走，不钉死）。
-    await expect(page.getByTestId(`todo-linked-${todoId}`)).toContainText('编码任务：', {
-      timeout: 20_000,
-    });
-    await expect(page.getByTestId(`todo-linked-${todoId}`)).not.toContainText('等批准');
-    await expect(page.getByTestId(`todo-linked-${todoId}`)).not.toContainText('草稿');
+    // D3 第 1 条正向断言：点要做后自动派发真的在走——轮询徽章直到离开排队/批准期，
+    // 出现派发后的状态（fake 执行器很快，可能直接进入验证/待验收/完成）。
+    const linkedBadge = page.getByTestId(`todo-linked-${todoId}`);
+    await expect(linkedBadge).toContainText('编码任务：', { timeout: 20_000 });
+    await expect
+      .poll(async () => (await linkedBadge.textContent()) ?? '', { timeout: 30_000 })
+      .toMatch(/进行中|等验证|等你验收|已完成|失败|已取消/);
 
     await app.close();
     expect(pageErrors).toEqual([]);
