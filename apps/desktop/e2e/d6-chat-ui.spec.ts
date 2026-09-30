@@ -303,7 +303,7 @@ test.describe('D6 聊天界面', () => {
     await expect(linkedBadge).toContainText('编码任务：', { timeout: 20_000 });
     await expect
       .poll(async () => (await linkedBadge.textContent()) ?? '', { timeout: 30_000 })
-      .toMatch(/进行中|等验证|等你验收|已完成|失败|已取消/);
+      .toMatch(/进行中|等验证|等你验收|已完成/);
 
     await app.close();
     expect(pageErrors).toEqual([]);
