@@ -265,7 +265,9 @@ export class AgentSession {
         const tool = (name: string) => `mcp__${HERMES_BRIDGE_SERVER}__${name}`;
         const memoryRoute = this.memoryBridge
           ? `\n\n（IXAEON 约定：需要了解用户的情况、之前说过或做过的事时，调用 ${tool('search_memory')} 查 IXAEON 记忆；` +
-            `用户告诉你需要记住的事，调用 ${tool('record_observation')} 写入 IXAEON 记忆。）`
+            `用户告诉你需要记住的事，调用 ${tool('record_observation')} 写入 IXAEON 记忆。` +
+            `用户要在当前项目里做一件开发的事（写代码、修 bug、加功能）时，调用 ${tool('propose_coding_task')} 提草案，` +
+            `写清目标和能验收的条件；草案要用户点「要做」才开工，不要自己说已经做完。）`
           : '';
         // P3：对话选了项目时带上「项目近况」（提交/会话/任务，现查现拼），
         // 接在记忆那段后面；拼不出来不挡回答。

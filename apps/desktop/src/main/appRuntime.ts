@@ -1388,10 +1388,81 @@ export class AppRuntime {
         ...(includesAiAdvice(r.items) ? { adviceNote: AI_ADVICE_NOTE } : {}),
       };
     }
+    if (name === 'propose_coding_task') return this.proposeCodingTask(args);
     const broker = new CoreToolBroker(this.db, this.items, this.search, this.coding, this.projects);
     const ctx = { audience: 'model' as const, runId: 'hermes-bridge', projectId: null };
     if (name === 'get_evidence') return broker.invoke('get_evidence', { itemId: args.itemId }, ctx);
     return broker.invoke('record_observation', { statement: args.statement }, ctx);
+  }
+
+  /**
+   * D1：聊天模型把「要做什么、怎么算做完」提成一个编码任务草案。
+   * 项目由正在回答的对话决定（契约 3：参数里带的项目一律不认）；桥接调用不在
+   * 提问的异步上下文里，origin_run_id 显式写。草案不批准、不派发、不跑命令。
+   */
+  private proposeCodingTask(args: Record<string, unknown>): unknown {
+    const goal = typeof args.goal === 'string' ? args.goal : '';
+    const bad = (message: string) => new IxaError(ErrorCodes.VALIDATION_FAILED, message) as never;
+    if (goal.trim().length === 0 || goal.length > 2000) throw bad('goal 要写 1–2000 字');
+    const acceptance = args.acceptance;
+    if (!Array.isArray(acceptance) || acceptance.length < 1 || acceptance.length > 8) {
+      throw bad('acceptance 要写 1–8 条验收条件');
+    }
+    for (const item of acceptance) {
+      if (typeof item !== 'string' || item.trim().length === 0 || item.length > 200) {
+        throw bad('每条验收条件要写 1–200 字');
+      }
+    }
+    let scope: string | undefined;
+    if (args.scope !== undefined) {
+      scope = typeof args.scope === 'string' ? args.scope.replaceAll('\\', '/') : '';
+      if (
+        scope.length === 0 ||
+        scope.startsWith('/') ||
+        /^[a-zA-Z]:/.test(scope) ||
+        scope.split('/').includes('..')
+      ) {
+        throw bad('scope 要是项目内的相对路径，不能越出项目');
+      }
+    }
+    // 契约 3：看正在回答的提问。所有对话共用一个桥令牌，分不出是谁在调——
+    // 恰好一个在回答且属于项目才建；不止一个在回答就分不清，请稍后再提。
+    const ONLY_PROJECT = '编码任务只能在项目对话里提（先选项目、开新对话）';
+    if (this.activeAskRuns.size === 0)
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, ONLY_PROJECT);
+    if (this.activeAskRuns.size > 1) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '同时有多个对话在回答，分不清是哪个，请稍后再提',
+      );
+    }
+    const [conversationId, runId] = [...this.activeAskRuns.entries()][0]!;
+    const conv = this.db
+      .prepare('SELECT project_id FROM conversations WHERE id = ?')
+      .get(conversationId) as { project_id: string | null } | undefined;
+    if (!conv?.project_id) throw new IxaError(ErrorCodes.VALIDATION_FAILED, ONLY_PROJECT);
+    const project = this.db
+      .prepare('SELECT id, name FROM projects WHERE id = ?')
+      .get(conv.project_id) as { id: string; name: string } | undefined;
+    if (!project) throw new IxaError(ErrorCodes.VALIDATION_FAILED, ONLY_PROJECT);
+    const task = this.coding.create({
+      projectId: project.id,
+      goal,
+      scope: [scope ?? '.'],
+      allowedCommands: [],
+      acceptance: acceptance as string[],
+      originRunId: runId,
+    });
+    recordAudit(this.db, 'hermes.propose_coding_task', {
+      taskId: task.id,
+      projectId: project.id,
+    });
+    return {
+      taskId: task.id,
+      status: 'draft',
+      project: project.name,
+      note: '草案已建：用户在这条回答下面点「要做」才会开工；不要说已经做完',
+    };
   }
 
   /** E6：个人记忆给聊天用的开关状态，以及没归项目的记忆有多少条（设置页用）。 */

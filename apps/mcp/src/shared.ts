@@ -11,7 +11,7 @@ import { ErrorCodes, IxaError } from '@ixaeon/contracts';
  * 入口级静态引用会让整个服务起不来（见 vite.config.ts 双入口说明）。
  */
 
-export const DESKTOP_PORT = 43191;
+export const DESKTOP_PORT = Number(process.env.IXAEON_DESKTOP_PORT ?? 43191);
 export const BASE_URL = `http://127.0.0.1:${DESKTOP_PORT}`;
 
 export function resolveToken(): string {
@@ -390,10 +390,25 @@ export const hermesGetEvidenceShape = {
 export const hermesRecordObservationShape = {
   statement: z.string().min(1).max(2000).describe('要记下的事，写成一句完整的话'),
 };
+export const proposeCodingTaskShape = {
+  goal: z.string().min(1).max(2000).describe('要做什么，一两句话写清目标'),
+  acceptance: z
+    .array(z.string().min(1).max(200))
+    .min(1)
+    .max(8)
+    .describe('怎么算做完：每条一句能验证的条件（1–8 条）'),
+  scope: z
+    .string()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe('可选：可改哪些文件，项目内相对路径或目录（正斜杠）；缺省为整个项目'),
+};
 
 /**
- * 记忆桥模式（IXAEON_MCP_PROFILE=hermes）下只注册这三个工具，全部转给桌面端
+ * 记忆桥模式（IXAEON_MCP_PROFILE=hermes）下注册这些工具，全部转给桌面端
  * /api/hermes/tool——那里只认 Hermes 专用令牌，按模型受众取材（与聊天注入同一套规则）。
+ * propose_coding_task（D1）也在这条链上：只建草案，批准、派发都在桌面端等用户点。
  */
 export function registerHermesBridgeTools(
   server: McpServer,
@@ -434,6 +449,16 @@ export function registerHermesBridgeTools(
       inputSchema: hermesRecordObservationShape,
     },
     async (args) => reply('record_observation', args),
+  );
+  server.registerTool(
+    'propose_coding_task',
+    {
+      description:
+        '用户要在当前项目里做一件开发的事（写代码、修 bug、加功能）时提编码任务草案。' +
+        '只建草案：要用户点「要做」才会开工，不要自己说已经做完。项目由正在回答的对话决定，不由参数指定。',
+      inputSchema: proposeCodingTaskShape,
+    },
+    async (args) => reply('propose_coding_task', args),
   );
 }
 

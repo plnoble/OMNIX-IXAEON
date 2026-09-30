@@ -288,10 +288,16 @@ export const MCP_SERVER_INSTRUCTIONS = `你是与本机 IXAEON（析衍）项目
 // --- 记忆桥（三周任务单 F1，2026-09-18）：聊天里的 Hermes 经 MCP 查 IXAEON 记忆 ---
 
 /**
- * Hermes 可调用的 IXAEON 工具，只有这三个。编码类工具（prepare_task /
- * record_work_result 等）不给聊天引擎；受众是 model（等同聊天注入），不是 coding_client。
+ * Hermes 可调用的 IXAEON 工具。记忆类三个（受众是 model，等同聊天注入）；
+ * propose_coding_task（D1）只建草案，不批准、不派发，点「要做」才开工。
+ * 其余编码类工具（prepare_task / record_work_result 等）不给聊天引擎。
  */
-export const HERMES_BRIDGE_TOOLS = ['search_memory', 'get_evidence', 'record_observation'] as const;
+export const HERMES_BRIDGE_TOOLS = [
+  'search_memory',
+  'get_evidence',
+  'record_observation',
+  'propose_coding_task',
+] as const;
 export type HermesBridgeToolName = (typeof HERMES_BRIDGE_TOOLS)[number];
 
 /** Hermes 里的 MCP 服务名，也是 config.yaml 里 mcp_servers 下的键。 */
