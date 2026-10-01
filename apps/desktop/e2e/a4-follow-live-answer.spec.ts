@@ -88,9 +88,9 @@ test.describe('A4：切回来接着看还在写的回答', () => {
       });
       // 与库里一致、不重复
       const db = await page.evaluate(async () => {
-        const convs = await window.ixaeon.listConversations();
-        const data = await window.ixaeon.getConversation(convs[0].id);
-        const last = data.messages[data.messages.length - 1];
+        const convs = await window.ixaeon!.listConversations();
+        const data = await window.ixaeon!.getConversation(convs[0]!.id);
+        const last = data.messages[data.messages.length - 1]!;
         return {
           content: last.content,
           status: last.status,
@@ -148,12 +148,12 @@ test.describe('A4：切回来接着看还在写的回答', () => {
         timeout: 30_000,
       });
       const convs = await page.evaluate(async () =>
-        (await window.ixaeon.listConversations()).map((c) => c.id),
+        (await window.ixaeon!.listConversations()).map((c) => c.id),
       );
       expect(convs.length).toBeGreaterThanOrEqual(1);
       for (const id of convs) {
         const data = await page.evaluate(
-          async (cid: string) => window.ixaeon.getConversation(cid),
+          async (cid: string) => window.ixaeon!.getConversation(cid),
           id,
         );
         const mine = data.messages.some(
