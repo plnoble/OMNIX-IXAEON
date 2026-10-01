@@ -752,6 +752,9 @@ export class AppRuntime {
    */
   getProvider(): ModelProvider | null {
     if (process.env.IXAEON_FAKE_MODEL === '1') {
+      // A4 真机：测试期把「回答中」窗口拉长几秒（只在 fake 模式下生效）
+      const delayMsA4 = Number(process.env.IXAEON_TEST_MODEL_DELAY_MS ?? 0);
+      if (Number.isFinite(delayMsA4) && delayMsA4 > 0) this.fakeProvider.chatDelayMs = delayMsA4;
       const scriptPath = process.env.IXAEON_FAKE_MODEL_SCRIPT;
       if (scriptPath && !this.fakeScriptLoaded) {
         this.fakeScriptLoaded = true;

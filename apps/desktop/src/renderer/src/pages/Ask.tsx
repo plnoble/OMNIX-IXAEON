@@ -83,9 +83,26 @@ export function AskPage({
     cancelled: boolean;
     /** P2：这一轮第一条进度事件带来的助手消息 id；之后只认它 */
     messageId?: string;
+    /** A4：不是本页发起的轮（切回来接着跟）。不显示阶段/秒数，只显示「正在回答…」。 */
+    joined?: boolean;
+    /** A4：跟进轮的结束轮询句柄。 */
+    poll?: ReturnType<typeof setInterval> | null;
   } | null>(null);
   // 当前显示的对话。分段只写进它：切到别的对话时不往那边塞，切回来时从库里重新加载。
   const shownId = useRef<string | null>(null);
+  // A4：轮询回调里读最新的 activeId（闭包会捕获过期值）
+  const activeIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+  /** A4：停掉跟进轮的轮询（切走、换对话、轮到自己发问、卸载都用它）。 */
+  const clearJoinedPoll = useCallback(() => {
+    const w = waiting.current;
+    if (w?.poll) {
+      clearInterval(w.poll);
+      w.poll = null;
+    }
+  }, []);
   const [askPhase, setAskPhase] = useState<AskPhase | null>(null);
   const [todoStatus, setTodoStatus] = useState<Record<string, TodoStatus>>({});
   const [todoCoding, setTodoCoding] = useState<Record<string, boolean>>({});
@@ -110,6 +127,31 @@ export function AskPage({
     setTodoCoding(coding);
   }, []);
 
+  /** A4：跟进轮结束（complete/failed/cancelled 任一）后重拉对话，显示最终结果。 */
+  const followJoinEnd = useCallback(
+    async (
+      conversationId: string,
+      messageId: string,
+      w: { poll?: ReturnType<typeof setInterval> | null },
+    ) => {
+      try {
+        const data = await api.getConversation(conversationId);
+        const target = data.messages.find((m) => m.id === messageId);
+        if (target && target.status === 'streaming') return; // 还在写
+        if (waiting.current?.poll === w.poll) {
+          clearJoinedPoll();
+          waiting.current = null;
+        }
+        setAskPhase(null);
+        setMessages(data.messages);
+        await reloadList();
+      } catch {
+        /* 下一次轮询再试 */
+      }
+    },
+    [clearJoinedPoll, reloadList],
+  );
+
   const openConversation = useCallback(
     async (id: string) => {
       const data = await api.getConversation(id);
@@ -123,8 +165,33 @@ export function AskPage({
       setProjectLocked(data.messages.length > 0);
       stick.current = true;
       await reloadTodoStatus();
+      // A4：切回来时库里这条对话还有没答完的流式消息，而等待中的不是这一轮——
+      // 跟上：后面的分段继续写进气泡；轮询等它结束；结束后重拉显示最终结果。
+      const joinedMessage = data.messages.find(
+        (m) => m.role === 'assistant' && m.status === 'streaming',
+      );
+      clearJoinedPoll();
+      if (joinedMessage && (waiting.current === null || waiting.current.conversationId !== id)) {
+        const w: NonNullable<typeof waiting.current> = {
+          conversationId: id,
+          pendingId: joinedMessage.id,
+          messageId: joinedMessage.id,
+          cancelled: false,
+          joined: true,
+          poll: null,
+        };
+        w.poll = setInterval(() => {
+          if (waiting.current !== w) return;
+          if (activeIdRef.current !== id) return;
+          void followJoinEnd(id, joinedMessage.id, w);
+        }, 2000);
+        waiting.current = w;
+        setAskPhase('answering');
+      } else if (!joinedMessage && waiting.current?.conversationId === id) {
+        waiting.current = null;
+      }
     },
-    [reloadTodoStatus],
+    [reloadTodoStatus, clearJoinedPoll, followJoinEnd],
   );
 
   useEffect(() => {
@@ -135,6 +202,9 @@ export function AskPage({
   useEffect(() => {
     void reloadList().catch((err) => setError(errMsg(err)));
   }, [reloadList]);
+
+  // A4：卸载时清掉跟进轮询
+  useEffect(() => () => clearJoinedPoll(), [clearJoinedPoll]);
 
   // P1：一打开问答页（或换了项目）就让主进程在后台建好 Hermes 会话，新对话第一问
   // 省掉 5–9 秒的组装空等。失败无所谓，提问时照常冷启动。
@@ -172,7 +242,7 @@ export function AskPage({
       if (w.messageId !== undefined && e.messageId !== w.messageId) return;
       w.messageId = e.messageId;
       setAskPhase((prev) => {
-        if (prev === 'answering') return prev;
+        if (w.joined || prev === 'answering') return 'answering';
         if (e.phase === 'thinking' && prev === 'thinking') return prev;
         return e.phase;
       });
@@ -220,6 +290,9 @@ export function AskPage({
   const ask = async () => {
     const text = question.trim();
     if (text.length === 0 || busy) return;
+    // A4：自己发问时先停掉之前跟进的轮（等待改用本轮自己的流程）
+    clearJoinedPoll();
+    waiting.current = null;
     setBusy(true);
     setError(null);
     setQuestion('');
