@@ -7,7 +7,9 @@ import {
   readFileSync,
   readlinkSync,
   readdirSync,
+  rmdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -15,7 +17,16 @@ import { ErrorCodes, IxaError, type CodingTask } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { CodingTaskStore } from './taskStore.js';
 import { landTask, toLf } from './landing.js';
+import { FORBIDDEN_DIRS } from './workspaceCopy.js';
 import { SkillCandidateStore } from '../runtime/skills.js';
+import {
+  checkSandboxAuth,
+  ensureSandboxProfileConfig,
+  locateCodexExecutable,
+  SANDBOX_PROFILE,
+  sandboxHomeDir,
+  type SandboxAuthResult,
+} from './verifySandbox.js';
 
 const PLACEHOLDER_VERIFY = ['node', '-e', 'process.exit(0)'];
 
@@ -373,13 +384,21 @@ export class CodingOrchestrator {
       argv: string[],
       cwd: string,
       signal?: AbortSignal,
-    ) => Promise<IndependentCheck> = defaultCheck,
+      context?: { projectRoot: string; dataDir: string },
+    ) => Promise<IndependentCheck> = defaultRunCheck,
   ) {
     this.store = new CodingTaskStore(db);
   }
 
   create(input: Parameters<CodingTaskStore['create']>[0]): CodingTask {
     return this.store.create(input);
+  }
+
+  /** 依赖档验证要的项目根目录（项目没绑目录就是空串，依赖档会如实不跑）。 */
+  private projectRootOf(projectId: string): string {
+    const row = this.db.prepare('SELECT root_path FROM projects WHERE id = ?').get(projectId) as
+      { root_path: string | null } | undefined;
+    return row?.root_path ?? '';
   }
 
   /**
@@ -571,7 +590,12 @@ export class CodingOrchestrator {
       }
       this.store.assertCommandAllowed(task, cmd);
       // A04：取消信号接入验证进程（用户取消 → 杀验证进程树，不留孤儿）
-      const result = await this.runCheck(cmd, task.workspace_path!, this.currentAbort?.signal);
+      // D2（补充第 3 条）：依赖档要把项目根目录与数据目录交给验证
+      const projectRoot = this.projectRootOf(task.project_id);
+      const result = await this.runCheck(cmd, task.workspace_path!, this.currentAbort?.signal, {
+        projectRoot,
+        dataDir: this.dataDir,
+      });
       if (this.store.get(taskId).generation !== gen) {
         return this.store.setStatus(taskId, 'cancelled', {
           error: '取消后的晚到验证不覆盖取消',
@@ -709,6 +733,174 @@ export class CodingOrchestrator {
   }
 }
 
+/**
+ * D2：依赖档验证的上下文（defaultCheck 第 6 个参数，编排层 runCheck 第 4 个参数）。
+ * 生产路径不给 checkAuth / spawnCommand（用默认实现），只给 projectRoot 与 dataDir；
+ * 测试用替身注入这两处接缝。
+ */
+export interface DependencyCheckContext {
+  projectRoot: string;
+  dataDir: string;
+  checkAuth?: (dataDir: string) => Promise<SandboxAuthResult>;
+  spawnCommand?: (
+    cmd: string,
+    args: string[],
+    opts: {
+      cwd: string;
+      env: NodeJS.ProcessEnv;
+      signal: AbortSignal;
+      timeoutMs: number;
+    },
+  ) => Promise<{ exitCode: number | null; stdout: string; stderr: string }>;
+}
+
+/** 项目里除 node_modules 内部之外的每个 node_modules（相对项目根的目录）。 */
+function collectNodeModulesDirs(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const abs = join(dir, ent.name);
+      if (ent.name === 'node_modules') {
+        out.push(relative(root, abs).replaceAll('\\', '/'));
+        continue; // 不往里钻（里面的 node_modules 是依赖自己带的，不链）
+      }
+      // 复审整改 5：与 copyProjectWorkspace 同规则，跳过 .git/dist/build 等目录
+      if (FORBIDDEN_DIRS.has(ent.name)) continue;
+      walk(abs);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+/** 副本里有没有链接（目录链接、符号链接都算，藏在子目录里也算）。 */
+function findFirstLink(dir: string): string | null {
+  let hit: string | null = null;
+  const walk = (d: string) => {
+    if (hit) return;
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (hit) return;
+      const abs = join(d, ent.name);
+      if (ent.isSymbolicLink()) {
+        hit = relative(dir, abs).replaceAll('\\', '/') || '.';
+        return;
+      }
+      if (ent.isDirectory()) walk(abs);
+    }
+  };
+  walk(dir);
+  return hit;
+}
+
+/** 复审整改 5：把 copyProjectWorkspace 的跳过目录集合导出来复用（.git、dist 等不链）。 */
+/** 依赖档准备/还原：派生前建链接，跑完（无论结局）拆干净。 */
+function prepareDependencyCopy(
+  copy: string,
+  projectRoot: string,
+): { cleanup: () => void; realDeps: string[]; tmp: string } | { error: string } {
+  // 复审整改 5：项目里找 node_modules 时跳过与 copyProjectWorkspace 一样的目录
+  const rels = collectNodeModulesDirs(projectRoot);
+  // 预检：副本里要放链接的任一位置已经有东西 → 整单不跑，绝不覆盖执行器的东西
+  for (const rel of rels) {
+    if (existsSync(join(copy, rel))) {
+      return { error: `副本里已有 node_modules（${rel}）：依赖档不跑，不覆盖已有的内容。` };
+    }
+  }
+
+  const madeLinks: string[] = [];
+  const madeDirs: string[] = [];
+  const realDeps: string[] = [];
+  const marker = join(copy, 'pnpm-workspace.yaml');
+  const markerMade = !existsSync(marker);
+  // 复审整改 5：.ixaeon-tmp 已被占就换名字，绝不删副本里本来就有的东西
+  let tmpPath = join(copy, '.ixaeon-tmp');
+  let n = 1;
+  while (existsSync(tmpPath)) {
+    n += 1;
+    tmpPath = join(copy, `.ixaeon-tmp-${n}`);
+  }
+
+  const cleanup = () => {
+    for (const rel of madeLinks) {
+      // 只删链接本身，不跟进目标（Node 的 rm 对 junction/symlink 不递归进目标）
+      rmSync(join(copy, rel), { recursive: true, force: true });
+    }
+    for (const d of madeDirs.slice().reverse()) {
+      try {
+        rmdirSync(d); // 只删空目录；非空说明有别的东西，保留并暴露
+      } catch {
+        /* 非空：保留 */
+      }
+    }
+    if (markerMade) rmSync(marker, { force: true });
+    rmSync(tmpPath, { recursive: true, force: true });
+  };
+
+  // 复审整改 5：准备到一半出错也要先拆干净再冒出去
+  try {
+    for (const rel of rels) {
+      const link = join(copy, rel);
+      // 逐层记录所有要新建的上级目录（mkdir recursive 可能一次建好几层）
+      let d = dirname(link);
+      const missing: string[] = [];
+      while (!existsSync(d) && !madeDirs.includes(d)) {
+        missing.push(d);
+        const parent = dirname(d);
+        if (parent === d) break;
+        d = parent;
+      }
+      for (const md of missing.reverse()) {
+        mkdirSync(md);
+        madeDirs.push(md);
+      }
+      symlinkSync(join(projectRoot, rel), link, 'junction');
+      madeLinks.push(rel);
+      realDeps.push(join(projectRoot, rel));
+    }
+  } catch (err) {
+    try {
+      cleanup();
+    } catch {
+      /* 清理尽力而为 */
+    }
+    throw err;
+  }
+
+  if (markerMade) writeFileSync(marker, '');
+  mkdirSync(tmpPath, { recursive: true });
+  return { cleanup, realDeps, tmp: tmpPath };
+}
+
+/** 编排层默认 runCheck：4 参数（argv, cwd, signal, context）→ defaultCheck 第 6 参数。 */
+async function defaultRunCheck(
+  argv: string[],
+  cwd: string,
+  signal?: AbortSignal,
+  context?: { projectRoot: string; dataDir: string },
+): Promise<IndependentCheck> {
+  return defaultCheck(
+    argv,
+    cwd,
+    signal,
+    undefined,
+    undefined,
+    context as DependencyCheckContext | undefined,
+  );
+}
+
 export async function defaultCheck(
   argv: string[],
   cwd: string,
@@ -723,6 +915,8 @@ export async function defaultCheck(
   ) => electronRunAsNodeEnv(exe, execPath, versions).ELECTRON_RUN_AS_NODE === '1',
   // 验收测试用「默认 runAsNode + 注入 versions.electron」走生产默认路径。
   versions: NodeJS.ProcessVersions = process.versions,
+  // D2 依赖档上下文（第 6 个参数，V1 锁定的第 4、5 个参数不动）。
+  context?: DependencyCheckContext,
 ): Promise<IndependentCheck> {
   if (isPlaceholderVerifyCommand(argv)) {
     return {
@@ -731,6 +925,10 @@ export async function defaultCheck(
       output: '拒绝无条件成功命令 process.exit(0)，不算验证',
       ran: false,
     };
+  }
+  // D2 依赖档：ixaeon:vitest 伪命令 → 专用 CODEX_HOME + 提权沙箱
+  if (argv[0] === 'ixaeon:vitest') {
+    return checkDependencyTier(argv.slice(1), cwd, signal, runAsNode, versions, context);
   }
   try {
     const exe = argv[0]!;
@@ -746,6 +944,17 @@ export async function defaultCheck(
         output:
           `验证命令的可执行程序不在支持范围（${exe}）。` +
           '统一沙箱目前只支持 node（进程内测试）；其他程序不裸跑，不算验证。',
+        ran: false,
+      };
+    }
+    // D2 条件 8：零依赖档靠 Node 权限模型，它判写权限看链接所在的路径，
+    // 副本里有链接（藏在子目录里也算）就可能顺着链接写到副本外——不跑。
+    const linkHit = findFirstLink(cwd);
+    if (linkHit) {
+      return {
+        argv,
+        exitCode: null,
+        output: `副本里有目录链接（${linkHit}）：零依赖档不跑，防止权限模型顺着链接写到副本外。`,
         ran: false,
       };
     }
@@ -799,6 +1008,203 @@ export async function defaultCheck(
       ran: true,
     };
   }
+}
+
+/**
+ * D2 依赖档（契约 3/4/5/7 + 补充 9/10/12）：
+ * ixaeon:vitest run … → 专用 CODEX_HOME + codex 提权沙箱跑副本里的 vitest。
+ * 链接只在派生这段时间存在，跑完拆干净。派生前先做被动授权检查（不弹窗）。
+ */
+async function checkDependencyTier(
+  args: string[],
+  cwd: string,
+  signal: AbortSignal | undefined,
+  runAsNode: (exe: string, execPath: string, versions: NodeJS.ProcessVersions) => boolean,
+  versions: NodeJS.ProcessVersions,
+  context: DependencyCheckContext | undefined,
+): Promise<IndependentCheck> {
+  if (!context) {
+    return {
+      argv: ['ixaeon:vitest', ...args],
+      exitCode: null,
+      output: '依赖档验证缺少项目根目录与数据目录上下文，不算验证。',
+      ran: false,
+    };
+  }
+  if (args[0] !== 'run') {
+    return {
+      argv: ['ixaeon:vitest', ...args],
+      exitCode: null,
+      output: `ixaeon:vitest 只支持 run 子命令（收到 ${args[0] ?? '无'}），不派生。`,
+      ran: false,
+    };
+  }
+  const rest = args.slice(1);
+  const { projectRoot, dataDir } = context;
+  // 项目根目录没装 vitest：vitest_missing，不当成「跑了没通过」
+  if (!existsSync(join(projectRoot, 'node_modules', 'vitest', 'vitest.mjs'))) {
+    return {
+      argv: ['ixaeon:vitest', ...args],
+      exitCode: null,
+      output:
+        '项目根目录没有安装 vitest（node_modules/vitest/vitest.mjs 不存在）：vitest_missing。',
+      ran: false,
+    };
+  }
+  // 派生前先查授权（被动，绝不弹窗）
+  const checkAuth = context.checkAuth ?? ((dir: string) => checkSandboxAuth(dir));
+  const auth = await checkAuth(dataDir);
+  if (!auth.ok) {
+    return {
+      argv: ['ixaeon:vitest', ...args],
+      exitCode: null,
+      output: `依赖档沙箱检查未过：${auth.reason}，不派生，不算验证。`,
+      ran: false,
+    };
+  }
+
+  const prepared = prepareDependencyCopy(cwd, projectRoot);
+  if ('error' in prepared) {
+    return {
+      argv: ['ixaeon:vitest', ...args],
+      exitCode: null,
+      output: prepared.error,
+      ran: false,
+    };
+  }
+  try {
+    const home = sandboxHomeDir(dataDir);
+    ensureSandboxProfileConfig(home, cwd, prepared.realDeps);
+    const node = process.execPath;
+    const env: NodeJS.ProcessEnv = {
+      ...minimalChildEnv(),
+      CODEX_HOME: home,
+      TMP: prepared.tmp,
+      TEMP: prepared.tmp,
+      ...(runAsNode(node, process.execPath, versions) ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+    };
+    const spawnCommand =
+      context.spawnCommand ??
+      ((
+        cmd: string,
+        sargs: string[],
+        opts: { cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal; timeoutMs: number },
+      ) => spawnSandboxProcess(cmd, sargs, opts));
+    // 复审整改 1：授权检查通过后不再判 Codex 在不在（检查函数已经保证；替身派生
+    // 不许被本机没有 Codex 卡住——CI 上没有 Codex，13 条替身测试因此挂过）。
+    // 真派生时拿默认安装位置的路径；起不来就按「派生出错」记。
+    const codexExe =
+      locateCodexExecutable() ??
+      join(process.env.LOCALAPPDATA || 'C:/nonexistent', 'OpenAI', 'Codex', 'bin', 'codex.exe');
+    const codexArgs = [
+      'sandbox',
+      'windows',
+      '--permissions-profile',
+      SANDBOX_PROFILE,
+      '-c',
+      'windows.sandbox="elevated"',
+      '-C',
+      cwd,
+      '--',
+      node,
+      join(cwd, 'node_modules', 'vitest', 'vitest.mjs'),
+      'run',
+      '--config-loader',
+      'runner',
+      // 复审整改 4：vitest 4.1.11 没有可用的缓存目录参数；--no-cache 下
+      // node_modules 一个文件都不写（默认缓存经链接写真实依赖会被拒）
+      '--no-cache',
+      ...rest,
+    ];
+    const effectiveSignal = signal ?? new AbortController().signal;
+    let raw;
+    try {
+      raw = await spawnCommand(codexExe, codexArgs, {
+        cwd,
+        env,
+        signal: effectiveSignal,
+        timeoutMs: 60_000,
+      });
+    } catch (err) {
+      // 派生出错（进程起不来等）：如实反映，副本照常在 finally 拆干净
+      return {
+        argv: ['ixaeon:vitest', ...args],
+        exitCode: 1,
+        output: err instanceof Error ? err.message : String(err),
+        ran: true,
+      };
+    }
+    return {
+      argv: ['ixaeon:vitest', ...args],
+      exitCode: raw.exitCode,
+      output: `${raw.stdout}\n${raw.stderr}`.trim(),
+      ran: true,
+    };
+  } finally {
+    prepared.cleanup();
+  }
+}
+
+/** 生产派生器：promise 化 + 取消杀进程树 + 超时（形状与验收的 SpawnOpts 一致）。 */
+function spawnSandboxProcess(
+  exe: string,
+  argv: string[],
+  opts: { cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal; timeoutMs: number },
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(exe, argv, {
+      cwd: opts.cwd,
+      env: opts.env,
+      windowsHide: true,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      opts.signal.removeEventListener('abort', onAbort);
+      if (err) reject(err);
+      else resolve({ exitCode: null, stdout, stderr });
+    };
+    const stop = () => {
+      if (child.pid) killProcessTree(child.pid);
+      else child.kill();
+    };
+    const timer = setTimeout(() => {
+      stop();
+      finish(
+        new IxaError(
+          ErrorCodes.JOB_CANCELLED,
+          `执行超时（${opts.timeoutMs} ms），已停止本次子进程`,
+        ),
+      );
+    }, opts.timeoutMs);
+    const onAbort = () => {
+      stop();
+      resolve({ exitCode: null, stdout, stderr });
+    };
+    opts.signal.addEventListener('abort', onAbort);
+    child.stdout?.on('data', (buf: Buffer) => {
+      stdout += buf.toString('utf8');
+      if (stdout.length > 200_000) stdout = stdout.slice(-100_000);
+    });
+    child.stderr?.on('data', (buf: Buffer) => {
+      stderr += buf.toString('utf8');
+      if (stderr.length > 200_000) stderr = stderr.slice(-100_000);
+    });
+    child.on('error', (err) => finish(err));
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      opts.signal.removeEventListener('abort', onAbort);
+      resolve({ exitCode: code, stdout, stderr });
+    });
+  });
 }
 
 function uniquePaths(paths: string[]): string[] {

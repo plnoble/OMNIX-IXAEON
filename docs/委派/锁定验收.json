@@ -271,7 +271,7 @@
     {
       "id": "D2",
       "title": "D2 编码任务的独立验证按档位进沙箱",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/d2-tier-zero-dep.test.ts": "03b5db363fb4276eb7909adc78fee79565bc56fd7dec7eee918b1a2fa9aecd98",
         "packages/core/test/acceptance/d2-copy-junction.test.ts": "ba5a204c0b66a554104f42c83b4ddf46fdded8d6849621e41bcc656abe302e71",
