@@ -27,6 +27,18 @@ import {
 const log = (...a: unknown[]) => console.log(...a);
 const root = resolve(import.meta.dirname, '..', '..');
 
+// 失败路径也清理：脚本任何报错退出（含未被 phase 内 return 覆盖的 throw）都删掉本次的临时目录。
+const phaseBaseRef: { value: string | null } = { value: null };
+process.on('exit', () => {
+  if (phaseBaseRef.value) {
+    try {
+      rmSync(phaseBaseRef.value, { recursive: true, force: true });
+    } catch {
+      /* 尽力而为 */
+    }
+  }
+});
+
 /** 系统 corepack 的 JS 入口（node 直跑，不依赖 PATH 里的 .cmd shim；Windows 必用）。 */
 function joinProcessNodeCorepack(): string {
   return join(dirname(process.execPath), 'node_modules', 'corepack', 'dist', 'corepack.js');
@@ -138,6 +150,7 @@ const listing = (dir: string): string[] => {
 
 async function phase1() {
   const base = mkdtempSync(join(tmpdir(), 'ixa-d2-real1-'));
+  phaseBaseRef.value = base;
   log('== phase1: 不需要授权的检查 ==\n');
 
   // 每个数据目录对应一个专用 CODEX_HOME、一次 UAC 授权；用固定数据目录（跨次保留），授权一次长期有效
@@ -241,6 +254,7 @@ async function electronAsNodeDependencyTier(base: string, dataDir: string) {
 
 async function phase2() {
   const base = mkdtempSync(join(tmpdir(), 'ixa-d2-real2-'));
+  phaseBaseRef.value = base;
   log('== phase2: 授权后的真实沙箱 ==\n');
   const dataDir = join(base, 'data');
   mkdirSync(dataDir, { recursive: true });
