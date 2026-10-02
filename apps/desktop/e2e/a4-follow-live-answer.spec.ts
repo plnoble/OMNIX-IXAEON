@@ -54,6 +54,21 @@ const DELAY = '4500';
 
 const ANSWER_TEXT = 'A4 合成回答：这是切回来之后自动显示出来的最终内容。';
 
+/** 列表里点开指定对话（data-conversation-id，不靠列表顺序和页面自动选中）。 */
+async function clickConversation(page: Page, id: string): Promise<void> {
+  await page
+    .locator(`[data-testid="conversation-item"][data-conversation-id="${id}"]`)
+    .click();
+}
+
+/** 当前数据目录里唯一（或首个）对话的 id（刚发问时对话刚建，轮询等到列表里有它）。 */
+async function firstConversationId(page: Page): Promise<string> {
+  const read = () =>
+    page.evaluate(async () => (await window.ixaeon!.listConversations())[0]?.id ?? '');
+  await expect.poll(read, { timeout: 15_000 }).not.toBe('');
+  return (await read())!;
+}
+
 function withDataDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'ixa-a4-'));
   // core-bounded 工具循环（CI 上没有 Hermes 走这条路）：每问消耗
@@ -93,16 +108,19 @@ test.describe('A4：切回来接着看还在写的回答', () => {
       await page.getByTestId('nav-ask').click();
       await expect(page.getByTestId('page-ask')).toBeVisible();
       // 切回对话页不自动选对话（App 把 openConversationId 置空，显示空状态引导）；
-      // 照用户实际操作：在列表里点开刚提问的这个对话
-      await page.locator('[data-testid="conversation-item"]').first().click();
-      // 切回来时仍在写（跟进态显示「正在回答…」，无阶段无秒数），答完几秒内自动换成最终内容
+      // 照用户实际操作：按 id 在列表里点开刚提问的这个对话，不靠页面自动选中
+      await clickConversation(page, await firstConversationId(page));
+      // 切回来时仍在写（跟进态显示「正在回答…」，无阶段无秒数）
       await expect(page.getByTestId('message-list')).toContainText('正在回答…', {
         timeout: 10_000,
       });
+      // 条件 2：切回来之后到来的分段照常出现在气泡里（轮询周期 2s 内从库里同步）
       await expect(page.getByTestId('message-list')).toContainText(ANSWER_TEXT, {
         timeout: 30_000,
       });
-      // 与库里一致、不重复
+      // 答完几秒内自动显示最终内容（不再转圈）
+      await expect(page.getByTestId('message-list')).not.toContainText('正在', { timeout: 5_000 });
+      // 与库里一致（精确相等）、不重复（恰好一条 assistant 消息）
       const db = await page.evaluate(async () => {
         const convs = await window.ixaeon!.listConversations();
         const data = await window.ixaeon!.getConversation(convs[0]!.id);
@@ -113,10 +131,15 @@ test.describe('A4：切回来接着看还在写的回答', () => {
           assistantCount: data.messages.filter((m) => m.role === 'assistant').length,
         };
       });
-      expect(db.content).toContain(ANSWER_TEXT);
-      expect(db.status).not.toBe('streaming');
+      expect(db.status).toBe('complete');
       expect(db.assistantCount).toBe(1);
-      await expect(page.getByTestId('message-list')).not.toContainText('正在', { timeout: 5_000 });
+      // 界面气泡包含库里的完整正文（不重复断言：正文恰好出现一次）
+      const uiText = await page.evaluate(
+        () =>
+          document.querySelector<HTMLElement>('[data-testid="message-list"]')?.innerText ?? '',
+      );
+      expect(uiText).toContain(ANSWER_TEXT);
+      expect(uiText.split(ANSWER_TEXT).length - 1).toBe(1);
     } finally {
       await app.close().catch(() => undefined);
     }
@@ -138,8 +161,28 @@ test.describe('A4：切回来接着看还在写的回答', () => {
       await expect(page.getByTestId('page-projects')).toBeVisible();
       await page.getByTestId('nav-ask').click();
       await expect(page.getByTestId('page-ask')).toBeVisible();
-      // 失败态的落库收尾在应用重启时才做（规格约束）；这里只要求界面不再转圈
-      await expect(page.getByTestId('message-list')).not.toContainText('正在', { timeout: 30_000 });
+      // 照用户实际操作：按 id 在列表里点开刚提问的这个对话
+      await clickConversation(page, await firstConversationId(page));
+      // 条件 3：切回来的页面在结束后显示失败和错误信息（不再转圈）。
+      // 跟进页靠 2s 轮询同步库状态：失败收尾落库后，下个周期界面换成失败态
+      await expect(page.getByTestId('message-list')).toContainText('失败', { timeout: 30_000 });
+      await expect(page.getByTestId('message-list')).not.toContainText('正在回答', {
+        timeout: 10_000,
+      });
+      // 库里那条消息收尾为 failed（失败收尾有异步重试，轮询等待）
+      await expect
+        .poll(
+          async () => {
+            const st = await page.evaluate(async () => {
+              const convs = await window.ixaeon!.listConversations();
+              const data = await window.ixaeon!.getConversation(convs[0]!.id);
+              return data.messages[data.messages.length - 1]!.status;
+            });
+            return st;
+          },
+          { timeout: 30_000 },
+        )
+        .toBe('failed');
     } finally {
       await app.close().catch(() => undefined);
     }
@@ -159,26 +202,41 @@ test.describe('A4：切回来接着看还在写的回答', () => {
       await page.getByTestId('ask-input').fill('A4 另一问');
       await page.getByTestId('ask-run').click();
       await expect(page.getByTestId('message-list')).toContainText('正在', { timeout: 10_000 });
-      // 等这轮结束
+      // 条件 4：这轮的分段不串进别的对话。
+      // 先记下原对话的 id（发问刚建，列表轮询等到它出现），切走再切回、点开它、等这轮结束
+      const origId = await firstConversationId(page);
+      await page.getByTestId('nav-projects').click();
+      await page.getByTestId('nav-ask').click();
+      await clickConversation(page, origId);
       await expect(page.getByTestId('message-list')).toContainText(ANSWER_TEXT, {
         timeout: 30_000,
       });
-      const convs = await page.evaluate(async () =>
-        (await window.ixaeon!.listConversations()).map((c) => c.id),
-      );
-      expect(convs.length).toBeGreaterThanOrEqual(1);
-      for (const id of convs) {
-        const data = await page.evaluate(
-          async (cid: string) => window.ixaeon!.getConversation(cid),
-          id,
-        );
-        const mine = data.messages.some(
-          (m) => m.role === 'user' && m.content.includes('A4 另一问'),
-        );
-        if (!mine) {
-          expect(data.messages.some((m) => m.content.includes(ANSWER_TEXT))).toBe(false);
-        }
-      }
+      // 原轮结束后建新对话并打开
+      await page.getByTestId('conversation-new').click();
+      await expect(page.locator('[data-testid="conversation-item"]')).toHaveCount(2, {
+        timeout: 15_000,
+      });
+      // 新对话的 id：列表里不是原对话的那一个（列表按 updated_at 排序，不靠位置猜）
+      const newId = await page.evaluate(async (orig) => {
+        const convs = await window.ixaeon!.listConversations();
+        return convs.map((c) => c.id).find((id) => id !== orig);
+      }, origId);
+      if (!newId) throw new Error('没找到新对话');
+      // 新对话是空的：没有本轮的分段、没有本轮的回答、没有转圈
+      await expect(page.getByTestId('message-list')).not.toContainText(ANSWER_TEXT, {
+        timeout: 10_000,
+      });
+      await expect(page.getByTestId('message-list')).not.toContainText('A4 另一问');
+      await expect(page.getByTestId('message-list')).not.toContainText('正在');
+      // 再切回原对话：内容完好（回答在那里、只有一条）
+      await clickConversation(page, origId);
+      await expect(page.getByTestId('message-list')).toContainText(ANSWER_TEXT, {
+        timeout: 15_000,
+      });
+      // 再切到新对话：仍然干净（界面级隔离，切来切去不串）
+      await clickConversation(page, newId);
+      await expect(page.getByTestId('message-list')).not.toContainText(ANSWER_TEXT);
+      await expect(page.getByTestId('message-list')).not.toContainText('A4 另一问');
     } finally {
       await app.close().catch(() => undefined);
     }

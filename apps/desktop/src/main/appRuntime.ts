@@ -1262,6 +1262,15 @@ export class AppRuntime {
       // D3/D4：回答收尾到占位消息上。取消的回合按 cancelled 记，不冒充完成——
       // 下一轮的 priorTurns 只取 complete，半截回答不会变成背景。
       const cancelled = result.notice?.includes('用户取消') === true;
+      // A4（验收条件 3）：模型出错的轮收尾为 failed、错误信息如实落库，界面据此
+      // 显示「失败」而不是把失败文案伪装成 complete 的回答。回答流程本身不变：
+      // 仍由 session.run 完成模型调用与步骤记录，这里只按步骤结果如实标记状态。
+      const modelFailed =
+        !cancelled && (result.steps ?? []).some((s) => s.tool === 'model' && s.ok === false);
+      const failedDetail = modelFailed
+        ? ((result.steps ?? []).find((s) => s.tool === 'model' && s.ok === false)?.detail ??
+          '模型出错')
+        : null;
       const proposedTodos: Array<{ id: string; title: string }> = [...codingTodos];
       if (!cancelled) {
         for (const title of extracted.todos) {
@@ -1274,12 +1283,13 @@ export class AppRuntime {
         }
       }
       this.conversations.finishMessage(assistantMessage.id, {
-        content: extracted.answer,
-        status: cancelled ? 'cancelled' : 'complete',
+        content: modelFailed ? '' : extracted.answer,
+        status: cancelled ? 'cancelled' : modelFailed ? 'failed' : 'complete',
         runId,
         engine: result.engine,
         modelName: result.modelName,
         citations: result.citations,
+        errorMessage: failedDetail,
         meta: {
           notice: result.notice,
           usedChars: result.usedChars,

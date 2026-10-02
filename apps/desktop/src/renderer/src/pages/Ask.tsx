@@ -158,8 +158,9 @@ export function AskPage({
         // 复审整改：异步返回后校验当前对话没变，防止旧响应串入新对话
         if (activeIdRef.current !== id) return;
         const data = await api.getConversation(id);
-        // 复审整改：异步返回后也校验（await 期间用户可能切走）
+        // 复审整改：异步返回后也校验（await 期间用户可能切走或发起自己的一轮）
         if (activeIdRef.current !== id) return;
+        if (waiting.current && !waiting.current.joined) return;
         // 复审整改 1：去掉 wasStreaming 状态变量——每次 tick 都无条件从库里同步
         // 消息和状态。首次轮询前就结束的场景也能正确显示（不会因 wasStreaming=false
         // 而跳过最终结果更新）。
