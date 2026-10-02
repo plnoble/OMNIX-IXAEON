@@ -166,7 +166,9 @@ export function AskPage({
       ticking = true;
       try {
         // 本页发起的轮由 delta 处理器实时更新，这里跳过（避免和 delta 竞争覆盖）
-        if (waiting.current && !waiting.current.joined) return;
+        // 本页发起的轮由 delta 处理器实时更新，只有等的是当前对话才跳过：等 A 时打开仍在回答的 B，B 的跟进不能被 A 这一轮拦住
+        if (waiting.current && !waiting.current.joined && waiting.current.conversationId === id)
+          return;
         // 复审整改：异步返回后校验当前对话没变，防止旧响应串入新对话
         if (activeIdRef.current !== id) return;
         const roundAtStart = askRoundRef.current;
@@ -176,7 +178,8 @@ export function AskPage({
         // await 期间发起过新一轮就丢弃这个旧快照：即使新一轮已经结束、
         // waiting 又清空，旧快照（旧流式态）也不能覆盖新回答、更不能停掉轮询。
         if (askRoundRef.current !== roundAtStart) return;
-        if (waiting.current && !waiting.current.joined) return;
+        if (waiting.current && !waiting.current.joined && waiting.current.conversationId === id)
+          return;
         const stillStreaming = data.messages.some(
           (m) => m.role === 'assistant' && m.status === 'streaming',
         );
