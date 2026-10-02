@@ -15,6 +15,8 @@ export class FakeProvider implements ModelProvider {
   private textQueue: string[] = [];
   /** 测试钩子：每次结构化调用前执行（可取消会话）。 */
   beforeStructured: (() => void) | null = null;
+  /** A4 真机：回答前的延迟（毫秒）。只测试用，让「回答中」窗口拉长几秒。 */
+  chatDelayMs = 0;
 
   constructor(modelName = 'fake-model-v1') {
     this.modelName = modelName;
@@ -31,11 +33,16 @@ export class FakeProvider implements ModelProvider {
     return this;
   }
 
+  private async delayForTest(): Promise<void> {
+    if (this.chatDelayMs > 0) await new Promise((r) => setTimeout(r, this.chatDelayMs));
+  }
+
   async chatStructured<T>(input: {
     system: string;
     user: string;
     schema: z.ZodType<T>;
   }): Promise<T> {
+    await this.delayForTest();
     this.beforeStructured?.();
     this.structuredCalls.push({ system: input.system, user: input.user });
     if (this.structuredQueue.length === 0) {
@@ -50,6 +57,7 @@ export class FakeProvider implements ModelProvider {
   }
 
   async chatText(input: { system: string; user: string }): Promise<string> {
+    await this.delayForTest();
     this.textCalls.push({ system: input.system, user: input.user });
     if (this.textQueue.length === 0) {
       throw new ModelError('FakeProvider 文本队列为空（测试未提供响应）', false);

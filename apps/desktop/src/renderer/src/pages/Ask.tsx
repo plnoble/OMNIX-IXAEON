@@ -76,6 +76,9 @@ export function AskPage({
   const renameCancelled = useRef(false);
   const stick = useRef(true);
   const listEl = useRef<HTMLDivElement>(null);
+  // A4：本页发起的轮次代际。2s 同步 tick 发出前记下当时的代际，返回后对不上
+  //（await 期间发起过新一轮，哪怕新一轮已经结束、waiting 又清空）就丢弃旧快照。
+  const askRoundRef = useRef(0);
   // S2：正在等的那一轮。pendingId 是本地占位气泡的临时 id，第一段分段到达后换成真实 messageId。
   const waiting = useRef<{
     conversationId: string;
@@ -86,6 +89,11 @@ export function AskPage({
   } | null>(null);
   // 当前显示的对话。分段只写进它：切到别的对话时不往那边塞，切回来时从库里重新加载。
   const shownId = useRef<string | null>(null);
+  // A4：2s 同步 effect 的异步回调里读最新的 activeId（闭包会捕获过期值）
+  const activeIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
   const [askPhase, setAskPhase] = useState<AskPhase | null>(null);
   const [todoStatus, setTodoStatus] = useState<Record<string, TodoStatus>>({});
   const [todoCoding, setTodoCoding] = useState<Record<string, boolean>>({});
@@ -135,6 +143,81 @@ export function AskPage({
   useEffect(() => {
     void reloadList().catch((err) => setError(errMsg(err)));
   }, [reloadList]);
+
+  // A4：切回来时接着看还在写的回答——每 2 秒从库里同步当前对话的流式消息内容
+  // 和状态。发起页有 delta 实时推送，不需要这个；但切走再切回来的页面没有 delta
+  // 推送（waiting.current 为 null），靠这条 effect 从库里追上进度、等答完重拉。
+  // 实现：每 2s 读一次库；有 streaming 消息就同步内容并显示跟进态；没有且之前
+  // 在跟就重拉显示最终结果；确认没有 streaming 后停掉轮询，不再空读库。
+  // 不改主进程回答流程。
+  useEffect(() => {
+    if (!activeId) return;
+    const id = activeId;
+    let ticking = false;
+    // 这一实例的轮询作废标记：换对话/卸载后，在途旧请求回来一律丢弃
+    //（A→B→A 时旧 A 的流式快照若晚到，不能把新实例已同步的最终态覆盖回「转圈」）。
+    let invalid = false;
+    const timer = setInterval(async () => {
+      // 上一轮 tick 还没回来就跳过：慢响应乱序返回不允许两笔请求并发出门。
+      if (ticking || invalid) return;
+      ticking = true;
+      try {
+        // 本页发起的轮由 delta 实时更新，这里跳过——但等 A 时打开仍在回答的 B，
+        // B 的跟进不能被 A 这一轮拦住，所以只有等的是当前对话才跳过
+        if (waiting.current && waiting.current.conversationId === id) return;
+        // 复审整改：异步返回后校验当前对话没变，防止旧响应串入新对话
+        if (activeIdRef.current !== id) return;
+        const roundAtStart = askRoundRef.current;
+        const data = await api.getConversation(id);
+        // 复审整改：异步返回后校验当前对话没变；await 期间发起过新一轮就丢弃旧快照
+        //（即使新一轮已结束、waiting 又清空），旧流式态不能覆盖新回答、也不能停轮询。
+        if (invalid || activeIdRef.current !== id) return;
+        if (askRoundRef.current !== roundAtStart) return;
+        if (waiting.current && waiting.current.conversationId === id) return;
+        const stillStreaming = data.messages.some(
+          (m) => m.role === 'assistant' && m.status === 'streaming',
+        );
+        setMessages((prev) => {
+          // 按消息 id 逐条同步：两次轮询之间可能旧轮收尾、新轮接力（库里同时存
+          // 在旧消息终态 + 新消息 streaming）。只盯一条 streaming 会让旧回答永远
+          // 转圈，所以结构一致就逐条更新、结构变了就整表换成库里的。
+          const byId = new Map(data.messages.map((m) => [m.id, m]));
+          const sameShape =
+            prev.length === data.messages.length &&
+            prev.every((m) => {
+              const fresh = byId.get(m.id);
+              return fresh !== undefined && fresh.role === m.role;
+            });
+          if (!sameShape) return data.messages;
+          let changed = false;
+          const merged = prev.map((m) => {
+            const fresh = byId.get(m.id)!;
+            if (fresh.content === m.content && fresh.status === m.status) return m;
+            changed = true;
+            return fresh;
+          });
+          return changed ? merged : prev;
+        });
+        // 跟进态只显示「正在回答…」，不显示阶段/秒数（契约 3）
+        setAskPhase((prev) => {
+          if (stillStreaming) return 'answering';
+          if (prev === 'answering') return null; // 刚结束：清掉跟进态
+          return prev;
+        });
+        // 库里已无回答中的消息：这一页不再需要空读库，停掉轮询。
+        // 又有新一轮时发起页走 delta；切走再切回会重新挂载这个 effect。
+        if (!stillStreaming) clearInterval(timer);
+      } catch {
+        /* 下一次轮询再试 */
+      } finally {
+        ticking = false;
+      }
+    }, 2000);
+    return () => {
+      invalid = true;
+      clearInterval(timer);
+    };
+  }, [activeId]);
 
   // P1：一打开问答页（或换了项目）就让主进程在后台建好 Hermes 会话，新对话第一问
   // 省掉 5–9 秒的组装空等。失败无所谓，提问时照常冷启动。
@@ -243,6 +326,7 @@ export function AskPage({
         shownId.current = created.id;
         setActiveId(created.id);
       }
+      askRoundRef.current += 1;
       waiting.current = { conversationId, pendingId: pendingAnswer.id, cancelled: false };
       // G06：第一句发出去，这个对话的项目就定下来了（发的是下拉框当前所选）。
       setProjectLocked(true);
