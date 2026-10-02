@@ -290,7 +290,7 @@
     {
       "id": "A4",
       "title": "A4 切回来接着看还在写的回答（页面逻辑）",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/a4-follow-live.test.ts": "41d5bdec5b699d047aefb72a70a769c4825af8ef87624dae4e89df2537a1163a"
       }
