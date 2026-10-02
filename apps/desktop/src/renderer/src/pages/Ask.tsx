@@ -153,10 +153,13 @@ export function AskPage({
     if (!activeId) return;
     const id = activeId;
     let ticking = false;
+    // 这一实例的轮询作废标记：卸载/换对话后，在途的旧请求回来一律丢弃——
+    // 快速 A→B→A 时旧 A 的流式快照若晚到，不能把新实例已同步的最终态
+    // 覆盖回「转圈」（activeIdRef 此时又是 A，拦不住，得靠代次失效）。
+    let invalid = false;
     const timer = setInterval(async () => {
-      // 上一轮 tick 还没回来就跳过：慢响应乱序返回时用 activeIdRef 校验兜底，
-      // 从根上不允许两笔请求并发出门。
-      if (ticking) return;
+      // 上一轮 tick 还没回来就跳过：慢响应乱序返回不允许两笔请求并发出门。
+      if (ticking || invalid) return;
       ticking = true;
       try {
         // 本页发起的轮由 delta 处理器实时更新，这里跳过（避免和 delta 竞争覆盖）
@@ -165,7 +168,7 @@ export function AskPage({
         if (activeIdRef.current !== id) return;
         const data = await api.getConversation(id);
         // 复审整改：异步返回后也校验（await 期间用户可能切走或发起自己的一轮）
-        if (activeIdRef.current !== id) return;
+        if (invalid || activeIdRef.current !== id) return;
         if (waiting.current && !waiting.current.joined) return;
         const stillStreaming = data.messages.some(
           (m) => m.role === 'assistant' && m.status === 'streaming',
@@ -211,7 +214,10 @@ export function AskPage({
         ticking = false;
       }
     }, 2000);
-    return () => clearInterval(timer);
+    return () => {
+      invalid = true;
+      clearInterval(timer);
+    };
   }, [activeId]);
 
   // P1：一打开问答页（或换了项目）就让主进程在后台建好 Hermes 会话，新对话第一问
