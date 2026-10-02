@@ -26,7 +26,10 @@ import type { ConversationMessage, ConversationSummary } from '@ixaeon/contracts
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-type ConvData = { conversation: { id: string; projectId: string | null }; messages: ConversationMessage[] };
+type ConvData = {
+  conversation: { id: string; projectId: string | null };
+  messages: ConversationMessage[];
+};
 
 /** A4 页面逻辑的 api 替身：getConversation 按当前状态返回；getConvInterceptor
  *  可临时接管某次调用（乱序回包测试用它挂起一笔请求）。 */
@@ -47,7 +50,7 @@ vi.mock('../../src/renderer/src/api.js', () => ({
     listTodos: async () => [],
     prewarmChat: async () => undefined,
     createConversation: async () => ({ id: 'c-new', projectId: null }),
-    askQuestion: async () => undefined,
+    askQuestion: async () => ({ conversationId: 'c1' }),
     cancelAsk: async () => undefined,
     onAskProgress: () => off,
     onAskDelta: () => off,
@@ -77,7 +80,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function message(over: Partial<ConversationMessage> & Pick<ConversationMessage, 'id' | 'seq'>): ConversationMessage {
+function message(
+  over: Partial<ConversationMessage> & Pick<ConversationMessage, 'id' | 'seq'>,
+): ConversationMessage {
   return {
     conversationId: 'c1',
     role: 'assistant',
@@ -166,16 +171,19 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
     await tick(2000);
     // 答完自动显示最终内容（不用手动重开对话），不再转圈；气泡正文与库里精确相等
     expect(text()).toContain(finalAnswer);
-    expect(
-      container.querySelector('[data-testid="ask-answer"] pre.answer-text')?.textContent,
-    ).toBe(finalAnswer);
+    expect(container.querySelector('[data-testid="ask-answer"] pre.answer-text')?.textContent).toBe(
+      finalAnswer,
+    );
     expect(container.querySelector('[data-testid="loading"]')).toBeNull();
   });
 
   it('条件 2：回答还在写时逐段写进库的内容照常出现在气泡里，答完与库里精确一致', async () => {
     const user = message({ id: 'u1', seq: 1, role: 'user', content: 'A4 问一句' });
     const firstHalf = '先写进库的前半段';
-    setConv('c1', null, [user, message({ id: 'a1', seq: 2, status: 'streaming', content: firstHalf })]);
+    setConv('c1', null, [
+      user,
+      message({ id: 'a1', seq: 2, status: 'streaming', content: firstHalf }),
+    ]);
     list = [summary({ id: 'c1', title: '对话 1' })];
 
     await renderAsk('c1');
@@ -184,19 +192,25 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
     // 还在写：库里内容逐段追加（模拟主进程每 200ms 批量把分段并入这条消息），
     // 每个轮询周期都把新到的分段带进气泡
     const withSecond = '先写进库的前半段，还有后半段。';
-    setConv('c1', null, [user, message({ id: 'a1', seq: 2, status: 'streaming', content: withSecond })]);
+    setConv('c1', null, [
+      user,
+      message({ id: 'a1', seq: 2, status: 'streaming', content: withSecond }),
+    ]);
     await tick(2000);
     expect(text()).toContain(withSecond);
 
     // 答完：气泡正文与库里最终内容精确一致（同一段正文恰好出现一次，不重复、不缺）
-    setConv('c1', null, [user, message({ id: 'a1', seq: 2, status: 'complete', content: withSecond })]);
+    setConv('c1', null, [
+      user,
+      message({ id: 'a1', seq: 2, status: 'complete', content: withSecond }),
+    ]);
     await tick(2000);
     const occurrences = text().split(withSecond).length - 1;
     expect(occurrences).toBe(1);
     // 气泡 pre 的文本与库里内容逐字相等：残留重复半截或拼接错序都过不去
-    expect(
-      container.querySelector('[data-testid="ask-answer"] pre.answer-text')?.textContent,
-    ).toBe(withSecond);
+    expect(container.querySelector('[data-testid="ask-answer"] pre.answer-text')?.textContent).toBe(
+      withSecond,
+    );
     expect(container.querySelector('[data-testid="loading"]')).toBeNull();
   });
 
@@ -276,7 +290,12 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
     ]);
     setConv('c2', null, [
       message({ id: 'u2', seq: 1, role: 'user', content: '另一个对话的问题' }),
-      message({ id: 'a2', seq: 2, status: 'streaming', content: '另一个对话正在写的回答，又补了一段' }),
+      message({
+        id: 'a2',
+        seq: 2,
+        status: 'streaming',
+        content: '另一个对话正在写的回答，又补了一段',
+      }),
     ]);
     await tick(2000);
     expect(text()).toContain('又补了一段');
@@ -297,7 +316,10 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
   it('竞态：快速 A→B→A 后，旧实例在途的流式快照回来不回写（不再转圈）', async () => {
     const finalAnswer = 'A4 合成回答：这是切回来之后自动显示出来的最终内容。';
     const user = message({ id: 'u1', seq: 1, role: 'user', content: 'A4 问一句' });
-    setConv('c1', null, [user, message({ id: 'a1', seq: 2, status: 'complete', content: finalAnswer })]);
+    setConv('c1', null, [
+      user,
+      message({ id: 'a1', seq: 2, status: 'complete', content: finalAnswer }),
+    ]);
     setConv('c2', null, [
       message({ id: 'u2', seq: 1, role: 'user', content: '另一个对话的问题' }),
       message({ id: 'a2', seq: 2, status: 'complete', content: '另一个对话的最终回答。' }),
@@ -332,14 +354,75 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
     await act(async () => {
       release({
         conversation: { id: 'c1', projectId: null },
-        messages: [
-          user,
-          message({ id: 'a1', seq: 2, status: 'streaming', content: '旧快照' }),
-        ],
+        messages: [user, message({ id: 'a1', seq: 2, status: 'streaming', content: '旧快照' })],
       });
     });
     expect(container.querySelector('[data-testid="loading"]')).toBeNull();
     expect(text()).not.toContain('旧快照');
     expect(text()).toContain(finalAnswer);
+  });
+
+  it('竞态：同一对话里新一轮已结束，旧轮询快照回来不回写、不停轮询', async () => {
+    const firstAnswer = '第一轮的回答。';
+    const secondAnswer = '第二轮的回答（更新）。';
+    setConv('c1', null, [
+      message({ id: 'u1', seq: 1, role: 'user', content: '第一问' }),
+      message({ id: 'a1', seq: 2, status: 'complete', content: firstAnswer }),
+    ]);
+    list = [summary({ id: 'c1', title: '对话 1' })];
+
+    await renderAsk('c1');
+    expect(text()).toContain(firstAnswer);
+
+    // 挂起轮询的下一笔请求：它返回的是旧轮（第一轮还在写）的快照
+    let release!: (data: ConvData) => void;
+    const pending = new Promise<ConvData>((resolve) => {
+      release = resolve;
+    });
+    let used = false;
+    getConvInterceptor = (id) => {
+      if (id === 'c1' && !used) {
+        used = true;
+        return pending;
+      }
+      return null;
+    };
+    await tick(2000); // 轮询 tick 发出请求并挂起
+
+    // 用户在同一个对话里发起新一轮，而且这一轮已经结束（waiting 回到 null）
+    setConv('c1', null, [
+      message({ id: 'u1', seq: 1, role: 'user', content: '第一问' }),
+      message({ id: 'a1', seq: 2, status: 'complete', content: firstAnswer }),
+      message({ id: 'u2', seq: 3, role: 'user', content: '第二问' }),
+      message({ id: 'a2', seq: 4, status: 'complete', content: secondAnswer }),
+    ]);
+    await act(async () => {
+      const input = container.querySelector('[data-testid="ask-input"]') as HTMLTextAreaElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!;
+      setter.call(input, '第二问');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      (container.querySelector('[data-testid="ask-run"]') as HTMLButtonElement).dispatchEvent(
+        new MouseEvent('click', { bubbles: true } as MouseEventInit),
+      );
+    });
+    expect(text()).toContain(secondAnswer);
+
+    // 旧快照此刻才回来（第一轮的流式态）：必须被丢弃，不能把界面盖回
+    // 「正在回答…」，也不能让这一轮的轮询停下来
+    await act(async () => {
+      release({
+        conversation: { id: 'c1', projectId: null },
+        messages: [
+          message({ id: 'u1', seq: 1, role: 'user', content: '第一问' }),
+          message({ id: 'a1', seq: 2, status: 'streaming', content: '旧快照' }),
+        ],
+      });
+    });
+    expect(text()).not.toContain('旧快照');
+    expect(container.querySelector('[data-testid="loading"]')).toBeNull();
+    expect(text()).toContain(secondAnswer);
   });
 });

@@ -76,6 +76,9 @@ export function AskPage({
   const renameCancelled = useRef(false);
   const stick = useRef(true);
   const listEl = useRef<HTMLDivElement>(null);
+  // A4：本页发起的轮次代际。2s 同步 tick 发出前记下当时的代际，返回后对不上
+  //（await 期间发起过新一轮，哪怕新一轮已经结束、waiting 又清空）就丢弃旧快照。
+  const askRoundRef = useRef(0);
   // S2：正在等的那一轮。pendingId 是本地占位气泡的临时 id，第一段分段到达后换成真实 messageId。
   const waiting = useRef<{
     conversationId: string;
@@ -166,9 +169,13 @@ export function AskPage({
         if (waiting.current && !waiting.current.joined) return;
         // 复审整改：异步返回后校验当前对话没变，防止旧响应串入新对话
         if (activeIdRef.current !== id) return;
+        const roundAtStart = askRoundRef.current;
         const data = await api.getConversation(id);
         // 复审整改：异步返回后也校验（await 期间用户可能切走或发起自己的一轮）
         if (invalid || activeIdRef.current !== id) return;
+        // await 期间发起过新一轮就丢弃这个旧快照：即使新一轮已经结束、
+        // waiting 又清空，旧快照（旧流式态）也不能覆盖新回答、更不能停掉轮询。
+        if (askRoundRef.current !== roundAtStart) return;
         if (waiting.current && !waiting.current.joined) return;
         const stillStreaming = data.messages.some(
           (m) => m.role === 'assistant' && m.status === 'streaming',
@@ -323,6 +330,7 @@ export function AskPage({
         shownId.current = created.id;
         setActiveId(created.id);
       }
+      askRoundRef.current += 1;
       waiting.current = { conversationId, pendingId: pendingAnswer.id, cancelled: false };
       // G06：第一句发出去，这个对话的项目就定下来了（发的是下拉框当前所选）。
       setProjectLocked(true);
