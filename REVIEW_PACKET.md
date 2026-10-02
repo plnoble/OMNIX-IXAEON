@@ -1617,3 +1617,14 @@ latest.yml（electron-updater github provider）随 Release 上传；blockmap �
 ### 70.3 门禁状态
 
 `scripts/verify.mjs` 32 门全部通过（含新增 2 门：`review-p4-door-persistence`、`review-p3a-connector-registry`）；lint/format/typecheck 零告警；迁移链 1–25 只追加不改写。
+
+---
+
+### A4 切回来接着看还在写的回答（2026-10-02 并入 main）
+
+- 实现：Ask 页 2s 轮询跟进（按消息 id 逐条同步 + 轮次代际防乱序 + 答完停轮询 + 跳过条件限定当前对话），恰在规格 ≤100 行内（95 行源码）。
+- 验收：组件级 7 条（lock 指纹登记，`acceptance.mjs done A4` 已进门禁）+ e2e 3 条（按 data-conversation-id 点开对话、脚本按 core-bounded 每问 2 次调用备量）。
+- 真机：scripts/real/a4-follow-live.mjs 用真 Hermes 拍到三段证据（转圈 / 分段增长 / 答完与库逐字一致），原样在 .logs/a4-real-ok.txt；网关 503 根因是向导模型名误填 hermes（网关无此通道），改 gemini-3.7-flash-tiered 后走通。
+- Codex 审查 11 轮收敛：四份报告分开（已实现/自动化通过/真机通过/用户接受）。
+- 已知缺口（B 档，留整合方）：模型出错的轮仍以 complete+失败文案收尾；改为 failed+error_message 需动主进程回答收尾。
+- 本机集成 hermes-bridge-config 1 条失败（记忆桥缺 propose_coding_task 工具），合并前 main 上就存在、与 A4 无关，CI 绿。
