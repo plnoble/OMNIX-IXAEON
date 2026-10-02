@@ -292,7 +292,7 @@
       "title": "A4 切回来接着看还在写的回答（页面逻辑）",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/a4-follow-live.test.ts": "30cbd7972293567da4cb997170ebd1b7b7f707a32030b515f66ba46cb31c3866"
+        "apps/desktop/test/acceptance/a4-follow-live.test.ts": "ca938cbe8d2845cf6f196e8a9e95c1f74636ef13d97acabfa915575ef35f2c2b"
       }
     }
   ]

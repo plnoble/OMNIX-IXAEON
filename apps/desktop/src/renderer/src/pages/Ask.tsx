@@ -147,11 +147,17 @@ export function AskPage({
   // 和状态。发起页有 delta 实时推送，不需要这个；但切走再切回来的页面没有 delta
   // 推送（waiting.current 为 null），靠这条 effect 从库里追上进度、等答完重拉。
   // 实现：每 2s 读一次库；有 streaming 消息就同步内容并显示跟进态；没有且之前
-  // 在跟就重拉显示最终结果。不改主进程回答流程。
+  // 在跟就重拉显示最终结果；确认没有 streaming 后停掉轮询，不再空读库。
+  // 不改主进程回答流程。
   useEffect(() => {
     if (!activeId) return;
     const id = activeId;
+    let ticking = false;
     const timer = setInterval(async () => {
+      // 上一轮 tick 还没回来就跳过：慢响应乱序返回时用 activeIdRef 校验兜底，
+      // 从根上不允许两笔请求并发出门。
+      if (ticking) return;
+      ticking = true;
       try {
         // 本页发起的轮由 delta 处理器实时更新，这里跳过（避免和 delta 竞争覆盖）
         if (waiting.current && !waiting.current.joined) return;
@@ -161,9 +167,9 @@ export function AskPage({
         // 复审整改：异步返回后也校验（await 期间用户可能切走或发起自己的一轮）
         if (activeIdRef.current !== id) return;
         if (waiting.current && !waiting.current.joined) return;
-        // 复审整改 1：去掉 wasStreaming 状态变量——每次 tick 都无条件从库里同步
-        // 消息和状态。首次轮询前就结束的场景也能正确显示（不会因 wasStreaming=false
-        // 而跳过最终结果更新）。
+        const stillStreaming = data.messages.some(
+          (m) => m.role === 'assistant' && m.status === 'streaming',
+        );
         setMessages((prev) => {
           const streamingMsg = data.messages.find(
             (m) => m.role === 'assistant' && m.status === 'streaming',
@@ -191,16 +197,18 @@ export function AskPage({
           return prev;
         });
         // 跟进态只显示「正在回答…」，不显示阶段/秒数（契约 3）
-        const stillStreaming = data.messages.some(
-          (m) => m.role === 'assistant' && m.status === 'streaming',
-        );
         setAskPhase((prev) => {
           if (stillStreaming) return 'answering';
           if (prev === 'answering') return null; // 刚结束：清掉跟进态
           return prev;
         });
+        // 库里已无回答中的消息：这一页不再需要空读库，停掉轮询。
+        // 又有新一轮时发起页走 delta；切走再切回会重新挂载这个 effect。
+        if (!stillStreaming) clearInterval(timer);
       } catch {
         /* 下一次轮询再试 */
+      } finally {
+        ticking = false;
       }
     }, 2000);
     return () => clearInterval(timer);

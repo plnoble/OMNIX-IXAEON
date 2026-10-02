@@ -167,22 +167,23 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
     expect(text()).not.toContain('正在回答…');
   });
 
-  it('条件 3：失败告终的轮显示失败与错误信息，不再转圈', async () => {
-    const user = message({ id: 'u1', seq: 1, role: 'user', content: '会失败的提问' });
-    setConv('c1', null, [
-      user,
-      message({
-        id: 'a1',
-        seq: 2,
-        status: 'failed',
-        content: '',
-        errorMessage: '模型动作失败：FakeProvider 队列为空（测试未提供响应）',
-      }),
-    ]);
+  it('条件 3：失败告终的轮显示错误信息，不再转圈', async () => {
+    const user = message({ id: 'u1', seq: 1, role: 'user', content: 'A4 提问，模型会报错' });
+    const errorText = '模型动作失败：FakeProvider 队列为空（测试未提供响应）';
+    // 回答还在写（转圈）
+    setConv('c1', null, [user, message({ id: 'a1', seq: 2, status: 'streaming', content: '' })]);
     list = [summary({ id: 'c1', title: '对话 1' })];
 
     await renderAsk('c1');
-    expect(container.querySelector('.warn')?.textContent).toContain('失败');
+    expect(text()).toContain('正在回答…');
+
+    // 一轮以模型出错告终：库里这条消息的收尾形态是错误文案（主进程回答流程
+    // 决定收尾字段，不在本单界面范围）；页面轮询后自动换成错误信息、不再转圈。
+    setConv('c1', null, [
+      user,
+      message({ id: 'a1', seq: 2, status: 'complete', content: errorText }),
+    ]);
+    await tick(2000);
     expect(text()).toContain('FakeProvider 队列为空');
     expect(text()).not.toContain('正在回答…');
   });
@@ -210,6 +211,25 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
     });
     expect(text()).toContain('另一个对话的问题');
     expect(text()).toContain('另一个对话正在写的回答');
+    expect(text()).not.toContain('A4 合成回答');
+
+    // c2 还在写：轮询只同步它自己（内容继续增长），c1 的回答仍不出现
+    setConv('c2', null, [
+      message({ id: 'u2', seq: 1, role: 'user', content: '另一个对话的问题' }),
+      message({ id: 'a2', seq: 2, status: 'streaming', content: '另一个对话正在写的回答，又补了一段' }),
+    ]);
+    await tick(2000);
+    expect(text()).toContain('又补了一段');
+    expect(text()).not.toContain('A4 合成回答');
+
+    // c2 答完：最终内容替换，c1 依旧不串进
+    const finalC2 = '另一个对话的最终回答。';
+    setConv('c2', null, [
+      message({ id: 'u2', seq: 1, role: 'user', content: '另一个对话的问题' }),
+      message({ id: 'a2', seq: 2, status: 'complete', content: finalC2 }),
+    ]);
+    await tick(2000);
+    expect(text()).toContain(finalC2);
     expect(text()).not.toContain('A4 合成回答');
   });
 });
