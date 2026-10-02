@@ -88,6 +88,11 @@ export function AskPage({
   } | null>(null);
   // 当前显示的对话。分段只写进它：切到别的对话时不往那边塞，切回来时从库里重新加载。
   const shownId = useRef<string | null>(null);
+  // A4：2s 同步 effect 的异步回调里读最新的 activeId（闭包会捕获过期值）
+  const activeIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
   const [askPhase, setAskPhase] = useState<AskPhase | null>(null);
   const [todoStatus, setTodoStatus] = useState<Record<string, TodoStatus>>({});
   const [todoCoding, setTodoCoding] = useState<Record<string, boolean>>({});
@@ -146,39 +151,53 @@ export function AskPage({
   useEffect(() => {
     if (!activeId) return;
     const id = activeId;
-    let wasStreaming = false;
     const timer = setInterval(async () => {
       try {
         // 本页发起的轮由 delta 处理器实时更新，这里跳过（避免和 delta 竞争覆盖）
         if (waiting.current && !waiting.current.joined) return;
+        // 复审整改：异步返回后校验当前对话没变，防止旧响应串入新对话
+        if (activeIdRef.current !== id) return;
         const data = await api.getConversation(id);
-        const streaming = data.messages.find(
-          (m) => m.role === 'assistant' && m.status === 'streaming',
-        );
-        if (streaming) {
-          wasStreaming = true;
-          setMessages((prev) => {
-            // 按 id 找到目标消息，同步库里的最新内容（分段+状态）
-            const idx = prev.findIndex((m) => m.id === streaming.id);
+        // 复审整改：异步返回后也校验（await 期间用户可能切走）
+        if (activeIdRef.current !== id) return;
+        // 复审整改 1：去掉 wasStreaming 状态变量——每次 tick 都无条件从库里同步
+        // 消息和状态。首次轮询前就结束的场景也能正确显示（不会因 wasStreaming=false
+        // 而跳过最终结果更新）。
+        setMessages((prev) => {
+          const streamingMsg = data.messages.find(
+            (m) => m.role === 'assistant' && m.status === 'streaming',
+          );
+          if (streamingMsg) {
+            const idx = prev.findIndex((m) => m.id === streamingMsg.id);
             if (idx < 0) {
-              // 跟进页刚打开，库里已有的消息直接追加到界面
-              return [...prev, streaming];
+              return [...prev, streamingMsg];
             }
             const existing = prev[idx]!;
-            if (existing.content === streaming.content && existing.status === streaming.status)
+            if (
+              existing.content === streamingMsg.content &&
+              existing.status === streamingMsg.status
+            )
               return prev;
             const next = [...prev];
-            next[idx] = streaming;
+            next[idx] = streamingMsg;
             return next;
-          });
-          // 跟进态只显示「正在回答…」，不显示阶段/秒数（契约 3）
-          setAskPhase('answering');
-        } else if (wasStreaming) {
-          // 之前在跟的轮结束了：重拉显示最终结果，清掉跟进态
-          wasStreaming = false;
-          setMessages(data.messages);
-          setAskPhase(null);
-        }
+          }
+          // 没有 streaming 消息了：如果 prev 里有（之前在跟），同步为最终状态
+          const hadStreaming = prev.some((m) => m.status === 'streaming');
+          if (hadStreaming) {
+            return data.messages;
+          }
+          return prev;
+        });
+        // 跟进态只显示「正在回答…」，不显示阶段/秒数（契约 3）
+        const stillStreaming = data.messages.some(
+          (m) => m.role === 'assistant' && m.status === 'streaming',
+        );
+        setAskPhase((prev) => {
+          if (stillStreaming) return 'answering';
+          if (prev === 'answering') return null; // 刚结束：清掉跟进态
+          return prev;
+        });
       } catch {
         /* 下一次轮询再试 */
       }
