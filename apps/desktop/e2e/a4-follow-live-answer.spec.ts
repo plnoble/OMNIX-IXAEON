@@ -56,9 +56,7 @@ const ANSWER_TEXT = 'A4 合成回答：这是切回来之后自动显示出来�
 
 /** 列表里点开指定对话（data-conversation-id，不靠列表顺序和页面自动选中）。 */
 async function clickConversation(page: Page, id: string): Promise<void> {
-  await page
-    .locator(`[data-testid="conversation-item"][data-conversation-id="${id}"]`)
-    .click();
+  await page.locator(`[data-testid="conversation-item"][data-conversation-id="${id}"]`).click();
 }
 
 /** 当前数据目录里唯一（或首个）对话的 id（刚发问时对话刚建，轮询等到列表里有它）。 */
@@ -151,7 +149,7 @@ test.describe('A4：切回来接着看还在写的回答', () => {
           { timeout: 10_000 },
         )
         .toEqual({ dbContent: ANSWER_TEXT, uiAnswer: ANSWER_TEXT });
-      expect(page.getByTestId('message-item')).toHaveCount(2); // 一问一答，不多不少
+      await expect(page.getByTestId('message-item')).toHaveCount(2); // 一问一答，不多不少
     } finally {
       await app.close().catch(() => undefined);
     }

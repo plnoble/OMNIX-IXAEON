@@ -174,30 +174,26 @@ export function AskPage({
           (m) => m.role === 'assistant' && m.status === 'streaming',
         );
         setMessages((prev) => {
-          const streamingMsg = data.messages.find(
-            (m) => m.role === 'assistant' && m.status === 'streaming',
-          );
-          if (streamingMsg) {
-            const idx = prev.findIndex((m) => m.id === streamingMsg.id);
-            if (idx < 0) {
-              return [...prev, streamingMsg];
-            }
-            const existing = prev[idx]!;
-            if (
-              existing.content === streamingMsg.content &&
-              existing.status === streamingMsg.status
-            )
-              return prev;
-            const next = [...prev];
-            next[idx] = streamingMsg;
-            return next;
-          }
-          // 没有 streaming 消息了：如果 prev 里有（之前在跟），同步为最终状态
-          const hadStreaming = prev.some((m) => m.status === 'streaming');
-          if (hadStreaming) {
-            return data.messages;
-          }
-          return prev;
+          // 按消息 id 逐条同步：同一对话两次轮询之间可能旧轮收尾、新轮接力——
+          // 那时库里同时存在「旧消息已转终态 + 新消息 streaming」。只盯一条
+          // streaming 会让旧回答永远转圈，所以对齐：结构一致就逐条更新，
+          // 结构变了（新增/删除消息）就整表换成库里的。
+          const byId = new Map(data.messages.map((m) => [m.id, m]));
+          const sameShape =
+            prev.length === data.messages.length &&
+            prev.every((m) => {
+              const fresh = byId.get(m.id);
+              return fresh !== undefined && fresh.role === m.role;
+            });
+          if (!sameShape) return data.messages;
+          let changed = false;
+          const merged = prev.map((m) => {
+            const fresh = byId.get(m.id)!;
+            if (fresh.content === m.content && fresh.status === m.status) return m;
+            changed = true;
+            return fresh;
+          });
+          return changed ? merged : prev;
         });
         // 跟进态只显示「正在回答…」，不显示阶段/秒数（契约 3）
         setAskPhase((prev) => {

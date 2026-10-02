@@ -1,11 +1,12 @@
 # A4 Codex 审查
 
-- 时间：2026-10-02T09:47:16.344Z
-- 分支：prep/A4（6bbc614），对照 docs/委派/A4-切回来接着看还在写的回答.md
+- 时间：2026-10-02T10:18:41.616Z
+- 分支：prep/A4（1eea923），对照 docs/委派/A4-切回来接着看还在写的回答.md
 - Codex：0.159.2；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改：`apps/desktop/e2e/a4-follow-live-answer.spec.ts:118–123`——这里只等待最终回答，假模型没有产生中间分段，未完成规格要求的“切回来仍在转圈、分段出现、随后自动显示最终回答”真机检查；需补检查及原样输出。需要人工确认：交付说明所述 Hermes 持续写入中间分段的路径，相关实现未在 diff 中提供。
-- 必须改：`apps/desktop/test/acceptance/a4-follow-live.test.ts:185–186`、`apps/desktop/e2e/a4-follow-live-answer.spec.ts:143–144`——“完整答案出现一次”不等于正文与库一致；气泡残留重复的前半段时仍能通过。需补充气泡正文与数据库内容精确相等的验收用例。
-- 必须改：`docs/委派/交付/A4.md:150–154`——最终代码已有六条组件测试，交付仍报告“四条通过”，所贴输出也是旧的四条结果，无法证明新增取消、竞态用例及最终指纹验证通过；需补贴最终版本的验收和 verify 输出并更正说明。
+- 必须改｜`apps/desktop/e2e/a4-follow-live-answer.spec.ts:117`：这里只等待完整最终文本，没有验证仍在回答时气泡出现新增分段；交付中的 Hermes 检查也是 `GROWING 否 / FINAL_OK 否`。规格要求的分段真机检查尚未完成，须补跑并贴出原始结果，组件替身不能代替这项检查。
+- 建议｜`apps/desktop/src/renderer/src/pages/Ask.tsx:177`：需要人工确认：同一对话是否可能在两次轮询之间结束旧轮并开始新轮。当前存在其他 `streaming` 消息时只更新该消息，不同步旧消息的终态，会让旧回答继续转圈；应覆盖这个边界并按消息 id 同步。
+- 建议｜`apps/desktop/e2e/a4-follow-live-answer.spec.ts:154`：`toHaveCount(2)` 缺少 `await`，随后立即关闭应用，可能使计数断言尚未完成就关闭页面；应等待断言完成。
+- 建议｜`scripts/real/a4-follow-live.mjs:142`：`FINAL_OK` 仅比较正文长度，相同长度的错误内容也会被报告为“与库一致”；应逐字比较界面正文和数据库正文。
 
 结论：需要修改

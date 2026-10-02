@@ -127,7 +127,8 @@ try {
     return {
       dbStatus: last.status,
       dbLen: last.content.length,
-      uiLen: ui ? ui.innerText.length : 0,
+      uiText: ui ? ui.innerText : null,
+      dbText: last.content,
       head: last.content.slice(0, 60),
       errorMessage: last.errorMessage ?? '',
       notice: typeof last.meta?.notice === 'string' ? last.meta.notice.slice(0, 300) : '',
@@ -136,11 +137,25 @@ try {
         : '',
     };
   });
-  console.log('FINAL', JSON.stringify(check));
+  console.log(
+    'FINAL',
+    JSON.stringify({
+      dbStatus: check.dbStatus,
+      dbLen: check.dbLen,
+      uiMatchesDb: check.uiText !== null && check.uiText === check.dbText,
+      head: check.head,
+      errorMessage: check.errorMessage,
+      notice: check.notice,
+      steps: check.steps,
+    }),
+  );
   console.log(
     'FINAL_OK',
-    check.dbStatus === 'complete' && check.uiLen === check.dbLen && check.dbLen > 200
-      ? '是（答完自动显示，与库一致）'
+    check.dbStatus === 'complete' &&
+      check.uiText !== null &&
+      check.uiText === check.dbText &&
+      check.dbLen > 200
+      ? '是（答完自动显示，气泡正文与库逐字一致）'
       : '否',
   );
 } finally {
