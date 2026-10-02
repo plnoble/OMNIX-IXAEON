@@ -86,8 +86,6 @@ export function AskPage({
     cancelled: boolean;
     /** P2：这一轮第一条进度事件带来的助手消息 id；之后只认它 */
     messageId?: string;
-    /** A4：不是本页发起的轮（切回来接着跟），由 2s 同步 effect 驱动 */
-    joined?: boolean;
   } | null>(null);
   // 当前显示的对话。分段只写进它：切到别的对话时不往那边塞，切回来时从库里重新加载。
   const shownId = useRef<string | null>(null);
@@ -156,38 +154,33 @@ export function AskPage({
     if (!activeId) return;
     const id = activeId;
     let ticking = false;
-    // 这一实例的轮询作废标记：卸载/换对话后，在途的旧请求回来一律丢弃——
-    // 快速 A→B→A 时旧 A 的流式快照若晚到，不能把新实例已同步的最终态
-    // 覆盖回「转圈」（activeIdRef 此时又是 A，拦不住，得靠代次失效）。
+    // 这一实例的轮询作废标记：换对话/卸载后，在途旧请求回来一律丢弃
+    //（A→B→A 时旧 A 的流式快照若晚到，不能把新实例已同步的最终态覆盖回「转圈」）。
     let invalid = false;
     const timer = setInterval(async () => {
       // 上一轮 tick 还没回来就跳过：慢响应乱序返回不允许两笔请求并发出门。
       if (ticking || invalid) return;
       ticking = true;
       try {
-        // 本页发起的轮由 delta 处理器实时更新，这里跳过（避免和 delta 竞争覆盖）
-        // 本页发起的轮由 delta 处理器实时更新，只有等的是当前对话才跳过：等 A 时打开仍在回答的 B，B 的跟进不能被 A 这一轮拦住
-        if (waiting.current && !waiting.current.joined && waiting.current.conversationId === id)
-          return;
+        // 本页发起的轮由 delta 实时更新，这里跳过——但等 A 时打开仍在回答的 B，
+        // B 的跟进不能被 A 这一轮拦住，所以只有等的是当前对话才跳过
+        if (waiting.current && waiting.current.conversationId === id) return;
         // 复审整改：异步返回后校验当前对话没变，防止旧响应串入新对话
         if (activeIdRef.current !== id) return;
         const roundAtStart = askRoundRef.current;
         const data = await api.getConversation(id);
-        // 复审整改：异步返回后也校验（await 期间用户可能切走或发起自己的一轮）
+        // 复审整改：异步返回后校验当前对话没变；await 期间发起过新一轮就丢弃旧快照
+        //（即使新一轮已结束、waiting 又清空），旧流式态不能覆盖新回答、也不能停轮询。
         if (invalid || activeIdRef.current !== id) return;
-        // await 期间发起过新一轮就丢弃这个旧快照：即使新一轮已经结束、
-        // waiting 又清空，旧快照（旧流式态）也不能覆盖新回答、更不能停掉轮询。
         if (askRoundRef.current !== roundAtStart) return;
-        if (waiting.current && !waiting.current.joined && waiting.current.conversationId === id)
-          return;
+        if (waiting.current && waiting.current.conversationId === id) return;
         const stillStreaming = data.messages.some(
           (m) => m.role === 'assistant' && m.status === 'streaming',
         );
         setMessages((prev) => {
-          // 按消息 id 逐条同步：同一对话两次轮询之间可能旧轮收尾、新轮接力——
-          // 那时库里同时存在「旧消息已转终态 + 新消息 streaming」。只盯一条
-          // streaming 会让旧回答永远转圈，所以对齐：结构一致就逐条更新，
-          // 结构变了（新增/删除消息）就整表换成库里的。
+          // 按消息 id 逐条同步：两次轮询之间可能旧轮收尾、新轮接力（库里同时存
+          // 在旧消息终态 + 新消息 streaming）。只盯一条 streaming 会让旧回答永远
+          // 转圈，所以结构一致就逐条更新、结构变了就整表换成库里的。
           const byId = new Map(data.messages.map((m) => [m.id, m]));
           const sameShape =
             prev.length === data.messages.length &&
