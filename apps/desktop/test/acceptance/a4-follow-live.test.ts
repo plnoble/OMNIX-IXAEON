@@ -157,8 +157,11 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
       message({ id: 'a1', seq: 2, status: 'complete', content: finalAnswer }),
     ]);
     await tick(2000);
-    // 答完自动显示最终内容（不用手动重开对话），不再转圈
+    // 答完自动显示最终内容（不用手动重开对话），不再转圈；气泡正文与库里精确相等
     expect(text()).toContain(finalAnswer);
+    expect(
+      container.querySelector('[data-testid="ask-answer"] pre.answer-text')?.textContent,
+    ).toBe(finalAnswer);
     expect(container.querySelector('[data-testid="loading"]')).toBeNull();
   });
 
@@ -178,11 +181,15 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
     await tick(2000);
     expect(text()).toContain(withSecond);
 
-    // 答完：气泡正文与库里最终内容精确一致——同一段正文恰好出现一次（不重复、不缺）
+    // 答完：气泡正文与库里最终内容精确一致（同一段正文恰好出现一次，不重复、不缺）
     setConv('c1', null, [user, message({ id: 'a1', seq: 2, status: 'complete', content: withSecond })]);
     await tick(2000);
     const occurrences = text().split(withSecond).length - 1;
     expect(occurrences).toBe(1);
+    // 气泡 pre 的文本与库里内容逐字相等：残留重复半截或拼接错序都过不去
+    expect(
+      container.querySelector('[data-testid="ask-answer"] pre.answer-text')?.textContent,
+    ).toBe(withSecond);
     expect(container.querySelector('[data-testid="loading"]')).toBeNull();
   });
 

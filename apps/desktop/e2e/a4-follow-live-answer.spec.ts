@@ -134,13 +134,24 @@ test.describe('A4：切回来接着看还在写的回答', () => {
       expect(db.content).toBe(ANSWER_TEXT); // 库里内容与断言文本精确相等（不缺、不多）
       expect(db.status).toBe('complete');
       expect(db.assistantCount).toBe(1);
-      // 界面气泡就是库里的完整正文（不重复断言：正文恰好出现一次）
-      const uiText = await page.evaluate(
-        () =>
-          document.querySelector<HTMLElement>('[data-testid="message-list"]')?.innerText ?? '',
-      );
-      expect(uiText).toContain(ANSWER_TEXT);
-      expect(uiText.split(ANSWER_TEXT).length - 1).toBe(1);
+      // 界面气泡正文与库里内容精确相等（同一段语义下，气泡 pre 的文本一字不差；
+      // 若气泡残留了重复的半截或拼接顺序错乱，这里就过不去）。
+      await expect
+        .poll(
+          async () =>
+            page.evaluate(async () => {
+              const convs = await window.ixaeon!.listConversations();
+              const data = await window.ixaeon!.getConversation(convs[0]!.id);
+              const dbContent = data.messages[data.messages.length - 1]!.content;
+              const uiAnswer =
+                document.querySelector<HTMLElement>('[data-testid="ask-answer"] pre.answer-text')
+                  ?.innerText ?? '';
+              return { dbContent, uiAnswer };
+            }),
+          { timeout: 10_000 },
+        )
+        .toEqual({ dbContent: ANSWER_TEXT, uiAnswer: ANSWER_TEXT });
+      expect(page.getByTestId('message-item')).toHaveCount(2); // 一问一答，不多不少
     } finally {
       await app.close().catch(() => undefined);
     }
