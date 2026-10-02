@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * IXAEON 一键验证：lint → format:check → typecheck → test:unit → test:integration → build。
+ * IXAEON 一键验证：lint → format:check → typecheck → build → test:unit → test:integration → 验收与回归。
  * 直接调用各工具 CLI（不经嵌套 pnpm，避免外层 pnpm shim 干扰）。
  */
 import { spawnSync } from 'node:child_process';
@@ -53,6 +53,10 @@ results.push(
   ]),
 );
 
+// 构建放在测试之前：有的集成测试会真的拉起构建产物（比如 Hermes 拉起 apps/mcp/dist 的
+// 记忆桥），放在后面就是拿上一次留下的旧产物去测（2026-10-02 本机恒失败的根因）。
+results.push(run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]));
+
 results.push(
   run('unit（Vitest 单元测试）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
@@ -85,8 +89,6 @@ results.push(
     'run-done',
   ]),
 );
-
-results.push(run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]));
 
 results.push(
   run('review（二次验收独立业务测试 11 项，修复 R1-R9 回归）', [

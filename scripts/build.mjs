@@ -28,8 +28,21 @@ function run(label, command, args, cwd) {
   console.log(`✓ ${label} 完成（${seconds}s）`);
 }
 
+/** 记忆桥服务（Hermes 经 MCP 拉起的 apps/mcp/dist）。 */
+const buildMcp = () =>
+  run(
+    'mcp build（vite lib）',
+    'node',
+    [resolve(root, 'apps', 'mcp', 'node_modules', 'vite', 'bin', 'vite.js'), 'build'],
+    resolve(root, 'apps', 'mcp'),
+  );
+
 if (mode === 'dev') {
-  // 开发模式：只启动桌面应用（含 HMR）
+  // 开发模式：先构建记忆桥，再启动桌面应用（含 HMR）。
+  // Hermes 拉起的是 apps/mcp/dist 里的记忆桥，开发模式原来不构建它：
+  // 2026-10-01 用户的应用里那份还是 9-24 的，没有 D1 加的 propose_coding_task，
+  // 模型看不到这个工具，聊天里提不出编码任务。
+  buildMcp();
   run(
     'desktop dev（electron-vite）',
     'node',
@@ -49,12 +62,7 @@ if (mode === 'dev') {
     ],
     resolve(root, 'apps', 'desktop'),
   );
-  run(
-    'mcp build（vite lib）',
-    'node',
-    [resolve(root, 'apps', 'mcp', 'node_modules', 'vite', 'bin', 'vite.js'), 'build'],
-    resolve(root, 'apps', 'mcp'),
-  );
+  buildMcp();
   run(
     'extension build（vite ×3 + 静态复制）',
     'node',
