@@ -83,26 +83,11 @@ export function AskPage({
     cancelled: boolean;
     /** P2：这一轮第一条进度事件带来的助手消息 id；之后只认它 */
     messageId?: string;
-    /** A4：不是本页发起的轮（切回来接着跟）。不显示阶段/秒数，只显示「正在回答…」。 */
+    /** A4：不是本页发起的轮（切回来接着跟），由 2s 同步 effect 驱动 */
     joined?: boolean;
-    /** A4：跟进轮的结束轮询句柄。 */
-    poll?: ReturnType<typeof setInterval> | null;
   } | null>(null);
   // 当前显示的对话。分段只写进它：切到别的对话时不往那边塞，切回来时从库里重新加载。
   const shownId = useRef<string | null>(null);
-  // A4：轮询回调里读最新的 activeId（闭包会捕获过期值）
-  const activeIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    activeIdRef.current = activeId;
-  }, [activeId]);
-  /** A4：停掉跟进轮的轮询（切走、换对话、轮到自己发问、卸载都用它）。 */
-  const clearJoinedPoll = useCallback(() => {
-    const w = waiting.current;
-    if (w?.poll) {
-      clearInterval(w.poll);
-      w.poll = null;
-    }
-  }, []);
   const [askPhase, setAskPhase] = useState<AskPhase | null>(null);
   const [todoStatus, setTodoStatus] = useState<Record<string, TodoStatus>>({});
   const [todoCoding, setTodoCoding] = useState<Record<string, boolean>>({});
@@ -127,31 +112,6 @@ export function AskPage({
     setTodoCoding(coding);
   }, []);
 
-  /** A4：跟进轮结束（complete/failed/cancelled 任一）后重拉对话，显示最终结果。 */
-  const followJoinEnd = useCallback(
-    async (
-      conversationId: string,
-      messageId: string,
-      w: { poll?: ReturnType<typeof setInterval> | null },
-    ) => {
-      try {
-        const data = await api.getConversation(conversationId);
-        const target = data.messages.find((m) => m.id === messageId);
-        if (target && target.status === 'streaming') return; // 还在写
-        if (waiting.current?.poll === w.poll) {
-          clearJoinedPoll();
-          waiting.current = null;
-        }
-        setAskPhase(null);
-        setMessages(data.messages);
-        await reloadList();
-      } catch {
-        /* 下一次轮询再试 */
-      }
-    },
-    [clearJoinedPoll, reloadList],
-  );
-
   const openConversation = useCallback(
     async (id: string) => {
       const data = await api.getConversation(id);
@@ -165,33 +125,8 @@ export function AskPage({
       setProjectLocked(data.messages.length > 0);
       stick.current = true;
       await reloadTodoStatus();
-      // A4：切回来时库里这条对话还有没答完的流式消息，而等待中的不是这一轮——
-      // 跟上：后面的分段继续写进气泡；轮询等它结束；结束后重拉显示最终结果。
-      const joinedMessage = data.messages.find(
-        (m) => m.role === 'assistant' && m.status === 'streaming',
-      );
-      clearJoinedPoll();
-      if (joinedMessage && (waiting.current === null || waiting.current.conversationId !== id)) {
-        const w: NonNullable<typeof waiting.current> = {
-          conversationId: id,
-          pendingId: joinedMessage.id,
-          messageId: joinedMessage.id,
-          cancelled: false,
-          joined: true,
-          poll: null,
-        };
-        w.poll = setInterval(() => {
-          if (waiting.current !== w) return;
-          if (activeIdRef.current !== id) return;
-          void followJoinEnd(id, joinedMessage.id, w);
-        }, 2000);
-        waiting.current = w;
-        setAskPhase('answering');
-      } else if (!joinedMessage && waiting.current?.conversationId === id) {
-        waiting.current = null;
-      }
     },
-    [reloadTodoStatus, clearJoinedPoll, followJoinEnd],
+    [reloadTodoStatus],
   );
 
   useEffect(() => {
@@ -203,8 +138,53 @@ export function AskPage({
     void reloadList().catch((err) => setError(errMsg(err)));
   }, [reloadList]);
 
-  // A4：卸载时清掉跟进轮询
-  useEffect(() => () => clearJoinedPoll(), [clearJoinedPoll]);
+  // A4：切回来时接着看还在写的回答——每 2 秒从库里同步当前对话的流式消息内容
+  // 和状态。发起页有 delta 实时推送，不需要这个；但切走再切回来的页面没有 delta
+  // 推送（waiting.current 为 null），靠这条 effect 从库里追上进度、等答完重拉。
+  // 实现：每 2s 读一次库；有 streaming 消息就同步内容并显示跟进态；没有且之前
+  // 在跟就重拉显示最终结果。不改主进程回答流程。
+  useEffect(() => {
+    if (!activeId) return;
+    const id = activeId;
+    let wasStreaming = false;
+    const timer = setInterval(async () => {
+      try {
+        // 本页发起的轮由 delta 处理器实时更新，这里跳过（避免和 delta 竞争覆盖）
+        if (waiting.current && !waiting.current.joined) return;
+        const data = await api.getConversation(id);
+        const streaming = data.messages.find(
+          (m) => m.role === 'assistant' && m.status === 'streaming',
+        );
+        if (streaming) {
+          wasStreaming = true;
+          setMessages((prev) => {
+            // 按 id 找到目标消息，同步库里的最新内容（分段+状态）
+            const idx = prev.findIndex((m) => m.id === streaming.id);
+            if (idx < 0) {
+              // 跟进页刚打开，库里已有的消息直接追加到界面
+              return [...prev, streaming];
+            }
+            const existing = prev[idx]!;
+            if (existing.content === streaming.content && existing.status === streaming.status)
+              return prev;
+            const next = [...prev];
+            next[idx] = streaming;
+            return next;
+          });
+          // 跟进态只显示「正在回答…」，不显示阶段/秒数（契约 3）
+          setAskPhase('answering');
+        } else if (wasStreaming) {
+          // 之前在跟的轮结束了：重拉显示最终结果，清掉跟进态
+          wasStreaming = false;
+          setMessages(data.messages);
+          setAskPhase(null);
+        }
+      } catch {
+        /* 下一次轮询再试 */
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [activeId]);
 
   // P1：一打开问答页（或换了项目）就让主进程在后台建好 Hermes 会话，新对话第一问
   // 省掉 5–9 秒的组装空等。失败无所谓，提问时照常冷启动。
@@ -242,7 +222,7 @@ export function AskPage({
       if (w.messageId !== undefined && e.messageId !== w.messageId) return;
       w.messageId = e.messageId;
       setAskPhase((prev) => {
-        if (w.joined || prev === 'answering') return 'answering';
+        if (prev === 'answering') return prev;
         if (e.phase === 'thinking' && prev === 'thinking') return prev;
         return e.phase;
       });
@@ -290,9 +270,6 @@ export function AskPage({
   const ask = async () => {
     const text = question.trim();
     if (text.length === 0 || busy) return;
-    // A4：自己发问时先停掉之前跟进的轮（等待改用本轮自己的流程）
-    clearJoinedPoll();
-    waiting.current = null;
     setBusy(true);
     setError(null);
     setQuestion('');

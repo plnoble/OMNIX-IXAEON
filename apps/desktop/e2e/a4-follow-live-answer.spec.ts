@@ -52,11 +52,22 @@ async function setupOnce(page: Page): Promise<void> {
 
 const DELAY = '4500';
 
+const ANSWER_TEXT = 'A4 合成回答：这是切回来之后自动显示出来的最终内容。';
+
 function withDataDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'ixa-a4-'));
+  // core-bounded 工具循环（CI 上没有 Hermes 走这条路）：每问消耗
+  // answer(1) + 回答后的记忆提取(1)；照 d6 的脚本形状，备足两问的量。
   writeFileSync(
     join(dir, 'model-script.json'),
-    JSON.stringify({ text: ['A4 合成回答：这是切回来之后自动显示出来的最终内容。'] }),
+    JSON.stringify({
+      structured: [
+        { tool: 'answer', args: { text: ANSWER_TEXT } },
+        { items: [] },
+        { tool: 'answer', args: { text: ANSWER_TEXT } },
+        { items: [] },
+      ],
+    }),
   );
   return dir;
 }
@@ -81,9 +92,14 @@ test.describe('A4：切回来接着看还在写的回答', () => {
       await expect(page.getByTestId('page-projects')).toBeVisible();
       await page.getByTestId('nav-ask').click();
       await expect(page.getByTestId('page-ask')).toBeVisible();
-      // 切回来时仍在写（显示「正在」字样），答完几秒内自动换成最终内容
-      await expect(page.getByTestId('message-list')).toContainText('正在', { timeout: 10_000 });
-      await expect(page.getByTestId('message-list')).toContainText('A4 合成回答', {
+      // 切回对话页不自动选对话（App 把 openConversationId 置空，显示空状态引导）；
+      // 照用户实际操作：在列表里点开刚提问的这个对话
+      await page.locator('[data-testid="conversation-item"]').first().click();
+      // 切回来时仍在写（跟进态显示「正在回答…」，无阶段无秒数），答完几秒内自动换成最终内容
+      await expect(page.getByTestId('message-list')).toContainText('正在回答…', {
+        timeout: 10_000,
+      });
+      await expect(page.getByTestId('message-list')).toContainText(ANSWER_TEXT, {
         timeout: 30_000,
       });
       // 与库里一致、不重复
@@ -97,7 +113,7 @@ test.describe('A4：切回来接着看还在写的回答', () => {
           assistantCount: data.messages.filter((m) => m.role === 'assistant').length,
         };
       });
-      expect(db.content).toContain('A4 合成回答');
+      expect(db.content).toContain(ANSWER_TEXT);
       expect(db.status).not.toBe('streaming');
       expect(db.assistantCount).toBe(1);
       await expect(page.getByTestId('message-list')).not.toContainText('正在', { timeout: 5_000 });
@@ -144,7 +160,7 @@ test.describe('A4：切回来接着看还在写的回答', () => {
       await page.getByTestId('ask-run').click();
       await expect(page.getByTestId('message-list')).toContainText('正在', { timeout: 10_000 });
       // 等这轮结束
-      await expect(page.getByTestId('message-list')).toContainText('A4 合成回答', {
+      await expect(page.getByTestId('message-list')).toContainText(ANSWER_TEXT, {
         timeout: 30_000,
       });
       const convs = await page.evaluate(async () =>
@@ -160,7 +176,7 @@ test.describe('A4：切回来接着看还在写的回答', () => {
           (m) => m.role === 'user' && m.content.includes('A4 另一问'),
         );
         if (!mine) {
-          expect(data.messages.some((m) => m.content.includes('A4 合成回答'))).toBe(false);
+          expect(data.messages.some((m) => m.content.includes(ANSWER_TEXT))).toBe(false);
         }
       }
     } finally {
