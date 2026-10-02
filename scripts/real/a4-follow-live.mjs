@@ -47,7 +47,9 @@ try {
 
   // 首次设置向导
   await page.getByTestId('setup-next-1').click();
-  await page.getByTestId('setup-model-name').fill('hermes');
+  // 填本机 Hermes 网关「default」组里有可用通道的模型名（CLI 直连默认模型，
+  // gemini-3.7-flash-tiered）；乱填模型名会让网关报 503 No available channel。
+  await page.getByTestId('setup-model-name').fill('gemini-3.7-flash-tiered');
   await page.getByTestId('setup-next-2').click();
   await page.getByTestId('setup-project-name').fill('A4 真机项目');
   await page.getByTestId('setup-finish').click();
@@ -107,9 +109,10 @@ try {
   }
   console.log('SPINNER_ON_RETURN', sawSpinner ? `是（标签：${label}）` : '否（回答已结束）');
 
-  // 2) 分段在出现：仍转圈时两帧采样，后一帧比前一帧长
+  // 2) 分段在出现：仍转圈时按 1.5s 一帧采样（Hermes 冷启动组装要 5–9 秒，
+  // 流式窗口可能靠后，最多采 40 秒），后一帧比前一帧长即分段在出现
   const samples = [];
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 27; i++) {
     samples.push(await bubbleLen());
     await new Promise((r) => setTimeout(r, 1500));
     if (!(await spinner())) break;
