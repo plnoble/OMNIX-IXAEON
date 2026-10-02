@@ -149,6 +149,13 @@ describe('A4 切回来接着看还在写的回答（页面逻辑）', () => {
     expect(text()).not.toContain('秒');
     expect(text()).not.toContain('正在思考');
     expect(text()).not.toContain('正在准备');
+    // 轮询接管之后（askPhase 已切成跟进态）标签依旧如故：跟进态只知道
+    // 「正在回答…」，不显示阶段、不显示秒数
+    await tick(2000);
+    expect(text()).toContain('正在回答…');
+    expect(text()).not.toContain('秒');
+    expect(text()).not.toContain('正在思考');
+    expect(text()).not.toContain('正在准备');
 
     // 一轮结束：库里换成最终回答
     const finalAnswer = 'A4 合成回答：这是切回来之后自动显示出来的最终内容。';
