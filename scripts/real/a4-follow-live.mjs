@@ -56,9 +56,11 @@ try {
 
   // 发一个要求多段的合成问题（回答长一些，分段窗口才够切走切回）
   await page.getByTestId('nav-ask').click();
-  await page.getByTestId('ask-input').fill(
-    '请分四段介绍析衍（IXAEON）这款应用：记忆导入与提炼、项目问答与引用、研究发现的判定、编码任务的派发。每段至少写三句话，段落之间留空行。',
-  );
+  await page
+    .getByTestId('ask-input')
+    .fill(
+      '请分四段介绍析衍（IXAEON）这款应用：记忆导入与提炼、项目问答与引用、研究发现的判定、编码任务的派发。每段至少写三句话，段落之间留空行。',
+    );
   await page.getByTestId('ask-run').click();
   await page.getByTestId('message-list').getByText('正在').first().waitFor({ timeout: 15_000 });
   console.log('ASKED', '正在回答');
@@ -78,7 +80,11 @@ try {
   await page.locator(`[data-testid="conversation-item"][data-conversation-id="${convId}"]`).click();
 
   // 1) 切回来时仍在转圈（跟进态）
-  const spinner = async () => page.locator('[data-testid="loading"]').isVisible().catch(() => false);
+  const spinner = async () =>
+    page
+      .locator('[data-testid="loading"]')
+      .isVisible()
+      .catch(() => false);
   const spLabel = async () =>
     page
       .locator('[data-testid="loading"]')
@@ -126,9 +132,7 @@ try {
       errorMessage: last.errorMessage ?? '',
       notice: typeof last.meta?.notice === 'string' ? last.meta.notice.slice(0, 300) : '',
       steps: Array.isArray(last.meta?.steps)
-        ? last.meta.steps
-            .map((s) => `${s.round}:${s.tool}:${s.ok ? 'ok' : 'FAIL'}`)
-            .join('|')
+        ? last.meta.steps.map((s) => `${s.round}:${s.tool}:${s.ok ? 'ok' : 'FAIL'}`).join('|')
         : '',
     };
   });
