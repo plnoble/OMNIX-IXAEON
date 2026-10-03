@@ -1352,6 +1352,40 @@ export class AppRuntime {
     return m.chatModelName?.trim() || m.modelName?.trim() || null;
   }
 
+  /**
+   * 保存模型设置（M2 起从 ipc.ts 迁进这里，便于验收测试直接钉住）。
+   * - savedModels 传入时：勾选清单以此为准，并记 modelsCheckedAt=现在；
+   *   不传时清单与检测时间保持原值（只改模型名/地址/Key 不动清单）。
+   * - 聊天模型变化会改变 Hermes 的启动参数，丢掉在跑的引擎会话，
+   *   下一问从新进程开始（旧进程里的模型改不了）。
+   */
+  saveModelSettings(input: {
+    modelName: string;
+    chatModelName?: string;
+    apiBaseUrl?: string;
+    apiKey?: string;
+    savedModels?: string[];
+  }): { ok: true } {
+    const before = this.chatModelName();
+    this.updateConfig((c) => ({
+      ...c,
+      model: {
+        ...c.model,
+        modelName: input.modelName,
+        ...(input.chatModelName !== undefined ? { chatModelName: input.chatModelName.trim() } : {}),
+        ...(input.apiBaseUrl !== undefined ? { apiBaseUrl: input.apiBaseUrl.trim() } : {}),
+        ...(input.apiKey !== undefined && input.apiKey.length > 0
+          ? { apiKeyEncrypted: encryptApiKey(input.apiKey), apiKeyPresent: true }
+          : {}),
+        ...(input.savedModels !== undefined
+          ? { savedModels: [...input.savedModels], modelsCheckedAt: new Date().toISOString() }
+          : {}),
+      },
+    }));
+    if (this.chatModelName() !== before) this.resetChatSessions();
+    return { ok: true };
+  }
+
   /** 记忆桥开着时的 Hermes 专用令牌；关着返回 null（启动网关时就不传）。 */
   hermesBridgeToken(): string | null {
     // 测试里用 Object.create 搭的运行时可能没有 config：当作记忆桥关着

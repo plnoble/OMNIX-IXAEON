@@ -24,6 +24,13 @@ export const appConfigSchema = z.object({
      * config.yaml，且按 Hermes 的设计不会写回配置文件，所以不动用户的 Hermes 设置。
      */
     chatModelName: z.string().default(''),
+    /**
+     * M2：用户亲手勾选保存的模型清单。各处下拉框（模型名称、聊天模型、之后
+     * 的编码执行器模型）都只从这里选；不是「模型池」，没有自动挑模型。
+     */
+    savedModels: z.array(z.string()).default([]),
+    /** M2：上次「保存选择」的时间（检测本身不记时间）。 */
+    modelsCheckedAt: z.string().nullable().default(null),
   }),
   capture: z.object({
     /** ChatGPT 网页采集总开关 */
@@ -84,6 +91,8 @@ export function defaultAppConfig(): AppConfig {
       apiBaseUrl: '',
       apiKeyEncrypted: null,
       apiKeyPresent: false,
+      savedModels: [],
+      modelsCheckedAt: null,
     },
     capture: {
       enabled: false,

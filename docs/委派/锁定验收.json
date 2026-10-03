@@ -294,6 +294,14 @@
       "files": {
         "apps/desktop/test/acceptance/a4-follow-live.test.ts": "41d5bdec5b699d047aefb72a70a769c4825af8ef87624dae4e89df2537a1163a"
       }
+    },
+    {
+      "id": "M2",
+      "title": "M2 模型管理（后端：清单保存/检测只读/失败不变）",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/m2-saved-models.test.ts": "20d978b87d091efe85f8a488196aaaffec65678fb26da25c9cdbe47cc05a782a"
+      }
     }
   ]
 }

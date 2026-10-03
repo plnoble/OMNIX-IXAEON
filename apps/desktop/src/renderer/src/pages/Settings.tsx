@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   api,
   errMsg,
@@ -344,6 +344,9 @@ export function SettingsPage() {
     apiKey: '',
   });
   const [models, setModels] = useState<Array<{ id: string }> | null>(null);
+  // M2：勾选保存的模型清单（初始=已保存的；检测不重置勾选，只有保存写盘）
+  const [checked, setChecked] = useState<string[]>([]);
+  const [modelFilter, setModelFilter] = useState('');
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
   const [searchForm, setSearchForm] = useState<{
@@ -366,6 +369,7 @@ export function SettingsPage() {
         apiBaseUrl: v.config.apiBaseUrl,
         apiKey: '',
       });
+      setChecked(v.config.savedModels ?? []);
       setSearchForm({
         provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
@@ -379,6 +383,43 @@ export function SettingsPage() {
     void reload();
   }, [reload]);
 
+  // M2：勾选清单与下拉框的计算状态
+  const savedSet = useMemo(() => new Set(view?.config.savedModels ?? []), [view]);
+  const toggleChecked = (id: string): void => {
+    setChecked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+  // 勾选清单显示哪些行：检测后 = 上游全部（已保存打勾语义由 checked 状态承担，
+  // 这里只决定标记）+ 已保存但上游没有的（标「上游已没有」，不自动删）；
+  // 没检测过时只显示已保存的。
+  const listRows = useMemo(() => {
+    const rows: Array<{ id: string; isNew: boolean; missing: boolean }> = [];
+    if (models !== null) {
+      const seen = new Set<string>();
+      for (const m of models) {
+        rows.push({ id: m.id, isNew: !savedSet.has(m.id), missing: false });
+        seen.add(m.id);
+      }
+      for (const id of savedSet) {
+        if (!seen.has(id)) rows.push({ id, isNew: false, missing: true });
+      }
+    } else {
+      for (const id of savedSet) rows.push({ id, isNew: false, missing: false });
+    }
+    const q = modelFilter.trim().toLowerCase();
+    return q.length > 0 ? rows.filter((r) => r.id.toLowerCase().includes(q)) : rows;
+  }, [models, savedSet, modelFilter]);
+  // 下拉框：只从已保存清单选；当前在用的不在清单里就补上并标注（契约 4）
+  const modelOptions = useMemo(() => {
+    const opts = [...savedSet];
+    if (form.modelName && !savedSet.has(form.modelName)) opts.unshift(form.modelName);
+    return opts;
+  }, [savedSet, form.modelName]);
+  const chatOptions = useMemo(() => {
+    const opts = [...savedSet];
+    if (form.chatModelName && !savedSet.has(form.chatModelName)) opts.unshift(form.chatModelName);
+    return opts;
+  }, [savedSet, form.chatModelName]);
+
   const fetchModels = async () => {
     // 输入框有 Key 就用它（仅本次请求）；留空则由主进程用已保存的 Key——
     // 界面读不到已保存的 Key，但主进程能解密，且只在 API 地址没变时才复用。
@@ -391,7 +432,7 @@ export function SettingsPage() {
         apiKey: form.apiKey.trim(),
       });
       setModels(result.models);
-      setNotice(`获取到 ${result.models.length} 个可用模型，请在下拉框中选择`);
+      setNotice(`检测到 ${result.models.length} 个模型，勾选要保存的，再点「保存选择」`);
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -409,6 +450,7 @@ export function SettingsPage() {
         chatModelName: form.chatModelName.trim(),
         apiBaseUrl: form.apiBaseUrl,
         apiKey: form.apiKey.trim() || undefined,
+        savedModels: [...checked],
       });
       setNotice(
         view?.hermesFound === true
@@ -636,46 +678,80 @@ export function SettingsPage() {
             data-testid="settings-api-key"
           />
         </Field>
-        <Field label="模型名称">
-          {models ? (
-            <select
-              value={form.modelName}
-              onChange={(e) => setForm({ ...form, modelName: e.target.value })}
-              data-testid="settings-model-select"
-            >
-              <option value="">（选择模型）</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id}
-                </option>
-              ))}
-            </select>
-          ) : (
+        {/* M2：勾选清单——已保存的默认打勾；新出现的标「新」；已保存但上游没有的
+            标「上游已没有」，不自动删。 */}
+        <Field label="模型清单" hint="勾选要保存的模型；保存只认勾上的，不提供手输">
+          {savedSet.size > 0 && (
             <input
-              value={form.modelName}
-              onChange={(e) => setForm({ ...form, modelName: e.target.value })}
-              data-testid="settings-model-name"
+              value={modelFilter}
+              onChange={(e) => setModelFilter(e.target.value)}
+              placeholder="按名字筛选…"
+              data-testid="settings-model-filter"
             />
           )}
+          <div className="model-checklist" data-testid="settings-model-checklist">
+            {listRows.map((r) => (
+              <label key={r.id} className="model-check">
+                <input
+                  type="checkbox"
+                  checked={checked.includes(r.id)}
+                  onChange={() => toggleChecked(r.id)}
+                  data-testid="settings-model-check"
+                  data-model-id={r.id}
+                />
+                <span>{r.id}</span>
+                {r.missing && (
+                  <span className="badge warn" data-testid={`settings-model-badge-${r.id}`}>
+                    上游已没有
+                  </span>
+                )}
+                {r.isNew && (
+                  <span className="badge" data-testid={`settings-model-badge-${r.id}`}>
+                    新
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+        </Field>
+        <Field label="模型名称">
+          <select
+            value={form.modelName}
+            onChange={(e) => setForm({ ...form, modelName: e.target.value })}
+            data-testid="settings-model-select"
+          >
+            {modelOptions.length === 0 && <option value="">（还没有保存过模型）</option>}
+            {modelOptions.map((id) => (
+              <option key={id} value={id}>
+                {savedSet.has(id) ? id : `${id}（不在已保存清单）`}
+              </option>
+            ))}
+          </select>
         </Field>
         <Field label="聊天模型">
-          <input
+          <select
             value={form.chatModelName}
-            placeholder="留空 = 跟随上面的模型名称"
             onChange={(e) => setForm({ ...form, chatModelName: e.target.value })}
             data-testid="settings-chat-model"
-          />
+          >
+            <option value="">（跟随分析模型）</option>
+            {chatOptions.map((id) => (
+              <option key={id} value={id}>
+                {savedSet.has(id) ? id : `${id}（不在已保存清单）`}
+              </option>
+            ))}
+          </select>
         </Field>
         <p className="muted" data-testid="settings-chat-model-hint">
-          聊天（Hermes）用哪个模型由这里决定，启动引擎时传过去，不会改写你的 Hermes
-          config.yaml。保存后下一次提问生效。留空则跟随上面的模型名称。
+          聊天（Hermes）用哪个模型由这里决定，只能从已保存的清单里选；「跟随分析模型」
+          就是留空，启动引擎时传过去，不会改写你的 Hermes config.yaml。保存后下一次提问生效。
         </p>
         <div className="wizard-nav">
           <Button disabled={fetchingModels} onClick={fetchModels} testId="settings-fetch-models">
-            {fetchingModels ? '获取中…' : '获取可用模型'}
+            {fetchingModels ? '检测中…' : '检测模型'}
           </Button>
           <Button kind="primary" disabled={busy} onClick={saveModel} testId="settings-model-save">
-            保存
+            保存选择
           </Button>
         </div>
       </Card>

@@ -620,6 +620,8 @@ export function registerIpc(runtime: AppRuntime): void {
           chatModelName: config.model.chatModelName ?? '',
           apiBaseUrl: config.model.apiBaseUrl,
           apiKeyPresent: config.model.apiKeyPresent,
+          savedModels: config.model.savedModels ?? [],
+          modelsCheckedAt: config.model.modelsCheckedAt ?? null,
           captureEnabled: config.capture.enabled,
           autoAnalyze: config.capture.autoAnalyze,
           extensionPaired: config.extension.token !== null,
@@ -639,26 +641,7 @@ export function registerIpc(runtime: AppRuntime): void {
         hermesNotice: runtime.hermesNotice(),
       };
     },
-    saveModelSettings: async (input) => {
-      const before = runtime.chatModelName();
-      runtime.updateConfig((c) => ({
-        ...c,
-        model: {
-          ...c.model,
-          modelName: input.modelName,
-          ...(input.chatModelName !== undefined
-            ? { chatModelName: input.chatModelName.trim() }
-            : {}),
-          ...(input.apiBaseUrl !== undefined ? { apiBaseUrl: input.apiBaseUrl.trim() } : {}),
-          ...(input.apiKey !== undefined && input.apiKey.length > 0
-            ? { apiKeyEncrypted: encryptApiKey(input.apiKey), apiKeyPresent: true }
-            : {}),
-        },
-      }));
-      // 模型是网关的启动参数：旧进程不会改模型，必须让下一问从新进程开始。
-      if (runtime.chatModelName() !== before) runtime.resetChatSessions();
-      return { ok: true as const };
-    },
+    saveModelSettings: async (input) => runtime.saveModelSettings(input),
     // 记忆桥（F1）：状态与开关（开之前查 HTTPS；改 Hermes 配置前先备份）
     getPersonalMemoryToChat: async () => runtime.personalMemoryToChatStatus(),
     setPersonalMemoryToChat: async (enabled: boolean) =>

@@ -404,6 +404,10 @@ export const settingsViewSchema = z.object({
     chatModelName: z.string().default(''),
     apiBaseUrl: z.string().default(''),
     apiKeyPresent: z.boolean(),
+    /** M2：用户勾选保存的模型清单（各处下拉框只从这里选） */
+    savedModels: z.array(z.string()).default([]),
+    /** M2：上次保存选择的时间；没保存过为 null */
+    modelsCheckedAt: z.string().nullable().default(null),
     captureEnabled: z.boolean(),
     autoAnalyze: z.boolean(),
     extensionPaired: z.boolean(),
@@ -817,6 +821,8 @@ export interface IxaIpcApi {
     /** OpenAI 兼容 API 地址；空串表示官方默认 */
     apiBaseUrl?: string;
     apiKey?: string;
+    /** M2：勾选保存的模型清单。传了就以此为准并记检测时间；不传保持原值 */
+    savedModels?: string[];
   }): Promise<{ ok: true }>;
   /** 保存网页搜索设置（B3）。Key 用 safeStorage 加密落盘，留空表示保持不变。 */
   /**
