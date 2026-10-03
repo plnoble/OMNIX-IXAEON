@@ -219,6 +219,27 @@ describe('M2 模型管理（设置页逻辑）', () => {
     expect(state.saved[state.saved.length - 1]!.savedModels).toEqual(['gpt-a']);
   });
 
+  it('契约 2：勾了还没保存、上游里仍有的模型，重检后勾选保留（不丢未保存的有效勾选）', async () => {
+    state.view = baseView(['gpt-a']);
+    state.upstream = [{ id: 'gpt-a' }, { id: 'gpt-b' }];
+    await render();
+    await clickFetch();
+    await checkRow('gpt-b'); // 勾上还没保存的
+    // 重检：gpt-b 仍在上游 → 勾选必须保留；新多一个 gpt-c 标「新」
+    state.upstream = [{ id: 'gpt-a' }, { id: 'gpt-b' }, { id: 'gpt-c' }];
+    await clickFetch();
+    expect(
+      (
+        container.querySelector(
+          '[data-testid="settings-model-check"][data-model-id="gpt-b"]',
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+    await clickSave();
+    // gpt-c 没勾过：保存只含已保存的 gpt-a + 保留下来的 gpt-b
+    expect(state.saved[state.saved.length - 1]!.savedModels.sort()).toEqual(['gpt-a', 'gpt-b']);
+  });
+
   it('契约 1：已保存但上游已没有的照样显示并标「上游已没有」', async () => {
     state.view = baseView(['gpt-a', 'gemini-b']);
     state.upstream = [{ id: 'gpt-a' }];

@@ -8,6 +8,8 @@
  * - 输入框有 Key → 用输入的，不碰已保存的。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.0.0', getPath: () => '' },
@@ -38,6 +40,8 @@ interface KeyRuntime {
 function runtimeWith(model: Record<string, unknown>): KeyRuntime {
   const rt = Object.create(AppRuntime.prototype) as Record<string, unknown>;
   rt['config'] = { model };
+  // 检测成功会写 modelsCheckedAt（M2）：原型 updateConfig 落盘，替身补齐路径
+  rt['configFile'] = join(tmpdir(), `ixaeon-keyreuse-${Math.random().toString(36).slice(2)}.json`);
   return rt as unknown as KeyRuntime;
 }
 

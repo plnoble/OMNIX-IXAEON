@@ -2402,8 +2402,7 @@ export class AppRuntime {
 
   updateConfig(mutate: (config: AppConfig) => AppConfig): AppConfig {
     this.config = mutate(this.config);
-    // Object.create 轻量替身（验收测试）没有 configFile：只改内存，不落盘
-    if (this.configFile) saveConfig(this.configFile, this.config);
+    saveConfig(this.configFile, this.config);
     return this.config;
   }
 
