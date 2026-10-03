@@ -480,6 +480,8 @@ export class AgentSession {
           engine,
           runId,
           steps,
+          // A5：结构化标记——这一轮没有形成最终回答，原因是模型那一步失败。
+          failedKind: 'model_error' as const,
         };
       }
 
@@ -527,6 +529,8 @@ export class AgentSession {
       engine,
       runId,
       steps,
+      // A5：结构化标记——到了轮次上限还没形成最终回答，同样按失败处理。
+      failedKind: 'round_limit' as const,
     };
   }
 
