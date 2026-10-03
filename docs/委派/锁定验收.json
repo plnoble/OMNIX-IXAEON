@@ -302,6 +302,15 @@
       "files": {
         "apps/desktop/test/acceptance/a5-model-failure.test.ts": "6574dc5ffeee3f27407cee7888d7c4197efd837fea4ba34c7a6ba09db9bb2df6"
       }
+    },
+    {
+      "id": "M2",
+      "title": "M2 模型管理（后端清单语义 + 设置页界面逻辑）",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/m2-saved-models.test.ts": "b2511726c2a1d6ae1b624316b0a971da2d3098b3874392d5099edd4fff26ad81",
+        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "b14506c5cac61235cb78e8d9ace583e5fd95b4c7609a2098e8f39609be57edde"
+      }
     }
   ]
 }

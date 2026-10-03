@@ -893,6 +893,12 @@ export class AppRuntime {
         apiBaseUrl: input.apiBaseUrl,
         apiKey,
       });
+      // M2：modelsCheckedAt = 上次**检测**时间（保存选择不碰它）。检测只动
+      // 这一个字段，不改在用的模型、不改清单（契约 5）。
+      this.updateConfig((c) => ({
+        ...c,
+        model: { ...c.model, modelsCheckedAt: new Date().toISOString() },
+      }));
       return { models };
     } catch (err) {
       throw new IxaError(
@@ -1350,6 +1356,38 @@ export class AppRuntime {
   chatModelName(): string | null {
     const m = this.config.model;
     return m.chatModelName?.trim() || m.modelName?.trim() || null;
+  }
+
+  /**
+   * 保存模型设置（M2 起从 ipc.ts 迁进这里，便于验收测试直接钉住）。
+   * - savedModels 传入时：勾选清单以此为准；modelsCheckedAt 是上次**检测**
+   *   时间，由 listAvailableModels 记，这里不碰。不传时清单保持原值。
+   * - 聊天模型变化会改变 Hermes 的启动参数，丢掉在跑的引擎会话，
+   *   下一问从新进程开始（旧进程里的模型改不了）。
+   */
+  saveModelSettings(input: {
+    modelName: string;
+    chatModelName?: string;
+    apiBaseUrl?: string;
+    apiKey?: string;
+    savedModels?: string[];
+  }): { ok: true } {
+    const before = this.chatModelName();
+    this.updateConfig((c) => ({
+      ...c,
+      model: {
+        ...c.model,
+        modelName: input.modelName,
+        ...(input.chatModelName !== undefined ? { chatModelName: input.chatModelName.trim() } : {}),
+        ...(input.apiBaseUrl !== undefined ? { apiBaseUrl: input.apiBaseUrl.trim() } : {}),
+        ...(input.apiKey !== undefined && input.apiKey.length > 0
+          ? { apiKeyEncrypted: encryptApiKey(input.apiKey), apiKeyPresent: true }
+          : {}),
+        ...(input.savedModels !== undefined ? { savedModels: [...input.savedModels] } : {}),
+      },
+    }));
+    if (this.chatModelName() !== before) this.resetChatSessions();
+    return { ok: true };
   }
 
   /** 记忆桥开着时的 Hermes 专用令牌；关着返回 null（启动网关时就不传）。 */

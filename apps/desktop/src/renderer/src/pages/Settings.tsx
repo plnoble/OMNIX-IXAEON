@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   errMsg,
@@ -344,6 +344,9 @@ export function SettingsPage() {
     apiKey: '',
   });
   const [models, setModels] = useState<Array<{ id: string }> | null>(null);
+  // M2：勾选保存的模型清单（初始=已保存的；检测不重置勾选，只有保存写盘）
+  const [checked, setChecked] = useState<string[]>([]);
+  const [modelFilter, setModelFilter] = useState('');
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
   const [searchForm, setSearchForm] = useState<{
@@ -366,6 +369,7 @@ export function SettingsPage() {
         apiBaseUrl: v.config.apiBaseUrl,
         apiKey: '',
       });
+      setChecked(v.config.savedModels ?? []);
       setSearchForm({
         provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
@@ -379,7 +383,61 @@ export function SettingsPage() {
     void reload();
   }, [reload]);
 
+  // M2：勾选清单与下拉框的计算状态
+  const savedSet = useMemo(() => new Set(view?.config.savedModels ?? []), [view]);
+  // 用户「取消勾选但还没保存」的意图：重检重建勾选时不能把刚取消的项又勾回来
+  //（契约 5：重检只更新标记，不撤销用户尚未保存的选择）。保存成功后清空。
+  const uncheckedRef = useRef<Set<string>>(new Set());
+  const toggleChecked = (id: string): void => {
+    setChecked((prev) => {
+      if (prev.includes(id)) {
+        uncheckedRef.current.add(id);
+        return prev.filter((x) => x !== id);
+      }
+      uncheckedRef.current.delete(id);
+      return [...prev, id];
+    });
+  };
+  // 勾选清单的全部行（未按名字筛选）：检测后 = 上游全部 + 已保存但上游没有的
+  //（标「上游已没有」，不自动删）；没检测过时只显示已保存的。
+  const allRows = useMemo(() => {
+    const rows: Array<{ id: string; isNew: boolean; missing: boolean }> = [];
+    if (models !== null) {
+      const seen = new Set<string>();
+      for (const m of models) {
+        rows.push({ id: m.id, isNew: !savedSet.has(m.id), missing: false });
+        seen.add(m.id);
+      }
+      for (const id of savedSet) {
+        if (!seen.has(id)) rows.push({ id, isNew: false, missing: true });
+      }
+    } else {
+      for (const id of savedSet) rows.push({ id, isNew: false, missing: false });
+    }
+    return rows;
+  }, [models, savedSet]);
+  const listRows = useMemo(() => {
+    const q = modelFilter.trim().toLowerCase();
+    return q.length > 0 ? allRows.filter((r) => r.id.toLowerCase().includes(q)) : allRows;
+  }, [allRows, modelFilter]);
+  // 下拉框：只从已保存清单选；当前在用的不在清单里就补上并标注（契约 4）
+  const modelOptions = useMemo(() => {
+    const opts = [...savedSet];
+    if (form.modelName && !savedSet.has(form.modelName)) opts.unshift(form.modelName);
+    return opts;
+  }, [savedSet, form.modelName]);
+  const chatOptions = useMemo(() => {
+    const opts = [...savedSet];
+    if (form.chatModelName && !savedSet.has(form.chatModelName)) opts.unshift(form.chatModelName);
+    return opts;
+  }, [savedSet, form.chatModelName]);
+
+  // 检测会跨网络、可能很慢：每次发起检测代次 +1，保存（改 Key/地址）也让在途
+  // 检测作废——迟到的旧响应（旧凭据对应的清单）不能盖到新配置上。
+  const fetchSeqRef = useRef(0);
+
   const fetchModels = async () => {
+    const seq = ++fetchSeqRef.current;
     // 输入框有 Key 就用它（仅本次请求）；留空则由主进程用已保存的 Key——
     // 界面读不到已保存的 Key，但主进程能解密，且只在 API 地址没变时才复用。
     setFetchingModels(true);
@@ -390,8 +448,29 @@ export function SettingsPage() {
         apiBaseUrl: form.apiBaseUrl.trim(),
         apiKey: form.apiKey.trim(),
       });
+      // 等待期间发起过更新的检测或保存过新配置：这笔旧响应作废
+      if (seq !== fetchSeqRef.current) return;
       setModels(result.models);
-      setNotice(`获取到 ${result.models.length} 个可用模型，请在下拉框中选择`);
+      // 勾选重建（不以无条件覆盖）：= 最新的已保存清单（检测期间用户可能刚保存过，
+      // 这里不用闭包里可能过期的 savedSet）+ 用户勾过还没保存、且这次上游仍列出的
+      // ——但用户刚取消勾选的项保持取消（契约 5：重检只更新标记，不撤销选择）。
+      // 勾了、还没保存、上游又不在了的模型退出勾选；保存时还有一道过滤兜底。
+      try {
+        const fresh = await api.getSettings();
+        setView(fresh);
+        const upstreamIds = new Set(result.models.map((m) => m.id));
+        setChecked((prev) => {
+          const next = new Set<string>(fresh.config.savedModels ?? []);
+          for (const id of prev) {
+            if (!next.has(id) && upstreamIds.has(id)) next.add(id);
+          }
+          for (const id of uncheckedRef.current) next.delete(id);
+          return [...next];
+        });
+      } catch {
+        /* 拿不到最新清单：勾选保持现状，保存时的过滤兜底 */
+      }
+      setNotice(`检测到 ${result.models.length} 个模型，勾选要保存的，再点「保存选择」`);
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -400,21 +479,29 @@ export function SettingsPage() {
   };
 
   const saveModel = async () => {
+    // 配置要变了：在途的检测（旧 Key/旧地址对应的清单）作废
+    ++fetchSeqRef.current;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
+      // 保存只认清单里勾选的项：勾了但这次清单里没有的（上游中途消失）不进清单。
+      const rowIds = new Set(allRows.map((r) => r.id));
+      const submitted = checked.filter((id) => rowIds.has(id));
       await api.saveModelSettings({
-        modelName: form.modelName.trim() || 'gpt-5.2',
+        modelName: form.modelName.trim(),
         chatModelName: form.chatModelName.trim(),
         apiBaseUrl: form.apiBaseUrl,
         apiKey: form.apiKey.trim() || undefined,
+        savedModels: submitted,
       });
       setNotice(
         view?.hermesFound === true
           ? '模型设置已保存。聊天会在下一次提问时用新模型（正在进行的引擎会话已结束）。'
           : '模型设置已保存',
       );
+      // 保存落盘：勾选与新清单对齐，「取消勾选」的待保存意图随之作废
+      uncheckedRef.current.clear();
       await reload();
     } catch (err) {
       setError(errMsg(err));
@@ -636,46 +723,83 @@ export function SettingsPage() {
             data-testid="settings-api-key"
           />
         </Field>
-        <Field label="模型名称">
-          {models ? (
-            <select
-              value={form.modelName}
-              onChange={(e) => setForm({ ...form, modelName: e.target.value })}
-              data-testid="settings-model-select"
-            >
-              <option value="">（选择模型）</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id}
-                </option>
-              ))}
-            </select>
-          ) : (
+        {/* M2：勾选清单——已保存的默认打勾；新出现的标「新」；已保存但上游没有的
+            标「上游已没有」，不自动删。 */}
+        <Field label="模型清单" hint="勾选要保存的模型；保存只认勾上的，不提供手输">
+          {(models !== null || savedSet.size > 0) && (
             <input
-              value={form.modelName}
-              onChange={(e) => setForm({ ...form, modelName: e.target.value })}
-              data-testid="settings-model-name"
+              value={modelFilter}
+              onChange={(e) => setModelFilter(e.target.value)}
+              placeholder="按名字筛选…"
+              data-testid="settings-model-filter"
             />
           )}
+          <div className="model-checklist" data-testid="settings-model-checklist">
+            {listRows.map((r) => (
+              <label key={r.id} className="model-check">
+                <input
+                  type="checkbox"
+                  checked={checked.includes(r.id)}
+                  onChange={() => toggleChecked(r.id)}
+                  data-testid="settings-model-check"
+                  data-model-id={r.id}
+                />
+                <span>{r.id}</span>
+                {r.missing && (
+                  <span className="badge warn" data-testid={`settings-model-badge-${r.id}`}>
+                    上游已没有
+                  </span>
+                )}
+                {r.isNew && (
+                  <span className="badge" data-testid={`settings-model-badge-${r.id}`}>
+                    新
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+        </Field>
+        <Field label="模型名称">
+          <select
+            value={form.modelName}
+            onChange={(e) => setForm({ ...form, modelName: e.target.value })}
+            data-testid="settings-model-select"
+          >
+            {modelOptions.length === 0 && <option value="">（还没有保存过模型）</option>}
+            {modelOptions.length > 0 && form.modelName === '' && (
+              <option value="">（未选择——先检测并保存清单）</option>
+            )}
+            {modelOptions.map((id) => (
+              <option key={id} value={id}>
+                {savedSet.has(id) ? id : `${id}（不在已保存清单）`}
+              </option>
+            ))}
+          </select>
         </Field>
         <Field label="聊天模型">
-          <input
+          <select
             value={form.chatModelName}
-            placeholder="留空 = 跟随上面的模型名称"
             onChange={(e) => setForm({ ...form, chatModelName: e.target.value })}
             data-testid="settings-chat-model"
-          />
+          >
+            <option value="">（跟随分析模型）</option>
+            {chatOptions.map((id) => (
+              <option key={id} value={id}>
+                {savedSet.has(id) ? id : `${id}（不在已保存清单）`}
+              </option>
+            ))}
+          </select>
         </Field>
         <p className="muted" data-testid="settings-chat-model-hint">
-          聊天（Hermes）用哪个模型由这里决定，启动引擎时传过去，不会改写你的 Hermes
-          config.yaml。保存后下一次提问生效。留空则跟随上面的模型名称。
+          聊天（Hermes）用哪个模型由这里决定，只能从已保存的清单里选；「跟随分析模型」
+          就是留空，启动引擎时传过去，不会改写你的 Hermes config.yaml。保存后下一次提问生效。
         </p>
         <div className="wizard-nav">
           <Button disabled={fetchingModels} onClick={fetchModels} testId="settings-fetch-models">
-            {fetchingModels ? '获取中…' : '获取可用模型'}
+            {fetchingModels ? '检测中…' : '检测模型'}
           </Button>
           <Button kind="primary" disabled={busy} onClick={saveModel} testId="settings-model-save">
-            保存
+            保存选择
           </Button>
         </div>
       </Card>
