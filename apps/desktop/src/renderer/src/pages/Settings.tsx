@@ -347,6 +347,8 @@ export function SettingsPage() {
   // M2：勾选保存的模型清单（初始=已保存的；检测不重置勾选，只有保存写盘）
   const [checked, setChecked] = useState<string[]>([]);
   const [modelFilter, setModelFilter] = useState('');
+  /** M3：这次保存因换地址把已保存的 Key 清掉了（且现在确实没 Key）→ 卡片里提示。 */
+  const [keyClearedNotice, setKeyClearedNotice] = useState(false);
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
   const [searchForm, setSearchForm] = useState<{
@@ -358,7 +360,7 @@ export function SettingsPage() {
     result: string | null;
   }>({ busy: false, result: null });
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (): Promise<SettingsView | null> => {
     try {
       const [v, e] = await Promise.all([api.getSettings(), api.listAuditEvents(20)]);
       setView(v);
@@ -374,8 +376,10 @@ export function SettingsPage() {
         provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
       });
+      return v;
     } catch (err) {
       setError(errMsg(err));
+      return null;
     }
   }, []);
 
@@ -488,7 +492,7 @@ export function SettingsPage() {
       // 保存只认清单里勾选的项：勾了但这次清单里没有的（上游中途消失）不进清单。
       const rowIds = new Set(allRows.map((r) => r.id));
       const submitted = checked.filter((id) => rowIds.has(id));
-      await api.saveModelSettings({
+      const result = await api.saveModelSettings({
         modelName: form.modelName.trim(),
         chatModelName: form.chatModelName.trim(),
         apiBaseUrl: form.apiBaseUrl,
@@ -502,7 +506,12 @@ export function SettingsPage() {
       );
       // 保存落盘：勾选与新清单对齐，「取消勾选」的待保存意图随之作废
       uncheckedRef.current.clear();
-      await reload();
+      const fresh = await reload();
+      // M3：这次保存因为换地址清掉了 Key，且现在确实没有 Key → 提示用户。
+      // 补填 Key 再保存（fresh 显示有 Key）提示自然消失。
+      setKeyClearedNotice(
+        result.keyCleared === true && (fresh?.config.apiKeyPresent ?? false) === false,
+      );
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -723,6 +732,11 @@ export function SettingsPage() {
             data-testid="settings-api-key"
           />
         </Field>
+        {keyClearedNotice && (
+          <p className="warn" data-testid="settings-apikey-cleared">
+            地址变了，原来的 Key 没有带到新地址；这个地址需要 Key 的话请重新填。
+          </p>
+        )}
         {/* M2：勾选清单——已保存的默认打勾；新出现的标「新」；已保存但上游没有的
             标「上游已没有」，不自动删。 */}
         <Field label="模型清单" hint="勾选要保存的模型；保存只认勾上的，不提供手输">

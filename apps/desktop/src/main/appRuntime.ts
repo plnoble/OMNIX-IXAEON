@@ -1398,6 +1398,8 @@ export class AppRuntime {
    *   时间，由 listAvailableModels 记，这里不碰。不传时清单保持原值。
    * - 聊天模型变化会改变 Hermes 的启动参数，丢掉在跑的引擎会话，
    *   下一问从新进程开始（旧进程里的模型改不了）。
+   * - M3：地址来源（协议+主机+端口）变了、这次又没填新 Key，就把已保存的
+   *   Key 清掉（不留给新地址），返回 keyCleared=true；本来没有 Key 的不算。
    */
   saveModelSettings(input: {
     modelName: string;
@@ -1405,8 +1407,14 @@ export class AppRuntime {
     apiBaseUrl?: string;
     apiKey?: string;
     savedModels?: string[];
-  }): { ok: true } {
+  }): { ok: true; keyCleared: boolean } {
     const before = this.chatModelName();
+    const providedKey =
+      typeof input.apiKey === 'string' && input.apiKey.length > 0 ? input.apiKey : null;
+    const originChanged =
+      input.apiBaseUrl !== undefined &&
+      normalizeOrigin(input.apiBaseUrl) !== normalizeOrigin(this.config.model.apiBaseUrl);
+    const keyCleared = originChanged && providedKey === null && this.config.model.apiKeyPresent;
     this.updateConfig((c) => ({
       ...c,
       model: {
@@ -1414,14 +1422,15 @@ export class AppRuntime {
         modelName: input.modelName,
         ...(input.chatModelName !== undefined ? { chatModelName: input.chatModelName.trim() } : {}),
         ...(input.apiBaseUrl !== undefined ? { apiBaseUrl: input.apiBaseUrl.trim() } : {}),
-        ...(input.apiKey !== undefined && input.apiKey.length > 0
-          ? { apiKeyEncrypted: encryptApiKey(input.apiKey), apiKeyPresent: true }
+        ...(providedKey !== null
+          ? { apiKeyEncrypted: encryptApiKey(providedKey), apiKeyPresent: true }
           : {}),
+        ...(keyCleared ? { apiKeyEncrypted: null, apiKeyPresent: false } : {}),
         ...(input.savedModels !== undefined ? { savedModels: [...input.savedModels] } : {}),
       },
     }));
     if (this.chatModelName() !== before) this.resetChatSessions();
-    return { ok: true };
+    return { ok: true, keyCleared };
   }
 
   /** 记忆桥开着时的 Hermes 专用令牌；关着返回 null（启动网关时就不传）。 */
@@ -2631,6 +2640,23 @@ export function normalizeApiBase(url: string | null | undefined): string {
     return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}`;
   } catch {
     return raw.replace(/\/+$/, '');
+  }
+}
+
+/**
+ * M3：地址的「来源」（协议 + 主机 + 端口），用于判断「是不是换了另一家服务」。
+ * 主机名不分大小写、去掉结尾斜杠、默认端口（http 80 / https 443）写不写都算
+ * 同一个；空地址表示官方默认。解析不了的地址就按字面比（字面不同就算换了来源）。
+ */
+function normalizeOrigin(url: string): string {
+  const trimmed = url.trim();
+  const candidate = trimmed.length === 0 ? 'https://api.openai.com/v1' : trimmed;
+  try {
+    const u = new URL(candidate);
+    const defaultPort = u.protocol === 'https:' ? '443' : u.protocol === 'http:' ? '80' : '';
+    return `${u.protocol}//${u.hostname.toLowerCase()}:${u.port || defaultPort}`;
+  } catch {
+    return candidate.toLowerCase();
   }
 }
 
