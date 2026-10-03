@@ -1409,11 +1409,12 @@ export class AppRuntime {
     savedModels?: string[];
   }): { ok: true; keyCleared: boolean } {
     const before = this.chatModelName();
-    const keyProvided = typeof input.apiKey === 'string' && input.apiKey.length > 0;
+    const providedKey =
+      typeof input.apiKey === 'string' && input.apiKey.length > 0 ? input.apiKey : null;
     const originChanged =
       input.apiBaseUrl !== undefined &&
       normalizeOrigin(input.apiBaseUrl) !== normalizeOrigin(this.config.model.apiBaseUrl);
-    const keyCleared = originChanged && !keyProvided && this.config.model.apiKeyPresent;
+    const keyCleared = originChanged && providedKey === null && this.config.model.apiKeyPresent;
     this.updateConfig((c) => ({
       ...c,
       model: {
@@ -1421,8 +1422,8 @@ export class AppRuntime {
         modelName: input.modelName,
         ...(input.chatModelName !== undefined ? { chatModelName: input.chatModelName.trim() } : {}),
         ...(input.apiBaseUrl !== undefined ? { apiBaseUrl: input.apiBaseUrl.trim() } : {}),
-        ...(keyProvided
-          ? { apiKeyEncrypted: encryptApiKey(input.apiKey), apiKeyPresent: true }
+        ...(providedKey !== null
+          ? { apiKeyEncrypted: encryptApiKey(providedKey), apiKeyPresent: true }
           : {}),
         ...(keyCleared ? { apiKeyEncrypted: null, apiKeyPresent: false } : {}),
         ...(input.savedModels !== undefined ? { savedModels: [...input.savedModels] } : {}),
