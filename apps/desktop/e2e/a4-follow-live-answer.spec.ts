@@ -175,23 +175,27 @@ test.describe('A4：切回来接着看还在写的回答', () => {
       await expect(page.getByTestId('page-ask')).toBeVisible();
       // 照用户实际操作：按 id 在列表里点开刚提问的这个对话
       await clickConversation(page, await firstConversationId(page));
-      // 条件 3：切回来的页面在结束后显示错误信息（模型失败文案），不再转圈。
-      await expect(page.getByTestId('message-list')).toContainText('模型动作失败', {
+      // 条件 3：切回来的页面在结束后显示失败与错误信息（A5 起收尾为 failed，
+      // 错误文字在「失败：」行，不再混在回答正文里），不再转圈。
+      await expect(page.getByTestId('message-list')).toContainText('失败：', {
+        timeout: 30_000,
+      });
+      await expect(page.getByTestId('message-list')).toContainText('FakeProvider 队列为空', {
         timeout: 30_000,
       });
       await expect(page.getByTestId('message-list')).not.toContainText('正在回答', {
         timeout: 10_000,
       });
-      // 库里这条消息与界面一致：回答内容是模型失败文案（不再转圈的落库形态）。
-      // 消息收尾为 failed 的显示形态由主进程回答流程决定，不在本单范围（见交付说明）。
+      // 库里这条消息与界面一致：failed、错误在 error_message、正文不放失败文案
       const db = await page.evaluate(async () => {
         const convs = await window.ixaeon!.listConversations();
         const data = await window.ixaeon!.getConversation(convs[0]!.id);
         const last = data.messages[data.messages.length - 1]!;
-        return { content: last.content, status: last.status };
+        return { content: last.content, status: last.status, errorMessage: last.errorMessage };
       });
-      expect(db.content).toContain('模型动作失败');
-      expect(db.status).not.toBe('streaming');
+      expect(db.status).toBe('failed');
+      expect(db.content).not.toContain('模型动作失败');
+      expect(db.errorMessage ?? '').toContain('FakeProvider 队列为空');
     } finally {
       await app.close().catch(() => undefined);
     }

@@ -1233,7 +1233,26 @@ export class AppRuntime {
       const extracted = extractSuggestedTodos(result.answer);
       result.answer = extracted.answer;
 
-      if (result.answer.trim().length > 0 && result.engine !== 'missing') {
+      // A5：core-bounded 的轮子是否以失败告终——结构化判定，绝不匹配回答文字：
+      // 真引擎在会话结果上带 failedKind（model_error / round_limit）；兼容替身
+      // （手写步骤）时按步骤判：model 那步失败且没有正常 answer 步。
+      // Hermes 的轮步骤只有 text/terminal，没有 answer 步，不能被误判。
+      let failedKind: 'model_error' | 'round_limit' | null = null;
+      if (result.engine === 'core-bounded') {
+        const steps = result.steps ?? [];
+        const answered = steps.some((s) => s.tool === 'answer' && s.ok === true);
+        const modelStepFailed = steps.some((s) => s.tool === 'model' && s.ok === false);
+        if (result.failedKind === 'round_limit') failedKind = 'round_limit';
+        else if (result.failedKind === 'model_error') failedKind = 'model_error';
+        else if (modelStepFailed && !answered) failedKind = 'model_error';
+      }
+
+      if (failedKind) {
+        // 这一轮不存档、不排提炼：错误文字不当回答进记忆，回报里也没有
+        // 「问答已存入」。已答出的半截在库里（delta 早就并入了），正文不再放
+        // 错误文字，返回值同样清空。
+        result.answer = '';
+      } else if (result.answer.trim().length > 0 && result.engine !== 'missing') {
         const askPerm = this.ensureAskCapturePermission();
         if (askPerm) {
           try {
@@ -1268,8 +1287,15 @@ export class AppRuntime {
       // D3/D4：回答收尾到占位消息上。取消的回合按 cancelled 记，不冒充完成——
       // 下一轮的 priorTurns 只取 complete，半截回答不会变成背景。
       const cancelled = result.notice?.includes('用户取消') === true;
+      const failedDetail =
+        failedKind === 'model_error'
+          ? ((result.steps ?? []).find((s) => s.tool === 'model' && s.ok === false)?.detail ??
+            '模型调用失败')
+          : failedKind === 'round_limit'
+            ? '已达轮次上限，未形成最终回答。'
+            : null;
       const proposedTodos: Array<{ id: string; title: string }> = [...codingTodos];
-      if (!cancelled) {
+      if (!cancelled && !failedKind) {
         for (const title of extracted.todos) {
           const row = this.todos.propose({
             title,
@@ -1280,12 +1306,15 @@ export class AppRuntime {
         }
       }
       this.conversations.finishMessage(assistantMessage.id, {
-        content: extracted.answer,
-        status: cancelled ? 'cancelled' : 'complete',
+        // 失败轮：正文不放错误文字，但 delta 已经写进去的半截回答照常保留
+        //（content 传 undefined 就不覆盖这条消息现有的内容）
+        content: failedKind ? undefined : extracted.answer,
+        status: cancelled ? 'cancelled' : failedKind ? 'failed' : 'complete',
         runId,
         engine: result.engine,
         modelName: result.modelName,
         citations: result.citations,
+        errorMessage: failedDetail,
         meta: {
           notice: result.notice,
           usedChars: result.usedChars,

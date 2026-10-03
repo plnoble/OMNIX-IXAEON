@@ -44,6 +44,12 @@ export interface AskResult {
   engine?: 'hermes' | 'core-bounded' | 'missing' | 'ask';
   runId?: string;
   steps?: Array<{ round: number; tool: string; ok: boolean; detail: string }>;
+  /**
+   * A5：core-bounded 工具循环这一轮是怎么收尾的（结构化判定，不许靠匹配
+   * 回答文字）。'model_error' = 模型调用那一步失败；'round_limit' = 到了轮次
+   * 上限还没形成最终回答。Hermes 引擎的轮没有这两个值。
+   */
+  failedKind?: 'model_error' | 'round_limit';
   /** P1-A：在对话期间由 Agent 提出的待批准行动任务 */
   proposedTasks?: Array<{ id: string; goal: string; status: string; scope: string[] }>;
 }
