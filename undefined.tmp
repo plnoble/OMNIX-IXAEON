@@ -1,9 +1,0 @@
-{
-  "model": {
-    "modelName": "old-model",
-    "apiBaseUrl": "https://api.example.com/v1",
-    "apiKeyPresent": true,
-    "apiKeyEncrypted": "ZW5jOnNrLXNhdmVkLTAxMjM0NTY3ODlhYmNkZWY=",
-    "modelsCheckedAt": "2026-10-03T01:36:43.887Z"
-  }
-}
