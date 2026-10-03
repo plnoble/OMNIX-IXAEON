@@ -22,7 +22,7 @@ D7 做出了「我的模型」这种执行器，但应用里还选不到它。�
    - 只改 `coding` 这一段，落盘。
    - 设置视图（`getSettings().config`）加 `codingExecutor`（默认 `'codex'`）、`codingModelName`（默认 `''`）。
 3. **取执行器**：`AppRuntime.executorPlan(): ExecutorPlan`，每次现读设置（改了设置不用重启）：
-   - 选的是 Codex，或者没有这段配置 → `{ use: 'codex' }`；
+   - 选的是 Codex，或者没有这段配置 → `{ use: 'codex' }`。运行时连 `config` 都没有也算这一种：D3、D4、P4 的锁定测试就是这样搭运行时的，派发闸门会在那里调到它，不能报错；
    - 选的是「我的模型」：
      - 模型名为空，或已不在已保存清单里 → `{ use: 'none', missing: 'model_name' }`；
      - `codingModelProvider(模型名)` 拿不到 → `{ use: 'none', missing: 'model_key' }`；
