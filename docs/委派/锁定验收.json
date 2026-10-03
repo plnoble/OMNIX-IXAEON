@@ -301,7 +301,7 @@
       "status": "queued",
       "files": {
         "apps/desktop/test/acceptance/m2-saved-models.test.ts": "5087b236dc22e0d9fa325fd2169b43a82c121502a702649f0a39281cad72b1f6",
-        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "3da7d5b487215086dcdefe151c8b1a50e26c833c2edd6f574dedfca53371642a"
+        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "ac36ea8d3de8d3e8c47753e1f8ee83890ae10c56964717006d2f3df850d8d7c9"
       }
     }
   ]

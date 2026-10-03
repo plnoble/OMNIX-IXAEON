@@ -162,6 +162,23 @@ async function clickSave(): Promise<void> {
   });
 }
 
+async function uncheckRow(id: string): Promise<void> {
+  await act(async () => {
+    (
+      container.querySelector(
+        `[data-testid="settings-model-check"][data-model-id="${id}"]`,
+      ) as HTMLInputElement
+    ).click();
+  });
+  expect(
+    (
+      container.querySelector(
+        `[data-testid="settings-model-check"][data-model-id="${id}"]`,
+      ) as HTMLInputElement
+    ).checked,
+  ).toBe(false);
+}
+
 async function checkRow(id: string): Promise<void> {
   await act(async () => {
     // 真实点击：jsdom 会像浏览器一样翻转 checked 并派发 click/change，
@@ -238,6 +255,26 @@ describe('M2 模型管理（设置页逻辑）', () => {
     await clickSave();
     // gpt-c 没勾过：保存只含已保存的 gpt-a + 保留下来的 gpt-b
     expect(state.saved[state.saved.length - 1]!.savedModels.sort()).toEqual(['gpt-a', 'gpt-b']);
+  });
+
+  it('契约 5：重检不撤销用户刚取消的勾选（只更新标记）', async () => {
+    state.view = baseView(['gpt-a']);
+    state.upstream = [{ id: 'gpt-a' }, { id: 'gpt-b' }];
+    await render();
+    await clickFetch();
+    // 用户把已保存的 gpt-a 取消勾选（准备移除，还没保存）
+    await uncheckRow('gpt-a');
+    // 同一上游重检：只更新标记，不允许把用户刚取消的 gpt-a 勾回来
+    await clickFetch();
+    expect(
+      (
+        container.querySelector(
+          '[data-testid="settings-model-check"][data-model-id="gpt-a"]',
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(false);
+    await clickSave();
+    expect(state.saved[state.saved.length - 1]!.savedModels).toEqual([]);
   });
 
   it('契约 1：已保存但上游已没有的照样显示并标「上游已没有」', async () => {

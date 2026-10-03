@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   errMsg,
@@ -385,8 +385,18 @@ export function SettingsPage() {
 
   // M2：勾选清单与下拉框的计算状态
   const savedSet = useMemo(() => new Set(view?.config.savedModels ?? []), [view]);
+  // 用户「取消勾选但还没保存」的意图：重检重建勾选时不能把刚取消的项又勾回来
+  //（契约 5：重检只更新标记，不撤销用户尚未保存的选择）。保存成功后清空。
+  const uncheckedRef = useRef<Set<string>>(new Set());
   const toggleChecked = (id: string): void => {
-    setChecked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setChecked((prev) => {
+      if (prev.includes(id)) {
+        uncheckedRef.current.add(id);
+        return prev.filter((x) => x !== id);
+      }
+      uncheckedRef.current.delete(id);
+      return [...prev, id];
+    });
   };
   // 勾选清单的全部行（未按名字筛选）：检测后 = 上游全部 + 已保存但上游没有的
   //（标「上游已没有」，不自动删）；没检测过时只显示已保存的。
@@ -434,10 +444,10 @@ export function SettingsPage() {
         apiKey: form.apiKey.trim(),
       });
       setModels(result.models);
-      // 勾选重建（不无条件覆盖）：= 最新的已保存清单（检测期间用户可能刚保存过，
+      // 勾选重建（不以无条件覆盖）：= 最新的已保存清单（检测期间用户可能刚保存过，
       // 这里不用闭包里可能过期的 savedSet）+ 用户勾过还没保存、且这次上游仍列出的
-      //（检测与保存可以交叠，不能吞掉用户尚未保存的有效勾选）。
-      // 勾了、还没保存、上游又不在了的模型则退出勾选——保存时还有一道过滤兜底。
+      // ——但用户刚取消勾选的项保持取消（契约 5：重检只更新标记，不撤销选择）。
+      // 勾了、还没保存、上游又不在了的模型退出勾选；保存时还有一道过滤兜底。
       try {
         const fresh = await api.getSettings();
         setView(fresh);
@@ -447,6 +457,7 @@ export function SettingsPage() {
           for (const id of prev) {
             if (!next.has(id) && upstreamIds.has(id)) next.add(id);
           }
+          for (const id of uncheckedRef.current) next.delete(id);
           return [...next];
         });
       } catch {
@@ -480,6 +491,8 @@ export function SettingsPage() {
           ? '模型设置已保存。聊天会在下一次提问时用新模型（正在进行的引擎会话已结束）。'
           : '模型设置已保存',
       );
+      // 保存落盘：勾选与新清单对齐，「取消勾选」的待保存意图随之作废
+      uncheckedRef.current.clear();
       await reload();
     } catch (err) {
       setError(errMsg(err));

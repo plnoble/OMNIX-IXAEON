@@ -406,7 +406,7 @@ export const settingsViewSchema = z.object({
     apiKeyPresent: z.boolean(),
     /** M2：用户勾选保存的模型清单（各处下拉框只从这里选） */
     savedModels: z.array(z.string()).default([]),
-    /** M2：上次保存选择的时间；没保存过为 null */
+    /** M2：上次成功检测上游模型的时间；没检测过为 null */
     modelsCheckedAt: z.string().nullable().default(null),
     captureEnabled: z.boolean(),
     autoAnalyze: z.boolean(),
@@ -821,7 +821,7 @@ export interface IxaIpcApi {
     /** OpenAI 兼容 API 地址；空串表示官方默认 */
     apiBaseUrl?: string;
     apiKey?: string;
-    /** M2：勾选保存的模型清单。传了就以此为准并记检测时间；不传保持原值 */
+    /** M2：勾选保存的模型清单。传了就以此为准；检测时间由检测本身记录 */
     savedModels?: string[];
   }): Promise<{ ok: true }>;
   /** 保存网页搜索设置（B3）。Key 用 safeStorage 加密落盘，留空表示保持不变。 */
