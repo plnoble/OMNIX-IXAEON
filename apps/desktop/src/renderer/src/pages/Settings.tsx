@@ -432,7 +432,12 @@ export function SettingsPage() {
     return opts;
   }, [savedSet, form.chatModelName]);
 
+  // 检测会跨网络、可能很慢：每次发起检测代次 +1，保存（改 Key/地址）也让在途
+  // 检测作废——迟到的旧响应（旧凭据对应的清单）不能盖到新配置上。
+  const fetchSeqRef = useRef(0);
+
   const fetchModels = async () => {
+    const seq = ++fetchSeqRef.current;
     // 输入框有 Key 就用它（仅本次请求）；留空则由主进程用已保存的 Key——
     // 界面读不到已保存的 Key，但主进程能解密，且只在 API 地址没变时才复用。
     setFetchingModels(true);
@@ -443,6 +448,8 @@ export function SettingsPage() {
         apiBaseUrl: form.apiBaseUrl.trim(),
         apiKey: form.apiKey.trim(),
       });
+      // 等待期间发起过更新的检测或保存过新配置：这笔旧响应作废
+      if (seq !== fetchSeqRef.current) return;
       setModels(result.models);
       // 勾选重建（不以无条件覆盖）：= 最新的已保存清单（检测期间用户可能刚保存过，
       // 这里不用闭包里可能过期的 savedSet）+ 用户勾过还没保存、且这次上游仍列出的
@@ -472,6 +479,8 @@ export function SettingsPage() {
   };
 
   const saveModel = async () => {
+    // 配置要变了：在途的检测（旧 Key/旧地址对应的清单）作废
+    ++fetchSeqRef.current;
     setBusy(true);
     setError(null);
     setNotice(null);

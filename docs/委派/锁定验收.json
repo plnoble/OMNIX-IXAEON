@@ -300,8 +300,8 @@
       "title": "M2 模型管理（后端清单语义 + 设置页界面逻辑）",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/m2-saved-models.test.ts": "5087b236dc22e0d9fa325fd2169b43a82c121502a702649f0a39281cad72b1f6",
-        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "ac36ea8d3de8d3e8c47753e1f8ee83890ae10c56964717006d2f3df850d8d7c9"
+        "apps/desktop/test/acceptance/m2-saved-models.test.ts": "b2511726c2a1d6ae1b624316b0a971da2d3098b3874392d5099edd4fff26ad81",
+        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "b14506c5cac61235cb78e8d9ace583e5fd95b4c7609a2098e8f39609be57edde"
       }
     }
   ]

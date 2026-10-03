@@ -32,11 +32,17 @@ const state: {
   upstream: Array<{ id: string }>;
   failWith: string | null;
   saved: Captured[];
+  hangNext: boolean;
+  hangRelease: (() => void) | null;
+  hangRegistrar: ((release: () => void) => void) | null;
 } = {
   view: null as unknown as SettingsView,
   upstream: [],
   failWith: null,
   saved: [],
+  hangNext: false,
+  hangRelease: null,
+  hangRegistrar: null,
 };
 
 function baseView(savedModels: string[]): SettingsView {
@@ -72,6 +78,12 @@ vi.mock('../../src/renderer/src/api.js', () => {
     listAuditEvents: async () => [],
     listAvailableModels: async () => {
       if (state.failWith !== null) throw new Error(state.failWith);
+      if (state.hangNext) {
+        state.hangNext = false;
+        await new Promise<void>((resolve) => {
+          state.hangRegistrar?.(resolve);
+        });
+      }
       return { models: state.upstream };
     },
     saveModelSettings: async (input: {
@@ -128,6 +140,9 @@ beforeEach(() => {
   state.upstream = [];
   state.failWith = null;
   state.saved = [];
+  state.hangNext = false;
+  state.hangRelease = null;
+  state.hangRegistrar = null;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -255,6 +270,32 @@ describe('M2 模型管理（设置页逻辑）', () => {
     await clickSave();
     // gpt-c 没勾过：保存只含已保存的 gpt-a + 保留下来的 gpt-b
     expect(state.saved[state.saved.length - 1]!.savedModels.sort()).toEqual(['gpt-a', 'gpt-b']);
+  });
+
+  it('竞态：检测期间保存了新配置（改 Key），迟到的旧清单不覆盖新界面', async () => {
+    state.view = baseView(['gpt-a']);
+    // 旧凭据下的上游多一个 stale-x：invalidation 失效的话它就会漏到新界面上
+    state.upstream = [{ id: 'gpt-a' }, { id: 'stale-x' }];
+    await render();
+    state.hangNext = true;
+    let released: (() => void) | null = null;
+    state.hangRegistrar = (r) => {
+      released = r;
+    };
+    // 第一笔检测发出去并挂起
+    await clickFetch();
+    // 在途期间用户保存（改 Key）——保存使在途检测作废
+    await clickSave();
+    expect(state.saved).toHaveLength(1);
+    // 旧检测此刻才回来，带着旧凭据下的清单——必须被丢弃；界面只剩已保存行
+    await act(async () => {
+      released?.();
+    });
+    await act(async () => {});
+    expect(
+      container.querySelector('[data-testid="settings-model-check"][data-model-id="stale-x"]'),
+    ).toBeNull();
+    expect(container.querySelectorAll('[data-testid="settings-model-check"]').length).toBe(1);
   });
 
   it('契约 5：重检不撤销用户刚取消的勾选（只更新标记）', async () => {
