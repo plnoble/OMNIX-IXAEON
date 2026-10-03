@@ -20,7 +20,8 @@ export const FORBIDDEN_DIRS = new Set([
   'coverage',
 ]);
 
-const FORBIDDEN_NAME =
+/** 密钥类文件名：复制副本时跳过；D7 的网关执行器也用它（万一副本里有，内容不发给模型）。 */
+export const FORBIDDEN_NAME =
   /^(\.env.*|.*\.pem|.*\.key|.*\.p12|.*\.pfx|id_rsa.*|id_ed25519.*|.*\.cookie)$/i;
 
 export interface WorkspaceSnapshot {

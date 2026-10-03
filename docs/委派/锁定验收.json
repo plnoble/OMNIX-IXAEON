@@ -315,9 +315,9 @@
     {
       "id": "D7",
       "title": "网关执行器本体：只发批准范围内的文件、只改批准范围内的文件、不盲改、不跑命令",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "packages/core/test/acceptance/d7-model-executor.test.ts": "e1d7ec1a78df537104f69f0c4ef77ebad681f30fb05c80ff170d1f1b32aa18c0"
+        "packages/core/test/acceptance/d7-model-executor.test.ts": "8834f86ee24a2d278f5330a10aa34d849a83d05ca852665743b4457994bd521c"
       }
     },
     {

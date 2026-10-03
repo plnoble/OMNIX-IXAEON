@@ -22,6 +22,14 @@
  * - 「不起子进程」对一个临时对象 `{ spawn }` 下 spy，执行器引入的 child_process 不经过它，永远通过；
  * - 「只来自副本」把密钥文件放在副本外面再断言提示里没有，只读副本的实现本来就碰不到。
  *   真正会漏的是副本里一个指到外面的链接，这里测的是它。
+ *
+ * 整合方复审实现时又补了十条（规格末尾「整合方复审实现时补」条件 15–22）。头一版锁定的测试
+ * 没盯住这些，执行方的实现在这十条上都是红的：
+ * - 条件 15、16（不许盲改的三个漏洞）：总量放不下而没发的文件、换个大小写的写法（Windows）、
+ *   副本里已有的密钥类文件；
+ * - 条件 17：路径中间是个文件；条件 18：截断要标在文件旁边，比总量上限还大的文件也发开头；
+ * - 条件 19：README 的各种写法；条件 20：目标里点名认中文路径和紧跟标点的路径；
+ * - 条件 21：取消了马上结束；条件 22：模型说没做成时不再去核它给的改动。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -194,12 +202,47 @@ describe('D7 条件 6、10：发给模型的是什么', () => {
     expect(sent).toContain('NOTE_BODY');
   });
 
-  it('单个文件超过 64 KB：只发开头', async () => {
+  it('根目录下 README 的各种写法都发；子目录里的 README 不算', async () => {
+    writeFileSync(join(workspace, 'README'), 'README_PLAIN_BODY\n');
+    writeFileSync(join(workspace, 'readme.txt'), 'README_TXT_BODY\n');
+    writeFileSync(join(workspace, 'docs', 'README.md'), 'DOCS_README_BODY\n');
+    const sent = await sentFor(task());
+    expect(sent).toContain('README_BODY');
+    expect(sent).toContain('README_PLAIN_BODY');
+    expect(sent).toContain('README_TXT_BODY');
+    expect(sent, '子目录里的 README 既不在范围里也没被点名').not.toContain('DOCS_README_BODY');
+  });
+
+  it('目标里点名：中文路径、路径后面紧跟标点，都算点到了', async () => {
+    mkdirSync(join(workspace, '文档'));
+    writeFileSync(join(workspace, '文档', '说明.md'), 'CJK_PATH_BODY\n');
+    const sent = await sentFor(
+      task({ goal: '照文档/说明.md的格式，参考 docs/guide.md。在 src/note.txt 里加一行' }),
+    );
+    expect(sent).toContain('CJK_PATH_BODY');
+    expect(sent).toContain('GUIDE_BODY');
+    expect(sent).not.toContain('OTHER_BODY');
+  });
+
+  it('单个文件超过 64 KB：只发开头，并在这个文件旁边标明截断；发全了的标明完整', async () => {
     writeFileSync(join(workspace, 'src', 'big.md'), `BIG_HEAD_${'A'.repeat(70_000)}_BIG_TAIL`);
-    const sent = await sentFor(task({ scope_json: JSON.stringify(['src/big.md']) }));
+    const sent = await sentFor(task({ scope_json: JSON.stringify(['src']) }));
     expect(sent).toContain('BIG_HEAD_');
     expect(sent, '超过 64 KB 的部分不发').not.toContain('_BIG_TAIL');
     expect(sent.match(/A{1000,}/)![0].length).toBeLessThanOrEqual(65_536);
+    // 模型要能分清哪些文件给全了（只有给全了的才许改写）
+    expect(sent).toMatch(/big\.md[^\n]*截断/);
+    expect(sent).not.toMatch(/note\.txt[^\n]*截断/);
+    expect(sent).toMatch(/note\.txt[^\n]*完整/);
+    expect(sent).not.toMatch(/big\.md[^\n]*完整/);
+  });
+
+  it('比总量上限还大的文件：也只是截断，开头照发', async () => {
+    writeFileSync(join(workspace, 'src', 'huge.md'), `HUGE_HEAD_${'B'.repeat(150_000)}_HUGE_TAIL`);
+    const sent = await sentFor(task({ scope_json: JSON.stringify(['src/huge.md']) }));
+    expect(sent).toContain('HUGE_HEAD_');
+    expect(sent).not.toContain('_HUGE_TAIL');
+    expect(sent.match(/B{1000,}/)![0].length).toBeLessThanOrEqual(65_536);
   });
 
   it('文件内容总量不超过 12 万字符：放不下的不发', async () => {
@@ -294,6 +337,21 @@ describe('D7 条件 3：合格的改动写进副本，报告如实', () => {
     expect(report.changedPaths).toEqual([]);
     expect(snapshot()).toEqual(before);
   });
+
+  it('模型说没做成、给的改动还不合格：照它说的报告，不另外报路径错', async () => {
+    const provider = new FakeProvider('d7');
+    provider.enqueueStructured({
+      changes: [{ path: 'README.md', action: 'write', content: '范围外' }],
+      summary: '要改 README 才行，范围里做不到',
+      claimedSuccess: false,
+    });
+    const before = snapshot();
+    const report = await new ModelCodingExecutor(provider, 'm').run(task(), workspace, signal());
+    expect(report.claimedSuccess).toBe(false);
+    expect(report.summary).toBe('要改 README 才行，范围里做不到');
+    expect(report.changedPaths).toEqual([]);
+    expect(snapshot()).toEqual(before);
+  });
 });
 
 describe('D7 条件 4、12：不合格的改动——一处不合格，整批不写', () => {
@@ -324,6 +382,12 @@ describe('D7 条件 4、12：不合格的改动——一处不合格，整批不
       /escape/,
     ],
     ['写到一个目录上', ALL, { path: 'docs', action: 'write', content: 'x' }, /docs/],
+    [
+      '路径中间是个文件',
+      ALL,
+      { path: 'src/other.txt/child.txt', action: 'write', content: 'x' },
+      /other\.txt/,
+    ],
     ['删一个不存在的文件', ALL, { path: 'src/ghost.txt', action: 'delete' }, /ghost\.txt/],
     ['删一个目录', ALL, { path: 'docs', action: 'delete' }, /docs/],
   ];
@@ -385,6 +449,40 @@ describe('D7 条件 11：不许盲改', () => {
     await expectRejected(provider, task({ scope_json: JSON.stringify(['src']) }), /image\.bin/);
     expect(readFileSync(join(workspace, 'src', 'image.bin')).equals(bytes)).toBe(true);
   });
+
+  it('要覆盖总量放不下、内容没发出去的文件：整单失败、不写', async () => {
+    // 四个文件加起来二十万字符，最多放得下两个；模型把四个都重写了
+    const names = ['a', 'b', 'c', 'd'].map((n) => `src/fill-${n}.md`);
+    for (const rel of names) writeFileSync(join(workspace, rel), `FILL_${'x'.repeat(50_000)}`);
+    const provider = new FakeProvider('d7');
+    provider.enqueueStructured(
+      ok(names.map((path) => ({ path, action: 'write', content: '没看过就重写' }))),
+    );
+    await expectRejected(provider, task({ scope_json: JSON.stringify(['src']) }), /fill-[a-d]\.md/);
+  });
+
+  it('副本里已有的密钥类文件（内容从不发）：不许覆盖', async () => {
+    writeFileSync(join(workspace, '.env'), 'ENV_SECRET=inside-copy\n');
+    const provider = new FakeProvider('d7');
+    provider.enqueueStructured(ok([{ path: '.env', action: 'write', content: 'OVERWRITTEN=1\n' }]));
+    await expectRejected(provider, task({ scope_json: JSON.stringify(['.']) }), /\.env/);
+    expect(readFileSync(join(workspace, '.env'), 'utf8')).toBe('ENV_SECRET=inside-copy\n');
+  });
+
+  // Windows 的文件系统不分大小写：换个大小写写同一个文件，不能绕过上面的检查
+  it.runIf(process.platform === 'win32')(
+    '换个大小写的写法去覆盖只发了开头的文件：一样不许',
+    async () => {
+      const big = `BIG_HEAD_${'A'.repeat(70_000)}_BIG_TAIL`;
+      writeFileSync(join(workspace, 'src', 'big.md'), big);
+      const provider = new FakeProvider('d7');
+      provider.enqueueStructured(
+        ok([{ path: 'src/BIG.md', action: 'write', content: '换个大小写重写' }]),
+      );
+      await expectRejected(provider, task({ scope_json: JSON.stringify(['src']) }), /BIG\.md/);
+      expect(readFileSync(join(workspace, 'src', 'big.md'), 'utf8')).toBe(big);
+    },
+  );
 });
 
 describe('D7 条件 5：模型回得不对或请求失败——整单失败、不写', () => {
@@ -443,16 +541,19 @@ describe('D7 条件 13：超时与取消——晚到的响应不写', () => {
     expect(readFileSync(join(workspace, 'src', 'note.txt'), 'utf8')).toContain('NOTE_BODY');
   });
 
-  it('等模型的时候取消了：不写（响应回来之后也不写）', async () => {
+  it('等模型的时候取消了：马上结束，不写（响应回来之后也不写）', async () => {
     const provider = new FakeProvider('d7');
     provider.chatDelayMs = 300;
     provider.enqueueStructured(lateWrite);
     const ac = new AbortController();
     const before = snapshot();
+    const started = Date.now();
     const run = new ModelCodingExecutor(provider, 'm').run(task(), workspace, ac.signal);
     setTimeout(() => ac.abort(), 50);
     // 取消后要么抛错、要么如实报告没做成；无论哪种，都不许写
     const report = await run.catch(() => null);
+    // 不等模型回来：等着的话，编排层「同时只跑一个」的位置会一直被这个已取消的任务占着
+    expect(Date.now() - started, '取消了就结束，不等模型回来').toBeLessThan(250);
     if (report) expect(report.claimedSuccess).toBe(false);
     await settle();
     expect(snapshot()).toEqual(before);
