@@ -388,10 +388,9 @@ export function SettingsPage() {
   const toggleChecked = (id: string): void => {
     setChecked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
-  // 勾选清单显示哪些行：检测后 = 上游全部（已保存打勾语义由 checked 状态承担，
-  // 这里只决定标记）+ 已保存但上游没有的（标「上游已没有」，不自动删）；
-  // 没检测过时只显示已保存的。
-  const listRows = useMemo(() => {
+  // 勾选清单的全部行（未按名字筛选）：检测后 = 上游全部 + 已保存但上游没有的
+  //（标「上游已没有」，不自动删）；没检测过时只显示已保存的。
+  const allRows = useMemo(() => {
     const rows: Array<{ id: string; isNew: boolean; missing: boolean }> = [];
     if (models !== null) {
       const seen = new Set<string>();
@@ -405,9 +404,12 @@ export function SettingsPage() {
     } else {
       for (const id of savedSet) rows.push({ id, isNew: false, missing: false });
     }
+    return rows;
+  }, [models, savedSet]);
+  const listRows = useMemo(() => {
     const q = modelFilter.trim().toLowerCase();
-    return q.length > 0 ? rows.filter((r) => r.id.toLowerCase().includes(q)) : rows;
-  }, [models, savedSet, modelFilter]);
+    return q.length > 0 ? allRows.filter((r) => r.id.toLowerCase().includes(q)) : allRows;
+  }, [allRows, modelFilter]);
   // 下拉框：只从已保存清单选；当前在用的不在清单里就补上并标注（契约 4）
   const modelOptions = useMemo(() => {
     const opts = [...savedSet];
@@ -432,6 +434,14 @@ export function SettingsPage() {
         apiKey: form.apiKey.trim(),
       });
       setModels(result.models);
+      // 重检后勾选出界的清理：刚勾过、还没保存、这次上游又不在了的模型，
+      // 永远不该被写进清单——保存时还会再过滤一道，这里先让界面一致。
+      setChecked((prev) => {
+        const nextRows = new Set<string>();
+        for (const m of result.models) nextRows.add(m.id);
+        for (const id of savedSet) nextRows.add(id);
+        return prev.filter((id) => nextRows.has(id));
+      });
       setNotice(`检测到 ${result.models.length} 个模型，勾选要保存的，再点「保存选择」`);
     } catch (err) {
       setError(errMsg(err));
@@ -445,12 +455,15 @@ export function SettingsPage() {
     setError(null);
     setNotice(null);
     try {
+      // 保存只认清单里勾选的项：勾了但这次清单里没有的（上游中途消失）不进清单。
+      const rowIds = new Set(allRows.map((r) => r.id));
+      const submitted = checked.filter((id) => rowIds.has(id));
       await api.saveModelSettings({
-        modelName: form.modelName.trim() || 'gpt-5.2',
+        modelName: form.modelName.trim(),
         chatModelName: form.chatModelName.trim(),
         apiBaseUrl: form.apiBaseUrl,
         apiKey: form.apiKey.trim() || undefined,
-        savedModels: [...checked],
+        savedModels: submitted,
       });
       setNotice(
         view?.hermesFound === true
@@ -681,7 +694,7 @@ export function SettingsPage() {
         {/* M2：勾选清单——已保存的默认打勾；新出现的标「新」；已保存但上游没有的
             标「上游已没有」，不自动删。 */}
         <Field label="模型清单" hint="勾选要保存的模型；保存只认勾上的，不提供手输">
-          {savedSet.size > 0 && (
+          {(models !== null || savedSet.size > 0) && (
             <input
               value={modelFilter}
               onChange={(e) => setModelFilter(e.target.value)}
@@ -721,6 +734,9 @@ export function SettingsPage() {
             data-testid="settings-model-select"
           >
             {modelOptions.length === 0 && <option value="">（还没有保存过模型）</option>}
+            {modelOptions.length > 0 && form.modelName === '' && (
+              <option value="">（未选择——先检测并保存清单）</option>
+            )}
             {modelOptions.map((id) => (
               <option key={id} value={id}>
                 {savedSet.has(id) ? id : `${id}（不在已保存清单）`}

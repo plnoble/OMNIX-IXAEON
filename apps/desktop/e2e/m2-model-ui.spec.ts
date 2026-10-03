@@ -57,6 +57,7 @@ async function setupOnce(page: Page): Promise<void> {
 
 let server: Server;
 let upstream: string[];
+let failModels = false;
 const auths: string[] = [];
 
 test.describe('M2 模型管理（界面）', () => {
@@ -65,6 +66,11 @@ test.describe('M2 模型管理（界面）', () => {
     server = createServer((req, res) => {
       if (req.url?.includes('/models')) {
         auths.push(String(req.headers.authorization ?? ''));
+        if (failModels) {
+          res.writeHead(502, { 'content-type': 'text/plain' });
+          res.end('upstream exploded for this test');
+          return;
+        }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ data: upstream.map((id) => ({ id })) }));
         return;
@@ -109,7 +115,7 @@ test.describe('M2 模型管理（界面）', () => {
     // 契约 3 界面：没有手输模型名的入口（模型名称是下拉框）
     await expect(page.getByTestId('settings-model-select')).toBeVisible();
     await page.getByTestId('settings-model-save').click();
-    await expect(page.getByTestId('settings-model-select')).toBeVisible();
+    await expect(page.locator('.ok-banner')).toContainText('模型设置已保存', { timeout: 15_000 });
 
     // 契约 4：当前在用的模型（wizard-model）不在已保存清单里——下拉照样显示并标注
     const modelSelect = page.getByTestId('settings-model-select');
@@ -125,6 +131,7 @@ test.describe('M2 模型管理（界面）', () => {
     await modelSelect.selectOption('gpt-a');
     await chatSelect.selectOption('gemini-b');
     await page.getByTestId('settings-model-save').click();
+    await expect(page.locator('.ok-banner')).toContainText('模型设置已保存', { timeout: 15_000 });
     await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
     await expect(page.getByTestId('settings-chat-model')).toHaveValue('gemini-b');
 
@@ -154,6 +161,31 @@ test.describe('M2 模型管理（界面）', () => {
     // 契约 5：重检不改在用的模型（还没保存，就在下拉里）
     await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
     await expect(page.getByTestId('settings-chat-model')).toHaveValue('gemini-b');
+    // 契约 3：下拉框里没有未保存的模型（claude-c 上游有但没勾选保存）
+    await expect(
+      page.getByTestId('settings-model-select').locator('option[value="claude-c"]'),
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId('settings-chat-model').locator('option[value="claude-c"]'),
+    ).toHaveCount(0);
+
+    // 契约 7：上游故障 → 检测失败如实显示错误，清单/勾选/在用的模型都不变
+    failModels = true;
+    await page.getByTestId('settings-fetch-models').click();
+    await expect(page.getByTestId('error-banner')).toContainText('获取模型列表失败', {
+      timeout: 20_000,
+    });
+    await expect(rows2).toHaveCount(4); // 清单还是上一轮检测的四项
+    await expect(
+      page.locator('[data-testid="settings-model-check"][data-model-id="gpt-a"]'),
+    ).toBeChecked();
+    await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
+    await expect(page.getByTestId('settings-chat-model')).toHaveValue('gemini-b');
+    failModels = false;
+    // 错误关掉后再检测一次复原（进入下面的保存流程）
+    await page.getByTestId('error-banner').getByRole('button').click();
+    await page.getByTestId('settings-fetch-models').click();
+    await expect(page.getByTestId('settings-model-checklist')).toBeVisible({ timeout: 20_000 });
 
     // 契约 2：筛选框按名字过滤
     await page.getByTestId('settings-model-filter').fill('gpt');
@@ -165,6 +197,7 @@ test.describe('M2 模型管理（界面）', () => {
     // 保存新的勾选（gpt-a、gemini-b、gpt-new）后重启
     await page.locator('[data-testid="settings-model-check"][data-model-id="gpt-new"]').check();
     await page.getByTestId('settings-model-save').click();
+    await expect(page.locator('.ok-banner')).toContainText('模型设置已保存', { timeout: 15_000 });
     await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
 
     await app.close();

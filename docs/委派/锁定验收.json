@@ -297,10 +297,11 @@
     },
     {
       "id": "M2",
-      "title": "M2 模型管理（后端：清单保存/检测只读/失败不变）",
+      "title": "M2 模型管理（后端清单语义 + 设置页界面逻辑）",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/m2-saved-models.test.ts": "20d978b87d091efe85f8a488196aaaffec65678fb26da25c9cdbe47cc05a782a"
+        "apps/desktop/test/acceptance/m2-saved-models.test.ts": "5fde1c97db4a065554e9ac7e96c69e61cd7e2e13908264d9de4e8c89171c93c5",
+        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "4b3d3f3545d3d44160ea93d95d719994efcd5f3380300b38377df2d8610a6d43"
       }
     }
   ]
