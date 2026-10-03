@@ -227,6 +227,9 @@ describe('M2 已保存的模型清单（后端）', () => {
     await expect(
       rt.listAvailableModels({ apiBaseUrl: 'https://api.example.com/v1', apiKey: 'sk-typed' }),
     ).rejects.toThrow(/获取模型列表失败/);
+    await expect(
+      rt.listAvailableModels({ apiBaseUrl: 'https://api.example.com/v1', apiKey: 'sk-typed' }),
+    ).rejects.toThrow(/upstream exploded/);
     expect(JSON.stringify(read())).toBe(before);
   });
 });

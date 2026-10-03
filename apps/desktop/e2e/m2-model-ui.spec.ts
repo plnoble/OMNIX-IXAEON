@@ -173,9 +173,13 @@ test.describe('M2 模型管理（界面）', () => {
     // 契约 7：上游故障 → 检测失败如实显示错误，清单/勾选/在用的模型都不变
     failModels = true;
     await page.getByTestId('settings-fetch-models').click();
-    await expect(page.getByTestId('error-banner')).toContainText('获取模型列表失败', {
-      timeout: 20_000,
-    });
+    // 契约 7：如实显示上游错误——假上游的报错原文要原样可见，不能只给一个笼统前缀
+    await expect(page.getByTestId('error-banner')).toContainText(
+      'upstream exploded for this test',
+      {
+        timeout: 20_000,
+      },
+    );
     await expect(rows2).toHaveCount(4); // 清单还是上一轮检测的四项
     await expect(
       page.locator('[data-testid="settings-model-check"][data-model-id="gpt-a"]'),
