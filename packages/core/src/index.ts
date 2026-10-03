@@ -184,6 +184,7 @@ export {
   withAskRun,
 } from './execution/taskStore.js';
 export { copyProjectWorkspace, type WorkspaceSnapshot } from './execution/workspaceCopy.js';
+export { ModelCodingExecutor } from './execution/modelExecutor.js';
 export {
   CodingOrchestrator,
   FakeCodingExecutor,
