@@ -823,7 +823,11 @@ export interface IxaIpcApi {
     apiKey?: string;
     /** M2：勾选保存的模型清单。传了就以此为准；检测时间由检测本身记录 */
     savedModels?: string[];
-  }): Promise<{ ok: true }>;
+    /**
+     * M3：地址来源（协议+主机+端口）变了、又没填新 Key 时，已保存的 Key 被清掉
+     * → keyCleared=true（本来就没有 Key 的不算）。
+     */
+  }): Promise<{ ok: true; keyCleared: boolean }>;
   /** 保存网页搜索设置（B3）。Key 用 safeStorage 加密落盘，留空表示保持不变。 */
   /**
    * E6：个人记忆给 IXAEON 自己的聊天用（默认关）。personalItems = 没归到项目下、
