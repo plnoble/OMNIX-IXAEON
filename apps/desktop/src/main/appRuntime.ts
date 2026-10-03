@@ -1414,7 +1414,12 @@ export class AppRuntime {
     const originChanged =
       input.apiBaseUrl !== undefined &&
       normalizeOrigin(input.apiBaseUrl) !== normalizeOrigin(this.config.model.apiBaseUrl);
-    const keyCleared = originChanged && providedKey === null && this.config.model.apiKeyPresent;
+    // 整合方复审补：标记是 false 而密文还留着的旧配置也要清，密文不留在新地址旁边
+    const saved = this.config.model;
+    const keyCleared =
+      originChanged &&
+      providedKey === null &&
+      (saved.apiKeyPresent || saved.apiKeyEncrypted !== null);
     this.updateConfig((c) => ({
       ...c,
       model: {
@@ -2648,8 +2653,8 @@ export function normalizeApiBase(url: string | null | undefined): string {
  * 主机名不分大小写、去掉结尾斜杠、默认端口（http 80 / https 443）写不写都算
  * 同一个；空地址表示官方默认。解析不了的地址就按字面比（字面不同就算换了来源）。
  */
-function normalizeOrigin(url: string): string {
-  const trimmed = url.trim();
+function normalizeOrigin(url: string | null | undefined): string {
+  const trimmed = (url ?? '').trim();
   const candidate = trimmed.length === 0 ? 'https://api.openai.com/v1' : trimmed;
   try {
     const u = new URL(candidate);

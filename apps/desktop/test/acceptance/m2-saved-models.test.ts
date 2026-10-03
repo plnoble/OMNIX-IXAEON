@@ -233,17 +233,17 @@ describe('M2 已保存的模型清单（后端）', () => {
     expect(JSON.stringify(read())).toBe(before);
   });
 
-  // 已知缺口（B 档，等整合方）：保存新地址且 Key 留空，旧 Key 被保留；随后
-  // 空 Key 检测按「地址与已保存一致」复用旧 Key，会把旧 Key 发往新地址。
-  // 期望行为（此任务不做、故 skip 留作 B 档验收起点）：检测不发旧 Key 到新地址。
-  it.skip('B 档待办：保存新地址且 Key 留空后，空 Key 检测不得把旧 Key 发往新地址', async () => {
+  // M2 时留下的缺口：保存新地址且 Key 留空，旧 Key 被保留；随后空 Key 检测按
+  // 「地址与已保存一致」复用旧 Key，会把旧 Key 发往新地址。M3 修掉了（换来源、Key 留空
+  // 就清掉旧 Key），整合方 2026-10-03 并入 M3 时去掉 skip。细的用例在 m3-key-scope.test.ts。
+  it('保存新地址且 Key 留空后，空 Key 检测不得把旧 Key 发往新地址（M3 修）', async () => {
     const { rt } = runtimeWith({
       modelName: 'a',
       apiKeyPresent: true,
       apiKeyEncrypted: Buffer.from('enc:sk-old').toString('base64'),
       apiBaseUrl: 'https://old.example.com/v1',
     });
-    // 保存到新地址，Key 留空（当前实现保留旧 Key）
+    // 保存到新地址，Key 留空（M3 起：旧 Key 被清掉）
     await rt.saveModelSettings({ modelName: 'a', apiBaseUrl: 'https://new.example.com/v1' });
     const calls: string[] = [];
     vi.stubGlobal('fetch', async (url: string) => {
@@ -253,7 +253,7 @@ describe('M2 已保存的模型清单（后端）', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    // 空 Key 检测：期望旧 Key 不被发送到新地址（当前行为相反，等 B 档修复）
+    // 空 Key 检测：旧 Key 不被发送到新地址
     await rt.listAvailableModels({ apiBaseUrl: 'https://new.example.com/v1', apiKey: '' }).then(
       () => null,
       () => null,

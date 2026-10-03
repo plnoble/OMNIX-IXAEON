@@ -308,7 +308,7 @@
       "title": "M2 模型管理（后端清单语义 + 设置页界面逻辑）",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/m2-saved-models.test.ts": "b2511726c2a1d6ae1b624316b0a971da2d3098b3874392d5099edd4fff26ad81",
+        "apps/desktop/test/acceptance/m2-saved-models.test.ts": "07c0d6e309660c3d810664d8b5daa76960de188cee0ae0f3c5be0cdb4bfa13d1",
         "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "b14506c5cac61235cb78e8d9ace583e5fd95b4c7609a2098e8f39609be57edde"
       }
     },
@@ -332,7 +332,7 @@
     {
       "id": "M3",
       "title": "换了 API 地址，旧 Key 不带到新地址",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/m3-key-scope.test.ts": "391a928984625e884c0dc467fc1b624f7db0b69d12662b90f85a76295a2072d2",
         "apps/desktop/test/acceptance/m3-settings-ui.test.ts": "8dd1776f6ba16c7f19b943062109b405b03da68bbb67ebebfacaf3264d6e69f1"
