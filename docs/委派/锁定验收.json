@@ -311,6 +311,32 @@
         "apps/desktop/test/acceptance/m2-saved-models.test.ts": "b2511726c2a1d6ae1b624316b0a971da2d3098b3874392d5099edd4fff26ad81",
         "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "b14506c5cac61235cb78e8d9ace583e5fd95b4c7609a2098e8f39609be57edde"
       }
+    },
+    {
+      "id": "D7",
+      "title": "网关执行器本体：只发批准范围内的文件、只改批准范围内的文件、不盲改、不跑命令",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/d7-model-executor.test.ts": "e1d7ec1a78df537104f69f0c4ef77ebad681f30fb05c80ff170d1f1b32aa18c0"
+      }
+    },
+    {
+      "id": "D7b",
+      "title": "按设置选执行器：选了我的模型就交给它，缺东西不派发并回报，设置页一栏",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "e7d1d7c4b26f0df610a26be10c4876a483f8ff2a1d20ab3c8813be0de8794ecf",
+        "apps/desktop/test/acceptance/d7b-pages.test.ts": "244b412cc4b653a36750fb0e2214d34f247dbb160b01821da6fb4ece89b08b87"
+      }
+    },
+    {
+      "id": "M3",
+      "title": "换了 API 地址，旧 Key 不带到新地址",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/m3-key-scope.test.ts": "391a928984625e884c0dc467fc1b624f7db0b69d12662b90f85a76295a2072d2",
+        "apps/desktop/test/acceptance/m3-settings-ui.test.ts": "8dd1776f6ba16c7f19b943062109b405b03da68bbb67ebebfacaf3264d6e69f1"
+      }
     }
   ]
 }
