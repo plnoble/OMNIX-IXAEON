@@ -298,7 +298,7 @@
     {
       "id": "A5",
       "title": "A5 模型出错的轮记成失败：不当回答显示、不进记忆、不进下一轮上下文",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/a5-model-failure.test.ts": "6574dc5ffeee3f27407cee7888d7c4197efd837fea4ba34c7a6ba09db9bb2df6"
       }

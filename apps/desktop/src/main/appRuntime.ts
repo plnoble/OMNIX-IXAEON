@@ -34,6 +34,7 @@ import {
   SearchService,
   SourceStore,
   TodoStore,
+  explainModelFailure,
   extractSuggestedTodos,
   parseUserTodo,
   Vault,
@@ -1287,10 +1288,14 @@ export class AppRuntime {
       // D3/D4：回答收尾到占位消息上。取消的回合按 cancelled 记，不冒充完成——
       // 下一轮的 priorTurns 只取 complete，半截回答不会变成背景。
       const cancelled = result.notice?.includes('用户取消') === true;
+      // 模型出错时给用户看的是人话说明（超时该换模型、429 是后台分析占着账号……），
+      // 原始错误附在说明后面——和 A5 之前回答里显示的那句是同一份说明。
       const failedDetail =
         failedKind === 'model_error'
-          ? ((result.steps ?? []).find((s) => s.tool === 'model' && s.ok === false)?.detail ??
-            '模型调用失败')
+          ? explainModelFailure(
+              (result.steps ?? []).find((s) => s.tool === 'model' && s.ok === false)?.detail ??
+                '模型调用失败',
+            )
           : failedKind === 'round_limit'
             ? '已达轮次上限，未形成最终回答。'
             : null;
