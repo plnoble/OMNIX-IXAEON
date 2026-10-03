@@ -164,12 +164,22 @@ async function clickSave(): Promise<void> {
 
 async function checkRow(id: string): Promise<void> {
   await act(async () => {
-    const box = container.querySelector(
-      `[data-testid="settings-model-check"][data-model-id="${id}"]`,
-    ) as HTMLInputElement;
-    box.checked = true;
-    box.dispatchEvent(new Event('change', { bubbles: true }));
+    // 真实点击：jsdom 会像浏览器一样翻转 checked 并派发 click/change，
+    // React 的受控 onChange 才接得到；直接写 checked 再派 change 是空测。
+    (
+      container.querySelector(
+        `[data-testid="settings-model-check"][data-model-id="${id}"]`,
+      ) as HTMLInputElement
+    ).click();
   });
+  // 勾选必须真的生效才继续（防「点了没反应」的空测）
+  expect(
+    (
+      container.querySelector(
+        `[data-testid="settings-model-check"][data-model-id="${id}"]`,
+      ) as HTMLInputElement
+    ).checked,
+  ).toBe(true);
 }
 
 function selectValues(testId: string): string[] {
@@ -198,7 +208,7 @@ describe('M2 模型管理（设置页逻辑）', () => {
     state.upstream = [{ id: 'gpt-a' }, { id: 'gpt-b' }];
     await render();
     await clickFetch();
-    await checkRow('gpt-b'); // 勾上还没保存的
+    await checkRow('gpt-b'); // 勾上还没保存的（勾选确实生效：checkRow 断言）
     // 上游变了：gpt-b 消失
     state.upstream = [{ id: 'gpt-a' }, { id: 'gpt-c' }];
     await clickFetch();
@@ -207,6 +217,25 @@ describe('M2 模型管理（设置页逻辑）', () => {
     ).toBeNull();
     await clickSave();
     expect(state.saved[state.saved.length - 1]!.savedModels).toEqual(['gpt-a']);
+  });
+
+  it('契约 1：已保存但上游已没有的照样显示并标「上游已没有」', async () => {
+    state.view = baseView(['gpt-a', 'gemini-b']);
+    state.upstream = [{ id: 'gpt-a' }];
+    await render();
+    await clickFetch();
+    // gemini-b 上游没了：仍显示、仍默认勾上、带「上游已没有」标记
+    expect(
+      container.querySelector('[data-testid="settings-model-check"][data-model-id="gemini-b"]'),
+    ).not.toBeNull();
+    expect(text()).toContain('上游已没有');
+    expect(
+      (
+        container.querySelector(
+          '[data-testid="settings-model-check"][data-model-id="gemini-b"]',
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
   });
 
   it('契约 3/4：下拉只从已保存清单选；在用的不在清单照样显示并标注', async () => {

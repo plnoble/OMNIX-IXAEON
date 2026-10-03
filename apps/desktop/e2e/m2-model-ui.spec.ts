@@ -135,11 +135,12 @@ test.describe('M2 模型管理（界面）', () => {
     await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
     await expect(page.getByTestId('settings-chat-model')).toHaveValue('gemini-b');
 
-    // 契约 6：Key 留空再检测，用已保存的 Key（服务器这一笔 Auth 还是 TEST_KEY）
+    // 契约 6：Key 留空再检测，用已保存的 Key（服务器这一笔 Auth 还是 TEST_KEY）。
+    // 等这次检测真的把请求发出去再比对，不跟 UI 渲染抢。
     const beforeAuths = auths.length;
     await page.getByTestId('settings-api-key').fill('');
     await page.getByTestId('settings-fetch-models').click();
-    await expect(page.getByTestId('settings-model-checklist')).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => auths.length, { timeout: 20_000 }).toBe(beforeAuths + 1);
     expect(auths.slice(beforeAuths)).toEqual([`Bearer ${TEST_KEY}`]);
 
     // 契约 1/2/5：换假上游（少 gemini-b、多 gpt-new）再检测——

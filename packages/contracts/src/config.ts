@@ -29,7 +29,7 @@ export const appConfigSchema = z.object({
      * 的编码执行器模型）都只从这里选；不是「模型池」，没有自动挑模型。
      */
     savedModels: z.array(z.string()).default([]),
-    /** M2：上次「保存选择」的时间（检测本身不记时间）。 */
+    /** M2：上次成功检测上游模型的时间；保存选择不碰它。 */
     modelsCheckedAt: z.string().nullable().default(null),
   }),
   capture: z.object({

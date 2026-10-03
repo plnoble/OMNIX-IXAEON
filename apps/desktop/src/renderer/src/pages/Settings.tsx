@@ -434,14 +434,17 @@ export function SettingsPage() {
         apiKey: form.apiKey.trim(),
       });
       setModels(result.models);
-      // 重检后勾选出界的清理：刚勾过、还没保存、这次上游又不在了的模型，
-      // 永远不该被写进清单——保存时还会再过滤一道，这里先让界面一致。
-      setChecked((prev) => {
-        const nextRows = new Set<string>();
-        for (const m of result.models) nextRows.add(m.id);
-        for (const id of savedSet) nextRows.add(id);
-        return prev.filter((id) => nextRows.has(id));
-      });
+      // 勾选出界的清理：刚勾过、还没保存、这次上游又不在了的模型，永远不该被
+      // 写进清单（保存时还会再过滤一道）。但清理要按**最新**的已保存清单来——
+      // 检测期间用户可能刚保存过：这里不用闭包里的 savedSet（可能已过期），
+      // 重新拉一次 getSettings，勾选重建为最新的已保存清单，不动 form。
+      try {
+        const fresh = await api.getSettings();
+        setView(fresh);
+        setChecked(fresh.config.savedModels ?? []);
+      } catch {
+        /* 拿不到最新清单：勾选保持现状，保存时的过滤兜底 */
+      }
       setNotice(`检测到 ${result.models.length} 个模型，勾选要保存的，再点「保存选择」`);
     } catch (err) {
       setError(errMsg(err));
