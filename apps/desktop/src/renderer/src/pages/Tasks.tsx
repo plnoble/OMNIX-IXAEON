@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
-import type { CodingTask } from '@ixaeon/contracts';
+import { executorLabel, type CodingTask } from '@ixaeon/contracts';
 
 const statusLabel: Record<CodingTask['status'], string> = {
   draft: '草案',
@@ -56,12 +56,6 @@ function landingLine(t: CodingTask): string {
     ? ((JSON.parse(t.executor_report_json) as { changedPaths?: string[] }).changedPaths ?? [])
     : [];
   return changed.length === 0 ? '这次没有改动文件（没有改动）' : '改动还在隔离副本里，未落地';
-}
-
-/** D7b：执行器显示名——model:<模型名> → 我的模型（<模型名>）；Codex / Fake 照旧。 */
-export function executorLabel(name: string): string {
-  if (name.startsWith('model:')) return `我的模型（${name.slice('model:'.length)}）`;
-  return name === 'codex-cli' ? 'Codex' : name;
 }
 
 export function TasksPage({ projects }: { projects: Project[] }) {

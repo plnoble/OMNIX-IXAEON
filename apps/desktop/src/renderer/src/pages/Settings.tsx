@@ -9,6 +9,7 @@ import {
   type UpdateStatusView,
 } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
+import { MODEL_EXECUTOR_SENDS } from '@ixaeon/contracts';
 
 /** 恢复预览状态（含所选 ZIP 路径）。 */
 type RestorePreviewState = RestorePreview & { zipPath: string };
@@ -376,7 +377,9 @@ export function SettingsPage() {
       });
       setChecked(v.config.savedModels ?? []);
       setCodingExec(v.config.codingExecutor ?? 'codex');
-      setCodingModel(v.config.codingModelName ?? '');
+      // 选过的模型已不在已保存清单里：当成没选（下拉框本来也只显示「请选择」）
+      const codingName = v.config.codingModelName ?? '';
+      setCodingModel((v.config.savedModels ?? []).includes(codingName) ? codingName : '');
       setSearchForm({
         provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
@@ -838,10 +841,7 @@ export function SettingsPage() {
       </Card>
 
       <Card title="编码任务交给谁" testId="settings-coding">
-        <p className="muted">
-          选「我的模型」后，你点「要做」的编码任务会把项目副本里的文件内容发给这个模型
-          （只发批准范围内的文件，不发给别的执行器）。
-        </p>
+        <p className="muted">选「我的模型」后：{MODEL_EXECUTOR_SENDS}</p>
         <Field label="执行器">
           <select
             value={codingExec}

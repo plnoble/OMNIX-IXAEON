@@ -1,4 +1,6 @@
+import { executorLabel } from '@ixaeon/contracts';
 import { landingText, type CoreDatabase } from '@ixaeon/core';
+import { executorGapText, type ExecutorGap } from './codingExecutor.js';
 
 const MAX_CHANGED = 10;
 const MAX_OUTPUT_LINES = 8;
@@ -58,16 +60,25 @@ function verifyLine(row: TaskReportRow): string {
   return reason && !reason.includes('没有有效验证命令') ? `验证没跑：${reason}` : '还没有独立验收';
 }
 
-function modelExecutorLine(row: TaskReportRow): string | null {
+/**
+ * D7b：交给「我的模型」做的任务，回报里写明是谁做的；模型自己说做不到的，把它说的原因也带上
+ * （不然只有一句「执行器未声称成功」）。别的执行器的回报一字不变。
+ */
+function modelLines(row: TaskReportRow): string[] {
   const name = row.executor_name ?? '';
-  if (!name.startsWith('model:')) return null;
-  return `执行器：我的模型（${name.slice('model:'.length)}）。`;
+  if (!name.startsWith('model:')) return [];
+  const lines = [`执行器：${executorLabel(name)}。`];
+  const report = row.executor_report_json
+    ? (JSON.parse(row.executor_report_json) as { claimedSuccess?: boolean; summary?: string })
+    : {};
+  if (row.status === 'failed' && report.claimedSuccess === false && report.summary?.trim()) {
+    lines.push(`它的说明：${report.summary.trim()}`);
+  }
+  return lines;
 }
 
 function pendingAccept(row: TaskReportRow): string {
-  const lines = [`「${firstLine(row.goal)}」做完了，等你验收。`];
-  const modelLine = modelExecutorLine(row);
-  if (modelLine) lines.push(modelLine);
+  const lines = [`「${firstLine(row.goal)}」做完了，等你验收。`, ...modelLines(row)];
   const acceptance = stringList(row.acceptance_json);
   if (acceptance.length > 0) lines.push('验收条件：', ...acceptance.map((a) => `- ${a}`));
   lines.push(verifyLine(row));
@@ -86,11 +97,10 @@ function failed(row: TaskReportRow): string {
     .map((l) => l.trim())
     .filter((l) => l)
     .slice(0, MAX_OUTPUT_LINES);
-  const modelLine = modelExecutorLine(row);
   return [
     `「${firstLine(row.goal)}」没做成。`,
     row.error?.trim() ? `原因：${row.error.trim()}` : '原因：没有记录',
-    ...(modelLine ? [modelLine] : []),
+    ...modelLines(row),
     ...head,
   ].join('\n');
 }
@@ -132,5 +142,14 @@ export function codexMissingReport(row: TaskReportRow): TaskReportMessage {
     row,
     `「${firstLine(row.goal)}」没找到 Codex，装好后在任务页点派发。`,
     'codex_missing',
+  );
+}
+
+/** D7b：选了「我的模型」却缺模型或缺 Key——任务留在排队，告诉用户缺什么、去哪补。 */
+export function executorMissingReport(row: TaskReportRow, missing: ExecutorGap): TaskReportMessage {
+  return reportOf(
+    row,
+    `「${firstLine(row.goal)}」停在排队里：${executorGapText(missing)}`,
+    'executor_missing',
   );
 }

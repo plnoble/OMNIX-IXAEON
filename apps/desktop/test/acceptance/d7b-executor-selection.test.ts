@@ -124,6 +124,8 @@ function setup(
     key?: boolean;
     /** 用真的 codingModelProvider（默认换成直接给假模型）。 */
     realProvider?: boolean;
+    /** 「Codex」替身自己说没做成，并带一句说明。 */
+    codexDeclines?: string;
   } = {},
 ): Harness {
   const root = join(dir, 'project');
@@ -143,8 +145,9 @@ function setup(
   const conversations = new ConversationStore(db);
   const todos = new TodoStore(db);
   const codex = new FakeCodingExecutor({
-    claimedSuccess: true,
+    claimedSuccess: opts.codexDeclines === undefined,
     files: { 'note.txt': '替身写的\n' },
+    ...(opts.codexDeclines !== undefined ? { summary: opts.codexDeclines } : {}),
   });
   const model = new FakeProvider('d7b-coding');
   const askProvider = new FakeProvider('d7b-ask');
@@ -427,6 +430,39 @@ describe('条件 5：模型要改范围外的文件', () => {
     expect(report!.content).toContain('我的模型（m1）');
     expect(existsSync(join(h.root, 'other.txt'))).toBe(false);
     expect(existsSync(join(row.workspace_path!, 'other.txt'))).toBe(false);
+  });
+});
+
+describe('条件 12（整合方复审实现时补）：模型自己说做不到——回报里有它说的原因', () => {
+  it('任务失败，什么都没写；回报里有模型的说明和「我的模型」', async () => {
+    const h = setup({ coding: MODEL_M1 });
+    h.model.enqueueStructured({
+      changes: [],
+      summary: '范围里只有 README.md，新建不了 other.txt',
+      claimedSuccess: false,
+    });
+    const t = await proposedTask(h, { goal: '新建一个 other.txt', scope: ['README.md'] });
+    await h.runtime.acceptTodo(t.todoId);
+    await settled(t.taskId);
+    const row = taskRow(t.taskId);
+    expect(row.status).toBe('failed');
+    expect(existsSync(join(row.workspace_path!, 'other.txt'))).toBe(false);
+    const [report] = reports(t.conversationId);
+    expect(report!.meta['status']).toBe('failed');
+    expect(report!.content).toContain('范围里只有 README.md，新建不了 other.txt');
+    expect(report!.content).toContain('我的模型（m1）');
+  });
+
+  it('别的执行器说没做成：回报和现在一样，不多出它的说明', async () => {
+    const h = setup({ codexDeclines: 'STANDIN_SUMMARY' });
+    const t = await proposedTask(h, { goal: '把说明写清楚', scope: ['note.txt'] });
+    await h.runtime.acceptTodo(t.todoId);
+    await settled(t.taskId);
+    expect(taskRow(t.taskId).status).toBe('failed');
+    const [report] = reports(t.conversationId);
+    expect(report!.content).toContain('执行器未声称成功');
+    expect(report!.content).not.toContain('STANDIN_SUMMARY');
+    expect(report!.content).not.toContain('我的模型');
   });
 });
 

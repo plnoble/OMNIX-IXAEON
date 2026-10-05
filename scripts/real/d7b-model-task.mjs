@@ -1,251 +1,290 @@
 /**
- * D7b 真机检查（真模型网关，规格步骤 2）：
- * - 建临时数据目录，写最小 config：只从真实配置取 model.apiBaseUrl / apiKeyEncrypted /
- *   apiKeyPresent / model.savedModels / model.modelName 五项，其余默认；不复制数据库、
- *   不复制别的配置项；
- * - IXAEON_DATA_DIR=<临时目录>、另选端口（IXAEON_HTTP_PORT）启动应用，不开假模型；
- * - 设置页用真网关检测模型 → 勾选保存 → 编码任务选「我的模型」+ 该模型；
- * - 合成小 git 项目（只有 README）：任务一「在 README.md 末尾加一行」批准范围
- *   README.md → 副本里 README 多了这行，接受后建出分支，提交正好改了 README；
- *   任务二批准范围只给 README.md、目标却新建 other.txt → 没写任何文件，任务失败，
- *   原因里有 other.txt；
- * - 原样贴两次的任务状态/原因/执行器名（只打印合成内容与状态，不打印 Key、网关地址）。
+ * D7b 真机检查（真模型网关，规格「真机检查」第 2 步）。
  *
- *   node scripts/real/d7b-model-task.mjs
+ *   node scripts/build.mjs && node scripts/real/d7b-model-task.mjs
+ *
+ * 做什么：起一个临时的应用实例，把编码任务交给「我的模型」，对一个合成的小 git 项目
+ * （只有 README）跑两个任务——范围内加一行、范围外新建文件——再把结果打印出来。
+ *
+ * 用到用户的什么（都只读，跑完两个临时目录都删掉）：
+ * - 真实配置里的五项：API 地址、Key 的密文、有没有 Key、已保存的模型清单、在用的模型名。
+ *   写进临时数据目录的一份最小配置；不复制数据库，不复制别的配置项。
+ * - 应用用户目录里的 `Local State` 一个文件，复制进临时用户目录。已保存的 Key 是 Electron
+ *   safeStorage 的密文，解密钥匙就在这个文件里（它本身由 Windows 按当前登录用户加密，
+ *   换一个用户或换一台机器都打不开）。执行方头一版只带了五项配置，临时实例用的是另一个
+ *   用户目录，拿不到钥匙，所以解不开、没跑成。
+ *
+ * 发出去的：合成 README 和任务目标，发给用户自己配置的模型网关。不打印 Key、网关地址；
+ * 模型名在输出里换成「<模型名>」，输出可以原样贴进公开仓库。
+ * 用户的应用开着也能跑（数据目录、用户目录、端口都是另外的）。
+ *
+ * 整条链路是真的：IPC → 运行时 → 编排 → 网关执行器 → 模型网关 → 验证 → 接受后建分支。
+ * 没走聊天（任务直接经 IPC 建），所以对话里的回报不在这一步照——那一段由端到端测试照。
  */
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, '..', '..');
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const desktopApp = join(root, 'apps', 'desktop');
-const localRequire = createRequire(join(desktopApp, 'package.json'));
-const { _electron: electron } = localRequire('@playwright/test');
-const Database = localRequire('better-sqlite3');
+const { _electron: electron } = createRequire(join(desktopApp, 'package.json'))('@playwright/test');
 
-// 真实数据目录（bootstrap 指针）里的 config.json：只取五项
-const bootstrap = JSON.parse(
-  readFileSync(join(process.env.LOCALAPPDATA ?? '', 'OMNIX', 'IXAEON', 'bootstrap.json'), 'utf8'),
+const fail = (code, why) => {
+  console.log('RESULT', `没跑成：${why}`);
+  process.exit(code);
+};
+
+// ---- 真实配置：只取五项 ----
+const bootstrapFile = join(process.env.LOCALAPPDATA ?? '', 'OMNIX', 'IXAEON', 'bootstrap.json');
+if (!existsSync(bootstrapFile)) fail(2, '找不到应用的数据目录指针');
+const realDataDir = JSON.parse(readFileSync(bootstrapFile, 'utf8')).dataDir;
+const real = JSON.parse(readFileSync(join(realDataDir, 'config.json'), 'utf8')).model ?? {};
+if (!real.apiKeyPresent || !real.apiKeyEncrypted) fail(2, '应用里还没有保存 API Key');
+const savedModels = Array.isArray(real.savedModels) ? real.savedModels : [];
+const override = process.env.IXAEON_REAL_CODING_MODEL?.trim();
+const modelName = override || real.modelName || savedModels[0] || '';
+if (!modelName) fail(2, '应用里没有在用的模型，也没有已保存的模型');
+const modelFrom = override ? '环境变量指定的' : real.modelName ? '在用的分析模型' : '清单第一个';
+
+// ---- 解密钥匙：应用用户目录里的 Local State（只带这一个文件）----
+const realLocalState = join(process.env.APPDATA ?? '', '@ixaeon', 'desktop', 'Local State');
+if (!existsSync(realLocalState)) fail(2, '找不到应用用户目录里的 Local State');
+
+const work = mkdtempSync(join(tmpdir(), 'ixa-d7b-real-'));
+const dataDir = join(work, 'data');
+const profileDir = join(work, 'profile');
+const projectRoot = join(work, 'synth-repo');
+for (const d of [dataDir, profileDir, projectRoot]) mkdirSync(d, { recursive: true });
+copyFileSync(realLocalState, join(profileDir, 'Local State'));
+
+writeFileSync(join(projectRoot, 'README.md'), '# 合成项目\n\n这是真机检查用的合成项目。\n');
+const git = (...args) => execFileSync('git', args, { cwd: projectRoot, encoding: 'utf8' }).trim();
+git('init', '-b', 'main');
+git('add', '-A');
+git('-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'init');
+
+writeFileSync(
+  join(dataDir, 'config.json'),
+  JSON.stringify(
+    {
+      configVersion: 1,
+      setupComplete: true,
+      model: {
+        provider: 'openai',
+        modelName: real.modelName ?? '',
+        chatModelName: '',
+        apiBaseUrl: real.apiBaseUrl ?? '',
+        apiKeyEncrypted: real.apiKeyEncrypted,
+        apiKeyPresent: true,
+        // 临时配置里保证选的模型在清单里（用户的清单为空时也能跑）
+        savedModels: savedModels.includes(modelName) ? savedModels : [...savedModels, modelName],
+        modelsCheckedAt: null,
+      },
+      capture: { enabled: false, autoAnalyze: false, pausedConversations: [], pausedSessions: [] },
+      extension: { token: null, pairedAt: null },
+      localToken: null,
+      webSearch: { provider: 'none', apiKeyEncrypted: null, apiKeyPresent: false },
+      hermesBridge: { enabled: false, token: null },
+      coding: { executor: 'model', modelName },
+    },
+    null,
+    2,
+  ),
 );
-const realConfig = JSON.parse(readFileSync(join(bootstrap.dataDir, 'config.json'), 'utf8'));
+console.log(
+  'CONFIG',
+  `五项已取；已保存的模型 ${savedModels.length} 个；编码用的模型：${modelFrom}`,
+);
 
-const dataDir = mkdtempSync(join(tmpdir(), 'ixa-d7b-real-'));
-const configPath = join(dataDir, 'config.json');
-const projectRoot = join(dataDir, 'synth-repo');
-mkdirSync(projectRoot, { recursive: true });
-writeFileSync(join(projectRoot, 'README.md'), '# 合成项目\n');
-execFileSync('git', ['init', '-b', 'main'], { cwd: projectRoot });
-execFileSync('git', ['add', '-A'], { cwd: projectRoot });
-execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@t', 'commit', '-m', 'init'], {
-  cwd: projectRoot,
+/** 输出里不出现模型名和网关地址。 */
+const gateway = String(real.apiBaseUrl ?? '').trim();
+const gatewayHost = (() => {
+  try {
+    return new URL(gateway).host;
+  } catch {
+    return '';
+  }
+})();
+const mask = (text) => {
+  let out = String(text ?? '');
+  for (const [secret, label] of [
+    [gateway, '<网关>'],
+    [gatewayHost, '<网关>'],
+    [modelName, '<模型名>'],
+  ]) {
+    if (secret) out = out.split(secret).join(label);
+  }
+  return out;
+};
+
+const env = { ...process.env };
+delete env.IXAEON_FAKE_MODEL;
+delete env.IXAEON_FAKE_MODEL_SCRIPT;
+Object.assign(env, {
+  IXAEON_DATA_DIR: dataDir,
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
+  IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
 });
 
-// 最小 config：五项来自真实配置，其余默认；setupComplete 免向导
-const base = {
-  configVersion: 1,
-  setupComplete: true,
-  model: {
-    provider: 'openai',
-    modelName: realConfig.model?.modelName ?? '',
-    chatModelName: '',
-    apiBaseUrl: realConfig.model?.apiBaseUrl ?? '',
-    apiKeyEncrypted: realConfig.model?.apiKeyEncrypted ?? null,
-    apiKeyPresent: realConfig.model?.apiKeyPresent ?? false,
-    savedModels: realConfig.model?.savedModels ?? [],
-    modelsCheckedAt: null,
-  },
-  capture: { enabled: false, autoAnalyze: false, pausedConversations: [], pausedSessions: [] },
-  extension: { token: null, pairedAt: null },
-  localToken: null,
-  webSearch: { provider: 'none', apiKeyEncrypted: null, apiKeyPresent: false },
-  hermesBridge: { enabled: false, token: null },
-  coding: { executor: 'codex', modelName: '' },
-};
-writeFileSync(configPath, JSON.stringify(base, null, 2), 'utf8');
-console.log('TMP_DATA_DIR', dataDir);
-console.log('REAL_SAVED_MODELS_COUNT', base.model.savedModels.length);
-
-const httpPort = String(20000 + Math.floor(Math.random() * 20000));
-
+const VERIFY = ['node', '-e', "if(!require('fs').existsSync('README.md'))process.exit(2)"];
+/** 起了应用之后要停下，一律抛这个：先走 finally 关应用、删临时目录，再退出。 */
+class Stop extends Error {}
 let app = null;
+let passed = false;
+let stopped = null;
+const problems = [];
 try {
   app = await electron.launch({
-    args: [join(desktopApp, 'out', 'main', 'index.js')],
-    env: { ...process.env, IXAEON_DATA_DIR: dataDir, IXAEON_HTTP_PORT: httpPort },
+    args: [`--user-data-dir=${profileDir}`, join(desktopApp, 'out', 'main', 'index.js')],
+    env,
   });
-  let page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.getByTestId('main-nav').waitFor({ timeout: 30_000 });
-
-  // 在项目页登记「合成项目」（项目页原生新建表单）
-  await page.getByTestId('nav-projects').click();
-  await page.getByTestId('page-projects').waitFor({ timeout: 20_000 });
-  await page.getByTestId('projects-new').click();
-  await page.getByTestId('project-form-name').fill('合成项目');
-  await page.getByTestId('project-form-save').click();
-  await page.waitForTimeout(500);
-
-  // 设置页：检测真网关模型 → 勾选保存 → 编码任务选「我的模型」
-  await page.getByTestId('nav-settings').click();
-  await page.getByTestId('settings-model').waitFor({ timeout: 20_000 });
-  await page.getByTestId('settings-fetch-models').click();
-  // 检测成功出现清单；失败出现错误横幅——如实打印，两种都等
-  await page
-    .locator('[data-testid="settings-model-checklist"], [data-testid="error-banner"]')
-    .first()
-    .waitFor({ timeout: 90_000 });
-  if ((await page.locator('[data-testid="error-banner"]').count()) > 0) {
-    const err = await page.getByTestId('error-banner').innerText();
-    console.log('DETECT_FAILED', err.slice(0, 200));
-    process.exit(3);
+  // 先确认这个实例用的确实是临时用户目录，不是用户真实的那个
+  const userData = await app.evaluate(({ app: a }) => a.getPath('userData'));
+  if (userData.toLowerCase() !== profileDir.toLowerCase()) {
+    throw new Stop('临时实例没有用上临时用户目录，已停下（不碰真实的用户目录）');
   }
-  // 优先勾与 model.modelName 同名的；否则勾清单里第一个
-  // 让页面知道想勾哪个模型（model.modelName 同名的优先）
-  await page.evaluate((want) => {
-    window.__wantModel = want;
-  }, base.model.modelName);
-  const picked = await page.evaluate(async () => {
-    const rows = Array.from(document.querySelectorAll('[data-testid="settings-model-check"]'));
-    const wanted = rows.find((r) => r.dataset['modelId'] === window.__wantModel) ?? rows[0];
-    if (wanted) {
-      if (!wanted.checked) wanted.click();
-      return wanted.dataset['modelId'] ?? '';
+  const page = await app.firstWindow();
+  await page.getByTestId('main-nav').waitFor({ timeout: 60_000 });
+  const call = (name, ...args) => page.evaluate(([n, a]) => window.ixaeon[n](...a), [name, args]);
+
+  // 项目 + 绑定文件夹（走真的票据与授权：对话框用测试钩子代答）
+  const project = await call('createProject', {
+    name: '合成项目',
+    rootPath: null,
+    description: null,
+  });
+  const picked = await call('pickFiles', 'directory');
+  await call('bindProjectFolder', { ticket: picked.ticket, projectId: project.id });
+
+  const before = await call('listCodingTasks');
+  console.log('TASKS_NOTICE', mask(before.notice));
+  if (before.executor !== 'model' || /API Key/.test(before.notice)) {
+    throw new Stop('临时实例解不开已保存的 Key');
+  }
+  console.log('KEY_DECRYPT', '能解开');
+
+  const runTask = async (goal) => {
+    const draft = await call('createCodingTask', {
+      projectId: project.id,
+      goal,
+      scope: ['README.md'],
+      allowedCommands: [VERIFY],
+    });
+    await call('approveCodingTask', draft.id);
+    const started = Date.now();
+    const done = await call('dispatchCodingTask', draft.id);
+    const report = done.executor_report_json ? JSON.parse(done.executor_report_json) : {};
+    return { task: done, report, seconds: Math.round((Date.now() - started) / 1000) };
+  };
+  const show = (label, r) =>
+    console.log(
+      label,
+      mask(
+        JSON.stringify({
+          status: r.task.status,
+          executor: r.task.executor_name,
+          verify: r.task.verify_status,
+          seconds: r.seconds,
+          changed: r.report.changedPaths ?? [],
+          summary: r.report.summary ?? null,
+          error: r.task.error,
+        }),
+      ),
+    );
+
+  // ===== 任务一：范围内加一行 → 做完 → 接受 → 分支 =====
+  const LINE = 'D7b 真机检查加的一行';
+  const one = await runTask(`在 README.md 末尾加一行「${LINE}」，别的内容不动`);
+  show('TASK1', one);
+  const copyReadme = one.task.workspace_path
+    ? readFileSync(join(one.task.workspace_path, 'README.md'), 'utf8')
+    : '';
+  console.log('TASK1_COPY_README', JSON.stringify(copyReadme));
+  if (one.task.status !== 'pending_accept') problems.push('任务一没有做到等你验收');
+  if (!copyReadme.includes(LINE)) problems.push('副本里的 README 没有多出那一行');
+  if (!copyReadme.includes('这是真机检查用的合成项目')) problems.push('README 原来的内容被改掉了');
+  if (one.task.status === 'pending_accept') {
+    const accepted = await call('acceptCodingTask', one.task.id);
+    console.log(
+      'TASK1_LANDING',
+      JSON.stringify({ ref: accepted.applied_ref, error: accepted.apply_error }),
+    );
+    const branch = accepted.applied_ref ?? '';
+    if (/^ixaeon\//.test(branch)) {
+      console.log('TASK1_BRANCH_DIFF', git('diff', '--name-only', 'main', branch));
+      console.log('TASK1_BRANCH_README', JSON.stringify(git('show', `${branch}:README.md`)));
+      if (git('diff', '--name-only', 'main', branch) !== 'README.md') {
+        problems.push('分支上的提交不是正好改了 README');
+      }
+    } else problems.push('接受后没有建出分支');
+  }
+  const untouched = readFileSync(join(projectRoot, 'README.md'), 'utf8');
+  console.log('TASK1_WORKTREE_UNTOUCHED', untouched.includes(LINE) ? '否' : '是');
+  if (untouched.includes(LINE)) problems.push('用户工作区里的 README 被动了');
+
+  // ===== 任务二：批准范围只给 README.md，目标却要新建 other.txt → 不写、失败 =====
+  const two = await runTask('新建一个 other.txt，里面写一句说明');
+  show('TASK2', two);
+  const wrote =
+    existsSync(join(projectRoot, 'other.txt')) ||
+    (two.task.workspace_path ? existsSync(join(two.task.workspace_path, 'other.txt')) : false);
+  console.log('TASK2_NO_FILE_WRITTEN', wrote ? '否（多出了 other.txt）' : '是');
+  // 两种都算对：模型照做被执行器拦下（原因里有 other.txt），或者模型自己说范围里做不到
+  const how = /other\.txt/.test(two.task.error ?? '')
+    ? '执行器拦下（原因里有 other.txt）'
+    : two.report.claimedSuccess === false
+      ? '模型自己说做不到'
+      : '别的原因';
+  console.log('TASK2_HOW', how);
+  if (two.task.status !== 'failed') problems.push('任务二没有失败');
+  if (wrote) problems.push('任务二写出了范围外的文件');
+  if (how === '别的原因') problems.push('任务二失败的原因不是预期的两种');
+
+  // 任务页上怎么显示
+  await page.getByTestId('nav-tasks').click();
+  await page.getByTestId('page-tasks').waitFor({ timeout: 20_000 });
+  for (const id of [one.task.id, two.task.id]) {
+    const card = await page.getByTestId(`task-${id}`).innerText();
+    const line = card.split('\n').find((l) => l.includes('执行器')) ?? '';
+    console.log('TASK_PAGE_LINE', mask(line.trim()));
+    if (!line.includes(`我的模型（${modelName}）`)) {
+      problems.push('任务页卡片没有写「我的模型（…）」');
     }
-    return '';
-  });
-  console.log('PICKED_MODEL_SET', picked ? '是' : '否');
-  await page.getByTestId('settings-model-save').click();
-  await page.locator('.ok-banner').waitFor({ timeout: 30_000 });
-
-  await page.getByTestId('settings-coding-executor').selectOption('model');
-  await page.getByTestId('settings-coding-model').selectOption(picked);
-  await page.getByTestId('settings-coding-save').click();
-  await page.locator('.ok-banner').waitFor({ timeout: 15_000 });
-  console.log('CODING_SET', `我的模型（${picked}）`);
-
-  // 绑定 root_path（SQL：等价于项目页点过「绑定文件夹」）
-  await app.close();
-  app = null;
-  const dbPath = join(dataDir, 'ixaeon.db');
-  const db = new Database(dbPath);
-  const proj = db.prepare("SELECT id FROM projects WHERE name = '合成项目'").get();
-  db.prepare('UPDATE projects SET root_path = ? WHERE id = ?').run(projectRoot, proj.id);
-  db.close();
-
-  // ===== 任务一：批准范围内改 README → 做完 → 接受 → 分支 =====
-  app = await electron.launch({
-    args: [join(desktopApp, 'out', 'main', 'index.js')],
-    env: { ...process.env, IXAEON_DATA_DIR: dataDir, IXAEON_HTTP_PORT: httpPort },
-  });
-  page = await app.firstWindow();
-  await page.getByTestId('main-nav').waitFor({ timeout: 30_000 });
-  await page.getByTestId('nav-tasks').click();
-  await page.getByTestId('page-tasks').waitFor({ timeout: 20_000 });
-  // 顶部说明：选了「我的模型」
-  const topNotice = await page.getByTestId('tasks-notice').innerText();
-  console.log('TASKS_NOTICE_TOP', topNotice.split('\n')[0].slice(0, 120));
-
-  await page.getByTestId('task-goal').fill('在 README.md 末尾加一行「D7b 真机加的一行」');
-  await page
-    .getByTestId('task-verify')
-    .fill("node -e \"const fs=require('fs');if(!fs.existsSync('README.md'))process.exit(2);\"");
-  await page.getByRole('button', { name: '创建草案' }).click();
-  await page.waitForTimeout(800);
-  // 批准并排队（第一个「批准并排队」按钮）
-  await page.getByRole('button', { name: '批准并排队' }).first().click();
-  await page.waitForTimeout(500);
-  // 等做完（pending_accept）或失败
-  const firstOutcome = await page
-    .locator('[data-testid="page-tasks"]')
-    .getByText(/等你验收|没做成/)
-    .first()
-    .waitFor({ timeout: 180_000 })
-    .then(() => 'settled')
-    .catch(() => 'timeout');
-  console.log('TASK1_OUTCOME', firstOutcome);
-  const taskPageText = await page.getByTestId('page-tasks').innerText();
-  const doneLine = taskPageText.split('\n').find((l) => l.includes('执行器'));
-  console.log('TASK1_EXECUTOR_LINE', doneLine?.trim() ?? '');
-  console.log(
-    'TASK1_FAILED_LINE',
-    taskPageText.includes('没做成') ? '是（任务失败）' : '否（做完等你验收）',
-  );
-
-  // 接受（第一个「接受」按钮），落地建分支
-  const acceptBtn = page.getByRole('button', { name: '接受' }).first();
-  if ((await acceptBtn.count()) > 0) {
-    await acceptBtn.click();
-    await page.waitForTimeout(1500);
   }
-  await app.close();
-  app = null;
-
-  // 用 SQL 看任务一的状态与执行器名；git 看分支
-  const db1 = new Database(dbPath);
-  const rows = db1
-    .prepare('SELECT id, status, executor_name, error FROM coding_tasks ORDER BY created_at')
-    .all();
-  db1.close();
-  const git = (...args) => execFileSync('git', args, { cwd: projectRoot, encoding: 'utf8' }).trim();
-  const branches = git('branch', '--list', 'ixaeon/*');
-  const t1 = rows[0];
-  console.log('TASK1_ROW', JSON.stringify({ status: t1.status, executor: t1.executor_name }));
-  if (t1.status === 'completed') {
-    const branch = t1.executor_name ? branches.split('\n')[0]?.replace('* ', '').trim() : '';
-    console.log('TASK1_BRANCH', branch);
-    if (branch) console.log('TASK1_DIFF', git('diff', '--name-only', 'main', branch));
-    console.log('TASK1_BRANCH_README', git(`show`, `${branch}:README.md`));
-  } else {
-    console.log('TASK1_ERROR', (t1.error ?? '').slice(0, 200));
-  }
-
-  // ===== 任务二：批准范围只给 README.md，目标却新建 other.txt → 失败、原因有 other.txt =====
-  app = await electron.launch({
-    args: [join(desktopApp, 'out', 'main', 'index.js')],
-    env: { ...process.env, IXAEON_DATA_DIR: dataDir, IXAEON_HTTP_PORT: httpPort },
-  });
-  page = await app.firstWindow();
-  await page.getByTestId('main-nav').waitFor({ timeout: 30_000 });
-  await page.getByTestId('nav-tasks').click();
-  await page.getByTestId('page-tasks').waitFor({ timeout: 20_000 });
-  await page.getByTestId('task-goal').fill('新建一个 other.txt，写上说明');
-  await page
-    .getByTestId('task-verify')
-    .fill("node -e \"const fs=require('fs');if(!fs.existsSync('README.md'))process.exit(2);\"");
-  await page.getByRole('button', { name: '创建草案' }).click();
-  await page.waitForTimeout(800);
-  await page.getByRole('button', { name: '批准并排队' }).first().click();
-  await page
-    .locator('[data-testid="page-tasks"]')
-    .getByText(/没做成/)
-    .first()
-    .waitFor({ timeout: 180_000 })
-    .then(() => 'failed')
-    .catch(() => 'timeout');
-  console.log('TASK2_OUTCOME', 'failed（范围外不写）');
-  const taskPageText2 = await page.getByTestId('page-tasks').innerText();
-  console.log('TASK2_HAS_OTHER_TXT', taskPageText2.includes('other.txt') ? '是' : '否');
-  const db2 = new Database(dbPath);
-  const rows2 = db2
-    .prepare('SELECT id, status, executor_name, error FROM coding_tasks ORDER BY created_at')
-    .all();
-  db2.close();
-  const t2 = rows2[1];
-  console.log('TASK2_ROW', JSON.stringify({ status: t2.status, executor: t2.executor_name }));
-  console.log('TASK2_ERROR', (t2.error ?? '').slice(0, 200));
-  console.log(
-    'TASK2_PROJECT_UNTOUCHED',
-    existsSync(join(projectRoot, 'other.txt')) ? '否（多出了文件）' : '是',
-  );
+  passed = problems.length === 0;
+} catch (err) {
+  if (err instanceof Stop) stopped = err.message;
+  else problems.push(`脚本出错：${mask(err instanceof Error ? err.message : String(err))}`);
 } finally {
   if (app) await app.close().catch(() => undefined);
-  try {
-    rmSync(dataDir, { recursive: true, force: true });
-  } catch {
-    /* Windows 句柄延迟 */
+  for (let i = 0; i < 20; i += 1) {
+    try {
+      rmSync(work, { recursive: true, force: true });
+      break;
+    } catch {
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
+  console.log(
+    'CLEANUP',
+    existsSync(work) ? `临时目录没删干净，请手动删：${work}` : '临时目录都已删掉',
+  );
 }
+if (stopped) {
+  console.log('RESULT', `没跑成：${stopped}`);
+  process.exit(3);
+}
+console.log('RESULT', passed ? '通过' : `没通过：${problems.join('；')}`);
+process.exit(passed ? 0 : 1);

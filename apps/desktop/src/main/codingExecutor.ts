@@ -11,10 +11,14 @@ export type ExecutorPlan =
   | { use: 'model'; executor: CodingExecutor }
   | { use: 'none'; missing: 'model_name' | 'model_key' };
 
-const MISSING_TEXT: Record<'model_name' | 'model_key', string> = {
-  model_name: '没有选编码任务的模型：去设置的「编码任务交给谁」里选一个，选好后在任务页点派发。',
-  model_key: '没有配置 API Key：去设置的「模型接入」里填上，再来任务页点派发。',
-};
+export type ExecutorGap = Extract<ExecutorPlan, { use: 'none' }>['missing'];
+
+/** 缺什么、去哪补。回报、任务页的报错与顶部说明都用这一句，只留一份。 */
+export function executorGapText(missing: ExecutorGap): string {
+  return missing === 'model_name'
+    ? '没有选「我的模型」用的模型：去设置的「编码任务交给谁」里选一个，选好后在任务页点派发。'
+    : '没有配置「我的模型」用的 API Key：去设置的「模型接入」里填上，再来任务页点派发。';
+}
 
 /**
  * 包在现有执行器外面的一层：每次 run / 读 name 时都重新问一次 plan——
@@ -37,7 +41,7 @@ export class ConfiguredCodingExecutor implements CodingExecutor {
     // 第一个 await 之前取一次 plan：这一次派发用哪个执行器就钉死了
     const current = this.plan();
     if (current.use === 'none') {
-      throw new IxaError(ErrorCodes.VALIDATION_FAILED, MISSING_TEXT[current.missing]);
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, executorGapText(current.missing));
     }
     return current.use === 'model'
       ? current.executor.run(task, workspace, signal)

@@ -323,9 +323,9 @@
     {
       "id": "D7b",
       "title": "按设置选执行器：选了我的模型就交给它，缺东西不派发并回报，设置页一栏",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "e7d1d7c4b26f0df610a26be10c4876a483f8ff2a1d20ab3c8813be0de8794ecf",
+        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "ef50a449c050d6802c9f20eed45f51b8ee605e840d1eae3804e3e866a32da36b",
         "apps/desktop/test/acceptance/d7b-pages.test.ts": "244b412cc4b653a36750fb0e2214d34f247dbb160b01821da6fb4ece89b08b87"
       }
     },

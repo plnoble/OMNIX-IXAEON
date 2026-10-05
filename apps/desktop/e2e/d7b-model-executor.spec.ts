@@ -10,7 +10,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -173,8 +173,19 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     await page.getByTestId('ask-input').fill('改一下 README');
     await page.getByTestId('ask-run').click();
     await expect(page.getByTestId('message-list')).toContainText('等你拍板', { timeout: 30_000 });
-    // 等一会儿让答后记忆提取把它的脚本条目消费掉，编码任务的响应排在其后
-    await page.waitForTimeout(1500);
+    // 假模型的响应是按顺序取的：等答后的记忆提取把它那一条取走，编码任务的响应排在其后。
+    // 整合方复审改：原来是固定等 1.5 秒，提取慢一点编码任务就会取错响应；改成等后台任务跑完。
+    await expect
+      .poll(
+        async () => {
+          const jobs = await page.evaluate(async () => window.ixaeon!.listJobs(50));
+          return (
+            jobs.length > 0 && jobs.every((j) => j.status !== 'queued' && j.status !== 'running')
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
     // 点「要做」（建议待办卡）
     await page.locator('[data-testid^="todo-card-accept-"]').first().click();
     // 对话里出现回报：写着 我的模型（<模型名>）
@@ -183,24 +194,15 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     });
     await expect(page.getByTestId('message-list')).toContainText('等你验收', { timeout: 30_000 });
 
-    // 副本里的 README 真的被改了
-    await expect
-      .poll(
-        async () => {
-          const rows = await page.evaluate(async () => {
-            const list = await window.ixaeon!.listCodingTasks();
-            return list.tasks;
-          });
-          return rows;
-        },
-        { timeout: 30_000 },
-      )
-      .toBeTruthy();
-    const check = await page.evaluate(async () => {
+    // 副本里的 README 真的被改了（整合方复审改：原来只看了任务状态，没读副本里的文件）；
+    // 真实项目里的那份没动
+    const first = await page.evaluate(async () => {
       const { tasks } = await window.ixaeon!.listCodingTasks();
-      return tasks[0]?.status ?? '';
+      return { status: tasks[0]?.status ?? '', workspace: tasks[0]?.workspace_path ?? '' };
     });
-    expect(check).toBe('pending_accept');
+    expect(first.status).toBe('pending_accept');
+    expect(readFileSync(join(first.workspace, 'README.md'), 'utf8')).toContain('D7b e2e 加的一行');
+    expect(readFileSync(join(projectRoot, 'README.md'), 'utf8')).toBe('# 合成项目\n');
 
     // 任务页卡片也写着 我的模型（…）
     await page.getByTestId('nav-tasks').click();
@@ -249,7 +251,7 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     await expect(page.getByTestId('message-list')).toContainText('等你拍板', { timeout: 30_000 });
     await page.locator('[data-testid^="todo-card-accept-"]').first().click();
     // 回报停在排队 + 写明缺什么、去哪设置
-    await expect(page.getByTestId('message-list')).toContainText('编码任务停在排队里', {
+    await expect(page.getByTestId('message-list')).toContainText('停在排队里', {
       timeout: 30_000,
     });
     await expect(page.getByTestId('message-list')).toContainText('编码任务交给谁', {

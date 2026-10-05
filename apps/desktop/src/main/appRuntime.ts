@@ -105,7 +105,7 @@ import { bridgeBlockedReason, bridgeEntry, writeHermesBridgeEntry } from './herm
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
 import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './researchFetch.js';
 import { CodingDispatch } from './codingDispatch.js';
-import { ConfiguredCodingExecutor, type ExecutorPlan } from './codingExecutor.js';
+import { ConfiguredCodingExecutor, executorGapText, type ExecutorPlan } from './codingExecutor.js';
 import type { TinyFishFetcher } from '@ixaeon/core';
 import { syncBundledExtension } from './extensionBundle.js';
 
@@ -782,20 +782,23 @@ export class AppRuntime {
       }
       return this.fakeProvider;
     }
-    const config = this.config;
-    if (!config.model.apiKeyPresent || !config.model.modelName) return null;
-    const encrypted = config.model.apiKeyEncrypted;
-    if (!encrypted) return null;
-    const apiKey = decryptApiKey(encrypted);
+    return this.savedKeyProvider(this.config.model.modelName);
+  }
+
+  /** 用已保存的 Key、已保存的地址和给定的模型名建客户端。没有模型名、没存 Key、解不开都返回 null。 */
+  private savedKeyProvider(modelName: string): ModelProvider | null {
+    const m = (this.config as AppConfig | undefined)?.model;
+    if (!m?.apiKeyPresent || !m.apiKeyEncrypted || !modelName) return null;
+    const apiKey = decryptApiKey(m.apiKeyEncrypted);
     if (!apiKey) {
       this.logger.warn('API Key 解密失败（可能迁移自其他机器）', {});
       return null;
     }
     return new OpenAIResponsesProvider({
       apiKey,
-      modelName: config.model.modelName,
+      modelName,
       // 配置的 API 地址优先（用户在向导/设置填写）；环境变量仅测试用
-      baseUrl: config.model.apiBaseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
+      baseUrl: m.apiBaseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
     });
   }
 
@@ -1447,10 +1450,7 @@ export class AppRuntime {
     return { ok: true, keyCleared };
   }
 
-  /**
-   * D7b：保存「编码任务交给谁」。executor 只认 codex / model；modelName 非空时
-   * 必须在已保存的模型清单里。只动 config.coding，落盘。
-   */
+  /** D7b：保存「编码任务交给谁」。模型只能从已保存的清单里选；只动 config.coding。 */
   saveCodingSettings(input: { executor: 'codex' | 'model'; modelName: string }): { ok: true } {
     if (input.executor !== 'codex' && input.executor !== 'model') {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, '编码执行器只认 codex / model');
@@ -1470,27 +1470,18 @@ export class AppRuntime {
   }
 
   /**
-   * D7b：编码任务用的模型客户端。假模型模式给 getProvider() 的那个（绝不联网）；
-   * 否则用已保存的 Key / 地址 / **传入的**模型名建 OpenAI 兼容客户端。
+   * D7b：编码任务用的模型客户端：已保存的 Key、已保存的地址、**传入的**模型名（不是分析模型的）。
+   * 假模型模式给 getProvider() 的那个，绝不联网。
    */
   codingModelProvider(modelName: string): ModelProvider | null {
-    if (process.env.IXAEON_FAKE_MODEL === '1') return this.getProvider();
-    const m = (this.config as AppConfig | undefined)?.model;
-    if (!m || !m.apiKeyPresent || !m.apiKeyEncrypted) return null;
-    const apiKey = decryptApiKey(m.apiKeyEncrypted);
-    if (!apiKey) return null;
-    return new OpenAIResponsesProvider({
-      apiKey,
-      modelName,
-      baseUrl: m.apiBaseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
-    });
+    return process.env.IXAEON_FAKE_MODEL === '1'
+      ? this.getProvider()
+      : this.savedKeyProvider(modelName);
   }
 
   /**
-   * D7b：按当前设置给一份执行器计划（每次现读，改了设置不用重启）：
-   * - 没有 coding 段 / 选 Codex（运行时连 config 都没有也算）→ use: 'codex'；
-   * - 选「我的模型」：模型名为空或已不在清单 → none/model_name；客户端拿不到
-   *   → none/model_key；否则 use: 'model'（每次新造一个执行器，名字 model:<模型名>）。
+   * D7b：按当前设置，这次派发交给谁（每次现读，改了设置不用重启）。规则见规格契约 3。
+   * 运行时连 config 都没有（D3、D4、P4 的测试这样搭）也按 Codex 算。
    */
   executorPlan(): ExecutorPlan {
     const coding = (this.config as AppConfig | undefined)?.coding;
@@ -1998,14 +1989,10 @@ export class AppRuntime {
 
   async finishCodingTask(id: string, how: 'dispatch' | 'cancel'): Promise<CodingTask> {
     if (how === 'dispatch') {
-      // D7b：任务页点「派发」先问设置——缺模型/缺 Key 就不派发
+      // D7b：任务页点「派发」先问设置——缺模型/缺 Key 就不派发，任务留在排队
       const plan = this.executorPlan();
       if (plan.use === 'none') {
-        const word = plan.missing === 'model_name' ? '模型' : 'Key';
-        throw new IxaError(
-          ErrorCodes.VALIDATION_FAILED,
-          `缺${word}：去设置的「编码任务交给谁」补好，再来任务页点派发。`,
-        );
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, executorGapText(plan.missing));
       }
     }
     const done = how === 'dispatch' ? await this.coding.dispatch(id) : this.coding.cancel(id);

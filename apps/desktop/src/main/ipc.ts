@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
+import { executorGapText } from './codingExecutor.js';
 import {
   addRequirement,
   listAuditEvents,
@@ -18,6 +19,8 @@ import {
 import {
   ErrorCodes,
   IxaError,
+  MODEL_EXECUTOR_SENDS,
+  executorLabel,
   toApiError,
   type AppState,
   type IxaIpcApi,
@@ -565,32 +568,28 @@ export function registerIpc(runtime: AppRuntime): void {
     followWatchDirection: async (input) => runtime.followWatchDirection(input),
     skipWatchDirection: async (input) => runtime.skipWatchDirection(input),
     listCodingTasks: async (projectId) => {
-      const name = runtime.codingExecutorName();
-      const real = name === 'codex-cli';
-      // D7b：选了「我的模型」时，顶部说明写明交给谁；缺东西写缺什么、去哪补。
+      const tasks = runtime.coding.store.list(projectId);
+      // D7b：选了「我的模型」时，顶部说明写明交给谁、哪些内容会发给它；缺东西写缺什么、去哪补
       const plan = runtime.executorPlan();
-      let executor: 'fake' | 'codex-cli' | 'model' = real ? 'codex-cli' : 'fake';
-      let notice = '';
-      if (plan.use === 'model') {
-        executor = 'model';
-        notice = `编码任务交给我的模型（${plan.executor.name.replace('model:', '')}）。你点「要做」的编码任务会把项目副本里的文件内容发给这个模型。`;
-      } else if (plan.use === 'none') {
-        executor = 'model';
-        notice =
-          plan.missing === 'model_name'
-            ? '编码任务交给「我的模型」，但没有选模型：去设置的「编码任务交给谁」选一个，选好后在任务页点派发。'
-            : '编码任务交给「我的模型」，但没有配置 API Key：去设置的「模型接入」填上，再来任务页点派发。';
+      if (plan.use !== 'codex') {
+        return {
+          executor: 'model' as const,
+          realDispatchEnabled: plan.use === 'model',
+          notice:
+            plan.use === 'model'
+              ? `编码任务现在交给${executorLabel(plan.executor.name)}。${MODEL_EXECUTOR_SENDS}它只改文件，不跑命令；不自动合并或部署。`
+              : `编码任务选了交给「我的模型」，但${executorGapText(plan.missing)}`,
+          tasks,
+        };
       }
-      if (notice === '') {
-        notice = real
-          ? '真机 Codex 已按你确认的隔离默认开启：workspace-write、隔离工作区、忽略更宽用户配置。不自动合并或部署。走你的 Codex 订阅额度。'
-          : '未找到 Codex CLI，仍用 Fake 执行器（只在隔离目录写模拟文件）。安装 Codex 或设置 IXAEON_CODEX_EXE 后重启。';
-      }
+      const real = runtime.codingExecutorName() === 'codex-cli';
       return {
-        executor,
+        executor: (real ? 'codex-cli' : 'fake') as 'fake' | 'codex-cli',
         realDispatchEnabled: real,
-        notice,
-        tasks: runtime.coding.store.list(projectId),
+        notice: real
+          ? '真机 Codex 已按你确认的隔离默认开启：workspace-write、隔离工作区、忽略更宽用户配置。不自动合并或部署。走你的 Codex 订阅额度。'
+          : '未找到 Codex CLI，仍用 Fake 执行器（只在隔离目录写模拟文件）。安装 Codex 或设置 IXAEON_CODEX_EXE 后重启。',
+        tasks,
       };
     },
     createCodingTask: async (input) => runtime.coding.create(input),

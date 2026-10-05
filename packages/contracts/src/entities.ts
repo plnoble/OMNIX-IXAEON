@@ -339,6 +339,16 @@ export const codingTaskSchema = z.object({
 });
 export type CodingTask = z.infer<typeof codingTaskSchema>;
 
+/** 执行器名给人看的写法（回报、任务页共用）：`model:<模型名>` → 我的模型（<模型名>）。 */
+export function executorLabel(name: string): string {
+  if (name.startsWith('model:')) return `我的模型（${name.slice('model:'.length)}）`;
+  return name === 'codex-cli' ? 'Codex' : name;
+}
+
+/** 交给「我的模型」时哪些内容会发出去（设置页、任务页共用；改 D7 的发送规则时一起改）。 */
+export const MODEL_EXECUTOR_SENDS =
+  '你点「要做」的编码任务，会把项目副本里这些文件的内容发给这个模型：批准范围内的、根目录的 README、任务目标里写了路径的；别的文件只发文件名和大小。';
+
 export const codingApprovalSchema = z.object({
   id: uuidSchema,
   task_id: uuidSchema,
