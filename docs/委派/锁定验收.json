@@ -246,7 +246,7 @@
       "title": "聊天里说「把 X 做了」生成编码任务草案",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "9a939b8b7b28576c61fa7d8088070bb90a7251c3423c3be0cea942a800ca00dc",
+        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "a94b3f41430725a61c5fe9f08a9f9eb94255b182c7c55b05a2366f2b73d4f5aa",
         "packages/core/test/acceptance/d1-convention.test.ts": "7c980df3d8de0143870b246719f41fd4caf78ee6aa5928aac45c4aa75a0b377c"
       }
     },
@@ -353,6 +353,15 @@
       "status": "done",
       "files": {
         "packages/core/test/acceptance/v3-verify-no-network.test.ts": "1e28018735058cadcdf929025ce09bae7c6a8c50ae339c53d9843c96030470d3"
+      }
+    },
+    {
+      "id": "D5a",
+      "title": "验收先行：先写测试并锁定，再写实现，做完自动跑",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/d5a-acceptance-first.test.ts": "5af342f6d270310b5ee6412dc1555b98e5aab65b392392b540ecd0932ca5ef5a",
+        "apps/desktop/test/acceptance/d5a-executor-options.test.ts": "91fe46aeb2a7375f4bb4396eb92d0b6a523c491371f1e453eb4b4817eeb18032"
       }
     }
   ]

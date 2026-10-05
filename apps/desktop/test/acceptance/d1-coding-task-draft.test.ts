@@ -23,6 +23,15 @@
  * - 补一条：没写 scope 的草案（缺省整个项目，存成 ['.']）点「要做」派发后，改项目里的文件
  *   （含子目录）不算越界、能走到等你验收。执行器的范围检查只认「等于或在其下」，'.' 不被当成
  *   整个项目的话，每个没写范围的任务都会以「改动超出批准范围」失败，场景一在这里就断了。
+ *
+ * 整合方 2026-10-05 改（为 D5a 让路，D5a 做完前后都成立）：
+ * - 聊天里提的任务都带验收条件、没有验证命令，D5a 之后要先写验收测试再写实现，执行器会被调
+ *   两次。「整合方补」那条的替身执行器原来每次被调都写项目文件，D5a 之后第一次（只许写测试）
+ *   就会被判「写验收测试时改了别的文件」。现在它在只许写测试的那一步不写、照实说写不了。
+ * - 「契约 4」的回报，D5a 之后不再是「还没有独立验收」，而是「验证没跑：<原因>」（替身执行器
+ *   写不出验收测试）。这一条要钉的是「没有独立验证就不能说验证通过」，两种写法都算如实；
+ *   D5a 之后的确切写法由 D5a 的验收（packages/core/test/acceptance/d5a-acceptance-first.test.ts
+ *   「替身执行器」一组）钉住。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -508,13 +517,34 @@ describe('聊天里提编码任务草案', () => {
         meta: JSON.parse(m.meta_json) as Record<string, unknown>,
       }))
       .find((m) => m.meta['kind'] === 'task_report');
-    expect(report?.content).toContain('还没有独立验收');
+    // 没有独立验证：回报不能说「验证通过」，要明说没验（D5a 之前、之后的两种写法见文件头）
+    expect(report?.content).not.toContain('验证通过');
+    expect(report?.content).toMatch(/还没有独立验收|验证没跑：/);
+    const verifyStatus = (
+      db.prepare('SELECT verify_status FROM coding_tasks WHERE id = ?').get(res.taskId) as {
+        verify_status: string | null;
+      }
+    ).verify_status;
+    expect(verifyStatus).toBe('not_run');
   });
 
   it('整合方补：没写 scope 的草案派发后，改项目里的文件（含子目录）不算越界', async () => {
+    let writes = 0;
     const writer = {
       name: 'd1-writer',
-      async run(_task: unknown, workspace: string) {
+      async run(task: { scope_json: string }, workspace: string) {
+        // D5a：先被叫去写验收测试（能改的只有 ixaeon-acceptance/ 下的测试目录）时，不写、照实说
+        const scope = JSON.parse(task.scope_json) as string[];
+        if (scope.length === 1 && scope[0]!.startsWith('ixaeon-acceptance/')) {
+          return {
+            claimedSuccess: false,
+            summary: '替身不写验收测试',
+            changedPaths: [],
+            testsModified: false,
+            raw: '',
+          };
+        }
+        writes += 1;
         writeFileSync(join(workspace, 'hello.txt'), '你好');
         mkdirSync(join(workspace, 'sub', 'deep'), { recursive: true });
         writeFileSync(join(workspace, 'sub', 'deep', 'x.txt'), '合成');
@@ -551,6 +581,8 @@ describe('聊天里提编码任务草案', () => {
       },
       { timeout: 5000 },
     );
+    // 项目里的文件只写了一遍（写实现的那一次）
+    expect(writes).toBe(1);
   });
 
   it('条件 6：名单、MCP 声明、本地服务放行都有这个工具', async () => {
