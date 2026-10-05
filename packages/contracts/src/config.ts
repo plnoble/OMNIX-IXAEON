@@ -77,6 +77,16 @@ export const appConfigSchema = z.object({
       token: z.string().nullable().default(null),
     })
     .default({ enabled: false, token: null }),
+  /**
+   * D7b：编码任务交给哪个执行器。'codex' 默认（现有行为不变）；'model' =
+   * 「我的模型」，配合 modelName（只能从 model.savedModels 里选）。
+   */
+  coding: z
+    .object({
+      executor: z.enum(['codex', 'model']).default('codex'),
+      modelName: z.string().default(''),
+    })
+    .default({ executor: 'codex', modelName: '' }),
 });
 export type AppConfig = z.infer<typeof appConfigSchema>;
 
@@ -104,6 +114,7 @@ export function defaultAppConfig(): AppConfig {
     localToken: null,
     webSearch: { provider: 'none', apiKeyEncrypted: null, apiKeyPresent: false },
     hermesBridge: { enabled: false, token: null },
+    coding: { executor: 'codex', modelName: '' },
   };
 }
 

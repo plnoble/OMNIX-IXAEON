@@ -408,6 +408,9 @@ export const settingsViewSchema = z.object({
     savedModels: z.array(z.string()).default([]),
     /** M2：上次成功检测上游模型的时间；没检测过为 null */
     modelsCheckedAt: z.string().nullable().default(null),
+    /** D7b：编码任务的执行器（默认 codex）与「我的模型」选的模型名 */
+    codingExecutor: z.enum(['codex', 'model']).default('codex'),
+    codingModelName: z.string().default(''),
     captureEnabled: z.boolean(),
     autoAnalyze: z.boolean(),
     extensionPaired: z.boolean(),
@@ -780,7 +783,7 @@ export interface IxaIpcApi {
   }): Promise<{ id: string }>;
   skipWatchDirection(input: { question: string; publicDescription: string }): Promise<{ ok: true }>;
   listCodingTasks(projectId?: string): Promise<{
-    executor: 'fake' | 'codex-cli';
+    executor: 'fake' | 'codex-cli' | 'model';
     realDispatchEnabled: boolean;
     notice: string;
     tasks: CodingTask[];
@@ -828,6 +831,10 @@ export interface IxaIpcApi {
      * → keyCleared=true（本来就没有 Key 的不算）。
      */
   }): Promise<{ ok: true; keyCleared: boolean }>;
+  /** D7b：编码任务交给谁（executor: 'codex' | 'model'；modelName 从已保存清单里选）。 */
+  saveCodingSettings(input: { executor: 'codex' | 'model'; modelName: string }): Promise<{
+    ok: true;
+  }>;
   /** 保存网页搜索设置（B3）。Key 用 safeStorage 加密落盘，留空表示保持不变。 */
   /**
    * E6：个人记忆给 IXAEON 自己的聊天用（默认关）。personalItems = 没归到项目下、
