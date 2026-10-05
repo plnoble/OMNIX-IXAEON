@@ -887,6 +887,55 @@ function prepareDependencyCopy(
   return { cleanup, realDeps, tmp: tmpPath };
 }
 
+/**
+ * V3：零依赖档跑的程序不许联网。Node 的权限模型（这个版本）管不到网络，所以在验证程序自己的
+ * 代码之前先加载这一段，把已知的联网入口都换成抛错的。这是进程内的拦截，不是操作系统级的隔离
+ * （那是依赖档的沙箱）：挡的是「顺手把项目副本发出去」，不保证挡得住专门研究怎么绕的代码。
+ */
+const NETWORK_GUARD = `
+import { syncBuiltinESMExports } from 'node:module';
+const builtin = (name) => process.getBuiltinModule(name);
+const deny = (what) => () => {
+  throw Object.assign(new Error('验证程序不许联网（' + what + '）'), { code: 'ERR_IXAEON_NO_NETWORK' });
+};
+const denyAll = (obj, label, keep = []) => {
+  for (const key of Object.getOwnPropertyNames(obj)) {
+    if (key !== 'constructor' && !keep.includes(key) && typeof obj[key] === 'function') obj[key] = deny(label + key);
+  }
+};
+const net = builtin('node:net');
+net.Socket.prototype.connect = deny('net.connect');
+net.Server.prototype.listen = deny('net.listen');
+const dgram = builtin('node:dgram');
+for (const key of ['bind', 'connect', 'send']) dgram.Socket.prototype[key] = deny('dgram.' + key);
+const dns = builtin('node:dns');
+denyAll(dns, 'dns.', ['Resolver']);
+denyAll(dns.promises, 'dns.promises.', ['Resolver']);
+denyAll(dns.Resolver.prototype, 'dns.Resolver.');
+denyAll(dns.promises.Resolver.prototype, 'dns.promises.Resolver.');
+builtin('node:inspector').open = deny('inspector.open');
+process.binding = deny('process.binding');
+process._linkedBinding = deny('process._linkedBinding');
+globalThis.fetch = async () => deny('fetch')();
+globalThis.WebSocket = class { constructor() { deny('WebSocket')(); } };
+globalThis.EventSource = undefined;
+syncBuiltinESMExports();
+//# sourceURL=ixaeon-network-guard.mjs
+`;
+const NETWORK_GUARD_URL = `data:text/javascript,${encodeURIComponent(NETWORK_GUARD)}`;
+
+/**
+ * V3：零依赖档只认「node 脚本 [参数…]」和「node -e 代码」。脚本名之前出现别的启动参数、
+ * 或者 -e 的代码后面还跟着参数，返回那个参数（调用方据此不跑）；合规返回 null。
+ * 不逐个去认哪些参数危险：预加载、环境文件、调试端口……没见过的一律不跑。
+ */
+function unexpectedNodeOption(args: string[]): string | null {
+  const first = args[0];
+  if (first === undefined || !first.startsWith('-')) return null; // 脚本名：后面都是给脚本的参数
+  if (!['-e', '--eval', '-p', '--print'].includes(first)) return first;
+  return args.slice(2).find((a) => a.startsWith('-')) ?? null;
+}
+
 /** 编排层默认 runCheck：4 参数（argv, cwd, signal, context）→ defaultCheck 第 6 参数。 */
 async function defaultRunCheck(
   argv: string[],
@@ -974,10 +1023,24 @@ export async function defaultCheck(
       }
       rest.push(a);
     }
+    // V3：脚本名（或 -e）之前带了别的启动参数就不跑——它们会抢在断网之前执行或开监听。
+    const extra = unexpectedNodeOption(rest);
+    if (extra !== null) {
+      return {
+        argv,
+        exitCode: null,
+        output:
+          `验证命令带了启动参数 ${extra}：零依赖档只跑「node 脚本 [参数…]」和「node -e 代码」，` +
+          '别的启动参数（预加载、环境文件、调试端口等）会抢在断网之前执行，不跑。',
+        ran: false,
+      };
+    }
     const finalArgv = [
       '--permission',
       `--allow-fs-read=${cwd}`,
       `--allow-fs-write=${cwd}`,
+      '--import',
+      NETWORK_GUARD_URL,
       ...rest,
     ];
     // 3. 取消信号接入正在运行的验证程序（用户取消 → 杀进程树）。
