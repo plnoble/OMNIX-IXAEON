@@ -13,6 +13,7 @@ export interface TaskReportRow {
   verify_status: string | null;
   verify_output: string | null;
   executor_report_json: string | null;
+  executor_name: string | null;
   // D4：落地结果（迁移 38）。
   applied_ref: string | null;
   applied_at: string | null;
@@ -57,8 +58,16 @@ function verifyLine(row: TaskReportRow): string {
   return reason && !reason.includes('没有有效验证命令') ? `验证没跑：${reason}` : '还没有独立验收';
 }
 
+function modelExecutorLine(row: TaskReportRow): string | null {
+  const name = row.executor_name ?? '';
+  if (!name.startsWith('model:')) return null;
+  return `执行器：我的模型（${name.slice('model:'.length)}）。`;
+}
+
 function pendingAccept(row: TaskReportRow): string {
   const lines = [`「${firstLine(row.goal)}」做完了，等你验收。`];
+  const modelLine = modelExecutorLine(row);
+  if (modelLine) lines.push(modelLine);
   const acceptance = stringList(row.acceptance_json);
   if (acceptance.length > 0) lines.push('验收条件：', ...acceptance.map((a) => `- ${a}`));
   lines.push(verifyLine(row));
@@ -77,9 +86,11 @@ function failed(row: TaskReportRow): string {
     .map((l) => l.trim())
     .filter((l) => l)
     .slice(0, MAX_OUTPUT_LINES);
+  const modelLine = modelExecutorLine(row);
   return [
     `「${firstLine(row.goal)}」没做成。`,
     row.error?.trim() ? `原因：${row.error.trim()}` : '原因：没有记录',
+    ...(modelLine ? [modelLine] : []),
     ...head,
   ].join('\n');
 }

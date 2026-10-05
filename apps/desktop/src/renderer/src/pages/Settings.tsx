@@ -349,6 +349,9 @@ export function SettingsPage() {
   const [modelFilter, setModelFilter] = useState('');
   /** M3：这次保存因换地址把已保存的 Key 清掉了（且现在确实没 Key）→ 卡片里提示。 */
   const [keyClearedNotice, setKeyClearedNotice] = useState(false);
+  // D7b：编码任务交给谁（照 getSettings 回传的两项初始化）
+  const [codingExec, setCodingExec] = useState<'codex' | 'model'>('codex');
+  const [codingModel, setCodingModel] = useState('');
   const [restorePreview, setRestorePreview] = useState<RestorePreviewState | null>(null);
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
   const [searchForm, setSearchForm] = useState<{
@@ -372,6 +375,8 @@ export function SettingsPage() {
         apiKey: '',
       });
       setChecked(v.config.savedModels ?? []);
+      setCodingExec(v.config.codingExecutor ?? 'codex');
+      setCodingModel(v.config.codingModelName ?? '');
       setSearchForm({
         provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
@@ -512,6 +517,20 @@ export function SettingsPage() {
       setKeyClearedNotice(
         result.keyCleared === true && (fresh?.config.apiKeyPresent ?? false) === false,
       );
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveCoding = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.saveCodingSettings({ executor: codingExec, modelName: codingModel });
+      setNotice('编码任务交给谁已保存');
+      await reload();
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -814,6 +833,52 @@ export function SettingsPage() {
           </Button>
           <Button kind="primary" disabled={busy} onClick={saveModel} testId="settings-model-save">
             保存选择
+          </Button>
+        </div>
+      </Card>
+
+      <Card title="编码任务交给谁" testId="settings-coding">
+        <p className="muted">
+          选「我的模型」后，你点「要做」的编码任务会把项目副本里的文件内容发给这个模型
+          （只发批准范围内的文件，不发给别的执行器）。
+        </p>
+        <Field label="执行器">
+          <select
+            value={codingExec}
+            onChange={(e) => {
+              setCodingExec(e.target.value as 'codex' | 'model');
+              if (e.target.value === 'codex') setCodingModel('');
+            }}
+            data-testid="settings-coding-executor"
+          >
+            <option value="codex">Codex（本机装了才能用）</option>
+            <option value="model">我的模型</option>
+          </select>
+        </Field>
+        {codingExec === 'model' && (
+          <Field label="模型">
+            <select
+              value={codingModel}
+              onChange={(e) => setCodingModel(e.target.value)}
+              data-testid="settings-coding-model"
+            >
+              <option value="">请选择</option>
+              {[...savedSet].map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <div className="wizard-nav">
+          <Button
+            kind="primary"
+            disabled={busy}
+            onClick={() => void saveCoding()}
+            testId="settings-coding-save"
+          >
+            保存
           </Button>
         </div>
       </Card>

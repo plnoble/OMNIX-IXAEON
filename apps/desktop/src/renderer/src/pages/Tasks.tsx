@@ -58,9 +58,17 @@ function landingLine(t: CodingTask): string {
   return changed.length === 0 ? '这次没有改动文件（没有改动）' : '改动还在隔离副本里，未落地';
 }
 
+/** D7b：执行器显示名——model:<模型名> → 我的模型（<模型名>）；Codex / Fake 照旧。 */
+export function executorLabel(name: string): string {
+  if (name.startsWith('model:')) return `我的模型（${name.slice('model:'.length)}）`;
+  return name === 'codex-cli' ? 'Codex' : name;
+}
+
 export function TasksPage({ projects }: { projects: Project[] }) {
   const [notice, setNotice] = useState('');
   const [realDispatch, setRealDispatch] = useState(false);
+  /** D7b：主进程回传的执行器种类（'model' 时不显示 Fake / 真机 Codex 那两句）。 */
+  const [executorKind, setExecutorKind] = useState<'fake' | 'codex-cli' | 'model'>('fake');
   const [tasks, setTasks] = useState<CodingTask[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -75,6 +83,7 @@ export function TasksPage({ projects }: { projects: Project[] }) {
       const snap = await api.listCodingTasks();
       setNotice(snap.notice);
       setRealDispatch(snap.realDispatchEnabled);
+      setExecutorKind(snap.executor);
       setTasks(snap.tasks);
       const sk = await api.listSkillCandidates(projectId || undefined);
       setSkills(sk);
@@ -105,11 +114,13 @@ export function TasksPage({ projects }: { projects: Project[] }) {
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       <Card title="编码任务" testId="tasks-notice">
         <p className="note">{notice || '加载中…'}</p>
-        <p className="muted">
-          {realDispatch
-            ? '当前执行器：真机 Codex。没额度时派发会失败，不会改成 Fake。'
-            : '当前执行器：Fake（模拟写文件，不调用 Codex，不扣额度）。0.2.4 安装包还是 Fake；源码开发版找到 codex.exe 才会显示真机。'}
-        </p>
+        {executorKind !== 'model' && (
+          <p className="muted">
+            {realDispatch
+              ? '当前执行器：真机 Codex。没额度时派发会失败，不会改成 Fake。'
+              : '当前执行器：Fake（模拟写文件，不调用 Codex，不扣额度）。0.2.4 安装包还是 Fake；源码开发版找到 codex.exe 才会显示真机。'}
+          </p>
+        )}
         <p className="muted">
           批准绑定项目、隔离工作区、允许的验证命令。网页/MCP 不能替你批准。接受 ≠ 上线。
         </p>
@@ -176,9 +187,7 @@ export function TasksPage({ projects }: { projects: Project[] }) {
         <Card key={t.id} title={t.goal} testId={`task-${t.id}`}>
           <p className="muted">
             {statusLabel[t.status]} · 版本 {t.version}
-            {t.executor_name
-              ? ` · 执行器 ${t.executor_name === 'codex-cli' ? 'Codex' : t.executor_name}`
-              : ''}
+            {t.executor_name ? ` · 执行器 ${executorLabel(t.executor_name)}` : ''}
             {t.verify_status ? ` · 独立验证 ${t.verify_status}` : ''}
             {t.tests_modified ? ' · 测试代码被修改' : ''}
           </p>

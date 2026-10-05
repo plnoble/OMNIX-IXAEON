@@ -469,13 +469,16 @@ export class CodingOrchestrator {
     this.currentAbort = new AbortController();
     const generation = task.generation;
     const workspace = task.workspace_path!;
+    // D7b：执行器名开工时读一次，之后写库都用这个值——
+    // 跑到一半改了设置，这个任务记的还是开工时那个执行器。
+    const executorNameAtStart = this.executor.name;
     // 范围守卫用字节级指纹（执行前后对比）；建分支冲突核对用 LF 归一的
     // **执行前**指纹（与落地侧 blobHash 同一套归一）。注意必须在 executor.run
     // 之前取——执行后重读文件拿到的是改动后的内容，与 HEAD 必然不一致，
     // 会把每个干净文件都误判成冲突（接手时真机撞出的回归）。
     const before = hashWorkspace(workspace);
     const beforeLf = hashWorkspace(workspace, { lfNormalize: true });
-    this.store.setStatus(taskId, 'running', { executorName: this.executor.name });
+    this.store.setStatus(taskId, 'running', { executorName: executorNameAtStart });
     try {
       const bg = this.store.taskBackground(task);
       const skills = new SkillCandidateStore(this.db).approvedForProject(task.project_id);
@@ -515,7 +518,7 @@ export class CodingOrchestrator {
       };
       if (!report.claimedSuccess) {
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: this.executor.name,
+          executorName: executorNameAtStart,
           executorReportJson: JSON.stringify(merged),
           testsModified,
           error: '执行器未声称成功，不把验证命令当成完成',
@@ -524,7 +527,7 @@ export class CodingOrchestrator {
         return failed;
       }
       this.store.setStatus(taskId, 'pending_verify', {
-        executorName: this.executor.name,
+        executorName: executorNameAtStart,
         executorReportJson: JSON.stringify(merged),
         testsModified,
       });

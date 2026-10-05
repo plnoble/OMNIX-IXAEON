@@ -19,6 +19,7 @@ import {
   HermesRuntimeAdapter,
   AgentSession,
   ConversationStore,
+  ModelCodingExecutor,
   OllamaEmbedder,
   SemanticIndex,
   SkillCandidateStore,
@@ -104,6 +105,7 @@ import { bridgeBlockedReason, bridgeEntry, writeHermesBridgeEntry } from './herm
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
 import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './researchFetch.js';
 import { CodingDispatch } from './codingDispatch.js';
+import { ConfiguredCodingExecutor, type ExecutorPlan } from './codingExecutor.js';
 import type { TinyFishFetcher } from '@ixaeon/core';
 import { syncBundledExtension } from './extensionBundle.js';
 
@@ -265,7 +267,14 @@ export class AppRuntime {
       () => runtimeRef.current?.getWebSearchExecutor() ?? undefined,
       () => runtimeRef.current?.getProvider() ?? null,
     );
-    const coding = new CodingOrchestrator(db, createCodingExecutor(), resolved.dataDir);
+    const coding = new CodingOrchestrator(
+      db,
+      // D7b：包一层按设置选执行器——plan 每次现读 runtimeRef 当前设置
+      new ConfiguredCodingExecutor(createCodingExecutor(), () =>
+        runtimeRef.current ? runtimeRef.current.executorPlan() : { use: 'codex' as const },
+      ),
+      resolved.dataDir,
+    );
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
     const config = loadConfig(layout.configFile);
@@ -1438,6 +1447,62 @@ export class AppRuntime {
     return { ok: true, keyCleared };
   }
 
+  /**
+   * D7b：保存「编码任务交给谁」。executor 只认 codex / model；modelName 非空时
+   * 必须在已保存的模型清单里。只动 config.coding，落盘。
+   */
+  saveCodingSettings(input: { executor: 'codex' | 'model'; modelName: string }): { ok: true } {
+    if (input.executor !== 'codex' && input.executor !== 'model') {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '编码执行器只认 codex / model');
+    }
+    const saved = (this.config as AppConfig | undefined)?.model?.savedModels ?? [];
+    if (input.modelName.length > 0 && !saved.includes(input.modelName)) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '编码任务的模型不在已保存清单里：先去「模型接入」检测、勾选保存。',
+      );
+    }
+    this.updateConfig((c) => ({
+      ...c,
+      coding: { executor: input.executor, modelName: input.modelName },
+    }));
+    return { ok: true };
+  }
+
+  /**
+   * D7b：编码任务用的模型客户端。假模型模式给 getProvider() 的那个（绝不联网）；
+   * 否则用已保存的 Key / 地址 / **传入的**模型名建 OpenAI 兼容客户端。
+   */
+  codingModelProvider(modelName: string): ModelProvider | null {
+    if (process.env.IXAEON_FAKE_MODEL === '1') return this.getProvider();
+    const m = (this.config as AppConfig | undefined)?.model;
+    if (!m || !m.apiKeyPresent || !m.apiKeyEncrypted) return null;
+    const apiKey = decryptApiKey(m.apiKeyEncrypted);
+    if (!apiKey) return null;
+    return new OpenAIResponsesProvider({
+      apiKey,
+      modelName,
+      baseUrl: m.apiBaseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
+    });
+  }
+
+  /**
+   * D7b：按当前设置给一份执行器计划（每次现读，改了设置不用重启）：
+   * - 没有 coding 段 / 选 Codex（运行时连 config 都没有也算）→ use: 'codex'；
+   * - 选「我的模型」：模型名为空或已不在清单 → none/model_name；客户端拿不到
+   *   → none/model_key；否则 use: 'model'（每次新造一个执行器，名字 model:<模型名>）。
+   */
+  executorPlan(): ExecutorPlan {
+    const coding = (this.config as AppConfig | undefined)?.coding;
+    if (!coding || coding.executor === 'codex') return { use: 'codex' };
+    const name = coding.modelName;
+    const saved = (this.config as AppConfig | undefined)?.model?.savedModels ?? [];
+    if (name.length === 0 || !saved.includes(name)) return { use: 'none', missing: 'model_name' };
+    const provider = this.codingModelProvider(name);
+    if (!provider) return { use: 'none', missing: 'model_key' };
+    return { use: 'model', executor: new ModelCodingExecutor(provider, name) };
+  }
+
   /** 记忆桥开着时的 Hermes 专用令牌；关着返回 null（启动网关时就不传）。 */
   hermesBridgeToken(): string | null {
     // 测试里用 Object.create 搭的运行时可能没有 config：当作记忆桥关着
@@ -1932,6 +1997,17 @@ export class AppRuntime {
   }
 
   async finishCodingTask(id: string, how: 'dispatch' | 'cancel'): Promise<CodingTask> {
+    if (how === 'dispatch') {
+      // D7b：任务页点「派发」先问设置——缺模型/缺 Key 就不派发
+      const plan = this.executorPlan();
+      if (plan.use === 'none') {
+        const word = plan.missing === 'model_name' ? '模型' : 'Key';
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          `缺${word}：去设置的「编码任务交给谁」补好，再来任务页点派发。`,
+        );
+      }
+    }
     const done = how === 'dispatch' ? await this.coding.dispatch(id) : this.coding.cancel(id);
     this.codingDispatch.onTaskSettled(done.id);
     return done;
@@ -2262,7 +2338,11 @@ export class AppRuntime {
       () => this.getWebSearchExecutor() ?? undefined,
       () => this.getProvider(),
     );
-    const coding = new CodingOrchestrator(db, createCodingExecutor(), this.dataDir);
+    const coding = new CodingOrchestrator(
+      db,
+      new ConfiguredCodingExecutor(createCodingExecutor(), () => this.executorPlan()),
+      this.dataDir,
+    );
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;
     // R1：conversations 与 semanticIndex 原来只在构造函数里建一次，

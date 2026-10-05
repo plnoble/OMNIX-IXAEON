@@ -9,6 +9,7 @@ import {
   type TaskReportMessage,
   type TaskReportRow,
 } from './taskReport.js';
+import type { ExecutorPlan } from './codingExecutor.js';
 
 export function taskReportRow(db: CoreDatabase, taskId: string): TaskReportRow {
   return db.prepare('SELECT * FROM coding_tasks WHERE id = ?').get(taskId) as TaskReportRow;
@@ -20,6 +21,30 @@ export interface CodingDispatchHost {
   conversations: ConversationStore;
   codexLocator?: (() => unknown) | null;
   taskReportSink?: ((e: { conversationId: string }) => void) | null;
+  /** D7b：按设置选执行器的计划；没有（旧宿主）按 Codex 走，行为不变。 */
+  executorPlan?: () => ExecutorPlan;
+}
+
+const EXECUTOR_MISSING_TEXT: Record<'model_name' | 'model_key', string> = {
+  model_name:
+    '编码任务停在排队里：没有选「我的模型」用的模型。去设置的「编码任务交给谁」选一个，选好后在任务页点派发。',
+  model_key:
+    '编码任务停在排队里：没有配置「我的模型」用的 API Key。去设置的「模型接入」填上，再来任务页点派发。',
+};
+
+/** D7b：选了「我的模型」但缺模型/缺 Key 的回报（同一任务只写一次）。 */
+function executorMissingReport(
+  row: TaskReportRow,
+  missing: 'model_name' | 'model_key',
+): {
+  content: string;
+  meta: { kind: 'task_report'; taskId: string; status: string };
+} {
+  const first = row.goal.split('\n')[0]!.trim();
+  return {
+    content: `「${first}」${EXECUTOR_MISSING_TEXT[missing]}`,
+    meta: { kind: 'task_report', taskId: row.id, status: 'executor_missing' },
+  };
 }
 
 export class CodingDispatch {
@@ -28,9 +53,23 @@ export class CodingDispatch {
   constructor(private readonly host: CodingDispatchHost) {}
 
   kick(taskId: string): void {
-    if (!this.host.db.open || this.codexMissing(taskId)) return;
+    if (!this.host.db.open) return;
+    const plan = this.host.executorPlan?.();
+    if (plan && plan.use === 'none') {
+      this.writeExecutorMissing(taskId, plan.missing);
+      return;
+    }
+    if (plan?.use !== 'model' && this.codexMissing(taskId)) return;
     if ((this.host.coding.store?.runningCount() ?? 0) > 0) this.resumeAfterRunning = true;
     setTimeout(() => void this.drain(), 0);
+  }
+
+  /** D7b：缺模型/缺 Key 时回报（同任务只写一次），停在排队。 */
+  private writeExecutorMissing(taskId: string, missing: 'model_name' | 'model_key'): void {
+    if (!this.host.db.open) return;
+    const row = taskReportRow(this.host.db, taskId);
+    if (reportAlreadyWritten(this.host.db, taskId, 'executor_missing')) return;
+    this.write(taskId, executorMissingReport(row, missing));
   }
 
   onTaskSettled(taskId: string): void {
@@ -50,8 +89,19 @@ export class CodingDispatch {
     for (;;) {
       if (!this.host.db.open) return;
       const next = this.nextQueued(skipped);
-      if (!next || this.codexMissing(next.id)) {
-        this.resumeAfterRunning = !next && (this.host.coding.store?.runningCount() ?? 0) > 0;
+      if (!next) {
+        this.resumeAfterRunning = (this.host.coding.store?.runningCount() ?? 0) > 0;
+        return;
+      }
+      const plan = this.host.executorPlan?.();
+      if (plan && plan.use === 'none') {
+        this.writeExecutorMissing(next.id, plan.missing);
+        skipped.push(next.id);
+        continue;
+      }
+      // 选了「我的模型」就不做「本机没装 Codex」的检查
+      if (plan?.use !== 'model' && this.codexMissing(next.id)) {
+        this.resumeAfterRunning = false;
         return;
       }
       const done = await this.host.coding.dispatch(next.id).catch((err: unknown) => {
