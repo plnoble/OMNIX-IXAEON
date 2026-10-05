@@ -9,7 +9,7 @@ import {
   type UpdateStatusView,
 } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
-import { MODEL_EXECUTOR_SENDS } from '@ixaeon/contracts';
+import { MODEL_EXECUTOR_SENDS, executorLabel } from '@ixaeon/contracts';
 
 /** 恢复预览状态（含所选 ZIP 路径）。 */
 type RestorePreviewState = RestorePreview & { zipPath: string };
@@ -331,6 +331,15 @@ function SemanticIndexCard() {
 }
 
 /** 设置页：模型接入、采集开关、扩展配对、MCP 接入片段、导出恢复、最近操作。 */
+/** 已保存的「编码任务交给谁」。选过的模型已不在已保存清单里就当成没选。 */
+function savedCodingOf(v: SettingsView | null): { executor: 'codex' | 'model'; modelName: string } {
+  const name = v?.config.codingModelName ?? '';
+  return {
+    executor: v?.config.codingExecutor ?? 'codex',
+    modelName: (v?.config.savedModels ?? []).includes(name) ? name : '',
+  };
+}
+
 export function SettingsPage() {
   const [view, setView] = useState<SettingsView | null>(null);
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
@@ -376,10 +385,9 @@ export function SettingsPage() {
         apiKey: '',
       });
       setChecked(v.config.savedModels ?? []);
-      setCodingExec(v.config.codingExecutor ?? 'codex');
-      // 选过的模型已不在已保存清单里：当成没选（下拉框本来也只显示「请选择」）
-      const codingName = v.config.codingModelName ?? '';
-      setCodingModel((v.config.savedModels ?? []).includes(codingName) ? codingName : '');
+      const coding = savedCodingOf(v);
+      setCodingExec(coding.executor);
+      setCodingModel(coding.modelName);
       setSearchForm({
         provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
@@ -397,6 +405,7 @@ export function SettingsPage() {
 
   // M2：勾选清单与下拉框的计算状态
   const savedSet = useMemo(() => new Set(view?.config.savedModels ?? []), [view]);
+  const savedCoding = useMemo(() => savedCodingOf(view), [view]);
   // 用户「取消勾选但还没保存」的意图：重检重建勾选时不能把刚取消的项又勾回来
   //（契约 5：重检只更新标记，不撤销用户尚未保存的选择）。保存成功后清空。
   const uncheckedRef = useRef<Set<string>>(new Set());
@@ -842,6 +851,15 @@ export function SettingsPage() {
 
       <Card title="编码任务交给谁" testId="settings-coding">
         <p className="muted">选「我的模型」后：{MODEL_EXECUTOR_SENDS}</p>
+        {/* U2：写明现在生效的是哪个——下拉框改了不点「保存」是不算数的 */}
+        <p className="note" data-testid="settings-coding-current">
+          现在生效的：
+          {savedCoding.executor === 'codex'
+            ? 'Codex'
+            : savedCoding.modelName
+              ? executorLabel(`model:${savedCoding.modelName}`)
+              : '我的模型（还没选模型，编码任务会停在排队里）'}
+        </p>
         <Field label="执行器">
           <select
             value={codingExec}
@@ -870,6 +888,12 @@ export function SettingsPage() {
               ))}
             </select>
           </Field>
+        )}
+        {(codingExec !== savedCoding.executor ||
+          (codingExec === 'model' && codingModel !== savedCoding.modelName)) && (
+          <p className="warn" data-testid="settings-coding-unsaved">
+            改了还没保存：点下面的「保存」才生效。
+          </p>
         )}
         <div className="wizard-nav">
           <Button

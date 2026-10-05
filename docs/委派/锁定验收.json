@@ -337,6 +337,15 @@
         "apps/desktop/test/acceptance/m3-key-scope.test.ts": "391a928984625e884c0dc467fc1b624f7db0b69d12662b90f85a76295a2072d2",
         "apps/desktop/test/acceptance/m3-settings-ui.test.ts": "8dd1776f6ba16c7f19b943062109b405b03da68bbb67ebebfacaf3264d6e69f1"
       }
+    },
+    {
+      "id": "U2",
+      "title": "任务页自己跟上任务的状态；设置页写明现在生效的执行器",
+      "status": "done",
+      "files": {
+        "apps/desktop/test/acceptance/u2-tasks-page-live.test.ts": "48700e8656cf1767079d82742874e3d3800f9abcbfc88024e1ea7469b783ef56",
+        "apps/desktop/test/acceptance/u2-settings-coding-saved.test.ts": "cc1da36dc3b2c2abcb662518083d954c5b3f200bf9d18aa9d0144cf03b5a7720"
+      }
     }
   ]
 }

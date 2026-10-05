@@ -36,7 +36,10 @@ try {
               t.applied_ref LIKE 'ixaeon/%' AS landed_branch,
               t.created_at, t.updated_at,
               (SELECT status FROM todos WHERE linked_kind = 'coding_task' AND linked_id = t.id
-                ORDER BY created_at DESC LIMIT 1) AS todo_status
+                ORDER BY created_at DESC LIMIT 1) AS todo_status,
+              (SELECT group_concat(json_extract(meta_json, '$.status'), ',') FROM messages
+                WHERE json_extract(meta_json, '$.kind') = 'task_report'
+                  AND json_extract(meta_json, '$.taskId') = t.id) AS reports
          FROM coding_tasks t
         ORDER BY t.created_at DESC
         LIMIT ?`,
@@ -45,7 +48,7 @@ try {
   console.log(`最近 ${tasks.length} 个编码任务（新的在前；只有状态与时间）：`);
   for (const t of tasks) {
     console.log(
-      `${t.id.slice(0, 8)} | 任务:${t.status} | 待办:${t.todo_status ?? '-'} | 验证:${t.verify_status ?? '-'} | 执行器:${t.executor_name ?? '-'} | 有错误:${t.has_error ? '是' : '否'} | 已落地:${t.landed ? (t.landed_branch ? '分支' : '改动包') : '否'} | ${t.created_at} → ${t.updated_at}`,
+      `${t.id.slice(0, 8)} | 任务:${t.status} | 待办:${t.todo_status ?? '-'} | 验证:${t.verify_status ?? '-'} | 执行器:${t.executor_name ?? '-'} | 有错误:${t.has_error ? '是' : '否'} | 已落地:${t.landed ? (t.landed_branch ? '分支' : '改动包') : '否'} | 对话里的回报:${t.reports ?? '无'} | ${t.created_at} → ${t.updated_at}`,
     );
   }
   db.close();

@@ -16,6 +16,9 @@ const statusLabel: Record<CodingTask['status'], string> = {
   unknown: '状态不明',
 };
 
+/** 还没有结果的状态：页面要自己跟着看。 */
+const IN_FLIGHT = new Set<CodingTask['status']>(['queued', 'running', 'pending_verify']);
+
 /** 独立验证命令默认值（与既有 note.txt 检查一致；创建草案不改字段=原行为）。 */
 const DEFAULT_VERIFY =
   `node -e "const fs=require('fs');const p=require('path').join('note.txt');` +
@@ -90,6 +93,20 @@ export function TasksPage({ projects }: { projects: Project[] }) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // U2：任务是在后台跑的（聊天里点「要做」就开工）。有任务在排队、执行或验证时每两秒看一眼，
+  // 不然这一页会一直停在「执行中」。只更新任务，不动用户正在看的报错条；都做完了就停。
+  const inFlight = tasks.some((t) => IN_FLIGHT.has(t.status));
+  useEffect(() => {
+    if (!inFlight) return;
+    const timer = setInterval(() => {
+      void api
+        .listCodingTasks()
+        .then((snap) => setTasks(snap.tasks))
+        .catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [inFlight]);
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
