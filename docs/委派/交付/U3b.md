@@ -25,12 +25,20 @@ U3 按规格拆成两支：第一支（核心层，条件 1–10、13）在 `pre
 ## 验收测试（v2 规格任务）
 
 - `apps/desktop/test/acceptance/u3-ipc.test.ts`（2 条）对条件 11：registerIpc 注册了通道、调它和 `readTaskChanges` 结果一样；不存在的任务照 `store.get` 报错。预加载和接口类型由 typecheck 把关（缺一处编译不过）。
-- `apps/desktop/test/acceptance/u3-tasks-page.test.ts`（4 条）对条件 12：有改动的任务显示「改了 N 个文件」和「看改动」，点开列出文件、种类、note、差异与颜色；`total` 比列出来的多时写「共 N 个，只列了前 50 个」；读取出错显示在卡片里、不上页顶报错条；没有改动清单、没有执行报告的任务不显示。
+- `apps/desktop/test/acceptance/u3-tasks-page.test.ts`（5 条）对条件 12：有改动的任务显示「改了 N 个文件」和「看改动」，点开列出文件、种类、note、差异与颜色；`total` 比列出来的多时写「共 N 个，只列了前 50 个」；读取出错显示在卡片里、不上页顶报错条；没有改动清单、没有执行报告的任务不显示；收起再展开时旧请求的结果不会盖掉新请求（竞态）。
 
 ## 自动化通过
 
-- `node scripts/acceptance.mjs run U3b`：2 个测试文件、6 条全过。
-- `node scripts/verify.mjs`：全绿。
+- `node scripts/acceptance.mjs run U3b`：2 个测试文件、7 条全过。
+- `node scripts/verify.mjs`：全绿，关键步骤原样：
+  ```
+  ✓ lint（ESLint） 通过（5.0s）
+  ✓ format:check（Prettier） 通过（2.6s）
+  ✓ typecheck（tsc --noEmit） 通过（5.7s）
+  ✓ integration（Vitest 集成测试） 通过（42.1s）
+  ✓ acceptance-lock（锁定的验收测试没被改） 通过（0.1s）
+  ✓ acceptance（已完成任务的锁定验收测试） 通过（37.9s）
+  ```
 - GitHub 上的 verify：运行号合并时补，绿才合。
 
 ## 真机通过
@@ -72,7 +80,8 @@ U3 按规格拆成两支：第一支（核心层，条件 1–10、13）在 `pre
   "+获准背景：无"
   "+获准 Skill：无"
 步骤 2 通过：note.txt 是 modified，+/- 都有
-接受之后： 已在项目仓库建分支 ixaeon/828895e6（没有推送，也没动你的工作区）。要合并：git merge ixaeon/828895e6
+界面断言 [做完之后]：note.txt=有，+ 行 4，- 行 9
+接受之后： 已在项目仓库建分支 ixaeon/f0ca8765（没有推送，也没动你的工作区）。要合并：git merge ixaeon/f0ca8765
 --- 接受之后（分支建好、还没合并） ---
 卡片里看到的清单：
   note.txt 修改
@@ -90,7 +99,8 @@ U3 按规格拆成两支：第一支（核心层，条件 1–10、13）在 `pre
 文件 1 个 / 总数 1：
   note.txt modified +4/-9
 步骤 3 通过：分支建好没合并，差异还在
-已合并分支： ixaeon/828895e6
+界面断言 [接受之后]：note.txt=有，+ 行 4，- 行 9
+已合并分支： ixaeon/f0ca8765
 --- 合并之后 ---
 卡片里看到的清单：
   note.txt 没有变化
@@ -99,6 +109,7 @@ U3 按规格拆成两支：第一支（核心层，条件 1–10、13）在 `pre
 文件 1 个 / 总数 1：
   note.txt same（只有换行符不同） +0/-0
 步骤 4 通过：合并之后是「没有变化」，note 写明
+界面断言 [合并之后]：note.txt=有，+ 行 0，- 行 0
 RESULT 通过：做完 modified（+/- 都有）→ 接受后差异还在 → 合并后「没有变化」
 ```
 
@@ -121,7 +132,8 @@ RESULT 通过：做完 modified（+/- 都有）→ 接受后差异还在 → 合
 
 ## 已知缺口
 
-无。
+- LCS 差异在主进程同步算，极端构造输入（50 个文件、每个近 2000 行、只有少量改动）会让 Electron 主进程阻塞一两秒。规格只要求「按行 LCS、不加依赖、不起进程」，没要求异步化；是否要移出主进程由整合方定。
+- 单个文件给差异时预算只按「给之前还剩多少」判断，所以最后一个给差异的文件可能让合计略超 200 000 字符——与规格字面一致（「超过 200 000 字符之后，后面的文件 diff 是 null」）。
 
 ## 用户接受
 

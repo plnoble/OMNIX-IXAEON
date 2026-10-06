@@ -163,6 +163,26 @@ try {
     return data;
   };
 
+  /** 卡片上真的渲染出来（不是只查 IPC）：按阶段断言清单、种类与着色行。 */
+  const uiAssert = async (label, want) => {
+    const box = page.getByTestId(`task-changes-${draft.id}`);
+    const text = await box.innerText();
+    const addCount = await page.locator('.diff-add').count();
+    const delCount = await page.locator('.diff-del').count();
+    if (want === 'modified') {
+      if (!text.includes('note.txt') || !text.includes('修改'))
+        fail(`界面 [${label}] 没列出 note.txt 或种类「修改」`);
+      if (addCount === 0 || delCount === 0) fail(`界面 [${label}] 差异没有 +/- 着色行`);
+    } else {
+      if (!text.includes('note.txt') || !text.includes('没有变化'))
+        fail(`界面 [${label}] 没显示「没有变化」`);
+      if (addCount !== 0 || delCount !== 0) fail(`界面 [${label}] 还有 +/- 行（该是零）`);
+    }
+    console.log(
+      `界面断言 [${label}]：note.txt=${text.includes('note.txt') ? '有' : '无'}，+ 行 ${addCount}，- 行 ${delCount}`,
+    );
+  };
+
   // ---- 2. 做完后点「看改动」 ----
   if (!last.includes('待用户接受')) fail('任务没做完，看不到结果');
   const first = await describe('做完之后');
@@ -174,6 +194,7 @@ try {
   else if (f0.kind !== 'modified') fail(`种类不对：${f0.kind}（该是 modified）`);
   else if (!f0.diff.includes('+') || !f0.diff.includes('-')) fail('差异里该有 + 行也有 - 行');
   else console.log('步骤 2 通过：note.txt 是 modified，+/- 都有');
+  if (passed) await uiAssert('做完之后', 'modified');
 
   // ---- 3. 点「接受」，再点开一次 ----
   if (passed) {
@@ -191,6 +212,7 @@ try {
     const s0 = second.files[0];
     if (s0?.kind !== 'modified' || s0.diff === null) fail('接受之后差异该还在（仍是 modified）');
     else console.log('步骤 3 通过：分支建好没合并，差异还在');
+    if (passed) await uiAssert('接受之后', 'modified');
   }
   // ---- 4. 合并分支，再点开一次 ----
   let third = { files: [] };
@@ -205,6 +227,7 @@ try {
     if (t0?.kind !== 'same' || t0.diff !== null) fail(`合并之后该是「没有变化」，实际 ${t0?.kind}`);
     else if (!/一样|换行符不同/.test(t0.note ?? '')) fail(`合并之后 note 该写明：${t0.note}`);
     else console.log('步骤 4 通过：合并之后是「没有变化」，note 写明');
+    if (passed) await uiAssert('合并之后', 'same');
   }
   if (!passed) throw new Error(result);
   result = '通过：做完 modified（+/- 都有）→ 接受后差异还在 → 合并后「没有变化」';
