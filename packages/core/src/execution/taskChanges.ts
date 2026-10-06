@@ -8,6 +8,7 @@ import { normalizeRel } from './patchPack.js';
 import { toLf } from './landing.js';
 import { FORBIDDEN_NAME } from './workspaceCopy.js';
 import { isPathInside } from '../paths.js';
+
 // 单文件上限（超过就不读内容、只看大小）；二进制探测只在开头 8 KB 找 NUL；差异正文最多看 2000 行；
 // files 最多列 50 个；差异合计上限 200 000 字符；每段上下文 3 行。
 const MAX_DIFF_BYTES = 256 * 1024;
@@ -32,6 +33,7 @@ const isSecretName = (rel: string): boolean => FORBIDDEN_NAME.test(rel.split('/'
 const hasNul = (buf: Buffer): boolean => buf.subarray(0, BINARY_PROBE_BYTES).includes(0);
 /** 基准指纹（与 landing.ts 同一个算法：LF 归一后 SHA-256）。 */
 const sha256Lf = (buf: Buffer): string => createHash('sha256').update(toLf(buf)).digest('hex');
+
 const lstatQuiet = (p: string): Stats | null => {
   try {
     return lstatSync(p, { throwIfNoEntry: false }) ?? null;
@@ -58,23 +60,19 @@ const linkOnPath = (root: string, rel: string): boolean => {
   }
   return false;
 };
-// 打开 → fstat 复核（与检查过的 lstat 是同一个对象、普通文件、没超大）→ 循环读到 EOF、限量。
-// open 前最后一跳再查整链链接，open 用 O_NOFOLLOW│O_NONBLOCK；换文件靠 dev/ino 拦，被写大按上限拦。
+// 打开 → fstat 复核（与检查过的 lstat 是同一个对象、普通文件、没超大）→ 限量读回。open 前最后一跳
+// 再查整链链接，open 用 O_NOFOLLOW；换文件靠 dev/ino 拦，被写大靠限量 readSync 拦。不行返回 null，不带出内容。
 const readChecked = (p: string, expect: Stats, root: string, rel: string): Buffer | null => {
   try {
     if (linkOnPath(root, rel)) return null;
-    const fd = openSync(p, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const fd = openSync(p, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const st = fstatSync(fd);
       if (!st.isFile() || st.size > MAX_DIFF_BYTES) return null;
       if (st.dev !== expect.dev || st.ino !== expect.ino || st.ino === 0) return null;
       const buf = Buffer.allocUnsafe(MAX_DIFF_BYTES + 1);
-      let total = 0;
-      for (let got = 1; got > 0 && total < buf.length;) {
-        got = readSync(fd, buf, total, buf.length - total, total);
-        if (got > 0) total += got;
-      }
-      return total > MAX_DIFF_BYTES ? null : Buffer.from(buf.subarray(0, total));
+      const got = readSync(fd, buf, 0, buf.length);
+      return got <= 0 || got > MAX_DIFF_BYTES ? null : Buffer.from(buf.subarray(0, got));
     } finally {
       closeSync(fd);
     }
@@ -181,10 +179,12 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     authorized = perms.some((p) => isPathInside(p.locator, root));
   }
   const noAuthNote = '没有这个项目文件夹的读取授权，不显示内容';
+
   const baseHashes = task.executor_report_json
     ? ((JSON.parse(task.executor_report_json) as { baseHashes?: Record<string, string> })
         .baseHashes ?? null)
     : null;
+
   const files: TaskChangedFile[] = [];
   let diffBudgetLeft = MAX_DIFF_TOTAL_CHARS;
   for (const rel of rels) {
@@ -192,6 +192,7 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     files.push(entry(rel));
   }
   return { files, total: rels.length };
+
   function entry(rel: string): TaskChangedFile {
     const blocked = (kind: TaskChangedFile['kind'], note: string): Note => ({
       path: rel,
@@ -256,7 +257,7 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     }
     const notes: string[] = [];
     let diff: string | null;
-    if (diffBudgetLeft < 0) {
+    if (diffBudgetLeft <= 0) {
       diff = null;
       notes.push('改动太多，后面的不显示差异');
     } else {
@@ -269,8 +270,10 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     return { path: rel, kind, diff, note: notes.length > 0 ? notes.join('；') : null };
   }
 }
+
 const kindOf = (inWs: boolean, inRoot: boolean): 'added' | 'modified' | 'deleted' =>
   inWs && !inRoot ? 'added' : !inWs && inRoot ? 'deleted' : 'modified';
+
 /** 是一个还在的目录（被文件、死链顶掉都不算）。 */
 function dirExists(p: string): boolean {
   try {
