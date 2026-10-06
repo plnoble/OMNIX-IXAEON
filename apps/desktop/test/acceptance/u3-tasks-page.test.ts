@@ -173,6 +173,47 @@ describe('U3 任务卡片看改动（条件 12）', () => {
     expect($('task-changes-rich')).toBeTruthy();
   });
 
+  it('收起再展开：旧请求的失败/结果不会盖掉新请求', async () => {
+    const good: TaskChanges = {
+      total: 1,
+      files: [{ path: 'note.txt', kind: 'modified', diff: '+a\n-b\n', note: null }],
+    };
+    let resolveNew: ((v: TaskChanges) => void) | null = null;
+    let callNo = 0;
+    harness.getCodingTaskChanges.mockImplementation((id: string) => {
+      callNo += 1;
+      if (callNo === 1) {
+        // 旧请求：晚些时候失败
+        return new Promise<TaskChanges>((_res, rej) => {
+          setTimeout(() => rej(new Error('IXA0001 旧请求失败')), 30);
+        });
+      }
+      return new Promise<TaskChanges>((res) => {
+        resolveNew = res;
+      });
+    });
+    await render();
+    const toggle = $('task-changes-toggle-rich')!;
+    await click(toggle); // 请求 1
+    await click(toggle); // 收起
+    await click(toggle); // 再展开 → 请求 2（挂起）
+    // 让旧请求的失败先落地：不该显示任何错误
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect($('task-changes-error-rich')).toBeNull();
+    // 新请求成功：清单正常显示
+    await act(async () => {
+      resolveNew!(good);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect($('task-changes-error-rich')).toBeNull();
+    const boxText = $('task-changes-rich')!.textContent!;
+    expect(boxText).toContain('note.txt');
+    expect(boxText).not.toContain('旧请求失败');
+  });
+
   it('total 比列出来的多时写「共 N 个，只列了前 50 个」', async () => {
     harness.changes = {
       total: 60,
