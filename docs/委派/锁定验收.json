@@ -371,6 +371,14 @@
       "files": {
         "packages/core/test/acceptance/u3-task-changes.test.ts": "3e3eeb381ab90be5da910af4c0aaacdaab3693a662deab46f0a7d2d563c9437f"
       }
+    },
+    {
+      "id": "U3b",
+      "title": "任务页看改动-界面",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/u3-tasks-page.test.ts": "ab2549ed3e69b17fcd5ecf0b545ff8828e836134d6274551927fbe8555a9944d"
+      }
     }
   ]
 }
