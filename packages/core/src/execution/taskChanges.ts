@@ -16,11 +16,12 @@ const MAX_FILES = 50;
 const MAX_DIFF_TOTAL_CHARS = 200_000;
 const CONTEXT = 3;
 
-/** 去掉末尾的空行（文件末尾有没有换行、有几个都不算差异）。 */
-const trimTail = (lines: string[]): string[] => {
-  const a = [...lines];
-  while (a.length > 0 && a[a.length - 1] === '') a.pop();
-  return a;
+/** 文本 → 行。只豁免文件末尾的一个终止换行（split 出的最后一个空串）；其余空行照算。 */
+const linesOf = (text: string | null): string[] => {
+  if (text === null) return [];
+  const ls = text.split('\n');
+  if (ls.length > 0 && ls[ls.length - 1] === '') ls.pop();
+  return ls;
 };
 
 /** 路径要合规：非空、不是绝对路径、不带 ..。不合规的一个文件都不读。 */
@@ -47,17 +48,23 @@ const statQuiet = (p: string): { size: number; isFile: boolean } | null => {
   }
 };
 
-/** 路径上任何一段（含最后一段）是链接：true。出错按有链接处理（不读）。 */
+/** 单个路径是链接。lstat 出错按「是链接」处理（宁愿不看）。 */
+const isLinkAt = (p: string): boolean => {
+  try {
+    const st = lstatSync(p, { throwIfNoEntry: false });
+    return st !== null && st !== undefined && st.isSymbolicLink();
+  } catch {
+    return true;
+  }
+};
+
+/** 根目录本身，或路径上任何一段（含最后一段）是链接：true。 */
 const linkOnPath = (root: string, rel: string): boolean => {
+  if (isLinkAt(root)) return true;
   let cur = root;
   for (const seg of rel.split('/').filter((s) => s.length > 0)) {
     cur = join(cur, seg);
-    try {
-      const st = lstatSync(cur, { throwIfNoEntry: false });
-      if (st && st.isSymbolicLink()) return true;
-    } catch {
-      return true;
-    }
+    if (isLinkAt(cur)) return true;
   }
   return false;
 };
@@ -66,7 +73,7 @@ const kindOf = (inWs: boolean, inRoot: boolean): 'added' | 'modified' | 'deleted
   inWs && !inRoot ? 'added' : !inWs && inRoot ? 'deleted' : 'modified';
 /**
  * 行级 LCS 差异：每行前缀 + / - / 空格；只出有改动的段，每段带最多 3 行上下文，段间一行 @@；
- * 行尾 \r 与文件末尾换行不算差异（调用方先 toLf 再过 trimTail）。没有差异返回 null。
+ * 行尾 \r 与文件末尾换行不算差异（调用方先 toLf 再过 linesOf）。没有差异返回 null。
  */
 export function lineDiff(oldLines: string[], newLines: string[]): string | null {
   const n = oldLines.length;
@@ -152,7 +159,7 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     { root_path: string | null } | undefined;
   const root = project?.root_path ?? null;
   let authorized = false;
-  if (root !== null && existsFileOrDir(root) && !linkOnPath(root, '')) {
+  if (root !== null && rootIsDir(root) && !linkOnPath(root, '')) {
     const perms = db
       .prepare("SELECT locator FROM permissions WHERE scope_type = 'folder' AND status = 'active'")
       .all() as Array<{ locator: string }>;
@@ -177,6 +184,8 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     if (!sanePath(rel)) return { path: rel, kind: 'unknown', diff: null, note: '路径不合规' };
     if (isSecretName(rel))
       return { path: rel, kind: 'unknown', diff: null, note: '密钥类文件，不显示内容' };
+    // 授权先查：撤销授权时每个文件统一提示没有授权，两边路径连 lstat 都不探。
+    if (!authorized) return { path: rel, kind: 'unknown', diff: null, note: noAuthNote };
     const wsAbs = join(task.workspace_path!, rel);
     const rootAbs = root === null ? null : join(root, rel);
     if (linkOnPath(task.workspace_path!, rel) || (root !== null && linkOnPath(root, rel)))
@@ -187,7 +196,6 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
       return { path: rel, kind: 'unknown', diff: null, note: '不是普通文件' };
     const inWs = wsStat !== null;
     const inRoot = rootStat !== null;
-    if (!authorized) return { path: rel, kind: 'unknown', diff: null, note: noAuthNote };
     if (!inWs && !inRoot)
       return { path: rel, kind: 'unknown', diff: null, note: '项目里和副本里都没有这个文件' };
     if ((wsStat?.size ?? 0) > MAX_DIFF_BYTES || (rootStat?.size ?? 0) > MAX_DIFF_BYTES)
@@ -212,10 +220,12 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
         diff: null,
         note: '二进制文件，不显示差异',
       };
-    const wsText = wsBuf === null ? null : toLf(wsBuf).toString('utf8');
-    const rootText = rootBuf === null ? null : toLf(rootBuf).toString('utf8');
-    const wsLines = trimTail(wsText === null ? [] : wsText.split('\n'));
-    const rootLines = trimTail(rootText === null ? [] : rootText.split('\n'));
+    const wsRaw = wsBuf === null ? null : wsBuf.toString('utf8');
+    const rootRaw = rootBuf === null ? null : rootBuf.toString('utf8');
+    const wsText = wsRaw === null ? null : toLf(wsBuf!).toString('utf8');
+    const rootText = rootRaw === null ? null : toLf(rootBuf!).toString('utf8');
+    const wsLines = linesOf(wsText);
+    const rootLines = linesOf(rootText);
     if (wsLines.length > MAX_DIFF_LINES || rootLines.length > MAX_DIFF_LINES)
       return {
         path: rel,
@@ -225,20 +235,31 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
       };
 
     const kind = kindOf(inWs, inRoot);
-    if (rootLines.length === wsLines.length && rootLines.every((line, i) => line === wsLines[i])) {
-      const onlyEol = rootText !== null && wsText !== null && rootText !== wsText;
+    if (
+      inWs &&
+      inRoot &&
+      rootLines.length === wsLines.length &&
+      rootLines.every((line, i) => line === wsLines[i])
+    ) {
+      // 归一化之后行一样：原文一字不差才算「已经合并过了」，只差 CRLF/末尾换行是「只有换行符不同」。
       return {
         path: rel,
         kind: 'same',
         diff: null,
-        note: onlyEol ? '只有换行符不同' : '和项目里现在的文件一样（可能已经合并过了）',
+        note:
+          rootRaw !== null && rootRaw === wsRaw
+            ? '和项目里现在的文件一样（可能已经合并过了）'
+            : '只有换行符不同',
       };
     }
 
     // 基准变没变：任务开始时的指纹（LF 归一 SHA-256）与项目里现在的比。
     // 契约 8：这句只挂给给得出差异的文件，所以先算 diff 再决定写不写。
     const driftedNote = (() => {
-      if (baseHashes === null) return null;
+      // 报告里没有这一项的指纹：不算变过（报告不全，不瞎猜）。有此项且是 null = 任务开始时
+      // 这个文件还不存在，现在有了 = 变过；是字符串就比指纹。
+      if (baseHashes === null || !Object.prototype.hasOwnProperty.call(baseHashes, rel))
+        return null;
       const nowHash = rootBuf === null ? null : sha256Lf(rootBuf);
       const was = baseHashes[rel] ?? null;
       const changed = was !== null ? was !== nowHash : inRoot;
@@ -265,9 +286,11 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
   }
 }
 
-function existsFileOrDir(p: string): boolean {
+/** root_path 得是一个还在的目录（被文件、死链顶掉都不算）。 */
+function rootIsDir(p: string | null): boolean {
+  if (p === null) return false;
   try {
-    return statSync(p).isDirectory() || statSync(p).isFile();
+    return statSync(p).isDirectory();
   } catch {
     return false;
   }

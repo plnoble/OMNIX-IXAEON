@@ -8,8 +8,9 @@
  * 只读这条总约束（条件 13）在每条用例里都验：调用前后项目文件夹和副本里
  * 每个文件（含内容与链接状态）的指纹不变。
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
+import type * as FsTypes from 'node:fs';
 import {
   lstatSync,
   mkdirSync,
@@ -32,6 +33,19 @@ import {
   type CoreDatabase,
 } from '@ixaeon/core';
 
+/** 记录 readTaskChanges 期间所有 readFileSync 的调用（安全用例要证明被禁的文件真的没被读）。 */
+const fsReads = vi.hoisted(() => ({ calls: [] as string[] }));
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = (await importOriginal()) as typeof FsTypes;
+  return {
+    ...actual,
+    readFileSync: vi.fn(((...args: unknown[]) => {
+      fsReads.calls.push(String(args[0]));
+      return (actual.readFileSync as (...a: unknown[]) => unknown)(...args);
+    }) as FsTypes['readFileSync']),
+  };
+});
+
 let dir: string;
 let db: CoreDatabase;
 let root: string;
@@ -39,6 +53,7 @@ let workspace: string;
 let task: CodingTask;
 
 beforeEach(() => {
+  fsReads.calls = [];
   dir = mkdtempSync(join(tmpdir(), 'ixa-u3-'));
   db = openDatabase(join(dir, 'ixaeon.db'));
   migrate(db);
@@ -188,6 +203,13 @@ describe('条件 1：改了一个已有的文件', () => {
     expect(f.diff).toContain('-filler9');
     expect(f.diff).toContain('-filler10');
     expect(f.diff).toContain('+// 改 3（远处）');
+    // 两段的上下文边界：每段前后最多 3 行没变的。第一段尾上下文是 return/filler1/filler2，
+    // 第二段首上下文是 filler6/filler7/filler8；两段之间夹着的 filler3/4/5 不出现。
+    expect(f.diff).toContain('filler2');
+    expect(f.diff).toContain('filler6');
+    expect(f.diff).not.toContain('filler3');
+    expect(f.diff).not.toContain('filler4');
+    expect(f.diff).not.toContain('filler5');
     expect(f.note).toBeNull();
   });
 });
@@ -232,8 +254,8 @@ describe('条件 4：副本和项目里一样', () => {
 
 describe('条件 5：只差换行符', () => {
   it('算一样不给出 diff；真有改动的文件只出真改动', () => {
-    seedTask({ changedPaths: ['a.txt', 'b.txt', 'c.txt', 'd.txt'] });
-    // a：CRLF 对 LF、且末尾换行不同 → 归一后行一模一样，note「只有换行符不同」
+    seedTask({ changedPaths: ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt'] });
+    // a：CRLF 对 LF、且末尾换行不同 → 行一模一样、原文不同，note「只有换行符不同」
     writeFileSync(join(root, 'a.txt'), '一行\n两行\n');
     writeFileSync(join(workspace, 'a.txt'), '一行\r\n两行');
     // b：只差末尾换行 →「只有换行符不同」
@@ -242,11 +264,14 @@ describe('条件 5：只差换行符', () => {
     // c：CRLF/LF 混着，其中一行真改了 → 只出真改动，换行不算
     writeFileSync(join(root, 'c.txt'), 'keep\nold line\nkeep2\r\n');
     writeFileSync(join(workspace, 'c.txt'), 'keep\r\nnew line\r\nkeep2\n');
-    // d：只差 CRLF/LF（末尾换行一样）→ 归一后字节一样，note「一样」
-    writeFileSync(join(root, 'd.txt'), 'A\r\nB\r\n');
-    writeFileSync(join(workspace, 'd.txt'), 'A\nB\n');
+    // d：两边原文一字不差（都 CRLF）→ note「一样」（可能已经合并过了）
+    writeFileSync(join(root, 'd.txt'), 'D\r\nE\r\n');
+    writeFileSync(join(workspace, 'd.txt'), 'D\r\nE\r\n');
+    // e：只差 CRLF/LF（末尾换行一样）→「只有换行符不同」
+    writeFileSync(join(root, 'e.txt'), 'F\r\nG\r\n');
+    writeFileSync(join(workspace, 'e.txt'), 'F\nG\n');
     const { files } = readTaskChanges(db, task);
-    expect(files).toHaveLength(4);
+    expect(files).toHaveLength(5);
     for (const f of files.slice(0, 2)) {
       expect(f.kind).toBe('same');
       expect(f.diff).toBeNull();
@@ -259,7 +284,10 @@ describe('条件 5：只差换行符', () => {
     expect(files[2]!.diff).not.toContain('+keep');
     expect(files[3]!.kind).toBe('same');
     expect(files[3]!.diff).toBeNull();
-    expect(files[3]!.note).toContain('一样');
+    expect(files[3]!.note).toBe('和项目里现在的文件一样（可能已经合并过了）');
+    expect(files[4]!.kind).toBe('same');
+    expect(files[4]!.diff).toBeNull();
+    expect(files[4]!.note).toBe('只有换行符不同');
   });
 });
 
@@ -336,6 +364,21 @@ describe('条件 6：看不了的每一种', () => {
     expect(notes).toContain('二进制文件');
     expect(notes).toContain('行数太多');
     expect(notes).toContain('是链接');
+    // 被禁的文件不只是「内容不在返回值里」：readFileSync 根本没碰过它们。
+    // 允许读的只有对照用的合规文件（这里 long.txt / big.bin）。
+    const readSet = new Set(fsReads.calls.map((p) => p.replaceAll('\\', '/')));
+    expect(readSet.size).toBeGreaterThan(0);
+    for (const bad of [
+      '../escape.txt',
+      'C:/Windows',
+      '.env',
+      'secret.pem',
+      '/docs/',
+      'huge.txt',
+      '/link/',
+    ]) {
+      for (const p of readSet) expect(p, `不该读 ${p}`).not.toContain(bad);
+    }
   });
 
   it('两边都没有：unknown、note 写明（契约 3 的那一行）', () => {
@@ -357,6 +400,8 @@ describe('条件 7：没有授权', () => {
     expect(files[0]!.note).toContain('没有这个项目文件夹的读取授权');
     expect(JSON.stringify(files)).not.toContain('WS_BODY');
     expect(JSON.stringify(files)).not.toContain('add(a, b)');
+    // 内容不出现还不够：没有授权时连读都没读过（项目里和副本里的 calc.mjs 都没碰）
+    expect(fsReads.calls.filter((p) => p.includes('calc.mjs'))).toEqual([]);
   });
 
   it('授权撤销了：一样不显示', () => {
@@ -397,6 +442,23 @@ describe('条件 8：基准变过', () => {
     expect(keepNote).toContain('一样');
     expect(keepNote).not.toContain('变过');
     expect(byPath.get('new.mjs')!.note).toContain('任务开始之后变过');
+  });
+
+  it('报告里没有这一项的指纹：不写「变过」', () => {
+    seedTask({
+      changedPaths: ['listed.mjs', 'unlisted.mjs'],
+      baseHashes: { 'listed.mjs': lfSha256('v1\n') },
+    });
+    // listed.mjs 指纹没变、有真 diff → note 是 null；unlisted.mjs 报告里没这项 → 不猜，note 也是 null
+    writeFileSync(join(root, 'listed.mjs'), 'v1\n');
+    writeFileSync(join(workspace, 'listed.mjs'), 'v1 extra\n');
+    writeFileSync(join(root, 'unlisted.mjs'), '外部新增\n');
+    const { files } = readTaskChanges(db, task);
+    const byPath = new Map(files.map((f) => [f.path, f]));
+    expect(byPath.get('listed.mjs')!.note).toBeNull();
+    expect(byPath.get('unlisted.mjs')!.kind).toBe('deleted');
+    expect(byPath.get('unlisted.mjs')!.diff).not.toBeNull();
+    expect(byPath.get('unlisted.mjs')!.note).toBeNull();
   });
 });
 

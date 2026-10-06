@@ -369,7 +369,7 @@
       "title": "任务页看得到改了什么",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/u3-task-changes.test.ts": "ced2ca23c60a6bdd5652b667d6edaab7830ab58638c7e6df8b1cb4f7bd92c599",
+        "packages/core/test/acceptance/u3-task-changes.test.ts": "76c385f83f5854bc8a970e3e6320260573451cf7e63936d4cb0f8033c4d871e8",
         "apps/desktop/test/acceptance/u3-ipc.test.ts": "bd74b0ae1751a433efddb43e2d69816de16f3b4a30f70bf5e7809ffdccc0fac0"
       }
     }
