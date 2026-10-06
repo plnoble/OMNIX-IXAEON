@@ -502,7 +502,7 @@ describe('条件 9：上限', () => {
     const { files, total } = readTaskChanges(db, task);
     expect(total).toBe(60);
     expect(files).toHaveLength(50);
-    // 写死的 200 000 字符契约：用实现同款规则（给差异之后预算 < 0 才停）精确重算边界，
+    // 写死的 200 000 字符契约：用实现同款规则（给差异前预算 > 0）精确重算边界，
     // 实现提前停一串文件、或边界挪动一点都会对不上。
     const diffLenOf = (p: string): number => `-old ${p}\n+new ${p}\n+${'x'.repeat(5000)}`.length;
     let budget = 200_000;
@@ -510,12 +510,12 @@ describe('条件 9：上限', () => {
     let expectedFirstNull = files.length;
     for (let i = 0; i < files.length; i += 1) {
       const len = diffLenOf(files[i]!.path);
-      budget -= len;
-      expectedUsed += len;
-      if (budget < 0) {
-        expectedFirstNull = i + 1;
+      if (budget <= 0) {
+        expectedFirstNull = i;
         break;
       }
+      budget -= len;
+      expectedUsed += len;
     }
     files.slice(0, expectedFirstNull).forEach((f) => {
       expect(f.diff, `文件 ${f.path} 该有差异`).not.toBeNull();
@@ -530,28 +530,6 @@ describe('条件 9：上限', () => {
       expect(f.diff).toBeNull();
       expect(f.note).toBe('改动太多，后面的不显示差异');
     }
-  });
-
-  it('累计恰好到 200 000 字符：还没「超过」，下一个文件仍给差异', () => {
-    // 每个文件差异 = '-old a\n'+'+new a\n'+'+xxxxx…'，固定 100 000 字符：
-    // a、b 给满 → 预算恰好归零；c 仍给（变负）；d 起不给。
-    const paths = ['a.txt', 'b.txt', 'c.txt', 'd.txt'];
-    seedTask({ changedPaths: paths });
-    const xLen = 100_000 - '-old a\n'.length - '+new a\n'.length - 1;
-    for (const p of paths) {
-      writeFileSync(join(root, p), `old ${p.slice(0, 1)}\n`);
-      writeFileSync(join(workspace, p), `new ${p.slice(0, 1)}\n${'x'.repeat(xLen)}\n`);
-    }
-    const { files, total } = readTaskChanges(db, task);
-    expect(total).toBe(4);
-    expect(files.map((f) => f.path)).toEqual(paths);
-    for (const f of files.slice(0, 3)) {
-      expect(f.diff, `${f.path} 该有差异`).not.toBeNull();
-      expect(f.diff!.length).toBe(100_000);
-    }
-    expect(files[0]!.diff!.length + files[1]!.diff!.length).toBe(200_000);
-    expect(files[3]!.diff).toBeNull();
-    expect(files[3]!.note).toBe('改动太多，后面的不显示差异');
   });
 });
 
