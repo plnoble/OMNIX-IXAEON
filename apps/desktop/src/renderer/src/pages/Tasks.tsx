@@ -99,6 +99,27 @@ function acceptanceTestsLine(json: string | null): string | null {
   }
 }
 
+/** U5：验收条件、验收测试、执行器自己的说明。没有的不显示。 */
+function TaskWords({ task: t }: { task: CodingTask }) {
+  const acceptance = acceptanceLines(t.acceptance_json);
+  const testsLine = acceptanceTestsLine(t.executor_report_json);
+  const explanation = executorExplanation(t);
+  return (
+    <>
+      {acceptance.length > 0 && (
+        <div data-testid={`task-acceptance-${t.id}`}>
+          <p>验收条件：</p>
+          {acceptance.map((a) => (
+            <p key={a}>{a}</p>
+          ))}
+        </div>
+      )}
+      {testsLine && <p data-testid={`task-acceptance-tests-${t.id}`}>{testsLine}</p>}
+      {explanation && <p data-testid={`task-explanation-${t.id}`}>它的说明：{explanation}</p>}
+    </>
+  );
+}
+
 /** 执行报告里的 changedPaths 条数；没有报告或清单为空返回 null（不显示「看改动」）。 */
 function changedCount(t: CodingTask): number | null {
   if (!t.executor_report_json) return null;
@@ -388,124 +409,110 @@ export function TasksPage({
         )}
       </Card>
       {tasks.length === 0 && !notice ? <Spinner /> : null}
-      {tasks.map((t) => {
-        const explanation = executorExplanation(t);
-        const acceptance = acceptanceLines(t.acceptance_json);
-        const testsLine = acceptanceTestsLine(t.executor_report_json);
-        return (
-          <Card key={t.id} title={t.goal} testId={`task-${t.id}`}>
-            <p className="muted">
-              {statusLabel[t.status]} · 版本 {t.version}
-              {t.executor_name ? ` · 执行器 ${executorLabel(t.executor_name)}` : ''}
-              {t.verify_status ? ` · ${verifyLabel(t)}` : ''}
-              {t.tests_modified ? ' · 测试代码被修改' : ''}
+      {tasks.map((t) => (
+        <Card key={t.id} title={t.goal} testId={`task-${t.id}`}>
+          <p className="muted">
+            {statusLabel[t.status]} · 版本 {t.version}
+            {t.executor_name ? ` · 执行器 ${executorLabel(t.executor_name)}` : ''}
+            {t.verify_status ? ` · ${verifyLabel(t)}` : ''}
+            {t.tests_modified ? ' · 测试代码被修改' : ''}
+          </p>
+          <TaskChangesCard
+            task={t}
+            openToken={changesToken[t.id] ?? 0}
+            onToggle={() =>
+              setChangesToken((prev) => ({
+                ...prev,
+                [t.id]: prev[t.id] ? 0 : (prev[t.id] ?? 0) + 1,
+              }))
+            }
+          />
+          {landingLine(t) && (
+            <p className="note" data-testid={`task-landing-${t.id}`}>
+              {landingLine(t)}
             </p>
-            <TaskChangesCard
-              task={t}
-              openToken={changesToken[t.id] ?? 0}
-              onToggle={() =>
-                setChangesToken((prev) => ({
-                  ...prev,
-                  [t.id]: prev[t.id] ? 0 : (prev[t.id] ?? 0) + 1,
-                }))
-              }
-            />
-            {landingLine(t) && (
-              <p className="note" data-testid={`task-landing-${t.id}`}>
-                {landingLine(t)}
-              </p>
+          )}
+          <TaskWords task={t} />
+          {t.error && <p className="warn">{t.error}</p>}
+          {t.verify_output && <pre className="muted">{t.verify_output.slice(0, 400)}</pre>}
+          <div className="card-actions">
+            {(t.status === 'draft' || t.status === 'waiting_approval') && (
+              <Button disabled={busy} onClick={() => void act(() => api.approveCodingTask(t.id))}>
+                批准并排队
+              </Button>
             )}
-            {acceptance.length > 0 && (
-              <div data-testid={`task-acceptance-${t.id}`}>
-                <p>验收条件：</p>
-                {acceptance.map((a) => (
-                  <p key={a}>{a}</p>
-                ))}
-              </div>
+            {t.status === 'queued' && (
+              <Button
+                kind="primary"
+                disabled={busy}
+                onClick={() => void act(() => api.dispatchCodingTask(t.id))}
+              >
+                {executorKind === 'model'
+                  ? '派发（我的模型）'
+                  : realDispatch
+                    ? '派发（Codex）'
+                    : '派发（Fake）'}
+              </Button>
             )}
-            {testsLine && <p data-testid={`task-acceptance-tests-${t.id}`}>{testsLine}</p>}
-            {t.error && <p className="warn">{t.error}</p>}
-            {explanation && <p data-testid={`task-explanation-${t.id}`}>它的说明：{explanation}</p>}
-            {t.verify_output && <pre className="muted">{t.verify_output.slice(0, 400)}</pre>}
-            <div className="card-actions">
-              {(t.status === 'draft' || t.status === 'waiting_approval') && (
-                <Button disabled={busy} onClick={() => void act(() => api.approveCodingTask(t.id))}>
-                  批准并排队
-                </Button>
-              )}
-              {t.status === 'queued' && (
-                <Button
-                  kind="primary"
-                  disabled={busy}
-                  onClick={() => void act(() => api.dispatchCodingTask(t.id))}
-                >
-                  {executorKind === 'model'
-                    ? '派发（我的模型）'
-                    : realDispatch
-                      ? '派发（Codex）'
-                      : '派发（Fake）'}
-                </Button>
-              )}
-              {t.status === 'pending_accept' && (
-                <Button
-                  kind="primary"
-                  disabled={busy}
-                  onClick={() => void act(() => api.acceptCodingTask(t.id))}
-                >
-                  接受结果（不部署）
-                </Button>
-              )}
-              {['queued', 'running', 'waiting_approval', 'draft'].includes(t.status) && (
-                <Button
-                  kind="ghost"
-                  disabled={false}
-                  onClick={() => {
-                    void api.cancelCodingTask(t.id).then(
-                      () => reload(),
-                      (err) => setError(errMsg(err)),
-                    );
-                  }}
-                >
-                  取消
-                </Button>
-              )}
-              {t.status === 'failed' && (
-                <Button
-                  kind="default"
-                  disabled={busy}
-                  onClick={() =>
-                    void act(async () => {
-                      await api.proposeSkillCandidate({
-                        projectId: t.project_id,
-                        task: t.goal,
-                        summary: t.error || '任务执行失败',
-                      });
-                    })
-                  }
-                >
-                  提炼为能力候选
-                </Button>
-              )}
-              {t.status !== 'running' && (
-                <Button
-                  kind="ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    const ok = window.confirm(
-                      '删除这条编码任务？隔离工作区目录也会删。不会改你的项目主目录。',
-                    );
-                    if (!ok) return;
-                    void act(() => api.deleteCodingTask(t.id));
-                  }}
-                  testId={`task-delete-${t.id}`}
-                >
-                  删除
-                </Button>
-              )}
-            </div>
-          </Card>
-        );
-      })}
+            {t.status === 'pending_accept' && (
+              <Button
+                kind="primary"
+                disabled={busy}
+                onClick={() => void act(() => api.acceptCodingTask(t.id))}
+              >
+                接受结果（不部署）
+              </Button>
+            )}
+            {['queued', 'running', 'waiting_approval', 'draft'].includes(t.status) && (
+              <Button
+                kind="ghost"
+                disabled={false}
+                onClick={() => {
+                  void api.cancelCodingTask(t.id).then(
+                    () => reload(),
+                    (err) => setError(errMsg(err)),
+                  );
+                }}
+              >
+                取消
+              </Button>
+            )}
+            {t.status === 'failed' && (
+              <Button
+                kind="default"
+                disabled={busy}
+                onClick={() =>
+                  void act(async () => {
+                    await api.proposeSkillCandidate({
+                      projectId: t.project_id,
+                      task: t.goal,
+                      summary: t.error || '任务执行失败',
+                    });
+                  })
+                }
+              >
+                提炼为能力候选
+              </Button>
+            )}
+            {t.status !== 'running' && (
+              <Button
+                kind="ghost"
+                disabled={busy}
+                onClick={() => {
+                  const ok = window.confirm(
+                    '删除这条编码任务？隔离工作区目录也会删。不会改你的项目主目录。',
+                  );
+                  if (!ok) return;
+                  void act(() => api.deleteCodingTask(t.id));
+                }}
+                testId={`task-delete-${t.id}`}
+              >
+                删除
+              </Button>
+            )}
+          </div>
+        </Card>
+      ))}
 
       <Card title="能力候选与自我演进 (Skill Candidates)" testId="skills-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

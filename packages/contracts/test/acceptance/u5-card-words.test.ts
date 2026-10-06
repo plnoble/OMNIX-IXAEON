@@ -44,5 +44,12 @@ describe('U5 两句共用的话', () => {
     );
     expect(executorExplanation({ status: 'failed', executor_report_json: null })).toBe(null);
     expect(executorExplanation({ status: 'failed', executor_report_json: '不是 json' })).toBe(null);
+    expect(executorExplanation({ status: 'failed', executor_report_json: 'null' })).toBe(null);
+    expect(
+      executorExplanation({
+        status: 'failed',
+        executor_report_json: '{"claimedSuccess":false,"summary":12}',
+      }),
+    ).toBe(null);
   });
 });

@@ -13,6 +13,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodingTask } from '@ixaeon/contracts';
+import { buildTaskReport, type TaskReportRow } from '../../src/main/taskReport.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -214,5 +215,73 @@ describe('U5 任务卡片说人话', () => {
       container.querySelector('[data-testid="task-acceptance-tests-noreason"]')?.textContent,
     ).toBe('验收测试没锁定');
     expect(container.querySelector('[data-testid="task-acceptance-tests-absent"]')).toBeNull();
+  });
+});
+
+describe('U5 回报的文字一个字不变', () => {
+  const row = (patch: Partial<TaskReportRow>): TaskReportRow =>
+    ({
+      id: 't',
+      goal: '合成目标',
+      status: 'pending_accept',
+      error: null,
+      origin_run_id: null,
+      acceptance_json: null,
+      verify_status: null,
+      verify_output: null,
+      executor_report_json: null,
+      executor_name: null,
+      applied_ref: null,
+      applied_at: null,
+      apply_error: null,
+      ...patch,
+    }) as TaskReportRow;
+
+  it('条件 2：验证那一句和改之前逐字一样', () => {
+    const text = (verify_status: string, verify_output: string) =>
+      buildTaskReport(row({ verify_status, verify_output }))!.content;
+    expect(text('passed', 'ok')).toContain('验证通过');
+    expect(text('passed', 'ok')).not.toContain('验证没跑');
+    expect(text('not_run', '工作区里没有 pnpm')).toContain('验证没跑：工作区里没有 pnpm');
+    expect(text('not_run', '没有有效验证命令')).toContain('还没有独立验收');
+    expect(text('not_run', '没有有效验证命令')).not.toContain('验证没跑');
+  });
+
+  it('条件 4：「它的说明」只出现在「我的模型」做的失败任务里', () => {
+    const report = JSON.stringify({
+      claimedSuccess: false,
+      summary: '写不了这个文件',
+      changedPaths: [],
+      testsModified: false,
+      raw: '',
+    });
+    const model = buildTaskReport(
+      row({
+        status: 'failed',
+        executor_name: 'model:m',
+        executor_report_json: report,
+        error: '没做成',
+      }),
+    )!.content;
+    expect(model).toContain('它的说明：写不了这个文件');
+    const codex = buildTaskReport(
+      row({
+        status: 'failed',
+        executor_name: 'codex-cli',
+        executor_report_json: report,
+        error: '没做成',
+      }),
+    )!.content;
+    expect(codex).not.toContain('它的说明');
+    expect(codex).toBe('「合成目标」没做成。\n原因：没做成');
+    const fake = buildTaskReport(
+      row({
+        status: 'failed',
+        executor_name: 'fake',
+        executor_report_json: report,
+        error: '没做成',
+      }),
+    )!.content;
+    expect(fake).toBe(codex);
   });
 });

@@ -380,14 +380,16 @@ export function executorExplanation(row: {
   executor_report_json: string | null;
 }): string | null {
   if (row.status !== 'failed' || !row.executor_report_json) return null;
-  let report: { claimedSuccess?: boolean; summary?: string };
+  let report: unknown;
   try {
-    report = JSON.parse(row.executor_report_json) as { claimedSuccess?: boolean; summary?: string };
+    report = JSON.parse(row.executor_report_json);
   } catch {
     return null;
   }
-  const summary = report.summary?.trim() ?? '';
-  return report.claimedSuccess === false && summary ? summary : null;
+  if (!report || typeof report !== 'object') return null;
+  const summary = (report as { summary?: unknown }).summary;
+  const text = typeof summary === 'string' ? summary.trim() : '';
+  return (report as { claimedSuccess?: unknown }).claimedSuccess === false && text ? text : null;
 }
 
 /** 交给「我的模型」时哪些内容会发出去（设置页、任务页共用；改 D7 的发送规则时一起改）。 */

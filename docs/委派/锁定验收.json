@@ -394,8 +394,8 @@
       "title": "任务卡片说人话",
       "status": "queued",
       "files": {
-        "packages/contracts/test/acceptance/u5-card-words.test.ts": "11f9f09ff66518af285e311a543c251d43697d6eec019726258e9ffd12c40db0",
-        "apps/desktop/test/acceptance/u5-tasks-card.test.ts": "d3ecf19a392176577eb219cd988f0a674ddc8351699a395571dbd6d333c281c9"
+        "packages/contracts/test/acceptance/u5-card-words.test.ts": "d325a67ed7049f8b48e69fb5ebc4a7b61d5f259fe3de1d9092b864b781478022",
+        "apps/desktop/test/acceptance/u5-tasks-card.test.ts": "0f64aa2ad0eb6297ab9bd099051a0bb9e345a3dea9f7b6d5fe9c7ec72839f914"
       }
     }
   ]
