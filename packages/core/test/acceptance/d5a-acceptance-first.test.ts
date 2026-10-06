@@ -6,7 +6,7 @@
  * 文件；只有执行器是按脚本走的替身：每一步往副本里写什么、说成没成，由用例定。
  *
  * 与验收条件的对应写在每个 describe 上：条件 1–12 是规格原有的，条件 13–27 是整合方审测试时
- * 补的（规格的「验收条件」里逐条列着）。钉住的接缝：
+ * 补的，条件 28–33 是整合方复审实现时补的（规格的「验收条件」里逐条列着）。钉住的接缝：
  * - `ExecutorRunOptions { readScope?: string[] }`，`CodingExecutor.run` 的第 4 个参数；
  * - 测试目录 `ixaeon-acceptance/<任务号前 8 位>/`，导出 `ACCEPTANCE_DIR`；
  * - 执行报告里的 `acceptanceTests: { files, locked, reason }`；
@@ -745,6 +745,118 @@ describe('条件 23：替身执行器（FakeCodingExecutor）写不出验收测�
     expect(fake.lastGoal).toContain('给 calc.mjs 加一个 multiply(a, b)');
     expect(fake.lastGoal).not.toContain('这一步只写验收测试');
   });
+
+  // 条件 28：复审实现时补。头一版实现把批准范围是「.」的也当成「叫它写测试」，
+  // 写实现那一步替身也不写了，任务以「执行器未声称成功」失败。
+  it('条件 28：批准范围是整个项目（.）——替身只在写测试那一步不写，写实现照常写', async () => {
+    const fake = new FakeCodingExecutor({ files: { 'calc.mjs': CALC_WITH_MULTIPLY } });
+    const h = setup(fake);
+    const t = await h.create({ scope: ['.'] });
+    const done = await h.coding.dispatch(t.id);
+    expect(row(t.id).error).toBeNull();
+    expect(done.status).toBe('pending_accept');
+    expect(h.log).toEqual(['执行器 1', '执行器 2']);
+    expect(report(t.id).changedPaths).toEqual(['calc.mjs']);
+    expect(row(t.id).verify_output).toContain('替身执行器不写验收测试');
+  });
+
+  it('条件 28：批准范围是整个项目、带验证命令的任务（不走验收先行）——替身照常写', async () => {
+    const fake = new FakeCodingExecutor({ files: { 'note.txt': '写了' } });
+    const h = setup(fake);
+    const t = await h.create({
+      scope: ['.'],
+      acceptance: [],
+      commands: [
+        [process.execPath, '-e', "if(!require('node:fs').existsSync('note.txt'))process.exit(2)"],
+      ],
+    });
+    const done = await h.coding.dispatch(t.id);
+    expect(row(t.id).error).toBeNull();
+    expect(done.status).toBe('pending_accept');
+    expect(row(t.id).verify_status).toBe('passed');
+    expect(h.calls).toHaveLength(1);
+  });
+});
+
+describe('条件 29–32：整合方复审实现时补的', () => {
+  it('条件 29：验证输出里不带本机的绝对路径（它会进回报、进对话，再发给模型）', async () => {
+    const h = setup([
+      writeMulTest,
+      (c) => {
+        c.write('calc.mjs', CALC_WRONG_MULTIPLY);
+        return { changedPaths: ['calc.mjs'] };
+      },
+    ]);
+    const t = await h.create({});
+    const done = await h.coding.dispatch(t.id);
+    expect(done.status).toBe('failed');
+    const out = row(t.id).verify_output ?? '';
+    // 测试的输出还在，开头写的是「node 相对路径」
+    expect(out).toContain('条件 1：multiply(2, 3) 等于 6');
+    expect(out).toContain(`node ixaeon-acceptance/${t.id.slice(0, 8)}/mul.test.mjs → 1`);
+    // 副本在这次测试的临时目录下面：目录名不出现，就是哪种写法的绝对路径都没有
+    expect(out).not.toContain(basename(dir));
+    expect(out).not.toContain(process.execPath);
+    // 报错的那一行还看得出是哪个文件
+    expect(out).toContain(`<副本>/ixaeon-acceptance/${t.id.slice(0, 8)}/mul.test.mjs`);
+  });
+
+  it('条件 30：执行器说了很长一段话却没写测试——原因只留开头一段', async () => {
+    const long = `开头的话${'很长'.repeat(2000)}结尾的话`;
+    const h = setup([() => ({ summary: long }), implementMultiply]);
+    const t = await h.create({});
+    const done = await h.coding.dispatch(t.id);
+    expect(done.status).toBe('pending_accept');
+    const out = row(t.id).verify_output ?? '';
+    expect(out).toContain('开头的话');
+    expect(out).not.toContain('结尾的话');
+    expect(out.length).toBeLessThan(600);
+    expect(report(t.id).acceptanceTests!.reason!.length).toBeLessThan(600);
+  });
+
+  it('条件 31：测试跑的时候往自己的测试目录里写文件——一样算改了文件，不往下走', async () => {
+    const selfWrite = `${HEAD}import { writeFileSync } from 'node:fs';
+test('条件 1：往自己的目录里写', async () => {
+  writeFileSync(new URL('./scratch.txt', import.meta.url), 'x');
+  const calc = await import('../../calc.mjs');
+  assert.equal(calc.multiply(2, 3), 6);
+});
+`;
+    const h = setup([
+      (c) => {
+        c.write(`${c.testDir}/self.test.mjs`, selfWrite);
+        return {};
+      },
+      implementMultiply,
+    ]);
+    const t = await h.create({});
+    const done = await h.coding.dispatch(t.id);
+    expect(done.status).toBe('failed');
+    expect(row(t.id).error).toContain('验收测试改了项目里的文件');
+    expect(row(t.id).error).toContain(`ixaeon-acceptance/${t.id.slice(0, 8)}/scratch.txt`);
+    expect(h.log).toEqual(['执行器 1', '跑 self.test.mjs']);
+  });
+
+  it('条件 32：沙箱不肯跑又没给说明——照实写不肯跑，不写成「没有有效验证命令」', async () => {
+    // 实现前那一遍
+    const before = setup([writeMulTest, implementMultiply], { refuse: () => '' });
+    const t1 = await before.create({});
+    expect((await before.coding.dispatch(t1.id)).status).toBe('pending_accept');
+    expect(row(t1.id).verify_status).toBe('not_run');
+    expect(row(t1.id).verify_output).toContain('沙箱不肯跑');
+    expect(row(t1.id).verify_output).not.toContain('没有有效验证命令');
+    expect(report(t1.id).acceptanceTests).toMatchObject({ locked: false });
+    expect(report(t1.id).acceptanceTests!.reason).toContain('沙箱不肯跑');
+  });
+
+  it('条件 32：实现后那一遍沙箱不肯跑又没给说明——一样照实写', async () => {
+    const h = setup([writeMulTest, implementMultiply], { refuse: (n) => (n >= 2 ? '' : null) });
+    const t = await h.create({});
+    expect((await h.coding.dispatch(t.id)).status).toBe('pending_accept');
+    expect(row(t.id).verify_status).toBe('not_run');
+    expect(row(t.id).verify_output).toContain('沙箱不肯跑');
+    expect(row(t.id).verify_output).not.toContain('没有有效验证命令');
+  });
 });
 
 describe('条件 10：ModelCodingExecutor 的只读范围', () => {
@@ -780,6 +892,9 @@ describe('条件 10：ModelCodingExecutor 的只读范围', () => {
     expect(sent(provider)).toContain('CALC_BODY');
     expect(sent(provider)).toContain('TEST_BODY');
     expect(sent(provider)).not.toContain('OTHER_BODY');
+    // 条件 33（复审实现时补）：告诉模型哪些只能看、不能改，和「可修改范围」分开说
+    expect(sent(provider)).toContain('可修改范围：calc.mjs');
+    expect(sent(provider)).toContain('只读范围（内容发给你看，但不要改）：tests');
   });
 
   it('不传只读范围：与原来一样，不发', async () => {
@@ -789,6 +904,7 @@ describe('条件 10：ModelCodingExecutor 的只读范围', () => {
     await new ModelCodingExecutor(provider, 'm').run(modelTask(ws, ['calc.mjs']), ws, signal());
     expect(sent(provider)).toContain('CALC_BODY');
     expect(sent(provider)).not.toContain('TEST_BODY');
+    expect(sent(provider), '没有只读范围就不提这一句').not.toContain('只读范围');
   });
 
   it('只读范围里的文件看得到、改不了；同一批里合格的改动也不写', async () => {
