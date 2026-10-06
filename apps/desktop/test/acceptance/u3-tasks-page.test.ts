@@ -214,6 +214,46 @@ describe('U3 任务卡片看改动（条件 12）', () => {
     expect(boxText).not.toContain('旧请求失败');
   });
 
+  // 整合方复审时补：上一条只照了「旧请求晚到的失败」，旧请求晚到的结果没照
+  it('收起再展开：旧请求晚到的结果不会盖掉新请求的结果', async () => {
+    const stale: TaskChanges = {
+      total: 1,
+      files: [{ path: 'old.txt', kind: 'modified', diff: '+旧的', note: null }],
+    };
+    const fresh: TaskChanges = {
+      total: 1,
+      files: [{ path: 'fresh.txt', kind: 'modified', diff: '+新的', note: null }],
+    };
+    const resolvers: Array<(v: TaskChanges) => void> = [];
+    harness.getCodingTaskChanges.mockImplementation(
+      () =>
+        new Promise<TaskChanges>((res) => {
+          resolvers.push(res);
+        }),
+    );
+    await render();
+    const toggle = $('task-changes-toggle-rich')!;
+    await click(toggle); // 请求 1（挂着）
+    await click(toggle); // 收起
+    await click(toggle); // 再展开 → 请求 2（挂着）
+    expect(resolvers).toHaveLength(2);
+    await act(async () => {
+      resolvers[1]!(fresh);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect($('task-changes-rich')!.textContent).toContain('fresh.txt');
+    // 旧请求这时才回来：不许把新结果换掉
+    await act(async () => {
+      resolvers[0]!(stale);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const text = $('task-changes-rich')!.textContent!;
+    expect(text).toContain('fresh.txt');
+    expect(text).not.toContain('old.txt');
+  });
+
   it('total 比列出来的多时写「共 N 个，只列了前 50 个」', async () => {
     harness.changes = {
       total: 60,

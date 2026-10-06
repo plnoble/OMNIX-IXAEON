@@ -5,6 +5,9 @@
  * 用法（在任务的工作目录里、任务分支上）：
  *   node scripts/codex-review.mjs <任务号>            审查并把结论写进 docs/委派/交付/<任务号>-Codex审查.md
  *   node scripts/codex-review.mjs <任务号> --dry-run  只打印会用哪个 Codex、审哪份委派单、上下文多大，不调用
+ *   node scripts/codex-review.mjs <任务号>b --base <第一支的分支>
+ *       一个任务拆成两支交时审第二支：只看第二支相对第一支的改动；规格用第一支的（找不到
+ *       <任务号>b-*.md 时自动用 <任务号>-*.md，不用另写一份）
  *
  * - Codex 命令行：环境变量 CODEX_BIN 优先；否则在 Codex 桌面版自带的
  *   %LOCALAPPDATA%\OpenAI\Codex\bin\<哈希>\codex.exe 里找版本最新的（桌面版一更新，目录名就变）；
@@ -23,8 +26,10 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [id, ...flags] = process.argv.slice(2);
 const dryRun = flags.includes('--dry-run');
-if (!id) {
-  console.error('用法：node scripts/codex-review.mjs <任务号> [--dry-run]');
+const baseAt = flags.indexOf('--base');
+const base = baseAt >= 0 ? flags[baseAt + 1] : null;
+if (!id || (baseAt >= 0 && !base)) {
+  console.error('用法：node scripts/codex-review.mjs <任务号> [--dry-run] [--base <第一支的分支>]');
   process.exit(2);
 }
 
@@ -63,7 +68,10 @@ const git = (args) =>
   });
 
 const orderDir = join(root, 'docs', '委派');
-const order = readdirSync(orderDir).find((f) => f.startsWith(`${id}-`) && f.endsWith('.md'));
+const orderOf = (taskId) =>
+  readdirSync(orderDir).find((f) => f.startsWith(`${taskId}-`) && f.endsWith('.md'));
+// 拆出来的第二支（U3b）没有自己的规格：用第一支的（U3）
+const order = orderOf(id) ?? (/\d[a-z]$/.test(id) ? orderOf(id.slice(0, -1)) : undefined);
 if (!order) {
   console.error(`在 docs/委派/ 下找不到 ${id}-*.md（委派单或规格）`);
   process.exit(2);
@@ -73,7 +81,8 @@ const codex = findCodex();
 
 // 审查的上下文：委派单、AGENTS.md、交付说明、完整 diff（审查记录本身不算改动）
 git(['fetch', 'origin', 'main', '--quiet']);
-const range = 'origin/main...HEAD';
+// 第二支只看它自己的改动：相对第一支的分支，不是相对 main（不然第一支的改动又算一遍）
+const range = `${base ?? 'origin/main'}...HEAD`;
 const exclude = [':(exclude)pnpm-lock.yaml', `:(exclude)docs/委派/交付/${id}-Codex审查.md`];
 const stat = git(['diff', '--stat', range, '--', '.', ...exclude]).stdout.trim();
 let diff = git(['diff', '-U12', range, '--', '.', ...exclude]).stdout;
@@ -100,14 +109,15 @@ const context = [
 ].join('\n\n');
 
 const prompt = [
-  `你在审查一个委派任务分支。任务 ${id}。审查需要的全部内容都在下面的 <stdin> 里：委派单或规格、仓库的 AGENTS.md、执行方的交付说明、这个分支相对 origin/main 的完整改动。`,
+  `你在审查一个委派任务分支。任务 ${id}。审查需要的全部内容都在下面的 <stdin> 里：委派单或规格、仓库的 AGENTS.md、执行方的交付说明、这个分支相对 ${base ?? 'origin/main'} 的完整改动${base ? `（这是任务拆出来的第二支，第一支 ${base} 另外审，这里只看第二支自己的改动）` : ''}。`,
   '**不要运行任何命令，也不要去读别的文件**（本机沙箱不可用，命令会失败）；只根据给你的这些内容审。改动里看不到、又必须知道的上下文，就在结论里写「需要人工确认：……」。',
   '对照委派单（或规格）和 AGENTS.md 检查：',
   '1. 委派单或规格里的每条契约与验收条件是否都做到了；测试是否真的覆盖了这些条件，有没有漏掉、放宽，或者只是让测试通过；',
   '2. 会出错的地方：边界情况、并发、错误处理、性能（大文件、长列表、同步阻塞主进程）；',
   '3. 隐私：有没有把真实数据、个人信息、密钥、网关地址写进代码、测试、文档；有没有把用户数据发给新的外部服务；',
   '4. 交付说明是否如实：规格要求的真机检查有没有跑、输出贴没贴；',
-  '5. 违反仓库约定的地方（迁移只由整合方写、锁定的验收测试不许改、公开仓库等）。',
+  '5. 违反仓库约定的地方（迁移只由整合方写、已经在 main 上的锁定验收测试不许改、公开仓库等）。这个分支自己新写、还没并入 main 的验收测试，执行方按审查意见补条件、改严并重新锁定是允许的，不算违反；删条件、放宽才算。',
+  '「必须改」只用于：规格的契约或验收条件没做到；现实里会出错的问题；隐私；交付说明不实；违反仓库约定。规格没有要求的加固、只有在刻意构造的条件下才会发生的情况，写成「建议」，不要写成「必须改」。',
   '用中文回答。只列真正的问题，每条一行，写明「必须改」或「建议」、文件与行号（按 diff 里的行号）、为什么。没有问题就写「没有发现问题」。',
   '最后一行只写「结论：可以合并」（没有「必须改」的问题时）或「结论：需要修改」。',
 ].join('\n');

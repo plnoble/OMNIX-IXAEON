@@ -367,18 +367,18 @@
     {
       "id": "U3",
       "title": "任务页看得到改了什么",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "packages/core/test/acceptance/u3-task-changes.test.ts": "3e3eeb381ab90be5da910af4c0aaacdaab3693a662deab46f0a7d2d563c9437f"
+        "packages/core/test/acceptance/u3-task-changes.test.ts": "177574ace6acf1a7e461adb143a6928b761c93c34d3509a96c19a08cdcbce439"
       }
     },
     {
       "id": "U3b",
       "title": "任务页看改动-IPC与界面",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/u3-ipc.test.ts": "bd74b0ae1751a433efddb43e2d69816de16f3b4a30f70bf5e7809ffdccc0fac0",
-        "apps/desktop/test/acceptance/u3-tasks-page.test.ts": "fbed308a813d8b08c553fe3b01186d985adeac5305c3f485836caf92e09483f5"
+        "apps/desktop/test/acceptance/u3-tasks-page.test.ts": "e98289706dd8c40e57a41d7593835dfae68eff1d4ea370fde7970c5a32f39385"
       }
     }
   ]

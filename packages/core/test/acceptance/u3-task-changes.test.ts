@@ -5,8 +5,11 @@
  *
  * diff 方向 = 项目文件夹里现在的文件（旧）→ 副本里现在的文件（新），
  * 即「这个任务做了哪些改动」：+ 是副本新增的行，- 是被删掉的行。
- * 只读这条总约束（条件 13）在每条用例里都验：调用前后项目文件夹和副本里
+ * 只读这条总约束（条件 13）由最后一组用例验：调用前后项目文件夹和副本里
  * 每个文件（含内容与链接状态）的指纹不变。
+ *
+ * 整合方 2026-10-06 复审时补了一条（契约 2 的「去重、按路径排序」原来没测到），
+ * 并把上面这句改准了（原来写的是「每条用例里都验」，实际只有最后一组验）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
@@ -567,6 +570,19 @@ describe('条件 10：没有副本、没有执行报告、changedPaths 空', () 
     const d = seedTask({ changedPaths: ['x.txt'] });
     rmSync(workspace, { recursive: true, force: true });
     expect(readTaskChanges(db, d)).toEqual({ files: [], total: 0 });
+  });
+});
+
+describe('契约 2：清单过一遍 normalizeRel、去重、按路径排序（整合方复审时补）', () => {
+  it('同一个文件写了几种写法、次序是乱的：只出一条，按路径排好，total 是去重后的个数', () => {
+    seedTask({ changedPaths: ['b.txt', './a.txt', 'sub\\c.txt', 'a.txt', 'b.txt'] });
+    for (const p of ['a.txt', 'b.txt']) writeFileSync(join(workspace, p), `${p}\n`);
+    mkdirSync(join(workspace, 'sub'), { recursive: true });
+    writeFileSync(join(workspace, 'sub', 'c.txt'), 'c\n');
+    const { files, total } = readTaskChanges(db, task);
+    expect(files.map((f) => f.path)).toEqual(['a.txt', 'b.txt', 'sub/c.txt']);
+    expect(total).toBe(3);
+    expect(files.map((f) => f.kind)).toEqual(['added', 'added', 'added']);
   });
 });
 
