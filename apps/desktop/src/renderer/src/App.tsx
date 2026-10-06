@@ -37,6 +37,7 @@ export default function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
   const [taskFocus, setTaskFocus] = useState<TaskFocus | null>(null);
+  const openTasks = () => (setTaskFocus(null), setPage('tasks'));
   const [matchedNew, setMatchedNew] = useState(0);
 
   const refresh = useCallback(async () => {
@@ -217,7 +218,7 @@ export default function App() {
           <button
             type="button"
             className={page === 'tasks' ? 'nav-item active' : 'nav-item'}
-            onClick={() => (setTaskFocus(null), setPage('tasks'))}
+            onClick={openTasks}
             data-testid="nav-tasks"
           >
             任务
@@ -282,9 +283,7 @@ export default function App() {
           <SearchPage projects={projects} projectId={projectId} onProjectChange={setProjectId} />
         )}
 
-        {page === 'research' && (
-          <ResearchPage projects={projects} onOpenTasks={() => setPage('tasks')} />
-        )}
+        {page === 'research' && <ResearchPage projects={projects} onOpenTasks={openTasks} />}
 
         {page === 'tasks' && <TasksPage projects={projects} focus={taskFocus} />}
 
