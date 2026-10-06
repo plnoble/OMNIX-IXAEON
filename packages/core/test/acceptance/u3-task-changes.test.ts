@@ -304,8 +304,12 @@ describe('条件 6：看不了的每一种', () => {
         'big.bin',
         'long.txt',
         'link/esc-dir',
+        'link/esc-dir/esc.txt',
       ],
     });
+    // 越界入口外面放一个真能读到的标记文件：../escape.txt 指向它，读了就会露馅
+    const escapeTarget = join(dir, 'escape.txt');
+    writeFileSync(escapeTarget, 'ROOT_ESCAPE=1\n');
     // 项目侧放带标记的内容（都不许出现在结果里）
     writeFileSync(join(root, '.env'), 'ROOT_SECRET_ENV=1\n');
     mkdirSync(join(root, 'docs'), { recursive: true });
@@ -338,7 +342,7 @@ describe('条件 6：看不了的每一种', () => {
     symlinkSync(join(root, 'link-target'), join(workspace, 'link', 'esc-dir'), 'junction');
 
     const { files } = readTaskChanges(db, task);
-    expect(files).toHaveLength(9);
+    expect(files).toHaveLength(10);
     const whole = JSON.stringify(files);
     for (const probe of [
       'ROOT_SECRET_ENV',
@@ -346,6 +350,7 @@ describe('条件 6：看不了的每一种', () => {
       'ROOT_HUGE',
       'ROOT_LONG',
       'ROOT_LINK_SECRET',
+      'ROOT_ESCAPE',
       'WS_SECRET',
       'WS_DOCS',
       'WS_LONG',
@@ -368,15 +373,9 @@ describe('条件 6：看不了的每一种', () => {
     // 允许读的只有对照用的合规文件（这里 long.txt / big.bin）。
     const readSet = new Set(fsReads.calls.map((p) => p.replaceAll('\\', '/')));
     expect(readSet.size).toBeGreaterThan(0);
-    for (const bad of [
-      '../escape.txt',
-      'C:/Windows',
-      '.env',
-      'secret.pem',
-      '/docs/',
-      'huge.txt',
-      '/link/',
-    ]) {
+    // 越界标记文件与链接下面的文件：按绝对路径核对，一次都没被读过
+    expect(readSet.has(escapeTarget.replaceAll('\\', '/'))).toBe(false);
+    for (const bad of ['C:/Windows', '.env', 'secret.pem', '/docs/', 'huge.txt', '/link/esc-dir']) {
       for (const p of readSet) expect(p, `不该读 ${p}`).not.toContain(bad);
     }
   });
@@ -412,6 +411,18 @@ describe('条件 7：没有授权', () => {
     expect(files[0]!.diff).toBeNull();
     expect(files[0]!.note).toContain('没有这个项目文件夹的读取授权');
     expect(JSON.stringify(files)).not.toContain('add(a, b)');
+  });
+
+  it('撤销授权后所有条目统一提示没有授权（越界、密钥类也一样），且都不读', () => {
+    seedTask({ changedPaths: ['../x.txt', '.env', 'calc.mjs'] });
+    writeFileSync(join(workspace, '.env'), 'WS_SECRET=1\n');
+    db.prepare("UPDATE permissions SET status = 'revoked' WHERE scope_type = 'folder'").run();
+    const { files } = readTaskChanges(db, task);
+    expect(files.map((f) => f.kind)).toEqual(['unknown', 'unknown', 'unknown']);
+    expect(
+      files.map((f) => f.note).every((n) => n === '没有这个项目文件夹的读取授权，不显示内容'),
+    ).toBe(true);
+    expect(fsReads.calls).toEqual([]);
   });
 });
 
@@ -475,10 +486,19 @@ describe('条件 9：上限', () => {
     const { files, total } = readTaskChanges(db, task);
     expect(total).toBe(60);
     expect(files).toHaveLength(50);
-    // 预算用完之后是后缀：从某个文件起 diff 全是 null、note 写明
+    // 写死的 200 000 字符契约：预算用完之后是后缀，从某个文件起 diff 全是 null、note 写明；
+    // 边界按实际累计长度验，不猜范围。
+    const diffLenOf = (p: string): number => `-old ${p}\n+new ${p}\n+${'x'.repeat(5000)}`.length;
     const firstNull = files.findIndex((f) => f.diff === null);
-    expect(firstNull).toBeGreaterThan(30);
-    expect(firstNull).toBeLessThan(50);
+    expect(firstNull).toBeGreaterThan(0);
+    const withDiff = files.slice(0, firstNull);
+    expect(withDiff.every((f) => f.diff !== null)).toBe(true);
+    const used = withDiff.reduce((sum, f) => sum + f.diff!.length, 0);
+    // 预算按「给差异前还剩多少」算：最后一个文件之前的累计必需 ≤ 200 000，
+    // 加上下一个文件的差异就必然超过，实现不给它差异并写 note。
+    const beforeLast = used - withDiff[withDiff.length - 1]!.diff!.length;
+    expect(beforeLast).toBeLessThanOrEqual(200_000);
+    expect(used + diffLenOf(files[firstNull]!.path)).toBeGreaterThan(200_000);
     for (const f of files.slice(firstNull)) {
       expect(f.diff).toBeNull();
       expect(f.note).toBe('改动太多，后面的不显示差异');
@@ -494,6 +514,10 @@ describe('条件 10：没有副本、没有执行报告、changedPaths 空', () 
     expect(readTaskChanges(db, b)).toEqual({ files: [], total: 0 });
     const c = seedTask({ changedPaths: ['x.txt'], noWorkspace: true });
     expect(readTaskChanges(db, c)).toEqual({ files: [], total: 0 });
+    // 副本路径还在任务上、目录已经被清了：一样是空清单，不把项目文件误报成 deleted
+    const d = seedTask({ changedPaths: ['x.txt'] });
+    rmSync(workspace, { recursive: true, force: true });
+    expect(readTaskChanges(db, d)).toEqual({ files: [], total: 0 });
   });
 });
 

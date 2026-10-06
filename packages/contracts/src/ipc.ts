@@ -16,7 +16,6 @@ import type {
   Todo,
   TodoStatus,
   TodoView,
-  TaskChanges,
   WorkRun,
   SkillCandidate,
 } from './entities.js';
@@ -806,8 +805,6 @@ export interface IxaIpcApi {
   cancelCodingTask(id: string): Promise<CodingTask>;
   acceptCodingTask(id: string): Promise<CodingTask>;
   deleteCodingTask(id: string): Promise<CodingTask>;
-  /** U3：任务页「看改动」。任务不存在照 store.get 报 NOT_FOUND。 */
-  getCodingTaskChanges(id: string): Promise<TaskChanges>;
   // 工作记录
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置

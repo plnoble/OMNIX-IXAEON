@@ -1,19 +1,16 @@
 # U3 Codex 审查
 
-- 时间：2026-10-06T06:15:11.979Z
-- 分支：prep/U3（421b2b4），对照 docs/委派/U3-任务页看改动.md
+- 时间：2026-10-06T06:56:54.033Z
+- 分支：prep/U3（5d3cf3b），对照 docs/委派/U3-任务页看改动.md
 - Codex：0.160.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改 `packages/core/src/execution/taskChanges.ts:51`：`linkOnPath` 只检查根目录下面的路径段，不检查根目录本身；副本根或项目根是链接时仍会读取目标文件，违反“不跟链接、不读内容”的契约，需补根目录链接测试。
-- 必须改 `packages/core/src/execution/taskChanges.ts:190`：授权拒绝发生在链接、普通文件检查之后；撤销授权时可能返回其他原因，并继续探查两边路径，未满足“每个文件统一提示没有授权、副本也不读”的要求。
-- 必须改 `packages/core/src/execution/taskChanges.ts:270`：授权条件允许 `root_path` 是普通文件；项目目录被文件替代后仍可能通过授权判断，契约要求目录仍然存在，应仅接受目录。
-- 必须改 `packages/core/src/execution/taskChanges.ts:228`：比较空行数组时未要求两边都存在，新增或删除空文件会被误报为 `same`，隐藏实际文件变更；需保留 `added`／`deleted` 并补测试。
-- 必须改 `packages/core/src/execution/taskChanges.ts:22`：删除全部末尾空行会吞掉实际空白行改动，并让超过 2000 行的尾部空行绕过行数限制；应区分文件终止换行与实际空白行。
-- 必须改 `packages/core/src/execution/taskChanges.ts:229`、`packages/core/test/acceptance/u3-task-changes.test.ts:262`：用归一化后的文本判断换行差异，使纯 CRLF／LF 差异提示“一样”；测试也明确接受了这个错误结果，放宽了条件 5。应比较原始内容识别换行差异，已锁定测试由整合方修正并重锁。
-- 必须改 `packages/core/src/execution/taskChanges.ts:243`：`baseHashes[rel] ?? null` 混淆“没有这一项”和“明确记录为新文件”；报告缺少该路径指纹、项目文件存在时会误报基准漂移，必须先检查该项是否存在。
-- 必须改 `packages/core/test/acceptance/u3-task-changes.test.ts:184`：仅断言第一段没有远处改动，不能验证“3 行以外的未改动行不出现”；输出 4 行上下文也能通过当前测试，需新增明确检查上下文边界及相接合段的测试。
-- 必须改 `packages/core/test/acceptance/u3-task-changes.test.ts:312`：安全用例只检查返回内容，没有验证禁止读取的文件确实未被读取；先读取密钥、越界文件或超大文件再丢弃内容也能通过，需补充文件读取断言。
-- 必须改 `docs/委派/交付/U3.md:44`：明确尚未执行规定的真机检查，也未提供四步原始输出；规格允许拆分界面，但没有免除“没跑不能合并”的门槛，合并前须补齐检查证据。
-- 建议 `docs/委派/交付/U3.md:40`：需要人工确认：最新提交对应的 GitHub verify 是否通过；当前仍是占位说明，没有可核对的运行号或链接。
+- 必须改｜`docs/委派/交付/U3.md:6、18`：完整 diff 的源码改动是 323 行（297＋26），不是报告中的 300 行，超过硬性上限；须继续拆分并更新交付统计。
+- 必须改｜`packages/core/src/execution/taskChanges.ts:153`：只检查 `workspace_path` 是否为空；路径仍在记录中但副本目录已被清理时，会把项目中的文件误报为 `deleted`，不符合“没有副本返回空清单”，测试也只覆盖了空路径。
+- 必须改｜`packages/core/src/execution/taskChanges.ts:184–188`：授权判断仍晚于非法路径和密钥名判断；撤销授权后，`.env`、`../x` 等条目不会返回规定的“没有读取授权”提示，交付说明声称的统一处理并未实现。
+- 必须改｜`packages/core/src/execution/taskChanges.ts:191–212`：链接和大小检查与实际读取分离，`readFileSync` 会重新解析路径；并发替换文件或父目录为链接、增大文件，都可能绕过检查，读入越界或超限内容。
+- 必须改｜`packages/core/test/acceptance/u3-task-changes.test.ts:296–380`：越界目标没有放置可读取的标记文件，链接用例也只检查链接目录本身，没有检查经链接目录读取文件；此外，`join` 会消除 `../`，按原始 `../escape.txt` 匹配读取记录不能证明未越界读取。应补足这些安全用例并逐文件核对原因和种类。
+- 必须改｜`packages/core/test/acceptance/u3-task-changes.test.ts:478–485`：仅断言预算在第 31～49 个文件间耗尽，改成约 150000 或 240000 字符也可能通过，放宽了写死的 200000 字符契约；须按实际累计长度验证截断边界。
+- 必须改｜`docs/委派/交付/U3.md:48`：交付自述修改并重锁了验收测试，而规则明确该操作只由整合方执行。需要人工确认：此次改测、重锁是否由整合方处理；“按审查意见收紧”不能替代这道关卡。
+- 必须改｜`docs/委派/交付/U3.md:38–44`：自动化记录仍称 15 条测试，当前 diff 实际为 16 条，且未附验收、verify 输出；真机证据仅引用未提供的 U3b。须补齐当前版本的证据；需要人工确认：U3b 四步真机检查及 GitHub verify 覆盖本次修订并通过。
 
 结论：需要修改

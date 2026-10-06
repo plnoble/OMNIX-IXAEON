@@ -12,7 +12,6 @@ import {
   listRequirements,
   MATCH_WINDOW_DAYS,
   markMatchedFindingsSeen,
-  readTaskChanges,
   recordAudit,
   removeRequirement,
   requeueFailedExtractions,
@@ -621,8 +620,6 @@ export function registerIpc(runtime: AppRuntime): void {
       recordAudit(runtime.db, 'coding.task_deleted', { taskId: id, status: task.status });
       return task;
     },
-    // U3：任务页「看改动」。任务不存在由 store.get 报 NOT_FOUND。
-    getCodingTaskChanges: async (id) => readTaskChanges(runtime.db, runtime.coding.store.get(id)),
 
     // --- 工作记录（M3） ---
     listWorkRuns: async (input) => runtime.listWorkRuns(input.projectId, input.limit),
