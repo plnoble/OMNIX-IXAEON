@@ -1033,3 +1033,26 @@ textarea {
   max-height: 260px;
   overflow: auto;
 }
+
+/* U3：任务页「看改动」——差异正文按行着色 */
+.u3-changes .diff-pre {
+  background: var(--panel-2);
+  border: 1px solid var(--line, #eee);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 340px;
+}
+.u3-changes .diff-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.u3-changes .diff-add {
+  color: var(--ok);
+}
+.u3-changes .diff-del {
+  color: var(--bad);
+}

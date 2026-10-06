@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
-import { executorLabel, type CodingTask } from '@ixaeon/contracts';
+import {
+  executorLabel,
+  type CodingTask,
+  type TaskChangedFile,
+  type TaskChanges,
+} from '@ixaeon/contracts';
 
 const statusLabel: Record<CodingTask['status'], string> = {
   draft: '草案',
@@ -59,6 +64,129 @@ function landingLine(t: CodingTask): string {
     ? ((JSON.parse(t.executor_report_json) as { changedPaths?: string[] }).changedPaths ?? [])
     : [];
   return changed.length === 0 ? '这次没有改动文件（没有改动）' : '改动还在隔离副本里，未落地';
+}
+
+/** 执行报告里的 changedPaths 条数；没有报告或清单为空返回 null（不显示「看改动」）。 */
+function changedCount(t: CodingTask): number | null {
+  if (!t.executor_report_json) return null;
+  try {
+    const report = JSON.parse(t.executor_report_json) as { changedPaths?: unknown };
+    const list = Array.isArray(report.changedPaths)
+      ? (report.changedPaths as unknown[]).filter((p): p is string => typeof p === 'string')
+      : [];
+    return list.length > 0 ? list.length : null;
+  } catch {
+    return null;
+  }
+}
+
+const changeKindLabel: Record<TaskChangedFile['kind'], string> = {
+  added: '新增',
+  modified: '修改',
+  deleted: '删除',
+  same: '没有变化',
+  unknown: '看不了',
+};
+
+/** 一行差异正文：+ 行绿色，- 行红色，其余原色。 */
+function DiffBody({ diff }: { diff: string }) {
+  return (
+    <pre className="diff-pre">
+      {diff.split('\n').map((line, i) => (
+        <div
+          key={i}
+          className={`diff-line ${line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-del' : ''}`}
+        >
+          {line}
+        </div>
+      ))}
+    </pre>
+  );
+}
+
+/**
+ * U3：任务卡片里的「看改动」。展开状态和查询结果都只在这张卡片里；
+ * 读取出错显示在这里，不走页顶报错条。每次展开都重新读。
+ */
+function TaskChangesCard({ task }: { task: CodingTask }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<TaskChanges | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 每次展开发一个新请求；序号对不上的旧请求结果直接作废（收起再展开时的竞态）。 */
+  const reqSeq = useRef(0);
+  const count = changedCount(task);
+  if (count === null) return null;
+
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    setLoading(true);
+    setLoadError(null);
+    const seq = ++reqSeq.current;
+    void api.getCodingTaskChanges(task.id).then(
+      (res) => {
+        if (reqSeq.current !== seq) return;
+        setData(res);
+        setLoading(false);
+      },
+      (err) => {
+        if (reqSeq.current !== seq) return;
+        setLoadError(errMsg(err));
+        setLoading(false);
+      },
+    );
+  };
+
+  return (
+    <div className="u3-changes">
+      <p className="muted">
+        改了 {count} 个文件{' '}
+        <Button kind="default" testId={`task-changes-toggle-${task.id}`} onClick={toggle}>
+          {open ? '收起' : '看改动'}
+        </Button>
+      </p>
+      {open && (
+        <div data-testid={`task-changes-${task.id}`}>
+          {loading && <Spinner />}
+          {!loading && loadError && (
+            <p className="warn" data-testid={`task-changes-error-${task.id}`}>
+              {loadError}
+            </p>
+          )}
+          {!loading && !loadError && data && (
+            <>
+              {data.total > data.files.length && (
+                <p className="muted">共 {data.total} 个，只列了前 50 个</p>
+              )}
+              {data.files.map((f) => (
+                <div
+                  key={f.path}
+                  style={{
+                    borderTop: '1px solid var(--line, #eee)',
+                    paddingTop: 8,
+                    marginTop: 8,
+                  }}
+                >
+                  <p style={{ margin: '4px 0' }}>
+                    <strong>{f.path}</strong>{' '}
+                    <span className={`badge badge-${f.kind === 'unknown' ? 'muted' : f.kind}`}>
+                      {changeKindLabel[f.kind]}
+                    </span>
+                  </p>
+                  {f.note && <p className="muted">{f.note}</p>}
+                  {f.diff !== null && <DiffBody diff={f.diff} />}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function TasksPage({ projects }: { projects: Project[] }) {
@@ -202,6 +330,7 @@ export function TasksPage({ projects }: { projects: Project[] }) {
             {t.verify_status ? ` · 独立验证 ${t.verify_status}` : ''}
             {t.tests_modified ? ' · 测试代码被修改' : ''}
           </p>
+          <TaskChangesCard task={t} />
           {landingLine(t) && (
             <p className="note" data-testid={`task-landing-${t.id}`}>
               {landingLine(t)}
