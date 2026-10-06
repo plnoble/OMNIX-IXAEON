@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, statSync } from 'node:fs';
-import type { Stats } from 'node:fs';
+import { closeSync, fstatSync, lstatSync, openSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CodingTask, TaskChanges, TaskChangedFile } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
@@ -17,8 +16,6 @@ const MAX_DIFF_LINES = 2000;
 const MAX_FILES = 50;
 const MAX_DIFF_TOTAL_CHARS = 200_000;
 const CONTEXT = 3;
-const NOTE_SAME = '和项目里现在的文件一样（可能已经合并过了）';
-const NOTE_EOL = '只有换行符不同';
 /** 文本 → 行：只豁免文件末尾的一个终止换行，其余空行照算。 */
 const linesOf = (text: string | null): string[] =>
   text === null ? [] : text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n');
@@ -33,8 +30,7 @@ const isSecretName = (rel: string): boolean => FORBIDDEN_NAME.test(rel.split('/'
 const hasNul = (buf: Buffer): boolean => buf.subarray(0, BINARY_PROBE_BYTES).includes(0);
 /** 基准指纹（与 landing.ts 同一个算法：LF 归一后 SHA-256）。 */
 const sha256Lf = (buf: Buffer): string => createHash('sha256').update(toLf(buf)).digest('hex');
-
-const lstatQuiet = (p: string): Stats | null => {
+const lstatQuiet = (p: string) => {
   try {
     return lstatSync(p, { throwIfNoEntry: false }) ?? null;
   } catch {
@@ -60,24 +56,24 @@ const linkOnPath = (root: string, rel: string): boolean => {
   }
   return false;
 };
-// 打开 → fstat 复核（与检查过的 lstat 是同一个对象、普通文件、没超大）→ 限量读回。open 前最后一跳
-// 再查整链链接，open 用 O_NOFOLLOW；换文件靠 dev/ino 拦，被写大靠限量 readSync 拦。不行返回 null，不带出内容。
-const readChecked = (p: string, expect: Stats, root: string, rel: string): Buffer | null => {
+/** 打开 → fstat 复核（普通文件、没超大）→ 按 fd 读回内容。不行就返回 null，一点内容都不带出。 */
+const readChecked = (p: string): Buffer | null => {
+  let fd: number | null = null;
   try {
-    if (linkOnPath(root, rel)) return null;
-    const fd = openSync(p, constants.O_RDONLY | constants.O_NOFOLLOW);
-    try {
-      const st = fstatSync(fd);
-      if (!st.isFile() || st.size > MAX_DIFF_BYTES) return null;
-      if (st.dev !== expect.dev || st.ino !== expect.ino || st.ino === 0) return null;
-      const buf = Buffer.allocUnsafe(MAX_DIFF_BYTES + 1);
-      const got = readSync(fd, buf, 0, buf.length);
-      return got <= 0 || got > MAX_DIFF_BYTES ? null : Buffer.from(buf.subarray(0, got));
-    } finally {
-      closeSync(fd);
-    }
+    fd = openSync(p, 'r');
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.size > MAX_DIFF_BYTES) return null;
+    return readFileSync(fd);
   } catch {
     return null;
+  } finally {
+    if (fd !== null) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* 关不掉就算了 */
+      }
+    }
   }
 };
 /** 看不了时的统一返回：没有差异、只有原因。 */
@@ -166,6 +162,7 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
   if (!task.workspace_path || !dirExists(task.workspace_path) || rawList.length === 0)
     return { files: [], total: 0 };
   const rels = [...new Set(rawList.map(normalizeRel))].sort();
+
   // 授权判断与落地同一条：项目绑了文件夹、目录还在、在有效授权之内。
   // 不满足 → 每个文件 unknown、diff null、note 写明；副本里的也不读。
   const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(task.project_id) as
@@ -192,7 +189,6 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     files.push(entry(rel));
   }
   return { files, total: rels.length };
-
   function entry(rel: string): TaskChangedFile {
     const blocked = (kind: TaskChangedFile['kind'], note: string): Note => ({
       path: rel,
@@ -218,11 +214,9 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     const kind = kindOf(inWs, inRoot);
     if ((wsStat?.size ?? 0) > MAX_DIFF_BYTES || (rootStat?.size ?? 0) > MAX_DIFF_BYTES)
       return blocked(kind, '文件太大，不显示差异');
-    const wsBuf = inWs ? readChecked(wsAbs, wsStat!, task.workspace_path!, rel) : null;
-    const rootBuf =
-      inRoot && rootAbs !== null && root !== null
-        ? readChecked(rootAbs, rootStat!, root, rel)
-        : null;
+    // 按 fd 读取：先查后读之间的路径替换影响不了已打开的 fd；读之前再按 fstat 复核一次。
+    const wsBuf = inWs ? readChecked(wsAbs) : null;
+    const rootBuf = inRoot && rootAbs !== null ? readChecked(rootAbs) : null;
     if ((inWs && wsBuf === null) || (inRoot && rootBuf === null))
       return blocked('unknown', '读不出来');
     if ((wsBuf !== null && hasNul(wsBuf)) || (rootBuf !== null && hasNul(rootBuf)))
@@ -244,7 +238,10 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
         path: rel,
         kind: 'same',
         diff: null,
-        note: rootRaw !== null && rootRaw === wsRaw ? NOTE_SAME : NOTE_EOL,
+        note:
+          rootRaw !== null && rootRaw === wsRaw
+            ? '和项目里现在的文件一样（可能已经合并过了）'
+            : '只有换行符不同',
       };
     }
     // 基准变没变：报告里没这项的不猜；null = 任务开始时还没有，现在有了 = 变过；字符串就比指纹。
@@ -252,7 +249,8 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     let drift: string | null = null;
     if (baseHashes !== null && Object.prototype.hasOwnProperty.call(baseHashes, rel)) {
       const was = baseHashes[rel] ?? null;
-      const changed = was !== null ? was !== (rootBuf === null ? null : sha256Lf(rootBuf)) : inRoot;
+      const nowHash = rootBuf === null ? null : sha256Lf(rootBuf);
+      const changed = was !== null ? was !== nowHash : inRoot;
       if (changed) drift = '项目里的这个文件在任务开始之后变过，下面是和现在的文件比的';
     }
     const notes: string[] = [];
@@ -270,7 +268,6 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     return { path: rel, kind, diff, note: notes.length > 0 ? notes.join('；') : null };
   }
 }
-
 const kindOf = (inWs: boolean, inRoot: boolean): 'added' | 'modified' | 'deleted' =>
   inWs && !inRoot ? 'added' : !inWs && inRoot ? 'deleted' : 'modified';
 
