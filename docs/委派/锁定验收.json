@@ -395,7 +395,7 @@
       "status": "queued",
       "files": {
         "packages/contracts/test/acceptance/u5-card-words.test.ts": "d325a67ed7049f8b48e69fb5ebc4a7b61d5f259fe3de1d9092b864b781478022",
-        "apps/desktop/test/acceptance/u5-tasks-card.test.ts": "0f64aa2ad0eb6297ab9bd099051a0bb9e345a3dea9f7b6d5fe9c7ec72839f914"
+        "apps/desktop/test/acceptance/u5-tasks-card.test.ts": "638a82db22e1b61f498bf49d07dec28d56dfedd05acf76ecee8a43c878627862"
       }
     }
   ]

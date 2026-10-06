@@ -12,7 +12,7 @@ import { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CodingTask } from '@ixaeon/contracts';
+import { executorExplanation, verifyLabel, type CodingTask } from '@ixaeon/contracts';
 import { buildTaskReport, type TaskReportRow } from '../../src/main/taskReport.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -125,6 +125,7 @@ describe('U5 任务卡片说人话', () => {
     harness.rows = [
       task('said', {
         status: 'failed',
+        error: '执行器未声称成功',
         executor_name: 'model:m',
         executor_report_json: failed('写不了这个文件'),
       }),
@@ -141,9 +142,16 @@ describe('U5 任务卡片说人话', () => {
       task('ok', { status: 'pending_accept', executor_report_json: failed('不该出现') }),
     ];
     await render();
-    expect(container.querySelector('[data-testid="task-explanation-said"]')?.textContent).toBe(
-      '它的说明：写不了这个文件',
+    const said = container.querySelector('[data-testid="task-said"]')!;
+    const reason = Array.from(said.querySelectorAll('p.warn')).find((p) =>
+      (p.textContent ?? '').includes('执行器未声称成功'),
     );
+    expect(reason).toBeTruthy();
+    const explanation = container.querySelector('[data-testid="task-explanation-said"]')!;
+    expect(explanation.textContent).toBe('它的说明：写不了这个文件');
+    expect(
+      reason!.compareDocumentPosition(explanation) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(container.querySelector('[data-testid="task-explanation-codex"]')?.textContent).toBe(
       '它的说明：越界了',
     );
@@ -218,6 +226,49 @@ describe('U5 任务卡片说人话', () => {
   });
 });
 
+describe('U5 两句共用的话（条件 1、3）', () => {
+  it('verifyLabel 四种结果，not_run 的两种情况分得开', () => {
+    expect(verifyLabel({ verify_status: 'passed', verify_output: 'ok' })).toBe('验证通过');
+    expect(verifyLabel({ verify_status: 'failed', verify_output: '断言没过' })).toBe('验证没通过');
+    expect(verifyLabel({ verify_status: 'not_run', verify_output: '  工作区里没有 pnpm  ' })).toBe(
+      '验证没跑',
+    );
+    expect(verifyLabel({ verify_status: 'not_run', verify_output: '没有有效验证命令' })).toBe(
+      '还没有独立验收',
+    );
+    expect(verifyLabel({ verify_status: 'not_run', verify_output: '  ' })).toBe('还没有独立验收');
+    expect(verifyLabel({ verify_status: 'not_run', verify_output: null })).toBe('还没有独立验收');
+    expect(verifyLabel({ verify_status: null, verify_output: null })).toBe('还没有独立验收');
+  });
+
+  it('executorExplanation：带说明才返回；坏的报告是 null，不抛', () => {
+    const report = (summary: unknown, claimed: unknown = false) =>
+      JSON.stringify({
+        claimedSuccess: claimed,
+        summary,
+        changedPaths: [],
+        testsModified: false,
+        raw: '',
+      });
+    expect(
+      executorExplanation({ status: 'failed', executor_report_json: report('  做不到  ') }),
+    ).toBe('做不到');
+    expect(
+      executorExplanation({ status: 'pending_accept', executor_report_json: report('做不到') }),
+    ).toBe(null);
+    expect(
+      executorExplanation({ status: 'failed', executor_report_json: report('做不到', true) }),
+    ).toBe(null);
+    expect(executorExplanation({ status: 'failed', executor_report_json: report('   ') })).toBe(
+      null,
+    );
+    expect(executorExplanation({ status: 'failed', executor_report_json: null })).toBe(null);
+    expect(executorExplanation({ status: 'failed', executor_report_json: '不是 json' })).toBe(null);
+    expect(executorExplanation({ status: 'failed', executor_report_json: 'null' })).toBe(null);
+    expect(executorExplanation({ status: 'failed', executor_report_json: report(12) })).toBe(null);
+  });
+});
+
 describe('U5 回报的文字一个字不变', () => {
   const row = (patch: Partial<TaskReportRow>): TaskReportRow =>
     ({
@@ -238,13 +289,13 @@ describe('U5 回报的文字一个字不变', () => {
     }) as TaskReportRow;
 
   it('条件 2：验证那一句和改之前逐字一样', () => {
-    const text = (verify_status: string, verify_output: string) =>
-      buildTaskReport(row({ verify_status, verify_output }))!.content;
-    expect(text('passed', 'ok')).toContain('验证通过');
-    expect(text('passed', 'ok')).not.toContain('验证没跑');
-    expect(text('not_run', '工作区里没有 pnpm')).toContain('验证没跑：工作区里没有 pnpm');
-    expect(text('not_run', '没有有效验证命令')).toContain('还没有独立验收');
-    expect(text('not_run', '没有有效验证命令')).not.toContain('验证没跑');
+    const line = (verify_status: string, verify_output: string) =>
+      buildTaskReport(row({ verify_status, verify_output }))!
+        .content.split('\n')
+        .find((l) => l.startsWith('验证') || l.startsWith('还没有'));
+    expect(line('passed', 'ok')).toBe('验证通过');
+    expect(line('not_run', '工作区里没有 pnpm')).toBe('验证没跑：工作区里没有 pnpm');
+    expect(line('not_run', '没有有效验证命令')).toBe('还没有独立验收');
   });
 
   it('条件 4：「它的说明」只出现在「我的模型」做的失败任务里', () => {

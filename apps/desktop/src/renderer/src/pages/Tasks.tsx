@@ -432,8 +432,8 @@ export function TasksPage({
               {landingLine(t)}
             </p>
           )}
-          <TaskWords task={t} />
           {t.error && <p className="warn">{t.error}</p>}
+          <TaskWords task={t} />
           {t.verify_output && <pre className="muted">{t.verify_output.slice(0, 400)}</pre>}
           <div className="card-actions">
             {(t.status === 'draft' || t.status === 'waiting_approval') && (
