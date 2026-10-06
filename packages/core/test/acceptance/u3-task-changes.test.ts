@@ -33,16 +33,16 @@ import {
   type CoreDatabase,
 } from '@ixaeon/core';
 
-/** 记录 readTaskChanges 期间所有 readFileSync 的调用（安全用例要证明被禁的文件真的没被读）。 */
+/** 记录 readTaskChanges 期间所有 openSync 的调用（安全用例要证明被禁的文件连打开都没发生）。 */
 const fsReads = vi.hoisted(() => ({ calls: [] as string[] }));
 vi.mock('node:fs', async (importOriginal) => {
   const actual = (await importOriginal()) as typeof FsTypes;
   return {
     ...actual,
-    readFileSync: vi.fn(((...args: unknown[]) => {
+    openSync: vi.fn(((...args: unknown[]) => {
       fsReads.calls.push(String(args[0]));
-      return (actual.readFileSync as (...a: unknown[]) => unknown)(...args);
-    }) as FsTypes['readFileSync']),
+      return (actual.openSync as (...a: unknown[]) => unknown)(...args);
+    }) as FsTypes['openSync']),
   };
 });
 
