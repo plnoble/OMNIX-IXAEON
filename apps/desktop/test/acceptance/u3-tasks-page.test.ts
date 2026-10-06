@@ -180,7 +180,7 @@ describe('U3 任务卡片看改动（条件 12）', () => {
     };
     let resolveNew: ((v: TaskChanges) => void) | null = null;
     let callNo = 0;
-    harness.getCodingTaskChanges.mockImplementation((id: string) => {
+    harness.getCodingTaskChanges.mockImplementation((_id: string) => {
       callNo += 1;
       if (callNo === 1) {
         // 旧请求：晚些时候失败
