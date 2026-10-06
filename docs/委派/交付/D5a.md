@@ -31,7 +31,17 @@
   `options` 原样传给实际干活的执行器（模型、Codex 都传）。
 - `packages/core/src/index.ts`：导出 `ACCEPTANCE_DIR`、`ExecutorRunOptions`。
 
-改动文件与行数（最后一次提交之后 `git diff --stat origin/main...HEAD` 原样，见推送后）：
+改动文件与行数（最后一次提交之后 `git diff --stat origin/main...HEAD` 原样）：
+
+```
+ apps/desktop/e2e/d5a-acceptance-first.spec.ts      | 326 +++++++++++++++++++
+ apps/desktop/src/main/codingExecutor.ts            |  14 +-
+ .../委派/交付/D5a.md"                              |  92 ++++++
+ packages/core/src/execution/executor.ts            | 345 ++++++++++++++++++++-
+ packages/core/src/execution/modelExecutor.ts       |  20 +-
+ packages/core/src/index.ts                         |   2 +
+ 6 files changed, 777 insertions(+), 22 deletions(-)
+```
 
 实现要点（规格「没钉住、留给实现判断的」四条的选择）：
 
@@ -50,7 +60,7 @@
 
 - `node scripts/acceptance.mjs run D5a`：37 passed。
 - `node scripts/verify.mjs`：全部通过（IXAEON v0.2 验证完成）。
-- GitHub 上的 verify：推送后补运行号。
+- GitHub 上的 verify：绿（run 37395701380，b5a856e）。
 
 ## 端到端测试（随实现一起交，不锁定）
 
