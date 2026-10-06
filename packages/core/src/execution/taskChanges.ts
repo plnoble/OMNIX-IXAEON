@@ -33,6 +33,7 @@ const isSecretName = (rel: string): boolean => FORBIDDEN_NAME.test(rel.split('/'
 const hasNul = (buf: Buffer): boolean => buf.subarray(0, BINARY_PROBE_BYTES).includes(0);
 /** 基准指纹（与 landing.ts 同一个算法：LF 归一后 SHA-256）。 */
 const sha256Lf = (buf: Buffer): string => createHash('sha256').update(toLf(buf)).digest('hex');
+
 const lstatQuiet = (p: string): Stats | null => {
   try {
     return lstatSync(p, { throwIfNoEntry: false }) ?? null;
@@ -70,8 +71,8 @@ const readChecked = (p: string, expect: Stats, root: string, rel: string): Buffe
       if (!st.isFile() || st.size > MAX_DIFF_BYTES) return null;
       if (st.dev !== expect.dev || st.ino !== expect.ino || st.ino === 0) return null;
       const buf = Buffer.allocUnsafe(MAX_DIFF_BYTES + 1);
-      const got = readSync(fd, buf);
-      return got < 0 || got > MAX_DIFF_BYTES ? null : Buffer.from(buf.subarray(0, got));
+      const got = readSync(fd, buf, 0, buf.length);
+      return got <= 0 || got > MAX_DIFF_BYTES ? null : Buffer.from(buf.subarray(0, got));
     } finally {
       closeSync(fd);
     }
@@ -183,6 +184,7 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     ? ((JSON.parse(task.executor_report_json) as { baseHashes?: Record<string, string> })
         .baseHashes ?? null)
     : null;
+
   const files: TaskChangedFile[] = [];
   let diffBudgetLeft = MAX_DIFF_TOTAL_CHARS;
   for (const rel of rels) {
@@ -268,6 +270,7 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     return { path: rel, kind, diff, note: notes.length > 0 ? notes.join('；') : null };
   }
 }
+
 const kindOf = (inWs: boolean, inRoot: boolean): 'added' | 'modified' | 'deleted' =>
   inWs && !inRoot ? 'added' : !inWs && inRoot ? 'deleted' : 'modified';
 
