@@ -105,25 +105,32 @@ function DiffBody({ diff }: { diff: string }) {
 }
 
 /**
- * U3：任务卡片里的「看改动」。展开状态和查询结果都只在这张卡片里；
+ * U3：任务卡片里的「看改动」。查询结果留在这张卡片里；
  * 读取出错显示在这里，不走页顶报错条。每次展开都重新读。
+ * U4：展开与否由任务页传进来（`open`），用户点按钮或从回报跳过来都走 `onOpenChange`。
  */
-function TaskChangesCard({ task }: { task: CodingTask }) {
-  const [open, setOpen] = useState(false);
+function TaskChangesCard({
+  task,
+  open,
+  onOpenChange,
+}: {
+  task: CodingTask;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<TaskChanges | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** 每次展开发一个新请求；序号对不上的旧请求结果直接作废（收起再展开时的竞态）。 */
   const reqSeq = useRef(0);
   const count = changedCount(task);
-  if (count === null) return null;
 
-  const toggle = () => {
-    if (open) {
-      setOpen(false);
+  // 展开（用户点开，或从回报跳过来）就读一次；收起把还没回来的请求作废。
+  useEffect(() => {
+    if (count === null || !open) {
+      reqSeq.current += 1;
       return;
     }
-    setOpen(true);
     setLoading(true);
     setLoadError(null);
     const seq = ++reqSeq.current;
@@ -139,7 +146,11 @@ function TaskChangesCard({ task }: { task: CodingTask }) {
         setLoading(false);
       },
     );
-  };
+  }, [open, task.id, count]);
+
+  if (count === null) return null;
+
+  const toggle = () => onOpenChange(!open);
 
   return (
     <div className="u3-changes">
@@ -189,7 +200,20 @@ function TaskChangesCard({ task }: { task: CodingTask }) {
   );
 }
 
-export function TasksPage({ projects }: { projects: Project[] }) {
+/** U4：要任务页停在哪条任务上。每点一次按钮给一个新的对象。 */
+export interface TaskFocus {
+  taskId: string;
+  /** 点按钮的时刻（Date.now()），同一条任务连点两次也能再生效。 */
+  at: number;
+}
+
+export function TasksPage({
+  projects,
+  focus = null,
+}: {
+  projects: Project[];
+  focus?: TaskFocus | null;
+}) {
   const [notice, setNotice] = useState('');
   const [realDispatch, setRealDispatch] = useState(false);
   /** D7b：主进程回传的执行器种类（'model' 时不显示 Fake / 真机 Codex 那两句）。 */
@@ -202,6 +226,9 @@ export function TasksPage({ projects }: { projects: Project[] }) {
   const [scope, setScope] = useState('note.txt');
   const [verify, setVerify] = useState(DEFAULT_VERIFY);
   const [skills, setSkills] = useState<Awaited<ReturnType<typeof api.listSkillCandidates>>>([]);
+  /** 哪几张卡片的「看改动」是展开的。用户自己点，或从回报跳过来（U4）都会改这里。 */
+  const [changesOpen, setChangesOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const appliedFocusAt = useRef<number | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -221,6 +248,25 @@ export function TasksPage({ projects }: { projects: Project[] }) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // U4：从回报点过来时，清单读回来之后滚到那条任务；它有改动就把「看改动」展开。
+  // focus 换了新对象（at 变了）再做一次。任务已经不在了：什么都不做，不报错。
+  // 从左边导航进来不带 focus，不滚、不自动展开。
+  useEffect(() => {
+    if (!focus || appliedFocusAt.current === focus.at) return;
+    if (tasks.length === 0) return;
+    const target = tasks.find((t) => t.id === focus.taskId);
+    appliedFocusAt.current = focus.at;
+    if (!target) return;
+    document.querySelector(`[data-testid="task-${target.id}"]`)?.scrollIntoView();
+    if (changedCount(target) !== null) {
+      setChangesOpen((prev) => {
+        const next = new Set(prev);
+        next.add(target.id);
+        return next;
+      });
+    }
+  }, [focus, tasks]);
 
   // U2：任务是在后台跑的（聊天里点「要做」就开工）。有任务在排队、执行或验证时每两秒看一眼，
   // 不然这一页会一直停在「执行中」。只更新任务，不动用户正在看的报错条；都做完了就停。
@@ -330,7 +376,18 @@ export function TasksPage({ projects }: { projects: Project[] }) {
             {t.verify_status ? ` · 独立验证 ${t.verify_status}` : ''}
             {t.tests_modified ? ' · 测试代码被修改' : ''}
           </p>
-          <TaskChangesCard task={t} />
+          <TaskChangesCard
+            task={t}
+            open={changesOpen.has(t.id)}
+            onOpenChange={(open) =>
+              setChangesOpen((prev) => {
+                const next = new Set(prev);
+                if (open) next.add(t.id);
+                else next.delete(t.id);
+                return next;
+              })
+            }
+          />
           {landingLine(t) && (
             <p className="note" data-testid={`task-landing-${t.id}`}>
               {landingLine(t)}

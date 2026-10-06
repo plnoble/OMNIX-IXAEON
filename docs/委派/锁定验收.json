@@ -380,6 +380,14 @@
         "apps/desktop/test/acceptance/u3-ipc.test.ts": "bd74b0ae1751a433efddb43e2d69816de16f3b4a30f70bf5e7809ffdccc0fac0",
         "apps/desktop/test/acceptance/u3-tasks-page.test.ts": "e98289706dd8c40e57a41d7593835dfae68eff1d4ea370fde7970c5a32f39385"
       }
+    },
+    {
+      "id": "U4",
+      "title": "回报一点就到那条任务",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/u4-open-task-from-report.test.ts": "5ca14b04c3a3545e54bdd3c10679fb40610566b09a0cd64f343af9602a1ec486"
+      }
     }
   ]
 }

@@ -10,7 +10,7 @@ import { InboxPage, HistoryPage } from './pages/Inbox.js';
 import { AskPage } from './pages/Ask.js';
 import { PersonalOverviewPage } from './pages/Overview.js';
 import { ResearchPage } from './pages/Research.js';
-import { TasksPage } from './pages/Tasks.js';
+import { TasksPage, type TaskFocus } from './pages/Tasks.js';
 import { TodosPage } from './pages/Todos.js';
 import { ErrorBanner } from './ui.js';
 import { UpdatePrompt } from './UpdatePrompt.js';
@@ -36,6 +36,8 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
+  /** U4：从回报点过来时，任务页停在哪条任务上。每点一次是一个新对象。 */
+  const [taskFocus, setTaskFocus] = useState<TaskFocus | null>(null);
   const [matchedNew, setMatchedNew] = useState(0);
 
   const refresh = useCallback(async () => {
@@ -216,7 +218,11 @@ export default function App() {
           <button
             type="button"
             className={page === 'tasks' ? 'nav-item active' : 'nav-item'}
-            onClick={() => setPage('tasks')}
+            onClick={() => {
+              // 从左边点进来：不滚、不自动展开
+              setTaskFocus(null);
+              setPage('tasks');
+            }}
             data-testid="nav-tasks"
           >
             任务
@@ -251,7 +257,16 @@ export default function App() {
 
         {page === 'inbox' && <InboxPage projects={projects} />}
 
-        {page === 'ask' && <AskPage projects={projects} openConversationId={openConversationId} />}
+        {page === 'ask' && (
+          <AskPage
+            projects={projects}
+            openConversationId={openConversationId}
+            onOpenTask={(taskId) => {
+              setTaskFocus({ taskId, at: Date.now() });
+              setPage('tasks');
+            }}
+          />
+        )}
 
         {page === 'todos' && (
           <TodosPage
@@ -276,7 +291,7 @@ export default function App() {
           <ResearchPage projects={projects} onOpenTasks={() => setPage('tasks')} />
         )}
 
-        {page === 'tasks' && <TasksPage projects={projects} />}
+        {page === 'tasks' && <TasksPage projects={projects} focus={taskFocus} />}
 
         {page === 'settings' && <SettingsPage />}
       </main>
