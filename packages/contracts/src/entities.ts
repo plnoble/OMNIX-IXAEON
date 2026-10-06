@@ -339,6 +339,24 @@ export const codingTaskSchema = z.object({
 });
 export type CodingTask = z.infer<typeof codingTaskSchema>;
 
+/** U3：任务页「看改动」的每个文件。 */
+export interface TaskChangedFile {
+  /** 相对路径，正斜杠。 */
+  path: string;
+  kind: 'added' | 'modified' | 'deleted' | 'same' | 'unknown';
+  /** 差异正文（格式见 D5a/契约 4：+/-/空格 开头，段间 @@）。看不了，或者没有差异时是 null。 */
+  diff: string | null;
+  /** 看不了的原因，或者要提醒用户的话。没有就是 null。 */
+  note: string | null;
+}
+
+export interface TaskChanges {
+  /** 按路径排序，最多 50 个。 */
+  files: TaskChangedFile[];
+  /** 改动文件的总数。 */
+  total: number;
+}
+
 /** 执行器名给人看的写法（回报、任务页共用）：`model:<模型名>` → 我的模型（<模型名>）。 */
 export function executorLabel(name: string): string {
   if (name.startsWith('model:')) return `我的模型（${name.slice('model:'.length)}）`;

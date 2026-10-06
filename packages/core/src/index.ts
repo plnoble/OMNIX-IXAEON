@@ -185,6 +185,7 @@ export {
 } from './execution/taskStore.js';
 export { copyProjectWorkspace, type WorkspaceSnapshot } from './execution/workspaceCopy.js';
 export { ModelCodingExecutor } from './execution/modelExecutor.js';
+export { readTaskChanges } from './execution/taskChanges.js';
 export {
   ACCEPTANCE_DIR,
   CodingOrchestrator,
