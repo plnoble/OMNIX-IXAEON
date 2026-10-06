@@ -58,9 +58,23 @@ export interface ExecutorReport {
   baseHashes?: Record<string, string | null>;
 }
 
+/** D5a：验收测试所在的目录名（副本里的 ixaeon-acceptance/<任务号前 8 位>/）。 */
+export const ACCEPTANCE_DIR = 'ixaeon-acceptance';
+
+/** D5a：执行器的一次运行还能看哪些文件（内容发给执行器，但不许改）。 */
+export interface ExecutorRunOptions {
+  /** 这些文件的内容给执行器看，但不许改。能改什么仍由任务的 scope 定。 */
+  readScope?: string[];
+}
+
 export interface CodingExecutor {
   readonly name: string;
-  run(task: CodingTask, workspace: string, signal: AbortSignal): Promise<ExecutorReport>;
+  run(
+    task: CodingTask,
+    workspace: string,
+    signal: AbortSignal,
+    options?: ExecutorRunOptions,
+  ): Promise<ExecutorReport>;
 }
 
 export interface IndependentCheck {
@@ -86,8 +100,26 @@ export class FakeCodingExecutor implements CodingExecutor {
     } = {},
   ) {}
 
-  async run(task: CodingTask, workspace: string, _signal: AbortSignal): Promise<ExecutorReport> {
+  async run(
+    task: CodingTask,
+    workspace: string,
+    _signal: AbortSignal,
+    _options?: ExecutorRunOptions,
+  ): Promise<ExecutorReport> {
     this.lastGoal = task.goal;
+    // D5a：被叫去写验收测试（scope 只有测试目录）时不动副本，照实说写不了
+    const scope = (JSON.parse(task.scope_json) as string[]).map((e) =>
+      e.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, ''),
+    );
+    if (scope.length > 0 && scope.every((e) => e === '.' || e.startsWith(ACCEPTANCE_DIR))) {
+      return {
+        claimedSuccess: false,
+        summary: '替身执行器不写验收测试',
+        changedPaths: [],
+        testsModified: false,
+        raw: '',
+      };
+    }
     const files = this.behavior.files ?? { 'note.txt': `fake result for ${task.goal}` };
     for (const [rel, body] of Object.entries(files)) {
       if (
@@ -153,7 +185,12 @@ export class CodexCliExecutor implements CodingExecutor {
   readonly name = 'codex-cli';
   constructor(private readonly locator: CodexLocator) {}
 
-  async run(task: CodingTask, workspace: string, signal: AbortSignal): Promise<ExecutorReport> {
+  async run(
+    task: CodingTask,
+    workspace: string,
+    signal: AbortSignal,
+    _options?: ExecutorRunOptions,
+  ): Promise<ExecutorReport> {
     if (!existsSync(this.locator.exe)) {
       throw new IxaError(
         ErrorCodes.NOT_FOUND,
@@ -493,19 +530,241 @@ export class CodingOrchestrator {
             : '获准 Skill：无',
         ].join('\n\n'),
       };
-      const report = await this.executor.run(dispatched, workspace, this.currentAbort.signal);
-      if (this.store.get(taskId).generation !== generation) {
-        return this.store.setStatus(taskId, 'cancelled', {
+      // D5a：有验收条件、没有验证命令的任务（聊天里提出来的）走「验收先行」；
+      // 别的任务（带验证命令、没有验收条件）与现在一模一样，一次执行。
+      const acceptance = (JSON.parse(task.acceptance_json ?? '[]') as string[]).filter(
+        (a) => a.trim().length > 0,
+      );
+      const allowed = JSON.parse(task.allowed_commands_json) as string[][];
+      const acceptanceFirst = acceptance.length > 0 && allowed.every((cmd) => cmd.length === 0);
+      let report: ExecutorReport;
+      let testsModified: boolean;
+      let changed: string[];
+      let verifyOutputSeed: string | null = null;
+      let acceptanceTests: { files: string[]; locked: boolean; reason: string | null } | undefined;
+      let acceptanceFiles: string[] = [];
+      let locked = false;
+      /** 写实现之前测试目录的指纹（锁没锁定都记：实现动了它就失败，条件 4/13）。 */
+      let dirBaseline: Map<string, string> = new Map();
+      const testDir = `${ACCEPTANCE_DIR}/${taskId.slice(0, 8)}`;
+      /** 指纹只记测试目录里自己的那份（别的任务的测试目录不算）。 */
+      const fingerprintsOfTestDir = (): Map<string, string> => {
+        const all = hashWorkspace(workspace);
+        const mine = new Map<string, string>();
+        for (const [rel, hash] of all) {
+          if (rel === testDir || rel.startsWith(`${testDir}/`)) mine.set(rel, hash);
+        }
+        return mine;
+      };
+      /** 测试目录里现成的 .test.mjs（相对路径，含子目录）。 */
+      const testFilesOf = (): string[] => {
+        const all = hashWorkspace(workspace);
+        return [...all.keys()]
+          .filter((rel) => rel.startsWith(`${testDir}/`) && rel.endsWith('.test.mjs'))
+          .sort();
+      };
+      /** 跑一个测试文件（零依赖档，node + 相对路径）。 */
+      const runOneTest = async (rel: string): Promise<IndependentCheck> =>
+        this.runCheck([process.execPath, rel], workspace, this.currentAbort?.signal, {
+          projectRoot: this.projectRootOf(task.project_id),
+          dataDir: this.dataDir,
+        } as never);
+      /** 取消了吗（generation 变了或信号响了都算）。 */
+      const cancelledMid = (): boolean =>
+        this.store.get(taskId).generation !== generation ||
+        this.currentAbort?.signal.aborted === true;
+      /** 任务已被取消：按 cancelled 收尾并返回。 */
+      const settleCancelled = (): CodingTask =>
+        this.store.setStatus(taskId, 'cancelled', {
           error: '取消后的晚到成功不覆盖取消',
-          executorReportJson: JSON.stringify(report),
         });
+
+      if (!acceptanceFirst) {
+        report = await this.executor.run(dispatched, workspace, this.currentAbort.signal);
+        if (this.store.get(taskId).generation !== generation) {
+          return this.store.setStatus(taskId, 'cancelled', {
+            error: '取消后的晚到成功不覆盖取消',
+            executorReportJson: JSON.stringify(report),
+          });
+        }
+        const after = hashWorkspace(workspace);
+        const actualChanged = diffWorkspace(before, after).filter(
+          (p) => p !== EXECUTOR_CHANNEL_FILE,
+        );
+        const claimed = report.changedPaths.map((p) => p.replaceAll('\\', '/'));
+        changed = uniquePaths([...claimed, ...actualChanged]);
+        this.store.assertChangedPathsInScope(task, changed);
+        testsModified = changed.some((p) => /test/i.test(p)) || report.testsModified;
+      } else {
+        // ---- 第 1 步：写测试 ----
+        const numbered = acceptance.map((a, i) => `${i + 1}. ${a}`).join('\n');
+        const writeTestsGoal = [
+          '这一步只写验收测试，不要写实现。',
+          '',
+          '要做的事：',
+          task.goal,
+          '',
+          '验收条件：',
+          numbered,
+          '',
+          '怎么写：',
+          `- 测试文件放在 ${testDir}/ 下，文件名以 .test.mjs 结尾。别的文件一个都不要动。`,
+          '- 用 node:test 和 node:assert/strict，不用任何 npm 包。每个文件要能用「node 文件名」直接跑；有测试不通过时退出码不是 0。',
+          '- 跑的时候当前目录是项目根目录；引入项目里的模块，要从测试文件所在的目录往上两级（../../）。',
+          '- 每条验收条件至少有一个测试，测试的名字以「条件 N：」开头。',
+          '- 测试跑的时候不能联网、不能起别的进程，只能读项目目录里的文件；不要改项目里的文件。',
+          '- 实现现在还没有写：这些测试现在应该不通过，实现写对之后才通过。',
+          '- 有的条件没法这样自动测（比如要人看界面、要联网）：不要硬凑，在 summary 里写明是哪几条、为什么。一条都测不了就不要写文件，把 claimedSuccess 设为 false，在 summary 里说明。',
+        ].join('\n');
+        const scope = JSON.parse(task.scope_json) as string[];
+        const writeTestsTask: CodingTask = {
+          ...dispatched,
+          goal: writeTestsGoal,
+          scope_json: JSON.stringify([testDir]),
+        };
+        const step1Baseline = hashWorkspace(workspace);
+        let step1: ExecutorReport;
+        let step1Error: string | null = null;
+        try {
+          step1 = await this.executor.run(writeTestsTask, workspace, this.currentAbort.signal, {
+            readScope: scope,
+          });
+        } catch (err) {
+          if (cancelledMid()) return settleCancelled();
+          step1Error = err instanceof Error ? err.message : String(err);
+          step1 = {
+            claimedSuccess: false,
+            summary: step1Error,
+            changedPaths: [],
+            testsModified: false,
+            raw: '',
+          };
+        }
+        if (cancelledMid()) return settleCancelled();
+        // 第 1 步越界：测试目录以外的文件被改 → 失败，不再往下走
+        const step1Changed = diffWorkspace(step1Baseline, hashWorkspace(workspace)).filter(
+          (p) => p !== EXECUTOR_CHANNEL_FILE && !(p === testDir || p.startsWith(`${testDir}/`)),
+        );
+        if (step1Changed.length > 0) {
+          const failed = this.store.setStatus(taskId, 'failed', {
+            executorName: executorNameAtStart,
+            error: `写验收测试时改了别的文件：${step1Changed.join('、')}`,
+          });
+          this.recordWorkRun(failed, 'failed');
+          return failed;
+        }
+        acceptanceFiles = testFilesOf();
+        if (acceptanceFiles.length === 0) {
+          // 没写出测试：不锁定，原因记执行器说的话（报错时是报错的话）
+          const said = step1Error ?? step1.summary;
+          verifyOutputSeed = `没写出验收测试：${said}`;
+          acceptanceTests = { files: [], locked: false, reason: said };
+        } else {
+          // ---- 第 2 步：实现前先跑一遍 ----
+          const preImplBaseline = hashWorkspace(workspace);
+          const results: Array<{ rel: string; check: IndependentCheck }> = [];
+          for (const rel of acceptanceFiles) {
+            if (cancelledMid()) return settleCancelled();
+            results.push({ rel, check: await runOneTest(rel) });
+          }
+          if (cancelledMid()) return settleCancelled();
+          const preImplChanged = diffWorkspace(preImplBaseline, hashWorkspace(workspace)).filter(
+            (p) => p !== EXECUTOR_CHANNEL_FILE,
+          );
+          if (preImplChanged.length > 0) {
+            const failed = this.store.setStatus(taskId, 'failed', {
+              executorName: executorNameAtStart,
+              error: `验收测试改了项目里的文件：${preImplChanged.join('、')}`,
+            });
+            this.recordWorkRun(failed, 'failed');
+            return failed;
+          }
+          const refused = results.find((r) => r.check.ran === false);
+          const allPassed = results.every((r) => r.check.exitCode === 0);
+          if (refused) {
+            verifyOutputSeed = refused.check.output;
+            acceptanceTests = {
+              files: acceptanceFiles,
+              locked: false,
+              reason: refused.check.output,
+            };
+          } else if (allPassed) {
+            const why = '验收测试在实现之前就全部通过，测不出这次改动';
+            verifyOutputSeed = why;
+            acceptanceTests = { files: acceptanceFiles, locked: false, reason: why };
+          } else {
+            // ---- 第 3 步：锁定 ----
+            locked = true;
+            acceptanceTests = { files: acceptanceFiles, locked: true, reason: null };
+          }
+        }
+        // ---- 第 4 步：写实现 ----
+        dirBaseline = fingerprintsOfTestDir();
+        const implGoalParts = [dispatched.goal];
+        implGoalParts.push(`验收条件：\n${acceptance.map((a, i) => `${i + 1}. ${a}`).join('\n')}`);
+        if (locked) {
+          implGoalParts.push(
+            [
+              `验收测试已经写好并锁定：${acceptanceFiles.join('，')}。`,
+              `- 不许改这些文件，也不许在 ${testDir}/ 下增删文件；改了这次任务就算失败。`,
+              '- 做完的标准是它们全部通过（每个文件用「node 文件名」跑）。',
+            ].join('\n'),
+          );
+        } else if (acceptanceFiles.length > 0) {
+          implGoalParts.push(
+            [
+              `${testDir}/ 下是这次任务写的验收测试，没有锁定，不拿它们当验证。`,
+              `- 不要改、不要删这些文件，也不要往 ${testDir}/ 下加文件；动了这次任务就算失败。`,
+            ].join('\n'),
+          );
+        }
+        const implTask: CodingTask = {
+          ...dispatched,
+          goal: implGoalParts.join('\n\n'),
+        };
+        report = await this.executor.run(implTask, workspace, this.currentAbort.signal, {
+          readScope: [testDir],
+        });
+        if (this.store.get(taskId).generation !== generation) {
+          return this.store.setStatus(taskId, 'cancelled', {
+            error: '取消后的晚到成功不覆盖取消',
+            executorReportJson: JSON.stringify(report),
+          });
+        }
+        const after = hashWorkspace(workspace);
+        const actualChanged = diffWorkspace(before, after).filter(
+          (p) => p !== EXECUTOR_CHANNEL_FILE,
+        );
+        const claimed = report.changedPaths.map((p) => p.replaceAll('\\', '/'));
+        changed = uniquePaths([...claimed, ...actualChanged]);
+        // 本任务的验收测试目录算这次任务允许的改动（第 1 步就把它写进副本了）
+        this.store.assertChangedPathsInScope(
+          task,
+          changed.filter((p) => !p.startsWith(`${testDir}/`)),
+        );
+        // 实现动了测试目录（改、删、加，不是测试的文件也算）→ 失败，先于跑测试。
+        // 基线是写实现那一步开始前的目录指纹（锁没锁定都一样，条件 4/13）。
+        const testDirNow = fingerprintsOfTestDir();
+        const tampered: string[] = [];
+        for (const [rel, hash] of testDirNow) {
+          if (dirBaseline.get(rel) !== hash) tampered.push(rel);
+        }
+        for (const rel of dirBaseline.keys()) {
+          if (!testDirNow.has(rel)) tampered.push(rel);
+        }
+        if (tampered.length > 0) {
+          const failed = this.store.setStatus(taskId, 'failed', {
+            executorName: executorNameAtStart,
+            error: `实现时改了验收测试：${tampered.join('、')}`,
+          });
+          this.recordWorkRun(failed, 'failed');
+          return failed;
+        }
+        testsModified =
+          changed.some((p) => /test/i.test(p) && !p.startsWith(`${testDir}/`)) ||
+          report.testsModified;
+        // testsModified 不把本任务新写的验收测试算进去
       }
-      const after = hashWorkspace(workspace);
-      const actualChanged = diffWorkspace(before, after).filter((p) => p !== EXECUTOR_CHANNEL_FILE);
-      const claimed = report.changedPaths.map((p) => p.replaceAll('\\', '/'));
-      const changed = uniquePaths([...claimed, ...actualChanged]);
-      this.store.assertChangedPathsInScope(task, changed);
-      const testsModified = changed.some((p) => /test/i.test(p)) || report.testsModified;
       // D4：改之前每个文件的指纹（新文件 null），存进执行报告，落地时比对 HEAD。
       // 用执行前 LF 归一指纹（beforeLf）——不是执行后的文件内容。
       const baseHashes: Record<string, string | null> = {};
@@ -515,6 +774,7 @@ export class CodingOrchestrator {
         changedPaths: changed,
         testsModified,
         baseHashes,
+        ...(acceptanceTests !== undefined ? { acceptanceTests: acceptanceTests as never } : {}),
       };
       if (!report.claimedSuccess) {
         const failed = this.store.setStatus(taskId, 'failed', {
@@ -534,7 +794,64 @@ export class CodingOrchestrator {
       // A05：验证前后都要核范围——执行阶段后的工作区指纹作为验证前基线，
       // 验证程序自己引入的改动同样不得越出批准范围。
       const preVerify = hashWorkspace(workspace);
-      const verified = await this.verify(taskId, generation);
+      let verified: CodingTask;
+      if (acceptanceFirst && locked) {
+        // ---- 第 5 步（锁定了）：再跑一遍验收测试 ----
+        const outputs: string[] = [];
+        let allPassed = true;
+        let refused: string | null = null;
+        for (const rel of acceptanceFiles) {
+          if (cancelledMid()) return settleCancelled();
+          const check = await runOneTest(rel);
+          outputs.push(`${process.execPath} ${rel} → ${check.exitCode}\n${check.output}`);
+          if (check.ran === false) refused = check.output;
+          else if (check.exitCode !== 0) allPassed = false;
+        }
+        if (cancelledMid()) return settleCancelled();
+        const postChanged = diffWorkspace(preVerify, hashWorkspace(workspace)).filter(
+          (p) => p !== EXECUTOR_CHANNEL_FILE,
+        );
+        if (postChanged.length > 0) {
+          const failed = this.store.setStatus(taskId, 'failed', {
+            verifyStatus: 'failed',
+            verifyOutput: outputs.join('\n---\n').slice(0, 8000),
+            error: `验收测试改了项目里的文件：${postChanged.join('、')}`,
+          });
+          this.recordWorkRun(failed, 'failed');
+          return failed;
+        }
+        if (refused !== null) {
+          verified = this.store.setStatus(taskId, 'pending_accept', {
+            verifyStatus: 'not_run',
+            verifyExitCode: null,
+            verifyOutput: refused.slice(0, 8000),
+          });
+        } else if (!allPassed) {
+          const failed = this.store.setStatus(taskId, 'failed', {
+            verifyStatus: 'failed',
+            verifyExitCode: 1,
+            verifyOutput: outputs.join('\n---\n').slice(0, 8000),
+            error: '独立验证失败，不把执行器自报当作通过',
+          });
+          this.recordWorkRun(failed, 'failed');
+          return failed;
+        } else {
+          verified = this.store.setStatus(taskId, 'pending_accept', {
+            verifyStatus: 'passed',
+            verifyExitCode: 0,
+            verifyOutput: outputs.join('\n---\n').slice(0, 8000),
+          });
+        }
+      } else if (acceptanceFirst && !locked) {
+        // 没锁定：不拿测试当验证，原因进 verify_output
+        verified = this.store.setStatus(taskId, 'pending_accept', {
+          verifyStatus: 'not_run',
+          verifyExitCode: null,
+          verifyOutput: (verifyOutputSeed ?? '').slice(0, 8000) || '没有有效验证命令，保留未运行',
+        });
+      } else {
+        verified = await this.verify(taskId, generation);
+      }
       if (verified.status === 'pending_accept') {
         const postVerify = hashWorkspace(workspace);
         const verifyChanged = diffWorkspace(preVerify, postVerify).filter(

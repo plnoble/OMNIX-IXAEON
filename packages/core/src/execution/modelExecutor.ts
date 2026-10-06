@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { ErrorCodes, IxaError, type CodingTask } from '@ixaeon/contracts';
 import type { ModelProvider } from '../extraction/model/provider.js';
-import type { CodingExecutor, ExecutorReport } from './executor.js';
+import type { CodingExecutor, ExecutorReport, ExecutorRunOptions } from './executor.js';
 import { FORBIDDEN_NAME } from './workspaceCopy.js';
 
 /** 文件清单最多多少条。 */
@@ -108,11 +108,14 @@ function buildPrompt(
   workspace: string,
   task: CodingTask,
   scope: string[],
+  readScope: string[],
 ): { user: string; fullySent: Set<string> } {
   const files = listFiles(workspace);
   const goal = task.goal.replaceAll('\\', '/');
+  // D5a：只读范围里的文件也发内容（看得见），能写的仍只有 scope
+  const sendable = [...scope, ...readScope];
   const wanted = [
-    ...files.filter((f) => inScope(scope, f.rel)),
+    ...files.filter((f) => inScope(sendable, f.rel)),
     ...files.filter((f) => !f.rel.includes('/') && /^readme/i.test(f.rel)),
     ...files.filter((f) => goal.includes(f.rel)),
   ];
@@ -138,6 +141,9 @@ function buildPrompt(
   const user = [
     `任务目标：\n${task.goal}`,
     `可修改范围：${scope.join(', ')}`,
+    ...(readScope.length > 0
+      ? [`只读范围（内容发给你看，但不要改）：${readScope.join(', ')}`]
+      : []),
     `文件清单（相对路径、字节数；共 ${files.length} 个${files.length > MAX_LIST ? `，只列前 ${MAX_LIST} 个` : ''}）：\n${listing}`,
     blocks.length > 0 ? `文件内容：\n${blocks.join('\n\n')}` : '文件内容：（没有可发的）',
   ].join('\n\n');
@@ -218,12 +224,18 @@ export class ModelCodingExecutor implements CodingExecutor {
     this.name = `model:${modelName}`;
   }
 
-  async run(task: CodingTask, workspace: string, signal: AbortSignal): Promise<ExecutorReport> {
+  async run(
+    task: CodingTask,
+    workspace: string,
+    signal: AbortSignal,
+    options?: ExecutorRunOptions,
+  ): Promise<ExecutorReport> {
     if (signal.aborted) {
       throw new IxaError(ErrorCodes.JOB_CANCELLED, '任务已取消，没有把文件发给模型');
     }
     const scope = (JSON.parse(task.scope_json) as string[]).map(normalizeScope);
-    const { user, fullySent } = buildPrompt(workspace, task, scope);
+    const readScope = (options?.readScope ?? []).map(normalizeScope);
+    const { user, fullySent } = buildPrompt(workspace, task, scope, readScope);
     let answer: Answer;
     try {
       answer = await untilDeadline(

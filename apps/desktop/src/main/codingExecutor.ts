@@ -1,6 +1,6 @@
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { CodingTask } from '@ixaeon/contracts';
-import type { CodingExecutor, ExecutorReport } from '@ixaeon/core';
+import type { CodingExecutor, ExecutorReport, ExecutorRunOptions } from '@ixaeon/core';
 
 /**
  * D7b：按设置选执行器。以后加 Claude Code 或别的 agent，是给 ExecutorPlan
@@ -37,14 +37,20 @@ export class ConfiguredCodingExecutor implements CodingExecutor {
     return current.use === 'model' ? current.executor.name : this.codex.name;
   }
 
-  async run(task: CodingTask, workspace: string, signal: AbortSignal): Promise<ExecutorReport> {
+  async run(
+    task: CodingTask,
+    workspace: string,
+    signal: AbortSignal,
+    options?: ExecutorRunOptions,
+  ): Promise<ExecutorReport> {
     // 第一个 await 之前取一次 plan：这一次派发用哪个执行器就钉死了
     const current = this.plan();
     if (current.use === 'none') {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, executorGapText(current.missing));
     }
+    // D5a：只读范围原样传下去（交给模型、交给 Codex 都传）
     return current.use === 'model'
-      ? current.executor.run(task, workspace, signal)
-      : this.codex.run(task, workspace, signal);
+      ? current.executor.run(task, workspace, signal, options)
+      : this.codex.run(task, workspace, signal, options);
   }
 }

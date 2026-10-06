@@ -186,6 +186,7 @@ export {
 export { copyProjectWorkspace, type WorkspaceSnapshot } from './execution/workspaceCopy.js';
 export { ModelCodingExecutor } from './execution/modelExecutor.js';
 export {
+  ACCEPTANCE_DIR,
   CodingOrchestrator,
   FakeCodingExecutor,
   CodexCliExecutor,
@@ -197,6 +198,7 @@ export {
   electronRunAsNodeEnv,
   type CodingExecutor,
   type ExecutorReport,
+  type ExecutorRunOptions,
   type IndependentCheck,
 } from './execution/executor.js';
 export { landTask, landingText, type LandingOutcome } from './execution/landing.js';
