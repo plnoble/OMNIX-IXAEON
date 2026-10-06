@@ -104,26 +104,28 @@ function DiffBody({ diff }: { diff: string }) {
   );
 }
 
-/**
- * U3：任务卡片里的「看改动」。展开状态和查询结果都只在这张卡片里；
- * 读取出错显示在这里，不走页顶报错条。每次展开都重新读。
- */
-function TaskChangesCard({ task }: { task: CodingTask }) {
-  const [open, setOpen] = useState(false);
+/** U3「看改动」：结果留在卡片里，出错不上页顶。openToken 为 0 是收起，每加一就重新读。 */
+function TaskChangesCard({
+  task,
+  openToken,
+  onToggle,
+}: {
+  task: CodingTask;
+  openToken: number;
+  onToggle: () => void;
+}) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<TaskChanges | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** 每次展开发一个新请求；序号对不上的旧请求结果直接作废（收起再展开时的竞态）。 */
+  /** 旧请求序号对不上就作废（收起再展开时的竞态）。 */
   const reqSeq = useRef(0);
   const count = changedCount(task);
-  if (count === null) return null;
 
-  const toggle = () => {
-    if (open) {
-      setOpen(false);
+  useEffect(() => {
+    if (count === null || openToken === 0) {
+      reqSeq.current += 1;
       return;
     }
-    setOpen(true);
     setLoading(true);
     setLoadError(null);
     const seq = ++reqSeq.current;
@@ -139,17 +141,19 @@ function TaskChangesCard({ task }: { task: CodingTask }) {
         setLoading(false);
       },
     );
-  };
+  }, [openToken, task.id, count]);
+
+  if (count === null) return null;
 
   return (
     <div className="u3-changes">
       <p className="muted">
         改了 {count} 个文件{' '}
-        <Button kind="default" testId={`task-changes-toggle-${task.id}`} onClick={toggle}>
-          {open ? '收起' : '看改动'}
+        <Button kind="default" testId={`task-changes-toggle-${task.id}`} onClick={onToggle}>
+          {openToken > 0 ? '收起' : '看改动'}
         </Button>
       </p>
-      {open && (
+      {openToken > 0 && (
         <div data-testid={`task-changes-${task.id}`}>
           {loading && <Spinner />}
           {!loading && loadError && (
@@ -189,7 +193,20 @@ function TaskChangesCard({ task }: { task: CodingTask }) {
   );
 }
 
-export function TasksPage({ projects }: { projects: Project[] }) {
+/** U4：要任务页停在哪条任务上。每点一次按钮给一个新的对象。 */
+export interface TaskFocus {
+  taskId: string;
+  /** 点按钮的时刻（Date.now()），同一条任务连点两次也能再生效。 */
+  at: number;
+}
+
+export function TasksPage({
+  projects,
+  focus = null,
+}: {
+  projects: Project[];
+  focus?: TaskFocus | null;
+}) {
   const [notice, setNotice] = useState('');
   const [realDispatch, setRealDispatch] = useState(false);
   /** D7b：主进程回传的执行器种类（'model' 时不显示 Fake / 真机 Codex 那两句）。 */
@@ -202,6 +219,10 @@ export function TasksPage({ projects }: { projects: Project[] }) {
   const [scope, setScope] = useState('note.txt');
   const [verify, setVerify] = useState(DEFAULT_VERIFY);
   const [skills, setSkills] = useState<Awaited<ReturnType<typeof api.listSkillCandidates>>>([]);
+  const [changesToken, setChangesToken] = useState<Readonly<Record<string, number>>>({});
+  const appliedFocusAt = useRef<number | null>(null);
+  const bumpChanges = (id: string) =>
+    setChangesToken((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
 
   const reload = useCallback(async () => {
     try {
@@ -221,6 +242,18 @@ export function TasksPage({ projects }: { projects: Project[] }) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // U4：清单读回来之后滚到 focus 那条；有改动就展开。at 变了再做一次。不在了就不管。
+  // 用 id 串当依赖：两秒轮询换了对象、还是这几条时，不重复滚、不重复读。
+  const taskIds = tasks.map((t) => t.id).join('\0');
+  useEffect(() => {
+    if (!focus || appliedFocusAt.current === focus.at || tasks.length === 0) return;
+    appliedFocusAt.current = focus.at;
+    const target = tasks.find((t) => t.id === focus.taskId);
+    if (!target) return;
+    document.querySelector(`[data-testid="task-${target.id}"]`)?.scrollIntoView();
+    if (changedCount(target) !== null) bumpChanges(target.id);
+  }, [focus, taskIds, tasks]);
 
   // U2：任务是在后台跑的（聊天里点「要做」就开工）。有任务在排队、执行或验证时每两秒看一眼，
   // 不然这一页会一直停在「执行中」。只更新任务，不动用户正在看的报错条；都做完了就停。
@@ -330,7 +363,16 @@ export function TasksPage({ projects }: { projects: Project[] }) {
             {t.verify_status ? ` · 独立验证 ${t.verify_status}` : ''}
             {t.tests_modified ? ' · 测试代码被修改' : ''}
           </p>
-          <TaskChangesCard task={t} />
+          <TaskChangesCard
+            task={t}
+            openToken={changesToken[t.id] ?? 0}
+            onToggle={() =>
+              setChangesToken((prev) => ({
+                ...prev,
+                [t.id]: prev[t.id] ? 0 : (prev[t.id] ?? 0) + 1,
+              }))
+            }
+          />
           {landingLine(t) && (
             <p className="note" data-testid={`task-landing-${t.id}`}>
               {landingLine(t)}

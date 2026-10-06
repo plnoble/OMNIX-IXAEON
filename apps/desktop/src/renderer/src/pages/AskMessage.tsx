@@ -153,6 +153,7 @@ export function AskMessage({
   todoStatus,
   todoCoding,
   onDecideTodo,
+  onOpenTask,
 }: {
   message: ConversationMessage;
   /**
@@ -171,6 +172,7 @@ export function AskMessage({
   /** T2b：底下是编码任务的待办卡，标「编码任务」小标签 */
   todoCoding?: Record<string, boolean>;
   onDecideTodo?: (id: string, decision: 'accept' | 'reject') => void;
+  onOpenTask?: (taskId: string) => void;
 }) {
   const tasks = tasksOf(m.meta);
   const proposedTodos = proposedOf(m.meta);
@@ -181,6 +183,12 @@ export function AskMessage({
   const projectBrief = projectBriefOf(m.meta);
   const coverage = coverageOf(m.meta);
   const notice = typeof m.meta['notice'] === 'string' ? m.meta['notice'] : '';
+  const reportTaskId =
+    m.role === 'assistant' &&
+    m.meta['kind'] === 'task_report' &&
+    typeof m.meta['taskId'] === 'string'
+      ? m.meta['taskId']
+      : null;
   const steps = Array.isArray(m.meta['steps'])
     ? (m.meta['steps'] as Array<{ round: number; tool: string; ok: boolean; detail: string }>)
     : [];
@@ -199,6 +207,15 @@ export function AskMessage({
         {m.status === 'failed' && <p className="warn">失败：{m.errorMessage ?? '未知错误'}</p>}
         {m.status === 'cancelled' && <p className="warn">已取消</p>}
         {shownContent ? <pre className="answer-text">{shownContent}</pre> : null}
+        {reportTaskId && (
+          <Button
+            kind="default"
+            testId={`task-report-open-${reportTaskId}`}
+            onClick={() => onOpenTask?.(reportTaskId)}
+          >
+            到任务页看这条任务
+          </Button>
+        )}
         {showNotice && notice ? (
           <p className="warn" data-testid="message-notice">
             {notice}

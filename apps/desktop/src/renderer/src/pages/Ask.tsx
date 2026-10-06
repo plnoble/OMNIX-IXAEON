@@ -55,9 +55,11 @@ function pendingMessage(
 export function AskPage({
   projects,
   openConversationId,
+  onOpenTask,
 }: {
   projects: Project[];
   openConversationId?: string | null;
+  onOpenTask?: (taskId: string) => void;
 }) {
   const [projectId, setProjectId] = useState('');
   /** G06：当前对话有消息后项目下拉框锁定（换项目请开新对话）。 */
@@ -528,6 +530,7 @@ export function AskPage({
                   onToggleRef={(ref) => setExpandedRef(expandedRef === ref ? null : ref)}
                   todoStatus={todoStatus}
                   todoCoding={todoCoding}
+                  onOpenTask={onOpenTask}
                   onDecideTodo={(id, decision) => {
                     void (async () => {
                       try {
