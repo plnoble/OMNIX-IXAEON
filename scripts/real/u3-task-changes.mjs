@@ -200,8 +200,10 @@ try {
     console.log('已合并分支：', branch);
     third = await describe('合并之后');
     const t0 = third.files[0];
+    // 合并后内容就是同一份：note 是「一样」（工作区换行符也一致）或「只有换行符不同」
+    // （Windows autocrlf 让合并进工作区的是 CRLF，副本是 LF——内容行完全一致，也是「没有变化」）。
     if (t0?.kind !== 'same' || t0.diff !== null) fail(`合并之后该是「没有变化」，实际 ${t0?.kind}`);
-    else if (!(t0.note ?? '').includes('一样')) fail(`合并之后 note 该写明一样：${t0.note}`);
+    else if (!/一样|换行符不同/.test(t0.note ?? '')) fail(`合并之后 note 该写明：${t0.note}`);
     else console.log('步骤 4 通过：合并之后是「没有变化」，note 写明');
   }
   if (!passed) throw new Error(result);
