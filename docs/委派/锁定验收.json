@@ -386,7 +386,7 @@
       "title": "回报一点就到那条任务",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/u4-open-task-from-report.test.ts": "5ca14b04c3a3545e54bdd3c10679fb40610566b09a0cd64f343af9602a1ec486"
+        "apps/desktop/test/acceptance/u4-open-task-from-report.test.ts": "aaf05b9ed9454d05269fb1611d7c465685c7d9d749e5b0fca609c9a14cf48332"
       }
     }
   ]

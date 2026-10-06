@@ -172,7 +172,6 @@ export function AskMessage({
   /** T2b：底下是编码任务的待办卡，标「编码任务」小标签 */
   todoCoding?: Record<string, boolean>;
   onDecideTodo?: (id: string, decision: 'accept' | 'reject') => void;
-  /** U4：回报下面的按钮。点了到任务页，停在这条任务上。 */
   onOpenTask?: (taskId: string) => void;
 }) {
   const tasks = tasksOf(m.meta);
@@ -209,15 +208,13 @@ export function AskMessage({
         {m.status === 'cancelled' && <p className="warn">已取消</p>}
         {shownContent ? <pre className="answer-text">{shownContent}</pre> : null}
         {reportTaskId && (
-          <p>
-            <Button
-              kind="default"
-              testId={`task-report-open-${reportTaskId}`}
-              onClick={() => onOpenTask?.(reportTaskId)}
-            >
-              到任务页看这条任务
-            </Button>
-          </p>
+          <Button
+            kind="default"
+            testId={`task-report-open-${reportTaskId}`}
+            onClick={() => onOpenTask?.(reportTaskId)}
+          >
+            到任务页看这条任务
+          </Button>
         )}
         {showNotice && notice ? (
           <p className="warn" data-testid="message-notice">

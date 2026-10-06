@@ -30,6 +30,20 @@ const harness = vi.hoisted(() => ({
   listCodingTasks: vi.fn(),
   listSkillCandidates: vi.fn(async () => []),
   getCodingTaskChanges: vi.fn(),
+  getState: vi.fn(async () => ({ setupComplete: true, version: '0' })),
+  listProjects: vi.fn(async () => []),
+  listMatchedFindings: vi.fn(async () => []),
+  listConversations: vi.fn(async () => [
+    {
+      id: 'c1',
+      projectId: null,
+      title: '合成对话',
+      createdAt: '2026-10-06T00:00:00.000Z',
+      updatedAt: '2026-10-06T00:00:00.000Z',
+    },
+  ]),
+  getConversation: vi.fn(),
+  listTodos: vi.fn(async () => []),
   scrolls: [] as string[],
 }));
 
@@ -38,12 +52,19 @@ vi.mock('../../src/renderer/src/api.js', () => ({
     listCodingTasks: harness.listCodingTasks,
     listSkillCandidates: harness.listSkillCandidates,
     getCodingTaskChanges: harness.getCodingTaskChanges,
+    getState: harness.getState,
+    listProjects: harness.listProjects,
+    listMatchedFindings: harness.listMatchedFindings,
+    listConversations: harness.listConversations,
+    getConversation: harness.getConversation,
+    listTodos: harness.listTodos,
   },
   errMsg: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
 import { AskMessage } from '../../src/renderer/src/pages/AskMessage.js';
 import { TasksPage, type TaskFocus } from '../../src/renderer/src/pages/Tasks.js';
+import App from '../../src/renderer/src/App.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -244,6 +265,17 @@ describe('U4 回报一点就到那条任务', () => {
     expect($('task-changes-toggle-t-rich')!.textContent).toContain('收起');
   });
 
+  it('条件 5：已经展开时再来一个新的 focus，又滚一次、又读一次', async () => {
+    await renderTasks({ taskId: 't-rich', at: 30 });
+    expect(harness.changesCalls).toEqual(['t-rich']);
+    expect($('task-changes-t-rich')).toBeTruthy();
+    harness.scrolls = [];
+    await renderTasks({ taskId: 't-rich', at: 31 });
+    expect(harness.scrolls).toEqual(['task-t-rich']);
+    expect(harness.changesCalls).toEqual(['t-rich', 't-rich']);
+    expect($('task-changes-t-rich')).toBeTruthy();
+  });
+
   it('条件 5：同一个 focus 对象再渲染一次，不重复滚、不重复读', async () => {
     const focus = { taskId: 't-rich', at: 20 };
     await renderTasks(focus);
@@ -270,6 +302,53 @@ describe('U4 回报一点就到那条任务', () => {
     await click(toggle);
     expect($('task-changes-t-rich')).toBeNull();
     expect(harness.changesCalls).toEqual(['t-rich']);
+  });
+
+  it('条件 2、5、6：从回报按钮走到任务页；再点一次又读一次；左边进任务页清掉这次定位', async () => {
+    const report = message(
+      'assistant',
+      { kind: 'task_report', taskId: 't-rich', status: 'pending_accept' },
+      '「合成目标」做完了，等你验收。\n去任务页看改动，点接受。',
+    );
+    harness.getConversation.mockImplementation(async () => ({
+      conversation: { id: 'c1', projectId: null, title: '合成对话' },
+      messages: [report],
+    }));
+    await act(async () => {
+      root.render(createElement(App));
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await click($('nav-ask')!);
+    await click(container.querySelector('[data-testid="conversation-item"]')!);
+    const btn = $('task-report-open-t-rich')!;
+    expect(btn).toBeTruthy();
+    await click(btn);
+    expect($('page-tasks')).toBeTruthy();
+    expect(harness.scrolls).toEqual(['task-t-rich']);
+    expect(harness.changesCalls).toEqual(['t-rich']);
+    expect($('task-changes-t-rich')).toBeTruthy();
+
+    // 回到对话再点同一个按钮：哪怕没收起，也再滚一次、再读一次
+    harness.scrolls = [];
+    await click($('nav-ask')!);
+    await click(container.querySelector('[data-testid="conversation-item"]')!);
+    await click($('task-report-open-t-rich')!);
+    expect(harness.scrolls).toEqual(['task-t-rich']);
+    expect(harness.changesCalls).toEqual(['t-rich', 't-rich']);
+    expect($('task-changes-t-rich')).toBeTruthy();
+
+    // 条件 6：从左边进任务页不滚、不自动展开。已经在任务页上时，用户打开的那张留着；
+    // 先离开再从左边进来，是一次新的进入，不带上次的定位。
+    harness.scrolls = [];
+    await click($('nav-ask')!);
+    await click($('nav-tasks')!);
+    expect($('page-tasks')).toBeTruthy();
+    expect($('task-changes-t-rich')).toBeNull();
+    expect(harness.scrolls).toEqual([]);
+    expect(harness.changesCalls).toEqual(['t-rich', 't-rich']);
   });
 
   it('条件 7：按钮在正文下面，回报文字一个字不改', async () => {

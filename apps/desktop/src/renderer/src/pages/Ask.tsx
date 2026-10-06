@@ -59,7 +59,6 @@ export function AskPage({
 }: {
   projects: Project[];
   openConversationId?: string | null;
-  /** U4：回报下面的按钮，点了到任务页看这条任务。 */
   onOpenTask?: (taskId: string) => void;
 }) {
   const [projectId, setProjectId] = useState('');

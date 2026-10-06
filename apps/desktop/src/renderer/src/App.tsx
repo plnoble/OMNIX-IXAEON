@@ -36,7 +36,6 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
-  /** U4：从回报点过来时，任务页停在哪条任务上。每点一次是一个新对象。 */
   const [taskFocus, setTaskFocus] = useState<TaskFocus | null>(null);
   const [matchedNew, setMatchedNew] = useState(0);
 
@@ -218,11 +217,7 @@ export default function App() {
           <button
             type="button"
             className={page === 'tasks' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              // 从左边点进来：不滚、不自动展开
-              setTaskFocus(null);
-              setPage('tasks');
-            }}
+            onClick={() => (setTaskFocus(null), setPage('tasks'))}
             data-testid="nav-tasks"
           >
             任务
