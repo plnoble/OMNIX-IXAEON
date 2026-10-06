@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { closeSync, fstatSync, lstatSync, openSync, readSync, statSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, statSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { join } from 'node:path';
 import type { CodingTask, TaskChanges, TaskChangedFile } from '@ixaeon/contracts';
@@ -59,14 +59,12 @@ const linkOnPath = (root: string, rel: string): boolean => {
   }
   return false;
 };
-/**
- * 打开 → fstat 复核（与检查过的 lstat 是同一个对象、普通文件、没超大）→ 限量读回。
- * 检查与打开之间路径被换成链接/别的文件，dev/ino 对不上就当作读不出来；读也限量，
- * 检查后文件被写大也不会无上限地读。任何一步不行都返回 null，一点内容都不带出。
- */
-const readChecked = (p: string, expect: Stats): Buffer | null => {
+// 打开 → fstat 复核（与检查过的 lstat 是同一个对象、普通文件、没超大）→ 限量读回。open 前最后一跳
+// 再查整链链接，open 用 O_NOFOLLOW；换文件靠 dev/ino 拦，被写大靠限量 readSync 拦。不行返回 null，不带出内容。
+const readChecked = (p: string, expect: Stats, root: string, rel: string): Buffer | null => {
   try {
-    const fd = openSync(p, 'r');
+    if (linkOnPath(root, rel)) return null;
+    const fd = openSync(p, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const st = fstatSync(fd);
       if (!st.isFile() || st.size > MAX_DIFF_BYTES) return null;
@@ -167,7 +165,6 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
   if (!task.workspace_path || !dirExists(task.workspace_path) || rawList.length === 0)
     return { files: [], total: 0 };
   const rels = [...new Set(rawList.map(normalizeRel))].sort();
-
   // 授权判断与落地同一条：项目绑了文件夹、目录还在、在有效授权之内。
   // 不满足 → 每个文件 unknown、diff null、note 写明；副本里的也不读。
   const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(task.project_id) as
@@ -219,8 +216,11 @@ export function readTaskChanges(db: CoreDatabase, task: CodingTask): TaskChanges
     const kind = kindOf(inWs, inRoot);
     if ((wsStat?.size ?? 0) > MAX_DIFF_BYTES || (rootStat?.size ?? 0) > MAX_DIFF_BYTES)
       return blocked(kind, '文件太大，不显示差异');
-    const wsBuf = inWs ? readChecked(wsAbs, wsStat!) : null;
-    const rootBuf = inRoot && rootAbs !== null ? readChecked(rootAbs, rootStat!) : null;
+    const wsBuf = inWs ? readChecked(wsAbs, wsStat!, task.workspace_path!, rel) : null;
+    const rootBuf =
+      inRoot && rootAbs !== null && root !== null
+        ? readChecked(rootAbs, rootStat!, root, rel)
+        : null;
     if ((inWs && wsBuf === null) || (inRoot && rootBuf === null))
       return blocked('unknown', '读不出来');
     if ((wsBuf !== null && hasNul(wsBuf)) || (rootBuf !== null && hasNul(rootBuf)))
