@@ -250,6 +250,22 @@ describe('条件 4：副本和项目里一样', () => {
     expect(files[0]!.diff).toBeNull();
     expect(files[0]!.note).toContain('一样');
   });
+
+  it('空文件不算读不出来：两边空是 same；一边空按新增/删除给差异', () => {
+    seedTask({ changedPaths: ['empty.txt', 'added-empty.txt', 'deleted-empty.txt'] });
+    writeFileSync(join(root, 'empty.txt'), '');
+    writeFileSync(join(workspace, 'empty.txt'), '');
+    writeFileSync(join(workspace, 'added-empty.txt'), '');
+    writeFileSync(join(root, 'deleted-empty.txt'), '');
+    const { files } = readTaskChanges(db, task);
+    const byPath = new Map(files.map((f) => [f.path, f]));
+    expect(byPath.get('empty.txt')!.kind).toBe('same');
+    expect(byPath.get('empty.txt')!.note).toBe('和项目里现在的文件一样（可能已经合并过了）');
+    expect(byPath.get('added-empty.txt')!.kind).toBe('added');
+    expect(byPath.get('added-empty.txt')!.diff).not.toBeNull();
+    expect(byPath.get('deleted-empty.txt')!.kind).toBe('deleted');
+    expect(byPath.get('deleted-empty.txt')!.diff).not.toBeNull();
+  });
 });
 
 describe('条件 5：只差换行符', () => {
@@ -486,19 +502,30 @@ describe('条件 9：上限', () => {
     const { files, total } = readTaskChanges(db, task);
     expect(total).toBe(60);
     expect(files).toHaveLength(50);
-    // 写死的 200 000 字符契约：预算用完之后是后缀，从某个文件起 diff 全是 null、note 写明；
-    // 边界按实际累计长度验，不猜范围。
+    // 写死的 200 000 字符契约：用实现同款规则（给差异前预算 > 0）精确重算边界，
+    // 实现提前停一串文件、或边界挪动一点都会对不上。
     const diffLenOf = (p: string): number => `-old ${p}\n+new ${p}\n+${'x'.repeat(5000)}`.length;
+    let budget = 200_000;
+    let expectedUsed = 0;
+    let expectedFirstNull = files.length;
+    for (let i = 0; i < files.length; i += 1) {
+      const len = diffLenOf(files[i]!.path);
+      if (budget <= 0) {
+        expectedFirstNull = i;
+        break;
+      }
+      budget -= len;
+      expectedUsed += len;
+    }
+    files.slice(0, expectedFirstNull).forEach((f) => {
+      expect(f.diff, `文件 ${f.path} 该有差异`).not.toBeNull();
+      expect(f.diff!.length).toBe(diffLenOf(f.path));
+    });
+    expect(expectedFirstNull).toBeLessThan(50);
     const firstNull = files.findIndex((f) => f.diff === null);
-    expect(firstNull).toBeGreaterThan(0);
-    const withDiff = files.slice(0, firstNull);
-    expect(withDiff.every((f) => f.diff !== null)).toBe(true);
-    const used = withDiff.reduce((sum, f) => sum + f.diff!.length, 0);
-    // 预算按「给差异前还剩多少」算：最后一个文件之前的累计必需 ≤ 200 000，
-    // 加上下一个文件的差异就必然超过，实现不给它差异并写 note。
-    const beforeLast = used - withDiff[withDiff.length - 1]!.diff!.length;
-    expect(beforeLast).toBeLessThanOrEqual(200_000);
-    expect(used + diffLenOf(files[firstNull]!.path)).toBeGreaterThan(200_000);
+    expect(firstNull).toBe(expectedFirstNull);
+    const used = files.slice(0, firstNull).reduce((sum, f) => sum + f.diff!.length, 0);
+    expect(used).toBe(expectedUsed);
     for (const f of files.slice(firstNull)) {
       expect(f.diff).toBeNull();
       expect(f.note).toBe('改动太多，后面的不显示差异');

@@ -73,7 +73,7 @@ const readChecked = (p: string, expect: Stats): Buffer | null => {
       if (st.dev !== expect.dev || st.ino !== expect.ino || st.ino === 0) return null;
       const buf = Buffer.allocUnsafe(MAX_DIFF_BYTES + 1);
       const got = readSync(fd, buf);
-      return got <= 0 || got > MAX_DIFF_BYTES ? null : Buffer.from(buf.subarray(0, got));
+      return got < 0 || got > MAX_DIFF_BYTES ? null : Buffer.from(buf.subarray(0, got));
     } finally {
       closeSync(fd);
     }
