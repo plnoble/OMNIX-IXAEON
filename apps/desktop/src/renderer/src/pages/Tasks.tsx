@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 import {
@@ -113,6 +113,8 @@ function TaskChangesCard({ task }: { task: CodingTask }) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<TaskChanges | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** 每次展开发一个新请求；序号对不上的旧请求结果直接作废（收起再展开时的竞态）。 */
+  const reqSeq = useRef(0);
   const count = changedCount(task);
   if (count === null) return null;
 
@@ -124,13 +126,19 @@ function TaskChangesCard({ task }: { task: CodingTask }) {
     setOpen(true);
     setLoading(true);
     setLoadError(null);
-    void api
-      .getCodingTaskChanges(task.id)
-      .then(
-        (res) => setData(res),
-        (err) => setLoadError(errMsg(err)),
-      )
-      .finally(() => setLoading(false));
+    const seq = ++reqSeq.current;
+    void api.getCodingTaskChanges(task.id).then(
+      (res) => {
+        if (reqSeq.current !== seq) return;
+        setData(res);
+        setLoading(false);
+      },
+      (err) => {
+        if (reqSeq.current !== seq) return;
+        setLoadError(errMsg(err));
+        setLoading(false);
+      },
+    );
   };
 
   return (
