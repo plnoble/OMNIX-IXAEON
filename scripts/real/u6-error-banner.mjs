@@ -80,10 +80,9 @@ try {
   else if (!banner.startsWith('IXA0012：')) fail('报错条不是以 IXA0012：开头');
   else result = '通过：报错条只剩 IXA0012：那句，没有英文前缀';
 } catch (err) {
-  if (passed) {
-    result = `没通过：脚本出错：${err instanceof Error ? err.message : String(err)}`;
-    log('脚本出错：', mask(result));
-  }
+  passed = false;
+  result = `没通过：脚本出错：${err instanceof Error ? err.message : String(err)}`;
+  log('脚本出错：', mask(result));
 } finally {
   if (app) {
     try {
