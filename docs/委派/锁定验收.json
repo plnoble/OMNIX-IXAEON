@@ -410,7 +410,7 @@
     {
       "id": "U6",
       "title": "报错条去掉英文前缀",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/u6-error-banner.test.ts": "818e27e76d074f13f8e23cf56238841400afd2557b04ac1fb35c470ebdbd4d3a"
       }
