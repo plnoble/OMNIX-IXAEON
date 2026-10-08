@@ -2095,6 +2095,22 @@ export class AppRuntime {
         '这个项目还没绑定文件夹：先在项目页点「绑定文件夹」，再派编码任务。',
       );
     }
+    // P6：绑着文件夹但这文件夹不在有效授权之内（上级文件夹的有效授权也算）→ 同一道检查拦、
+    // 换一句文案。有没有授权 = permissions.activePermissionForPath(root_path) 不是 null。
+    if (project?.root_path) {
+      let active: unknown = null;
+      try {
+        active = this.permissions.activePermissionForPath(project.root_path);
+      } catch {
+        active = null;
+      }
+      if (active === null) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          '这个项目文件夹的读取授权已经撤销：在项目页解除绑定、重新绑定之后，再派编码任务。',
+        );
+      }
+    }
   }
 
   /** P4：任务页/待办入口——查得到任务而其项目没绑文件夹才拦；查不到的不拦。 */
@@ -2105,6 +2121,32 @@ export class AppRuntime {
     this.assertProjectFolderBound(task.project_id);
   }
 
+  /**
+   * P6：自动派发（CodingDispatch）问「这个任务的项目现在读得了文件夹吗」。给它的就是
+   * 要写进对话的那句话；读得了返回 null。任务不存在或项目不存在不问。取消不拦（只拦派发）。
+   */
+  folderGap(taskId: string): string | null {
+    const task = this.db.prepare('SELECT project_id FROM coding_tasks WHERE id = ?').get(taskId) as
+      { project_id: string } | undefined;
+    if (!task) return null;
+    const project = this.db
+      .prepare('SELECT root_path FROM projects WHERE id = ?')
+      .get(task.project_id) as { root_path: string | null } | undefined;
+    if (!project) return null;
+    if (!project.root_path) {
+      return '这个项目还没绑定文件夹：先在项目页点「绑定文件夹」，再派编码任务。';
+    }
+    let active: unknown = null;
+    try {
+      active = this.permissions.activePermissionForPath(project.root_path);
+    } catch {
+      active = null;
+    }
+    return active === null
+      ? '这个项目文件夹的读取授权已经撤销：在项目页解除绑定、重新绑定之后，再派编码任务。'
+      : null;
+  }
+
   async finishCodingTask(id: string, how: 'dispatch' | 'cancel'): Promise<CodingTask> {
     if (how === 'dispatch') {
       // D7b：任务页点「派发」先问设置——缺模型/缺 Key 就不派发，任务留在排队
@@ -2112,6 +2154,8 @@ export class AppRuntime {
       if (plan.use === 'none') {
         throw new IxaError(ErrorCodes.VALIDATION_FAILED, executorGapText(plan.missing));
       }
+      // P6：派发之前也查项目文件夹授权（取消不查——撤了授权的任务要取消得掉）
+      this.assertTaskProjectBound(id);
     }
     const done = how === 'dispatch' ? await this.coding.dispatch(id) : this.coding.cancel(id);
     this.codingDispatch.onTaskSettled(done.id);

@@ -140,6 +140,11 @@ export function codexMissingReport(row: TaskReportRow): TaskReportMessage {
   );
 }
 
+/** P6：读不了项目的文件夹，任务停在排队——宿主给什么原因就回报什么。 */
+export function folderMissingReport(row: TaskReportRow, gap: string): TaskReportMessage {
+  return reportOf(row, `「${firstLine(row.goal)}」停在排队里：${gap}`, 'folder_missing');
+}
+
 /** D7b：选了「我的模型」却缺模型或缺 Key——任务留在排队，告诉用户缺什么、去哪补。 */
 export function executorMissingReport(row: TaskReportRow, missing: ExecutorGap): TaskReportMessage {
   return reportOf(
