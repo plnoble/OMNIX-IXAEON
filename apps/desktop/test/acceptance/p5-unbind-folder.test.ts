@@ -632,6 +632,9 @@ describe('条件 3：解除时在途的任务被取消，别的不动', () => {
       timeout: 60_000,
     });
 
+    // 预览里验证中的也算会被取消的（整合方复审实现时补的：预览和解除各查各的，要各测各的）
+    expect((await h.runtime.previewUnbindProjectFolder(project.id)).inFlightTasks).toBe(1);
+    expect(taskRow(verifying.taskId).status).toBe('pending_verify');
     const done = await h.runtime.unbindProjectFolder(project.id);
     expect(done.cancelledTaskIds).toEqual([verifying.taskId]);
     expect(taskRow(verifying.taskId).status).toBe('cancelled');

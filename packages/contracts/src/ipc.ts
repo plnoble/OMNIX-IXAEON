@@ -17,6 +17,8 @@ import type {
   TodoStatus,
   TodoView,
   TaskChanges,
+  UnbindProjectFolderPreview,
+  UnbindProjectFolderResult,
   WorkRun,
   SkillCandidate,
 } from './entities.js';
@@ -802,6 +804,10 @@ export interface IxaIpcApi {
   approveCodingTask(id: string): Promise<CodingTask>;
   /** P4：给已有项目绑定文件夹——渲染层只传票据（对话框开出的一次性目录票据）。 */
   bindProjectFolder(input: { ticket: string; projectId: string }): Promise<Project>;
+  /** P5：解除绑定之前先看一眼后果（只读）。 */
+  previewUnbindProjectFolder(projectId: string): Promise<UnbindProjectFolderPreview>;
+  /** P5：解除项目和文件夹的绑定，撤销这条文件夹的读取授权（输入只有项目 id，不用票据）。 */
+  unbindProjectFolder(projectId: string): Promise<UnbindProjectFolderResult>;
   dispatchCodingTask(id: string): Promise<CodingTask>;
   cancelCodingTask(id: string): Promise<CodingTask>;
   acceptCodingTask(id: string): Promise<CodingTask>;

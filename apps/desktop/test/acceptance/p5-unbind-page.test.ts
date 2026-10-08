@@ -9,11 +9,12 @@
  *   讲授权的那一行按 `grant` 三选一（三种说法都以「- 」开头，和别的行一样）；
  * - 取消确认：不调 `unbindProjectFolder`，项目行不变，没有结果那句话；
  * - 确认：调 `unbindProjectFolder`，项目行变成「构想（未绑定目录）」和「绑定文件夹」，
- *   结果（`project-unbind-result`）如实：撤没撤销、取消了几个；
+ *   结果（`project-unbind-result`）如实：撤没撤销、取消了几个；结果显示在被解除的那个项目
+ *   自己的行里（整合方 2026-10-08 复审实现时定的：原来放在列表最底下，项目多了看不见）；
  * - 出错（预览出错、解除出错）：显示在这一页现有的报错条里，项目行不变。
  *
  * 这一页在这些操作里只用到 listProjects、listWorkRuns、previewUnbindProjectFolder、
- * unbindProjectFolder 四个接口。
+ * unbindProjectFolder 四个接口（pickFiles、bindProjectFolder 只在「解除之后重新绑定」那一条里放开）。
  */
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -31,6 +32,9 @@ const api = vi.hoisted(() => ({
   listWorkRuns: vi.fn(async () => []),
   previewUnbindProjectFolder: vi.fn(),
   unbindProjectFolder: vi.fn(),
+  // 只有「解除之后重新绑定」那一条用得到；别的用例里调了就报错
+  pickFiles: vi.fn(),
+  bindProjectFolder: vi.fn(),
 }));
 
 vi.mock('../../src/renderer/src/api.js', () => ({
@@ -116,6 +120,11 @@ beforeEach(() => {
   });
   api.unbindProjectFolder.mockReset();
   unbindSucceeds();
+  for (const name of ['pickFiles', 'bindProjectFolder'] as const) {
+    api[name].mockReset().mockImplementation(async () => {
+      throw new Error(`解除绑定用不到 ${name}`);
+    });
+  }
   confirm.mockReset().mockImplementation(() => {
     calls.push('confirm');
     return true;
@@ -274,6 +283,54 @@ describe('条件 11：确认', () => {
     expect(q('project-bind-folder-p1')?.textContent).toBe('绑定文件夹');
     expect(q('project-unbind-folder-p1')).toBeNull();
     expect(resultText()).toBe('已解除绑定。这个文件夹的读取授权已撤销。取消了2个编码任务。');
+    expect(q('error-banner')).toBeNull();
+    // 结果显示在被解除的那个项目自己的行里，页面上只有这一处
+    expect(q('project-unbind-result')!.closest('[data-testid="project-row-p1"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-testid="project-unbind-result"]')).toHaveLength(1);
+  });
+
+  it('接着解除另一个项目：结果那句话换到那个项目的行里', async () => {
+    rows = [
+      project('p1', '合成项目', ROOT),
+      project('p3', '另一个项目', 'D:/synth/other'),
+      project('p2', '只是构想', null),
+    ];
+    unbindSucceeds({ cancelledTaskIds: ['t1'] });
+    await render();
+    await clickUnbind('p1');
+    expect(q('project-unbind-result')!.closest('[data-testid="project-row-p1"]')).not.toBeNull();
+    expect(resultText()).toBe('已解除绑定。这个文件夹的读取授权已撤销。取消了1个编码任务。');
+
+    unbindSucceeds({ revokedPermissionId: null });
+    await clickUnbind('p3');
+    const results = container.querySelectorAll('[data-testid="project-unbind-result"]');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.closest('[data-testid="project-row-p3"]')).not.toBeNull();
+    expect(resultText()).toBe('已解除绑定。读取授权没有撤销。');
+    // 两个项目都成了没绑的样子
+    expect(rowText('p1')).toContain('构想（未绑定目录）');
+    expect(rowText('p3')).toContain('构想（未绑定目录）');
+    expect(q('project-unbind-folder-p1')).toBeNull();
+    expect(q('project-unbind-folder-p3')).toBeNull();
+  });
+
+  it('解除之后在同一页重新绑定：行里又是路径，那句「已解除绑定」不再显示', async () => {
+    api.pickFiles.mockImplementation(async () => ({ ticket: 'ticket-1' }));
+    api.bindProjectFolder.mockImplementation(async (input: { projectId: string }) => {
+      rows = rows.map((p) => (p.id === input.projectId ? { ...p, root_path: ROOT } : p));
+      return rows.find((p) => p.id === input.projectId)!;
+    });
+    await render();
+    await clickUnbind();
+    expect(resultText()).toBe('已解除绑定。这个文件夹的读取授权已撤销。');
+
+    await act(async () => {
+      (q('project-bind-folder-p1') as HTMLButtonElement).click();
+    });
+    await settle();
+    expect(api.bindProjectFolder).toHaveBeenCalledWith({ ticket: 'ticket-1', projectId: 'p1' });
+    expectStillBound();
+    expect(q('project-unbind-result')).toBeNull();
     expect(q('error-banner')).toBeNull();
   });
 

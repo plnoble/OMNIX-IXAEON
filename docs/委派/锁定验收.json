@@ -392,10 +392,10 @@
     {
       "id": "P5",
       "title": "解除项目和文件夹的绑定",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/p5-unbind-folder.test.ts": "2f2174ca00cd96fa714db42746eb30a325ec6e4d40bce584e3a0bb66c87a2964",
-        "apps/desktop/test/acceptance/p5-unbind-page.test.ts": "d4f23b5d965417f46539026d9b986d994bd948abab4ed4073babd160dbb5db30"
+        "apps/desktop/test/acceptance/p5-unbind-folder.test.ts": "33461459d023c0f6edbe062c1ad6dab7ef98aea5175082bc27e8e47e18dcd31d",
+        "apps/desktop/test/acceptance/p5-unbind-page.test.ts": "178627b68020ebdb71899a00a17c6f5b3539fef073e06eb7fc9299e47dbb5a09"
       }
     },
     {

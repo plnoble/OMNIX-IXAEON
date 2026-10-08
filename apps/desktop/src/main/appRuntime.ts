@@ -98,6 +98,8 @@ import {
   type CodingTask,
   type TodoView,
   type WorkRun,
+  type UnbindProjectFolderPreview,
+  type UnbindProjectFolderResult,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
@@ -1940,20 +1942,10 @@ export class AppRuntime {
     }
     // 别的项目绑着同一文件夹（规范形比较：真实路径展开 8.3 短名、统一斜杠、
     // Windows 不分大小写）→ 拒绝并带上那个项目的名字
-    const canon = (p: string): string => {
-      let r = resolve(p);
-      try {
-        r = realpathSync.native(r);
-      } catch {
-        // 沿用词法规范形
-      }
-      r = r.replaceAll('\\', '/').replace(/\/+$/, '');
-      return process.platform === 'win32' ? r.toLowerCase() : r;
-    };
-    const targetCanon = canon(storedAbs);
+    const targetCanon = this.canonFolder(storedAbs);
     for (const other of this.projects.list()) {
       if (other.id === project.id || !other.root_path) continue;
-      if (canon(other.root_path) === targetCanon) {
+      if (this.canonFolder(other.root_path) === targetCanon) {
         throw new IxaError(
           ErrorCodes.VALIDATION_FAILED,
           `这个文件夹已经绑在项目「${other.name}」上了（本单不做换绑）`,
@@ -1964,6 +1956,132 @@ export class AppRuntime {
     const updated = this.projects.rebindRoot(project.id, storedAbs);
     recordAudit(this.db, 'project.folder_bound', { projectId, grantId: grant.id });
     return updated;
+  }
+
+  /** P4/P5 共用：文件夹路径的规范形（真实路径展开 8.3 短名、统一斜杠、去尾斜杠、Windows 不分大小写）。 */
+  private canonFolder(p: string): string {
+    let r = resolve(p);
+    try {
+      r = realpathSync.native(r);
+    } catch {
+      // 沿用词法规范形
+    }
+    r = r.replaceAll('\\', '/').replace(/\/+$/, '');
+    return process.platform === 'win32' ? r.toLowerCase() : r;
+  }
+
+  /** 这个文件夹自己的那条有效授权（folder 类、active、locator 规范形一致）；没有是 null。 */
+  private activeFolderGrant(targetCanon: string): { id: string } | null {
+    const rows = this.db
+      .prepare(
+        "SELECT id, locator FROM permissions WHERE scope_type = 'folder' AND status = 'active'",
+      )
+      .all() as Array<{ id: string; locator: string }>;
+    return rows.find((p) => this.canonFolder(p.locator) === targetCanon) ?? null;
+  }
+
+  /** P5：别的项目也绑着同一个文件夹（不管什么状态；只按路径规范形比）。 */
+  private folderKeptByOtherProject(projectId: string, targetCanon: string): boolean {
+    return this.projects
+      .list()
+      .some(
+        (p) => p.id !== projectId && p.root_path && this.canonFolder(p.root_path) === targetCanon,
+      );
+  }
+
+  /**
+   * P5：解除绑定之前先看一眼后果（业务逻辑；IPC 已注册的同名方法直接转）。
+   * 只读：不改任何东西，项目不存在 / 没绑文件夹照契约 6 拒绝。
+   */
+  async previewUnbindProjectFolder(projectId: string): Promise<UnbindProjectFolderPreview> {
+    const project = this.projects.get(projectId);
+    if (!project) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在：${projectId}`);
+    if (!project.root_path) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个项目没有绑定文件夹');
+    }
+    const target = this.canonFolder(project.root_path);
+    const ownGrant = this.activeFolderGrant(target);
+    const grant: UnbindProjectFolderPreview['grant'] = ownGrant
+      ? this.folderKeptByOtherProject(project.id, target)
+        ? 'kept_other_project'
+        : 'revoke'
+      : 'none';
+    const sourcesUnderGrant =
+      grant === 'revoke'
+        ? (
+            this.db
+              .prepare('SELECT count(*) AS n FROM sources WHERE permission_id = ?')
+              .get(ownGrant!.id) as { n: number }
+          ).n
+        : 0;
+    const inFlightTasks = (
+      this.db
+        .prepare(
+          "SELECT count(*) AS n FROM coding_tasks WHERE project_id = ? AND status IN ('queued','running','pending_verify')",
+        )
+        .get(projectId) as { n: number }
+    ).n;
+    const pendingAcceptTasks = (
+      this.db
+        .prepare(
+          "SELECT count(*) AS n FROM coding_tasks WHERE project_id = ? AND status = 'pending_accept'",
+        )
+        .get(projectId) as { n: number }
+    ).n;
+    return {
+      rootPath: project.root_path,
+      inFlightTasks,
+      pendingAcceptTasks,
+      sourcesUnderGrant,
+      grant,
+    };
+  }
+
+  /**
+   * P5：解除项目和文件夹的绑定（业务逻辑；IPC 已注册的同名方法直接转）。
+   * 次序照契约 4：先取消在途任务（执行器还在读，先让它停），再清路径、撤授权，
+   * 记审计，最后让对话上下文失效。不删任何数据。
+   */
+  async unbindProjectFolder(projectId: string): Promise<UnbindProjectFolderResult> {
+    const project = this.projects.get(projectId);
+    if (!project) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在：${projectId}`);
+    if (!project.root_path) {
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个项目没有绑定文件夹');
+    }
+    const target = this.canonFolder(project.root_path);
+    const ownGrant = this.activeFolderGrant(target);
+    const keptByOther = this.folderKeptByOtherProject(project.id, target);
+    // 1. 先取消这个项目在途的编码任务，并在各自的发起对话里写「取消了」的回报
+    const inFlight = this.db
+      .prepare(
+        "SELECT id FROM coding_tasks WHERE project_id = ? AND status IN ('queued','running','pending_verify')",
+      )
+      .all(projectId) as Array<{ id: string }>;
+    for (const t of inFlight) {
+      this.coding.cancel(t.id);
+      this.codingDispatch.onTaskSettled(t.id);
+    }
+    // 2. 清空项目绑定的路径
+    const updated = this.projects.rebindRoot(project.id, null);
+    // 3. 撤销这条文件夹的授权；别的项目也绑着同一个文件夹、或没有这条授权时不撤销
+    let revokedPermissionId: string | null = null;
+    if (ownGrant && !keptByOther) {
+      this.permissions.revoke(ownGrant.id);
+      revokedPermissionId = ownGrant.id;
+    }
+    // 4. 审计只记这几样（不带路径等别的字段）
+    recordAudit(this.db, 'project.folder_unbound', {
+      projectId,
+      grantId: revokedPermissionId,
+      cancelledTasks: inFlight.length,
+    });
+    // 5. 项目近况是从这个文件夹读出来的，正在用的对话上下文作废
+    this.invalidateContext();
+    return {
+      project: updated,
+      revokedPermissionId,
+      cancelledTaskIds: inFlight.map((t) => t.id),
+    };
   }
 
   /** P4：项目没绑文件夹 → 三处入口同一条文案（项目不存在不拦，交给后续流程）。 */
