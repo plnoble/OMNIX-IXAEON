@@ -612,6 +612,9 @@ export function registerIpc(runtime: AppRuntime): void {
       if (!rootPath) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '票据无效或已经用过');
       return runtime.bindProjectFolder(input.projectId, rootPath);
     },
+    // P5：解除绑定——输入只有项目 id（这两条只会收回授权，不用票据）
+    previewUnbindProjectFolder: async (projectId) => runtime.previewUnbindProjectFolder(projectId),
+    unbindProjectFolder: async (projectId) => runtime.unbindProjectFolder(projectId),
     dispatchCodingTask: async (id) => runtime.finishCodingTask(id, 'dispatch'),
     cancelCodingTask: async (id) => runtime.finishCodingTask(id, 'cancel'),
     // D4：走 acceptCodingTask（落地 + 追加回报），不再直调 coding.accept

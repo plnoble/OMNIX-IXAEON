@@ -357,6 +357,33 @@ export interface TaskChanges {
   total: number;
 }
 
+/** P5：解除绑定之前先看一眼后果。只读，不改任何东西。 */
+export interface UnbindProjectFolderPreview {
+  /** 现在绑着的文件夹（项目上存的那个 root_path，原样返回，不另做规范化）。 */
+  rootPath: string;
+  /** 会被取消的编码任务数（排队、执行中、验证中的）。 */
+  inFlightTasks: number;
+  /** 做完了还没接受的任务数：解除之后再接受，改动落不到项目里。 */
+  pendingAcceptTasks: number;
+  /** 那条授权下导入过的资料数：授权撤销之后不再读它们的原文。不撤销时是 0。 */
+  sourcesUnderGrant: number;
+  /**
+   * 授权怎么处理：revoke = 撤销；kept_other_project = 别的项目也绑着这个文件夹，不撤销；
+   * none = 这个文件夹没有单独的有效授权，没有可撤销的。
+   */
+  grant: 'revoke' | 'kept_other_project' | 'none';
+}
+
+/** P5：解除绑定之后的结果。 */
+export interface UnbindProjectFolderResult {
+  /** 解除之后的项目（root_path 是 null）。 */
+  project: Project;
+  /** 撤销了哪条授权；没撤销是 null。 */
+  revokedPermissionId: string | null;
+  /** 一并取消了的编码任务。 */
+  cancelledTaskIds: string[];
+}
+
 /** 执行器名给人看的写法（回报、任务页共用）：`model:<模型名>` → 我的模型（<模型名>）。 */
 export function executorLabel(name: string): string {
   if (name.startsWith('model:')) return `我的模型（${name.slice('model:'.length)}）`;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, errMsg, type Project, type WorkRun } from '../api.js';
+import type { UnbindProjectFolderPreview } from '@ixaeon/contracts';
 import { Button, Card, Empty, ErrorBanner, Field, projectStatusLabel, Spinner } from '../ui.js';
 
 type WorkTest = { name: string; result: 'passed' | 'failed' | 'not_run' };
@@ -165,6 +166,43 @@ function ProjectWorkRuns({ projectId }: { projectId: string }) {
   );
 }
 
+/** P5：确认框整段文字照契约 7；带数字的三行数字是 0 就不出现；讲授权的那一行三选一。 */
+function unbindConfirmText(p: Project, v: UnbindProjectFolderPreview): string {
+  const grantLine =
+    v.grant === 'revoke'
+      ? '- 这个文件夹的读取授权一并撤销。'
+      : v.grant === 'kept_other_project'
+        ? '- 读取授权不撤销：另一个项目也绑着这个文件夹。'
+        : '- 这个文件夹没有单独的读取授权，没有可撤销的。';
+  const lines = [
+    `解除「${p.name}」和这个文件夹的绑定？`,
+    '',
+    v.rootPath,
+    '',
+    '解除之后：',
+    '- IXAEON 不再读这个文件夹：不能再给这个项目派编码任务，对话里也不再带这个文件夹的项目近况。',
+    grantLine,
+  ];
+  if (v.sourcesUnderGrant > 0) {
+    lines.push(
+      `- 这条授权下导入过 ${v.sourcesUnderGrant} 份资料：不再读它们的原文，已经提炼出的理解保留。重新绑定也恢复不了，要再用得重新导入。`,
+    );
+  }
+  if (v.inFlightTasks > 0) {
+    lines.push(`- 有 ${v.inFlightTasks} 个编码任务正在排队或执行，会被取消。`);
+  }
+  if (v.pendingAcceptTasks > 0) {
+    lines.push(
+      `- 有 ${v.pendingAcceptTasks} 个任务做完了还没接受：解除之后再点接受，改动落不到项目里。可以先去任务页接受，或者之后重新绑定再接受。`,
+    );
+  }
+  lines.push(
+    '',
+    '已经做完的任务、它们的隔离副本（里面有当时的项目文件）和已有的记忆都不动。要清掉副本，在任务页逐个删除任务。',
+  );
+  return lines.join('\n');
+}
+
 /** 项目页：列表 + 新建 + 目录登记 + 状态切换。 */
 export function ProjectsPage({
   onOpenSources,
@@ -176,6 +214,7 @@ export function ProjectsPage({
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [unbindResult, setUnbindResult] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -205,6 +244,32 @@ export function ProjectsPage({
       if (!picked || picked.ticket === undefined) return;
       await api.bindProjectFolder({ ticket: picked.ticket, projectId });
       await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** P5：先预览、问一次确认，确认了才解除。出错（预览或解除）都显示在整页报错条里，项目行不变。 */
+  const unbindFolder = async (p: Project) => {
+    setBusy(true);
+    try {
+      const preview = await api.previewUnbindProjectFolder(p.id);
+      const ok = window.confirm(unbindConfirmText(p, preview));
+      if (!ok) return;
+      const done = await api.unbindProjectFolder(p.id);
+      // 项目行马上变成没绑的样子（直接用返回的项目，不动别的行）
+      setProjects((rows) => rows?.map((row) => (row.id === p.id ? done.project : row)) ?? null);
+      const parts = [
+        '已解除绑定。',
+        done.revokedPermissionId !== null ? '这个文件夹的读取授权已撤销。' : '读取授权没有撤销。',
+      ];
+      if (done.cancelledTaskIds.length > 0) {
+        parts.push(`取消了 ${done.cancelledTaskIds.length} 个编码任务。`);
+      }
+      setUnbindResult(parts.join(''));
+      onChanged?.();
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -337,7 +402,17 @@ export function ProjectsPage({
                   <strong>{p.name}</strong>
                   <span className={`badge badge-${p.status}`}>{projectStatusLabel(p.status)}</span>
                   {p.root_path ? (
-                    <span className="muted">{p.root_path}</span>
+                    <>
+                      <span className="muted">{p.root_path}</span>
+                      <Button
+                        kind="ghost"
+                        disabled={busy}
+                        testId={`project-unbind-folder-${p.id}`}
+                        onClick={() => void unbindFolder(p)}
+                      >
+                        解除绑定
+                      </Button>
+                    </>
                   ) : (
                     <>
                       <span className="muted">构想（未绑定目录）</span>
@@ -392,6 +467,11 @@ export function ProjectsPage({
               </li>
             ))}
           </ul>
+        )}
+        {unbindResult && (
+          <p className="note" data-testid="project-unbind-result" style={{ marginTop: 12 }}>
+            {unbindResult}
+          </p>
         )}
       </Card>
     </div>
