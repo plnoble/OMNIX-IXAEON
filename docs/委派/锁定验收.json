@@ -397,6 +397,15 @@
         "apps/desktop/test/acceptance/p5-unbind-folder.test.ts": "2f2174ca00cd96fa714db42746eb30a325ec6e4d40bce584e3a0bb66c87a2964",
         "apps/desktop/test/acceptance/p5-unbind-page.test.ts": "d4f23b5d965417f46539026d9b986d994bd948abab4ed4073babd160dbb5db30"
       }
+    },
+    {
+      "id": "U5",
+      "title": "任务卡片说人话",
+      "status": "done",
+      "files": {
+        "packages/contracts/test/acceptance/u5-card-words.test.ts": "83403857e16e88c4fc15dc8dc9d89ff6ac719475ce9741b346330b880f7a2533",
+        "apps/desktop/test/acceptance/u5-tasks-card.test.ts": "4aace123dd5831ed4e8f168cebed368d21237e37d89e5ef0b6a255c483e3f410"
+      }
     }
   ]
 }

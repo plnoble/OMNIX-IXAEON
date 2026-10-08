@@ -363,6 +363,35 @@ export function executorLabel(name: string): string {
   return name === 'codex-cli' ? 'Codex' : name;
 }
 
+/** 验证结果的一句话。 */
+export function verifyLabel(row: {
+  verify_status: string | null;
+  verify_output: string | null;
+}): '验证通过' | '验证没通过' | '验证没跑' | '还没有独立验收' {
+  if (row.verify_status === 'passed') return '验证通过';
+  if (row.verify_status === 'failed') return '验证没通过';
+  const reason = row.verify_status === 'not_run' ? (row.verify_output?.trim() ?? '') : '';
+  return reason && !reason.includes('没有有效验证命令') ? '验证没跑' : '还没有独立验收';
+}
+
+/** 执行器自己说没做成时，它给的说明。没有就是 null。 */
+export function executorExplanation(row: {
+  status: string;
+  executor_report_json: string | null;
+}): string | null {
+  if (row.status !== 'failed' || !row.executor_report_json) return null;
+  let report: unknown;
+  try {
+    report = JSON.parse(row.executor_report_json);
+  } catch {
+    return null;
+  }
+  if (!report || typeof report !== 'object') return null;
+  const summary = (report as { summary?: unknown }).summary;
+  const text = typeof summary === 'string' ? summary.trim() : '';
+  return (report as { claimedSuccess?: unknown }).claimedSuccess === false && text ? text : null;
+}
+
 /** 交给「我的模型」时哪些内容会发出去（设置页、任务页共用；改 D7 的发送规则时一起改）。 */
 export const MODEL_EXECUTOR_SENDS =
   '你点「要做」的编码任务，会把项目副本里这些文件的内容发给这个模型：批准范围内的、根目录的 README、任务目标里写了路径的；别的文件只发文件名和大小。';

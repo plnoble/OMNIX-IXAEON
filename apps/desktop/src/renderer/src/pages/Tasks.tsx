@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errMsg, type Project } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 import {
+  executorExplanation,
   executorLabel,
+  verifyLabel,
   type CodingTask,
   type TaskChangedFile,
   type TaskChanges,
@@ -64,6 +66,61 @@ function landingLine(t: CodingTask): string {
     ? ((JSON.parse(t.executor_report_json) as { changedPaths?: string[] }).changedPaths ?? [])
     : [];
   return changed.length === 0 ? '这次没有改动文件（没有改动）' : '改动还在隔离副本里，未落地';
+}
+
+function acceptanceLines(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const list = JSON.parse(json) as unknown;
+    return Array.isArray(list)
+      ? list.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function acceptanceTestsLine(json: string | null): string | null {
+  if (!json) return null;
+  try {
+    const report = JSON.parse(json) as {
+      acceptanceTests?: { files?: unknown; locked?: unknown; reason?: unknown };
+    };
+    const tests = report.acceptanceTests;
+    if (!tests || typeof tests.locked !== 'boolean') return null;
+    if (tests.locked) {
+      const n = Array.isArray(tests.files) ? tests.files.length : 0;
+      return `验收测试 ${n} 个，已锁定`;
+    }
+    const reason = typeof tests.reason === 'string' ? tests.reason.trim() : '';
+    return reason ? `验收测试没锁定：${reason}` : '验收测试没锁定';
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * U5：执行器自己的说明、验收条件、验收测试。没有的不显示。
+ * 说明排第一个：它紧跟在卡片上的失败原因后面，中间不隔别的。
+ */
+function TaskWords({ task: t }: { task: CodingTask }) {
+  const acceptance = acceptanceLines(t.acceptance_json);
+  const testsLine = acceptanceTestsLine(t.executor_report_json);
+  const explanation = executorExplanation(t);
+  return (
+    <>
+      {explanation && <p data-testid={`task-explanation-${t.id}`}>它的说明：{explanation}</p>}
+      {acceptance.length > 0 && (
+        <div data-testid={`task-acceptance-${t.id}`}>
+          <p>验收条件：</p>
+          {acceptance.map((a, i) => (
+            <p key={i}>{a}</p>
+          ))}
+        </div>
+      )}
+      {testsLine && <p data-testid={`task-acceptance-tests-${t.id}`}>{testsLine}</p>}
+    </>
+  );
 }
 
 /** 执行报告里的 changedPaths 条数；没有报告或清单为空返回 null（不显示「看改动」）。 */
@@ -360,7 +417,7 @@ export function TasksPage({
           <p className="muted">
             {statusLabel[t.status]} · 版本 {t.version}
             {t.executor_name ? ` · 执行器 ${executorLabel(t.executor_name)}` : ''}
-            {t.verify_status ? ` · 独立验证 ${t.verify_status}` : ''}
+            {t.verify_status ? ` · ${verifyLabel(t)}` : ''}
             {t.tests_modified ? ' · 测试代码被修改' : ''}
           </p>
           <TaskChangesCard
@@ -379,6 +436,7 @@ export function TasksPage({
             </p>
           )}
           {t.error && <p className="warn">{t.error}</p>}
+          <TaskWords task={t} />
           {t.verify_output && <pre className="muted">{t.verify_output.slice(0, 400)}</pre>}
           <div className="card-actions">
             {(t.status === 'draft' || t.status === 'waiting_approval') && (
@@ -392,7 +450,11 @@ export function TasksPage({
                 disabled={busy}
                 onClick={() => void act(() => api.dispatchCodingTask(t.id))}
               >
-                {realDispatch ? '派发（Codex）' : '派发（Fake）'}
+                {executorKind === 'model'
+                  ? '派发（我的模型）'
+                  : realDispatch
+                    ? '派发（Codex）'
+                    : '派发（Fake）'}
               </Button>
             )}
             {t.status === 'pending_accept' && (

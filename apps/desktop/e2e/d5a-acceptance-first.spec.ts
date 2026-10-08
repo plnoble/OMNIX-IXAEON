@@ -247,11 +247,11 @@ test.describe('D5a 验收先行（端到端）', () => {
       timeout: 15_000,
     });
 
-    // 任务页显示「独立验证 passed」
+    // 任务页显示「验证通过」
     await page.getByTestId('nav-tasks').click();
     await expect(page.getByTestId('page-tasks')).toBeVisible({ timeout: 20_000 });
     const taskCard = page.locator(`[data-testid="task-${taskId}"]`);
-    await expect(taskCard).toContainText('独立验证 passed', { timeout: 20_000 });
+    await expect(taskCard).toContainText('验证通过', { timeout: 20_000 });
 
     // 副本里测试文件和实现都在（等条件成立，不 sleep）
     await expect

@@ -1,4 +1,4 @@
-import { executorLabel } from '@ixaeon/contracts';
+import { executorExplanation, executorLabel, verifyLabel } from '@ixaeon/contracts';
 import { landingText, type CoreDatabase } from '@ixaeon/core';
 import { executorGapText, type ExecutorGap } from './codingExecutor.js';
 
@@ -55,9 +55,8 @@ function stringList(json: string | null, field?: string): string[] {
 }
 
 function verifyLine(row: TaskReportRow): string {
-  if (row.verify_status === 'passed') return '验证通过';
-  const reason = row.verify_status === 'not_run' ? row.verify_output?.trim() : '';
-  return reason && !reason.includes('没有有效验证命令') ? `验证没跑：${reason}` : '还没有独立验收';
+  const label = verifyLabel(row);
+  return label === '验证没跑' ? `验证没跑：${row.verify_output?.trim()}` : label;
 }
 
 /**
@@ -68,12 +67,8 @@ function modelLines(row: TaskReportRow): string[] {
   const name = row.executor_name ?? '';
   if (!name.startsWith('model:')) return [];
   const lines = [`执行器：${executorLabel(name)}。`];
-  const report = row.executor_report_json
-    ? (JSON.parse(row.executor_report_json) as { claimedSuccess?: boolean; summary?: string })
-    : {};
-  if (row.status === 'failed' && report.claimedSuccess === false && report.summary?.trim()) {
-    lines.push(`它的说明：${report.summary.trim()}`);
-  }
+  const explanation = executorExplanation(row);
+  if (explanation) lines.push(`它的说明：${explanation}`);
   return lines;
 }
 
