@@ -1973,7 +1973,9 @@ export class AppRuntime {
   /** 这个文件夹自己的那条有效授权（folder 类、active、locator 规范形一致）；没有是 null。 */
   private activeFolderGrant(targetCanon: string): { id: string } | null {
     const rows = this.db
-      .prepare("SELECT id, locator FROM permissions WHERE scope_type = 'folder' AND status = 'active'")
+      .prepare(
+        "SELECT id, locator FROM permissions WHERE scope_type = 'folder' AND status = 'active'",
+      )
       .all() as Array<{ id: string; locator: string }>;
     return rows.find((p) => this.canonFolder(p.locator) === targetCanon) ?? null;
   }
@@ -1982,7 +1984,9 @@ export class AppRuntime {
   private folderKeptByOtherProject(projectId: string, targetCanon: string): boolean {
     return this.projects
       .list()
-      .some((p) => p.id !== projectId && p.root_path && this.canonFolder(p.root_path) === targetCanon);
+      .some(
+        (p) => p.id !== projectId && p.root_path && this.canonFolder(p.root_path) === targetCanon,
+      );
   }
 
   /**
@@ -2004,9 +2008,11 @@ export class AppRuntime {
       : 'none';
     const sourcesUnderGrant =
       grant === 'revoke'
-        ? ((this.db
-            .prepare('SELECT count(*) AS n FROM sources WHERE permission_id = ?')
-            .get(ownGrant!.id) as { n: number }).n)
+        ? (
+            this.db
+              .prepare('SELECT count(*) AS n FROM sources WHERE permission_id = ?')
+              .get(ownGrant!.id) as { n: number }
+          ).n
         : 0;
     const inFlightTasks = (
       this.db
