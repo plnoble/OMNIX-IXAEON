@@ -406,6 +406,14 @@
         "packages/contracts/test/acceptance/u5-card-words.test.ts": "83403857e16e88c4fc15dc8dc9d89ff6ac719475ce9741b346330b880f7a2533",
         "apps/desktop/test/acceptance/u5-tasks-card.test.ts": "4aace123dd5831ed4e8f168cebed368d21237e37d89e5ef0b6a255c483e3f410"
       }
+    },
+    {
+      "id": "U6",
+      "title": "报错条去掉英文前缀",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/u6-error-banner.test.ts": "818e27e76d074f13f8e23cf56238841400afd2557b04ac1fb35c470ebdbd4d3a"
+      }
     }
   ]
 }
