@@ -388,6 +388,15 @@
       "files": {
         "apps/desktop/test/acceptance/u4-open-task-from-report.test.ts": "aaf05b9ed9454d05269fb1611d7c465685c7d9d749e5b0fca609c9a14cf48332"
       }
+    },
+    {
+      "id": "P5",
+      "title": "解除项目和文件夹的绑定",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/p5-unbind-folder.test.ts": "2f2174ca00cd96fa714db42746eb30a325ec6e4d40bce584e3a0bb66c87a2964",
+        "apps/desktop/test/acceptance/p5-unbind-page.test.ts": "d4f23b5d965417f46539026d9b986d994bd948abab4ed4073babd160dbb5db30"
+      }
     }
   ]
 }
