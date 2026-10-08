@@ -357,11 +357,9 @@ describe('P4 验收条件 6：任务页「批准」——没绑文件夹拦，�
   it('没绑文件夹：报同一句话，任务没批准；有文件夹的照旧批准', async () => {
     const h = setup();
     const unbound = h.projects.create({ name: '未绑定项目', rootPath: null, description: null });
-    const bound = h.projects.create({
-      name: '已绑定项目',
-      rootPath: folder('bw'),
-      description: null,
-    });
+    // P6（2026-10-08）：绑着文件夹还得有有效的读取授权才批准得了，所以「绑好的项目」走真的绑定（会发授权）
+    const created = h.projects.create({ name: '已绑定项目', rootPath: null, description: null });
+    const bound = await h.runtime.bindProjectFolder(created.id, folder('bw'));
     const t1 = h.coding.create({
       projectId: unbound.id,
       goal: '写 note.txt',

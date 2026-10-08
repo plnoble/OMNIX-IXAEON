@@ -49,7 +49,7 @@
       "title": "编码任务进待办",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/t2b-coding-todos.test.ts": "19d09c20fcb47227c05bce8a353ab9b1e8057d539fd6bea65bad970e80aa13ab"
+        "apps/desktop/test/acceptance/t2b-coding-todos.test.ts": "3fb154b8cfdabad9cf41b2756afb8925750c20ae19e9a86cceddf7a49c885950"
       }
     },
     {
@@ -238,7 +238,7 @@
       "title": "点要做就开工并回报",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "75f5e60ecc4971b5f9a11a6a614286548002caf25fc39cdd8430e68fa49713d0"
+        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "8af093ec3df58ba7f1c13c6c43e0b47ea05d6dd875416785055948f8b7aeaf97"
       }
     },
     {
@@ -246,7 +246,7 @@
       "title": "聊天里说「把 X 做了」生成编码任务草案",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "a94b3f41430725a61c5fe9f08a9f9eb94255b182c7c55b05a2366f2b73d4f5aa",
+        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "5895d701eea87eba3d3bc9fa23af9f3414138a448564a2ae075cf6335deb066a",
         "packages/core/test/acceptance/d1-convention.test.ts": "7c980df3d8de0143870b246719f41fd4caf78ee6aa5928aac45c4aa75a0b377c"
       }
     },
@@ -256,7 +256,7 @@
       "status": "done",
       "files": {
         "packages/core/test/acceptance/d4-apply-branch.test.ts": "232ff8af0125c246ac4623dffc052152c08ba127109c4c027c2e15a808d83e18",
-        "apps/desktop/test/acceptance/d4-landing-report.test.ts": "28b26d09aadb6863a5d8c18ba30c95e7840fd7e10e2ef2bb57d73b99ab24395b",
+        "apps/desktop/test/acceptance/d4-landing-report.test.ts": "6e0b11500757b9d480d03c6027404a5a3f2f4c9b74a639e2407f7f929d3b3313",
         "apps/desktop/test/acceptance/d4-tasks-page.test.ts": "a5f5c84663903b96c338c818047519f7a344c50f2e7179b78e778020de85bba6"
       }
     },
@@ -284,7 +284,7 @@
       "title": "P4 给已有项目绑定文件夹；没绑文件夹的项目不派编码任务",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/p4-project-folder.test.ts": "863384b70d48d9383796ab845f44e3896c876664ebef6543ceb904ef7f4be8b6"
+        "apps/desktop/test/acceptance/p4-project-folder.test.ts": "4f17e291285d8c305bed649c14b5894f0ad4a4daa74e7ce0215c1d1a2a715ff0"
       }
     },
     {
@@ -325,7 +325,7 @@
       "title": "按设置选执行器：选了我的模型就交给它，缺东西不派发并回报，设置页一栏",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "ef50a449c050d6802c9f20eed45f51b8ee605e840d1eae3804e3e866a32da36b",
+        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "810c9b2d4edacee94671fbff289f6dffd1f8ba44bf2f34b64600c717d26f5159",
         "apps/desktop/test/acceptance/d7b-pages.test.ts": "244b412cc4b653a36750fb0e2214d34f247dbb160b01821da6fb4ece89b08b87"
       }
     },
@@ -413,6 +413,14 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/u6-error-banner.test.ts": "818e27e76d074f13f8e23cf56238841400afd2557b04ac1fb35c470ebdbd4d3a"
+      }
+    },
+    {
+      "id": "P6",
+      "title": "授权撤销后不建副本不派任务",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/p6-revoked-folder.test.ts": "e51566a2aa97ad03d2c3f2ffcadc3601b7dd6b97c18ac80dba02a123ae71109b"
       }
     }
   ]

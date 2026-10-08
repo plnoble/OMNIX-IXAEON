@@ -141,7 +141,9 @@ function setup(
   );
   const projects = new ProjectService(db);
   const project = projects.create({ name: '合成项目', rootPath: root, description: null });
-  new PermissionService(db).grantFolder(root);
+  // P6（2026-10-08）：运行时也挂上授权服务（批准、派发之前那道检查要问它）
+  const permissions = new PermissionService(db);
+  permissions.grantFolder(root);
   const conversations = new ConversationStore(db);
   const todos = new TodoStore(db);
   const codex = new FakeCodingExecutor({
@@ -167,6 +169,7 @@ function setup(
     todos,
     coding,
     projects,
+    permissions,
     items: new ItemService(db),
     search: new SearchService(db),
     askSessions: new Map(),

@@ -102,7 +102,9 @@ function setup(opts: { gitRepo?: boolean } = {}): Harness {
   }
   const projects = new ProjectService(db);
   const project = projects.create({ name: '合成项目', rootPath: root, description: null });
-  new PermissionService(db).grantFolder(root);
+  // P6（2026-10-08）：运行时也挂上授权服务（批准、派发之前那道检查要问它）
+  const permissions = new PermissionService(db);
+  permissions.grantFolder(root);
   const conversations = new ConversationStore(db);
   const todos = new TodoStore(db);
   const files: Record<string, string> = {};
@@ -117,6 +119,7 @@ function setup(opts: { gitRepo?: boolean } = {}): Harness {
     items: new ItemService(db),
     search: new SearchService(db),
     projects,
+    permissions,
     askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),

@@ -10,6 +10,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -122,6 +123,11 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
       id: string;
     };
     db.prepare('UPDATE projects SET root_path = ? WHERE id = ?').run(projectRoot, proj.id);
+    // 项目根目录的读取授权（绑定文件夹时会发的那一条；P6 之后没有它派不了任务）
+    db.prepare(
+      `INSERT INTO permissions (id, scope_type, locator, mode, status, granted_at, revoked_at)
+       VALUES (?, 'folder', ?, 'continuous', 'active', ?, NULL)`,
+    ).run(randomUUID(), projectRoot, new Date().toISOString());
     db.close();
 
     // ===== 重新打开设置页：选过的还在 =====

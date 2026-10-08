@@ -13,6 +13,7 @@ import {
   FakeCodingExecutor,
   FakeProvider,
   ItemService,
+  PermissionService,
   ProjectService,
   SearchService,
   TodoStore,
@@ -52,6 +53,10 @@ function setup(goal = '修掉导入时的乱码\n细节：只动 note.txt') {
   writeFileSync(join(root, 'note.txt'), '合成文件');
   const projects = new ProjectService(db);
   const project = projects.create({ name: '合成项目', rootPath: root, description: null });
+  // P6（2026-10-08）：绑着文件夹还得有有效的读取授权才派得了任务。这里的项目是「绑好了」的，补上授权；
+  // 运行时也挂上授权服务（那道检查要问它）。
+  const permissions = new PermissionService(db);
+  permissions.grantFolder(root);
   const conversations = new ConversationStore(db);
   const todos = new TodoStore(db);
   const coding = new CodingOrchestrator(db, new FakeCodingExecutor(), join(dir, 'data'));
@@ -64,6 +69,7 @@ function setup(goal = '修掉导入时的乱码\n细节：只动 note.txt') {
     items: new ItemService(db),
     search: new SearchService(db),
     projects,
+    permissions,
     askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
