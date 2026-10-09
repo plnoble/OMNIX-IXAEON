@@ -422,6 +422,24 @@
       "files": {
         "apps/desktop/test/acceptance/p6-revoked-folder.test.ts": "e51566a2aa97ad03d2c3f2ffcadc3601b7dd6b97c18ac80dba02a123ae71109b"
       }
+    },
+    {
+      "id": "P7",
+      "title": "来源页加撤销读取",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/p7-preview-revoke.test.ts": "b9ef12256c2f3e90bd9ae5f113d935180c6d0952266ed9a48638c0049f46eb7f",
+        "apps/desktop/test/acceptance/p7-revoke-page.test.ts": "553bcf17a750c3f206ef29d2cf37fe7b70c6c495cbbd9825ee4632348918d073"
+      }
+    },
+    {
+      "id": "P8",
+      "title": "删除项目时撤销授权并清副本",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/p8-delete-project.test.ts": "5f11e914084b172980681a392fc85311db019165e1de3f428f3cc50d6b099d2a",
+        "apps/desktop/test/acceptance/p8-delete-page.test.ts": "bc0061a97caa508dc724601403a95e73ee7e1be7593c0a3d3930b774660aad43"
+      }
     }
   ]
 }
