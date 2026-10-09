@@ -19,7 +19,7 @@ if (process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true') {
 }
 
 const root = resolve(import.meta.dirname, '..');
-const escape =(s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const names = [...new Set([userInfo().username, basename(homedir())])].filter((n) => n.length >= 2);
 if (names.length === 0) {
   console.log('✓ 没有可查的账户名（太短），跳过');
