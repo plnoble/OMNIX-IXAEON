@@ -45,7 +45,7 @@ results.push(
 );
 
 // 仓库是公开的：提交的文件里不能带着本机的账户名（贴真机输出时带进来的 C:\Users\<账户名>\…）。
-// 查的是这台机器的账户名，所以要在本机跑才拦得住；CI 上自然通过。
+// 查的是这台机器的账户名，所以要在本机跑才拦得住；CI 上不查（那里的账户名是公用的）。
 results.push(
   run('local-user（提交的文件里没有本机的账户名）', [
     resolve(root, 'scripts', 'check-local-user.mjs'),

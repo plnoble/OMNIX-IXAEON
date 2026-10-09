@@ -4,7 +4,8 @@
  * `C:\Users\<账户名>\…` 这种路径。
  *
  * 查的是「跑这个脚本的这台机器」的账户名：贴输出的人就在这台机器上跑门禁。
- * CI 上的账户名和谁的都不一样，这一步在那里自然通过。
+ * CI 上不查：那里的账户名是公用的（runneradmin），不是谁的个人信息，文档里讲 CI 的路径时
+ * 本来就会写到它（第一版没跳过，CI 上把 D4 交付说明里的一处 CI 路径当成了泄露）。
  * 只查 git 跟踪的文本文件；只认「Users + 分隔符 + 账户名」这种路径写法。
  */
 import { execFileSync } from 'node:child_process';
@@ -12,8 +13,13 @@ import { readFileSync, statSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { basename, resolve } from 'node:path';
 
+if (process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true') {
+  console.log('✓ CI 上不查（查的是开发机的账户名；这里的账户名是公用的）');
+  process.exit(0);
+}
+
 const root = resolve(import.meta.dirname, '..');
-const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escape =(s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const names = [...new Set([userInfo().username, basename(homedir())])].filter((n) => n.length >= 2);
 if (names.length === 0) {
   console.log('✓ 没有可查的账户名（太短），跳过');
