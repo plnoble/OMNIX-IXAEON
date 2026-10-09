@@ -100,6 +100,7 @@ import {
   type WorkRun,
   type UnbindProjectFolderPreview,
   type UnbindProjectFolderResult,
+  type RevokeSourceReadingPreview,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
@@ -2124,6 +2125,51 @@ export class AppRuntime {
     const task = this.db.prepare('SELECT project_id FROM coding_tasks WHERE id = ?').get(taskId) as
       { project_id: string } | undefined;
     return task ? this.projectFolderGap(task.project_id) : null;
+  }
+
+  /**
+   * P7：撤销一份资料所在的读取授权之前先看一眼后果。只读：不改任何表、不记审计、
+   * 不让对话上下文失效。dependentProjects = 绑着文件夹的项目里，文件夹在这条授权之内、
+   * 而且除了这一条之外没有别的有效授权覆盖它的（不管什么状态），按名字排序。
+   */
+  async previewRevokeSourceReading(sourceId: string): Promise<RevokeSourceReadingPreview> {
+    const source = this.sources.get(sourceId);
+    if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, '来源不存在');
+    const perm = this.db
+      .prepare('SELECT * FROM permissions WHERE id = ?')
+      .get(source.permission_id) as Permission | undefined;
+    const scope = perm?.scope_type ?? 'domain';
+    const authoritativeScope: RevokeSourceReadingPreview['scope'] =
+      scope === 'file' || scope === 'folder' || scope === 'domain' ? scope : 'domain';
+    const sourcesUnderGrant = (
+      this.db
+        .prepare('SELECT count(*) AS n FROM sources WHERE permission_id = ?')
+        .get(source.permission_id) as { n: number }
+    ).n;
+    let dependentProjects: string[] = [];
+    if (perm && perm.status === 'active' && perm.scope_type === 'folder') {
+      const actives = this.db
+        .prepare("SELECT * FROM permissions WHERE scope_type = 'folder' AND status = 'active'")
+        .all() as Permission[];
+      const covering = (rootPath: string): Permission[] =>
+        actives.filter((g) => isPathInside(g.locator, rootPath));
+      const names: string[] = [];
+      for (const p of this.projects.list()) {
+        if (!p.root_path) continue;
+        const covers = covering(p.root_path);
+        if (!covers.some((g) => g.id === perm.id)) continue;
+        if (covers.some((g) => g.id !== perm.id)) continue;
+        names.push(p.name);
+      }
+      dependentProjects = names.sort();
+    }
+    return {
+      scope: authoritativeScope,
+      locator: perm?.locator ?? '',
+      status: perm?.status === 'active' ? 'active' : 'revoked',
+      sourcesUnderGrant,
+      dependentProjects,
+    };
   }
 
   async finishCodingTask(id: string, how: 'dispatch' | 'cancel'): Promise<CodingTask> {

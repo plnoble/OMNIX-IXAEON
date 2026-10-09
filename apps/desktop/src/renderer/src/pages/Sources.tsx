@@ -124,6 +124,9 @@ export function SourcesPage({
     segments: Segment[];
     total: number;
   } | null>(null);
+  /** P7：撤销读取——note 显示在详情卡片里（不在这里撤的两种情况），result 显示在页面上。 */
+  const [revokeNote, setRevokeNote] = useState<string | null>(null);
+  const [revokeResult, setRevokeResult] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /** S3b：编码代理会话选择导入。清单号 → 勾选 → 估算 → 导入。渲染层不接触路径。 */
   const [agentList, setAgentList] = useState<{
@@ -374,6 +377,53 @@ export function SourcesPage({
     }
   };
 
+  /**
+   * P7：撤销读取。次序照契约 4——先预览，按结果三选一（不在这里撤的两种只显示一句话），
+   * 其余问一次确认，确认了才撤销，撤销之后才重新读列表。出错显示在报错条、详情不关。
+   */
+  const revokeReading = async (sourceId: string) => {
+    setError(null);
+    setRevokeNote(null);
+    try {
+      const preview = await api.previewRevokeSourceReading(sourceId);
+      if (preview.scope === 'domain') {
+        setRevokeNote(
+          '这份资料不是读本机文件得来的（是网页采集或者保存的提问），没有本机的读取授权可撤。不想留着它，用「删除来源」。',
+        );
+        return;
+      }
+      if (preview.status === 'revoked') {
+        await reload();
+        return;
+      }
+      if (preview.dependentProjects.length > 0) {
+        setRevokeNote(
+          `项目「${preview.dependentProjects.join('、')}」正靠这条授权读它的文件夹：到项目页对它点「解除绑定」，会一并撤销这个文件夹的读取授权。`,
+        );
+        return;
+      }
+      const kind = preview.scope === 'file' ? '文件' : '文件夹';
+      const ok = window.confirm(
+        [
+          `撤销这个${kind}的读取授权？`,
+          '',
+          preview.locator,
+          '',
+          '撤销之后：',
+          `- IXAEON 不再读它：这条授权下的 ${preview.sourcesUnderGrant} 份资料不再读原文，已经提炼出的理解保留。`,
+          `- 要再用得重新导入。重新导入发的是一条新授权，现在这 ${preview.sourcesUnderGrant} 份资料恢复不了。`,
+        ].join('\n'),
+      );
+      if (!ok) return;
+      await api.revokeSourceReading(sourceId);
+      setDetail(null);
+      setRevokeResult(`已撤销读取授权：${preview.sourcesUnderGrant} 份资料不再读原文。`);
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+
   const loadMore = async () => {
     if (!detail) return;
     const next = await api.getSourceSegments({
@@ -556,6 +606,11 @@ export function SourcesPage({
   return (
     <div data-testid="page-sources">
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {revokeResult && (
+        <p className="note" data-testid="source-revoke-result">
+          {revokeResult}
+        </p>
+      )}
       {notice && (
         <p className="muted" data-testid="sources-notice">
           {notice}
@@ -857,6 +912,8 @@ export function SourcesPage({
             const source = await api.getSource(detail.source.id);
             if (source) setDetail({ ...detail, source });
           }}
+          revokeNote={revokeNote}
+          onRevoke={() => void revokeReading(detail.source.id)}
           onProjectBound={async (projectId) => {
             await api.bindSourceProject({ sourceId: detail.source.id, projectId });
             await reload();
@@ -878,6 +935,8 @@ function SourceDetail({
   onArchive,
   onUnarchive,
   onReanalyze,
+  revokeNote,
+  onRevoke,
   onProjectBound,
 }: {
   detail: { source: Source; segments: Segment[]; total: number };
@@ -889,6 +948,10 @@ function SourceDetail({
   onUnarchive: () => void;
   /** P3：详情内直接触发重新分析（不止失败态可重试） */
   onReanalyze: () => Promise<void>;
+  /** P7：不在这里撤的两种情况要显示的那句话；null 就不显示。 */
+  revokeNote: string | null;
+  /** P7：详情卡片里的「撤销读取」。 */
+  onRevoke: () => void;
   onProjectBound: (projectId: string | null) => Promise<void>;
 }) {
   const { source, segments, total } = detail;
@@ -942,6 +1005,9 @@ function SourceDetail({
           >
             重新分析
           </Button>
+          <Button onClick={onRevoke} testId="source-revoke-reading">
+            撤销读取
+          </Button>
           <Button kind="danger" onClick={onDelete} testId="source-delete">
             删除来源
           </Button>
@@ -952,6 +1018,11 @@ function SourceDetail({
       }
     >
       {ctxError && <ErrorBanner message={ctxError} onDismiss={() => setCtxError(null)} />}
+      {revokeNote && (
+        <p className="note" data-testid="source-revoke-note">
+          {revokeNote}
+        </p>
+      )}
       <div className="field-row">
         <label className="muted">所属项目（一次归属，后续新增内容继承）</label>
         <select
