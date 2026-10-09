@@ -28,7 +28,7 @@
 | 真实模型六组问答、当前真实 chatgpt.com | 未验证 | 未调用收费模型、未读取真实登录会话；受控测试页面和 FakeProvider 不替代这两项 |
 | NSIS 安装／卸载、新 Windows 用户全流程 | 未验证 | 实测为 `win-unpacked` 测试副本，不是往用户系统安装 |
 
-端到端使用独立的临时 APPDATA。打包复核副本位于 `C:\Users\87953\AppData\Local\Temp\ixaeon-packaged-review-2w9d9k`，测试进程在结束时已关闭。
+端到端使用独立的临时 APPDATA。打包复核副本位于 `C:\Users\<用户>\AppData\Local\Temp\ixaeon-packaged-review-2w9d9k`，测试进程在结束时已关闭。
 
 交付安装包实际大小：122,566,050 字节；实际 SHA-256 与两份交付说明一致：
 

@@ -59,7 +59,7 @@
     "hermesHome": "D:\\Software\\IXAEON\\Hermes（专属，与用户个人目录无关）",
     "realHandshake": "r02-real-hermes-gateway.test.ts：gateway.ready→session.create 返回 session_id→session.close（2026-09-12 通过）",
     "noProviderBehavior": "无推理凭证阶段（2026-09-12，凭证配置前）：整回合诚实失败（52s，不假成功不挂死）",
-    "codex": "C:\\Users\\87953\\AppData\\Local\\OpenAI\\Codex\\bin\\codex.exe（0.130.0-alpha.5）；t04-real-codex.test.ts 真写文件+独立验证+磁盘复核（2026-09-12 通过）",
+    "codex": "C:\\Users\\<用户>\\AppData\\Local\\OpenAI\\Codex\\bin\\codex.exe（0.130.0-alpha.5）；t04-real-codex.test.ts 真写文件+独立验证+磁盘复核（2026-09-12 通过）",
     "codexWindowsNotes": "0.130.0-alpha.5：--ignore-user-config 会丢用户 config.toml 的 [windows] sandbox=\"elevated\"，Windows 默认只读 → 需显式 -c windows.sandbox=\"elevated\"；elevated 沙箱下进程在 turn.completed 后不退出 → 执行器以 turn.completed 为协议终点，10s 宽限后终止进程树",
     "mcpBridge": "r16-mcp-bridge.test.ts：mcp_servers.ixaeon（直连合成库）→ 真模型调 search_context → 回答含种子目标（2026-09-13 通过；探针后配置自动还原）",
     "dailyDbCopy": "r15-real-daily-db-copy.test.ts：真实日用库副本 17→18 幂等、数据保全（40 sources/870 segments/75 items）、源库字节不变（2026-09-12 通过）",

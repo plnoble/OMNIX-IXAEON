@@ -11,7 +11,7 @@
 
 | 项         | 事实                                                                                         |
 | ---------- | -------------------------------------------------------------------------------------------- |
-| 位置       | `C:\Users\87953\AppData\Local\OpenAI\Codex\bin\codex.exe`（不在 PATH，需全路径调用）         |
+| 位置       | `C:\Users\<用户>\AppData\Local\OpenAI\Codex\bin\codex.exe`（不在 PATH，需全路径调用）         |
 | 版本       | codex-cli 0.130.0-alpha.5                                                                    |
 | 非交互模式 | `codex exec [OPTIONS] [PROMPT]`（已核实存在；支持 `resume` 续会话）                          |
 | 认证       | `~/.codex/auth.json`（用户已登录）                                                           |

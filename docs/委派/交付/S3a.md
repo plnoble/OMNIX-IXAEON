@@ -96,7 +96,7 @@ rmSync(dir, { recursive: true, force: true });
   "sessions": [
     { "id": 1, "tool": "claude_code", "title": "帮我把导入修好", "cwd": "D:/work/demo",
       "projectId": null, "mtimeMs": 1789826106164.401, "size": 439, "status": "new",
-      "path": "C:\\Users\\87953\\AppData\\Local\\Temp\\ixaeon-s3a-real-HkUVbc\\s\\cc.jsonl" }
+      "path": "C:\\Users\\<用户>\\AppData\\Local\\Temp\\ixaeon-s3a-real-HkUVbc\\s\\cc.jsonl" }
   ],
   "unrecognizedCount": 1,
   "subagentCount": 0

@@ -35,7 +35,7 @@
 899B937C623C001D8F1F888E6FD60BB8D9A0BD1C87C1CBCDCC1C549625E8AFFC
 ```
 
-打包复核临时副本：`C:\Users\87953\AppData\Local\Temp\ixaeon-packaged-review-5SYAjE`。测试进程已结束，临时测试资料保留用于检查。
+打包复核临时副本：`C:\Users\<用户>\AppData\Local\Temp\ixaeon-packaged-review-5SYAjE`。测试进程已结束，临时测试资料保留用于检查。
 
 本次没有修改生产代码、既有测试、旧计划或旧报告，只新增本报告、独立测试配置、测试文件和结果 JSON。没有使用真实账户、读取 API Key 或调用收费模型。
 

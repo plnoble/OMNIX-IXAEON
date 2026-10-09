@@ -19,7 +19,7 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 
 const CODEX = join(process.env.LOCALAPPDATA ?? '', 'OpenAI', 'Codex', 'bin', 'codex.exe');
 const root = join(tmpdir(), `ixaeon-d2-e3-${process.pid}`);
@@ -36,12 +36,16 @@ mkdirSync(codexHome, { recursive: true });
 //（schema 见 openai/codex codex-rs/config/src/permissions_toml.rs）：
 // filesystem 全盘 read + workspace_roots 授权副本写 + network 关闭。
 const BACKSLASH = String.fromCharCode(92);
+// 这两个目录照本机的算，不把账户名写进脚本（仓库是公开的；2026-10-09 之前是写死的）
+const slashed = (p) => p.split(BACKSLASH).join('/');
+const TEMP_DIR = slashed(tmpdir());
+const LOCAL_APP_DATA = slashed(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'));
 const writeConfigAt = (roots) => {
   const toml = [
     '[permissions.d2-verify]',
     '[permissions.d2-verify.filesystem]',
-    '"C:/Users/87953/AppData/Local/Temp/**" = "write"',
-    '"C:/Users/87953/AppData/Local/**" = "read"',
+    `"${TEMP_DIR}/**" = "write"`,
+    `"${LOCAL_APP_DATA}/**" = "read"`,
     '[permissions.d2-verify.workspace_roots]',
     ...roots.map((r) => `"${r.split(BACKSLASH).join('/')}" = true`),
     '[permissions.d2-verify.network]',

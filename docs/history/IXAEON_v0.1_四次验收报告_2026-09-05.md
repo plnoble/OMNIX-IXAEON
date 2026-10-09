@@ -32,7 +32,7 @@
 
 本轮没有修改生产代码、旧报告或旧测试。新增了测试、测试结果、本报告和下一阶段计划。测试数据仅写入独立临时目录；没有读取模型密钥或调用收费模型。
 
-打包复核临时副本：`C:\Users\87953\AppData\Local\Temp\ixaeon-packaged-review-8ylcRT`。测试进程已退出，副本保留用于核查。
+打包复核临时副本：`C:\Users\<用户>\AppData\Local\Temp\ixaeon-packaged-review-8ylcRT`。测试进程已退出，副本保留用于核查。
 
 安装包 `apps/desktop/release/IXAEON-Setup-0.1.0.exe` 实际大小为 122,568,319 字节，SHA-256 与交付说明一致：
 
