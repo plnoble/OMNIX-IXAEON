@@ -418,7 +418,7 @@
     {
       "id": "P6",
       "title": "授权撤销后不建副本不派任务",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/p6-revoked-folder.test.ts": "e51566a2aa97ad03d2c3f2ffcadc3601b7dd6b97c18ac80dba02a123ae71109b"
       }

@@ -5,6 +5,7 @@ import {
   codexMissingReport,
   conversationForRun,
   executorMissingReport,
+  folderMissingReport,
   landingReport,
   reportAlreadyWritten,
   type TaskReportMessage,
@@ -24,6 +25,8 @@ export interface CodingDispatchHost {
   taskReportSink?: ((e: { conversationId: string }) => void) | null;
   /** D7b：按设置选执行器的计划；没有（旧宿主）按 Codex 走，行为不变。 */
   executorPlan?: () => ExecutorPlan;
+  /** P6：这个任务的项目现在读不了文件夹时，返回要告诉用户的那句话；读得了返回 null。没给这个回调的宿主不问、不拦。 */
+  folderGap?: (taskId: string) => string | null;
 }
 
 export class CodingDispatch {
@@ -57,6 +60,13 @@ export class CodingDispatch {
       if (!next || this.blocked(next.id)) {
         this.resumeAfterRunning = !next && (this.host.coding.store?.runningCount() ?? 0) > 0;
         return;
+      }
+      // P6：读不了项目的文件夹——宿主给原因才拦；留在排队、写一次回报，接着派后面的
+      const gap = this.host.folderGap?.(next.id);
+      if (gap) {
+        this.write(next.id, folderMissingReport(taskReportRow(this.host.db, next.id), gap));
+        skipped.push(next.id);
+        continue;
       }
       const done = await this.host.coding.dispatch(next.id).catch((err: unknown) => {
         // 互斥拒绝：等当前任务结束再来；别的拒绝：任务照旧排队，本轮跳过不卡后面的
