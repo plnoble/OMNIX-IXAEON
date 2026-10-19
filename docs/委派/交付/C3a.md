@@ -138,8 +138,9 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 ## 自动化通过
 
 - 本单不改门禁，跑它是为了量：`node scripts/verify.mjs` 连跑三次全绿（exit 0），用时 259.9s / 195.6s / 197.5s，日志在操作目录 `.logs/verify-c3a-{1,2,3}.log`。
-- 交付的只有这一份说明，没有源码改动：`git diff --stat` 里只有 `docs/委派/交付/C3a.md`。
-- GitHub 上的 verify：推送后看（本单只加文档，跑的是同一套门禁）。
+- 交付的只有这一份说明，没有源码改动：分支上 `git show --stat` 只有 `docs/委派/交付/C3a.md`。
+- 在 `C3a` 工作目录里（这一分支的树）又跑了一遍 `node scripts/verify.mjs`：**全绿，exit 0**（末尾「全部通过（IXAEON v0.2 验证完成）」），说明加这份说明不影响门禁。
+- GitHub 上的 verify：分支 `grok/C3a` 推上去之后**已跑绿**（Actions 运行 39284824503，`conclusion: success`）；本机这一分支的树也全绿。
 
 ## 真机通过
 
