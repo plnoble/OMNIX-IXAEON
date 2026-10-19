@@ -46,6 +46,8 @@ const api: IxaIpcApi = {
   archiveSource: (input) => ipcRenderer.invoke('ixaeon:archiveSource', input),
   unarchiveSource: (sourceId) => ipcRenderer.invoke('ixaeon:unarchiveSource', sourceId),
   revokeSourceReading: (sourceId) => ipcRenderer.invoke('ixaeon:revokeSourceReading', sourceId),
+  previewRevokeSourceReading: (sourceId) =>
+    ipcRenderer.invoke('ixaeon:previewRevokeSourceReading', sourceId),
   deleteSourceDerived: (sourceId) => ipcRenderer.invoke('ixaeon:deleteSourceDerived', sourceId),
   deleteSource: (sourceId) => ipcRenderer.invoke('ixaeon:deleteSource', sourceId),
   listJobs: (limit) => ipcRenderer.invoke('ixaeon:listJobs', limit),

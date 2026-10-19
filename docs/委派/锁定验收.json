@@ -428,8 +428,8 @@
       "title": "来源页加撤销读取",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/p7-preview-revoke.test.ts": "b9ef12256c2f3e90bd9ae5f113d935180c6d0952266ed9a48638c0049f46eb7f",
-        "apps/desktop/test/acceptance/p7-revoke-page.test.ts": "553bcf17a750c3f206ef29d2cf37fe7b70c6c495cbbd9825ee4632348918d073"
+        "apps/desktop/test/acceptance/p7-preview-revoke.test.ts": "f0d54956b54251b070ddd9209ce8d54100382263b2ca6ac74b108f0125aa7ac6",
+        "apps/desktop/test/acceptance/p7-revoke-page.test.ts": "b8dec8973a8e8922b4d2abd1d2054e1b6e5e92500c74811e3f18a45d95869f63"
       }
     },
     {

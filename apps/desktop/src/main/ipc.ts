@@ -349,6 +349,8 @@ export function registerIpc(runtime: AppRuntime): void {
       runtime.invalidateContext();
       return revoked;
     },
+    // P7：撤销之前先看一眼后果（只读；输入只有来源号）
+    previewRevokeSourceReading: async (sourceId) => runtime.previewRevokeSourceReading(sourceId),
     deleteSourceDerived: async (sourceId) => {
       const source = runtime.sources.get(sourceId);
       if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, '来源不存在');

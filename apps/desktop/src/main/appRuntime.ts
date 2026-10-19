@@ -100,6 +100,7 @@ import {
   type WorkRun,
   type UnbindProjectFolderPreview,
   type UnbindProjectFolderResult,
+  type RevokeSourceReadingPreview,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
@@ -2124,6 +2125,42 @@ export class AppRuntime {
     const task = this.db.prepare('SELECT project_id FROM coding_tasks WHERE id = ?').get(taskId) as
       { project_id: string } | undefined;
     return task ? this.projectFolderGap(task.project_id) : null;
+  }
+
+  /**
+   * P7：撤销一份资料所在的读取授权之前先看一眼后果。只读：不改任何表、不记审计、
+   * 不让对话上下文失效。dependentProjects = 绑着文件夹的项目里，文件夹在这条授权之内、
+   * 而且除了这一条之外没有别的有效授权覆盖它的（不管什么状态），按名字排序。
+   */
+  async previewRevokeSourceReading(sourceId: string): Promise<RevokeSourceReadingPreview> {
+    const source = this.sources.get(sourceId);
+    if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, '来源不存在');
+    const perm = this.permissions.get(source.permission_id);
+    if (!perm) throw new IxaError(ErrorCodes.NOT_FOUND, '这份资料的授权记录不存在');
+    const sourcesUnderGrant = (
+      this.db.prepare('SELECT count(*) AS n FROM sources WHERE permission_id = ?').get(perm.id) as {
+        n: number;
+      }
+    ).n;
+    const dependentProjects: string[] = [];
+    if (perm.scope_type === 'folder' && perm.status === 'active') {
+      const folderGrants = this.permissions.list(false).filter((g) => g.scope_type === 'folder');
+      for (const p of this.projects.list()) {
+        const root = p.root_path;
+        if (!root) continue;
+        const covering = folderGrants.filter((g) => isPathInside(g.locator, root));
+        // 只有这一条护着它：撤了它就不在任何有效授权之内
+        if (covering.length === 1 && covering[0]!.id === perm.id) dependentProjects.push(p.name);
+      }
+      dependentProjects.sort();
+    }
+    return {
+      scope: perm.scope_type,
+      locator: perm.locator,
+      status: perm.status,
+      sourcesUnderGrant,
+      dependentProjects,
+    };
   }
 
   async finishCodingTask(id: string, how: 'dispatch' | 'cancel'): Promise<CodingTask> {

@@ -19,6 +19,7 @@ import type {
   TaskChanges,
   UnbindProjectFolderPreview,
   UnbindProjectFolderResult,
+  RevokeSourceReadingPreview,
   WorkRun,
   SkillCandidate,
 } from './entities.js';
@@ -539,6 +540,8 @@ export interface IxaIpcApi {
   }): Promise<{ archivedAt: string; summary: string; withdrawnItems: number }>;
   unarchiveSource(sourceId: string): Promise<{ ok: true }>;
   revokeSourceReading(sourceId: string): Promise<Permission>;
+  /** P7：撤销一份资料所在的读取授权之前，先看一眼后果（只读）。 */
+  previewRevokeSourceReading(sourceId: string): Promise<RevokeSourceReadingPreview>;
   deleteSourceDerived(sourceId: string): Promise<{ deletedItems: number }>;
   deleteSource(sourceId: string): Promise<{ ok: true }>;
   // 后台任务

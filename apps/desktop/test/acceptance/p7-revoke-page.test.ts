@@ -10,6 +10,7 @@
  * - 取消确认什么都不发生；确认调 revokeSourceReading、详情卡片关掉、列表重新读一遍、
  *   结果句（source-revoke-result）数字对；预览说已经撤销 → 不问、不撤销、列表重读；
  * - 预览出错/撤销出错 → 报错条，详情卡片不关。
+ * - 整合方复审实现时补一条（2026-10-19）：那句话只跟着点过的那份资料。
  */
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -318,6 +319,32 @@ describe('条件 8：不在这里撤的两种情况', () => {
     expect($('source-revoke-note')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
       '项目「合成项目一」正靠这条授权读它的文件夹：到项目页对它点「解除绑定」，会一并撤销这个文件夹的读取授权。',
     );
+  });
+
+  // 整合方复审实现时补（2026-10-19）：那句话说的是这一份资料。关掉、打开另一份，不能还挂着
+  it('那句话只跟着点过的那份资料：关掉详情、打开另一份，就不显示了', async () => {
+    harness.listSources.mockImplementation(async () => {
+      calls.push('listSources');
+      return [itemOf('s1'), itemOf('s2')];
+    });
+    harness.previewRevokeSourceReading.mockImplementation(async () => ({
+      scope: 'domain',
+      locator: 'chatgpt.com',
+      status: 'active',
+      sourcesUnderGrant: 1,
+      dependentProjects: [],
+    }));
+    await render();
+    await openDetail('s1');
+    await clickRevoke();
+    expect($('source-revoke-note')).not.toBeNull();
+    await act(async () => {
+      ($('source-detail-close') as HTMLButtonElement).click();
+    });
+    await settle();
+    await openDetail('s2');
+    expect($('source-detail')).not.toBeNull();
+    expect($('source-revoke-note')).toBeNull();
   });
 });
 

@@ -374,6 +374,23 @@ export interface UnbindProjectFolderPreview {
   grant: 'revoke' | 'kept_other_project' | 'none';
 }
 
+/** P7：撤销一份资料所在的读取授权之前，先看一眼后果。只读，不改任何东西。 */
+export interface RevokeSourceReadingPreview {
+  /** 这条授权是哪一类：本机的文件、本机的文件夹，还是域名（网页采集、保存的提问）。 */
+  scope: 'file' | 'folder' | 'domain';
+  /** 授权的是哪个文件或文件夹（授权记录上存的路径，原样）；域名授权时是域名。 */
+  locator: string;
+  /** 这条授权现在的状态。 */
+  status: 'active' | 'revoked';
+  /** 这条授权下一共多少份资料（含这一份；归在哪个项目、归没归项目都算）。 */
+  sourcesUnderGrant: number;
+  /**
+   * 靠这条授权读自己文件夹的项目（项目名，按名字排序）：项目绑着的文件夹在这条授权之内，
+   * 而且撤销之后它就不在任何有效授权之内了。文件授权、域名授权、已经撤销的授权是空的。
+   */
+  dependentProjects: string[];
+}
+
 /** P5：解除绑定之后的结果。 */
 export interface UnbindProjectFolderResult {
   /** 解除之后的项目（root_path 是 null）。 */
