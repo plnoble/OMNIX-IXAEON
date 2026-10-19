@@ -440,6 +440,18 @@
         "apps/desktop/test/acceptance/p8-delete-project.test.ts": "b2a56d673e9923fcb5ee4d502fc315eb6e71735fc2e21a50903dcf9dac2ae466",
         "apps/desktop/test/acceptance/p8-delete-page.test.ts": "bc0061a97caa508dc724601403a95e73ee7e1be7593c0a3d3930b774660aad43"
       }
+    },
+    {
+      "id": "V4",
+      "title": "依赖档验证的授权入口",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/v4-codex-latest.test.ts": "33a12c630d5eb5b607d9224472ac1efe01bea23ee078403de51ed82dd444d9cd",
+        "packages/core/test/acceptance/v4-sandbox-async.test.ts": "a1b63296a730ff0501f0f5f3e3326af91700eba2e6d00aaff09489b6d7be0fe9",
+        "apps/desktop/test/acceptance/v4-verify-sandbox.test.ts": "cbccfaeca5660c7645fc6b3a7e4ca7c567cf1a33672f5b1b29b716b6c7a9d2d0",
+        "apps/desktop/test/acceptance/v4-codex-startup.test.ts": "8a6cba705f38b64022e854cdc8be92c4bc63c7264e2ccf1e5279c059d9c63ffe",
+        "apps/desktop/test/acceptance/v4-settings-page.test.ts": "87341d6014b4fc8dfd92223a9258e3cd38e28ce2f9ac4f9ae707853f77e8e732"
+      }
     }
   ]
 }
