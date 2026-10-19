@@ -275,8 +275,8 @@
       "files": {
         "packages/core/test/acceptance/d2-tier-zero-dep.test.ts": "03b5db363fb4276eb7909adc78fee79565bc56fd7dec7eee918b1a2fa9aecd98",
         "packages/core/test/acceptance/d2-copy-junction.test.ts": "ba5a204c0b66a554104f42c83b4ddf46fdded8d6849621e41bcc656abe302e71",
-        "packages/core/test/acceptance/d2-sandbox-tier.test.ts": "bcc62954ae95727b5ac19c5f42f5c4ff335f0da3707ed8936f0a48b35e6a137b",
-        "packages/core/test/acceptance/d2-wiring.test.ts": "80d18812db105fe9ee9addeb395f77d263ab5cd8fa85c208632e5eb6fb94fbb5"
+        "packages/core/test/acceptance/d2-sandbox-tier.test.ts": "1b9838fc8e034a4fb23eafff3708b67b7c5b6197256e70a760036300bbf65c44",
+        "packages/core/test/acceptance/d2-wiring.test.ts": "34f1346514c3142f5b201070e46fad6580929b0b35d167fd49dd28b0948b3690"
       }
     },
     {
@@ -309,7 +309,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/m2-saved-models.test.ts": "07c0d6e309660c3d810664d8b5daa76960de188cee0ae0f3c5be0cdb4bfa13d1",
-        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "b14506c5cac61235cb78e8d9ace583e5fd95b4c7609a2098e8f39609be57edde"
+        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "f32cabaad9d0e4e2358c215a28bee525be4b2f7a0f21b83642f69656d06741a9"
       }
     },
     {
@@ -326,7 +326,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "810c9b2d4edacee94671fbff289f6dffd1f8ba44bf2f34b64600c717d26f5159",
-        "apps/desktop/test/acceptance/d7b-pages.test.ts": "244b412cc4b653a36750fb0e2214d34f247dbb160b01821da6fb4ece89b08b87"
+        "apps/desktop/test/acceptance/d7b-pages.test.ts": "cba0cc624cf1b58b898b9dbc2e2479baf78c3e8074330a70a523fb7dfd1ee0f4"
       }
     },
     {
@@ -335,7 +335,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/m3-key-scope.test.ts": "391a928984625e884c0dc467fc1b624f7db0b69d12662b90f85a76295a2072d2",
-        "apps/desktop/test/acceptance/m3-settings-ui.test.ts": "8dd1776f6ba16c7f19b943062109b405b03da68bbb67ebebfacaf3264d6e69f1"
+        "apps/desktop/test/acceptance/m3-settings-ui.test.ts": "b3e15c2d3fb5623fd9041588ad08b9d0f83c70d930f3b2c61a805df6cbe07327"
       }
     },
     {
@@ -344,7 +344,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/u2-tasks-page-live.test.ts": "48700e8656cf1767079d82742874e3d3800f9abcbfc88024e1ea7469b783ef56",
-        "apps/desktop/test/acceptance/u2-settings-coding-saved.test.ts": "cc1da36dc3b2c2abcb662518083d954c5b3f200bf9d18aa9d0144cf03b5a7720"
+        "apps/desktop/test/acceptance/u2-settings-coding-saved.test.ts": "868ae0e06a67dd46a862eaea27de6acabcebacdcc0e396239a7505cd5d9a5125"
       }
     },
     {
@@ -439,6 +439,19 @@
       "files": {
         "apps/desktop/test/acceptance/p8-delete-project.test.ts": "b2a56d673e9923fcb5ee4d502fc315eb6e71735fc2e21a50903dcf9dac2ae466",
         "apps/desktop/test/acceptance/p8-delete-page.test.ts": "bc0061a97caa508dc724601403a95e73ee7e1be7593c0a3d3930b774660aad43"
+      }
+    },
+    {
+      "id": "V4",
+      "title": "依赖档验证的授权入口",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/v4-codex-latest.test.ts": "b91c25918b64d7e68354501280d609fb6678cd35e38ac8c7a94081d3eb1e5502",
+        "packages/core/test/acceptance/v4-sandbox-async.test.ts": "0e9fbe583743c8596c90937da00487c0c339fdb793cc531cfedf0e718c2dd056",
+        "packages/core/test/acceptance/v4-child-double.ts": "2db1e295162a7a0c3e1ab9cb4eb473e40b93fd90b306d5a2a18c93898e13e708",
+        "apps/desktop/test/acceptance/v4-verify-sandbox.test.ts": "42f64ee0662efe0c4e4db503f19f3ecc40af6840a39c2d27c344414853488eab",
+        "apps/desktop/test/acceptance/v4-codex-startup.test.ts": "a6cc604adf6e82535fbe6ff379ac216b22b52abf3022824380b323e50ef6cb0f",
+        "apps/desktop/test/acceptance/v4-settings-page.test.ts": "5e3409c0f904f57cf1c6211c7768914c32831b0c4d2c8e0046bb624a38e87196"
       }
     }
   ]

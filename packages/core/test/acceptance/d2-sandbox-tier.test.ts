@@ -217,6 +217,16 @@ describe('D2 条件 3：依赖档命令形状与退出码映射', () => {
   });
 });
 
+/**
+ * V4（整合方 2026-10-19 改）：没跑成的原因从英文代码换成了给人看的一句话（V4 规格契约 3.4）。
+ * V4 并入之前输出里是代码，之后是那句话，两样都认。
+ */
+const REASON_TEXT = {
+  unauthorized: /unauthorized|这台机器还没给 Codex 沙箱授权/,
+  codex_missing: /codex_missing|没找到 Codex 命令行/,
+  unsupported_platform: /unsupported_platform|依赖档验证只在 Windows 上跑得了/,
+} as const;
+
 describe('D2 条件 4、5：三种没跑成——不派生、ran=false、原因进输出、副本原样', () => {
   for (const reason of ['unauthorized', 'codex_missing', 'unsupported_platform'] as const) {
     it(`原因 ${reason}：0 次派生，ran=false，原因进输出，副本里没建链接`, async () => {
@@ -233,7 +243,7 @@ describe('D2 条件 4、5：三种没跑成——不派生、ran=false、原因�
       expect(calls).toHaveLength(0);
       expect(r.ran).toBe(false);
       expect(r.exitCode).toBeNull();
-      expect(r.output).toContain(reason);
+      expect(r.output).toMatch(REASON_TEXT[reason]);
       expect(existsSync(join(s.copy, 'node_modules'))).toBe(false);
       rmSync(s.base, { recursive: true, force: true });
     });
