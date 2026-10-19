@@ -147,7 +147,17 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 
 ## Codex 审查（A 档）
 
-结论：待跑（`node scripts/codex-review.mjs C3a`）。
+结论：**没审成——Codex 额度用完（exit 3）**。照 AGENTS.md，分支先等着，队列里这一行改成「待审（Codex 额度）」，额度恢复后回来重跑 `node scripts/codex-review.mjs C3a`。
+
+原样输出（`node scripts/codex-review.mjs C3a`，2026-10-20 00:5x 本机）：
+
+```
+Codex 额度用完：分支先等着，队列状态改「待审（Codex 额度）」，稍后重跑。
+ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at Oct 25th, 2026 10:54 AM.
+ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at Oct 25th, 2026 10:54 AM.
+```
+
+退出码 3（脚本约定的「额度用完」）。**没有跳过审查直接合并**：分支 `grok/C3a` 已推，等额度回来重审。
 
 ## 已知缺口
 
