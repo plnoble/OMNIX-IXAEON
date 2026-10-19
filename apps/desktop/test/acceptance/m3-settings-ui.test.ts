@@ -97,8 +97,9 @@ vi.mock('../../src/renderer/src/api.js', () => {
   const passthrough = new Proxy(specific, {
     get: (target, key) => {
       if (key in target) return (target as Record<string | symbol, unknown>)[key];
-      return (name: string | symbol) =>
-        name === 'on' ? () => () => undefined : async () => undefined;
+      // V4（整合方 2026-10-19 改）：原来这里返回的是一个函数而不是接口本身，没单独写的接口
+      // 一调就是「.then is not a function」；V4 设置页多了一块会调 getVerifySandbox。
+      return key === 'on' ? () => () => undefined : async () => undefined;
     },
   });
   return {

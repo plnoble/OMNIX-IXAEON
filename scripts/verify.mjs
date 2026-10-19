@@ -8,6 +8,10 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const node = process.execPath;
+// 从带着 ELECTRON_RUN_AS_NODE 的进程里跑门禁时（有的 agent 宿主就是），真 Electron 的那几步
+// 会被当成纯 Node 启动，Playwright 等不到调试端口，报「Process failed to launch」。
+// 门禁里要用它的地方（零依赖档验证）都是自己显式设的，宿主带进来的一律清掉。
+delete process.env.ELECTRON_RUN_AS_NODE;
 
 function run(label, args, env = {}) {
   const started = Date.now();

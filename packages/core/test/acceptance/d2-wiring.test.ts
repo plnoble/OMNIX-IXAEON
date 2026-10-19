@@ -146,8 +146,11 @@ describe('D2 条件 11（整合方补）：什么都不替换的生产路径', (
     const t = await runDependencyTask(coding, projectId);
     expect(t.status).toBe('pending_accept');
     expect(t.verify_status).toBe('not_run');
+    // V4（整合方 2026-10-19 改）：原因从英文代码换成了人话，V4 并入前后两样都认
     const expected =
-      process.platform === 'win32' ? /unauthorized|codex_missing/ : /unsupported_platform/;
+      process.platform === 'win32'
+        ? /unauthorized|codex_missing|这台机器还没给 Codex 沙箱授权|没找到 Codex 命令行/
+        : /unsupported_platform|依赖档验证只在 Windows 上跑得了/;
     expect(t.verify_output ?? '').toMatch(expected);
     expect(existsSync(join(t.workspace_path!, 'node_modules'))).toBe(false);
   });

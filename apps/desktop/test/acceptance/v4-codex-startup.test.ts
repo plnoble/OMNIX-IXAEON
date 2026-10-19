@@ -42,41 +42,17 @@ vi.mock('electron', () => ({
 
 const child = vi.hoisted(() => ({
   scripts: new Map<string, { code: number; stdout: string; stderr: string }>(),
-  calls: [] as string[],
+  sync: [] as string[],
+  async: [] as string[],
   key: (exe: unknown, args: unknown) =>
     `${String(exe)}|${(Array.isArray(args) ? args : []).map(String).join('\0')}`,
 }));
 
+// 子进程替身（整合方 2026-10-19 统一成一份，见 v4-child-double.js）
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof ChildProcess>();
-  const { EventEmitter } = await import('node:events');
-  const answer = (exe: unknown, args: unknown) =>
-    child.scripts.get(child.key(exe, args)) ?? { code: 1, stdout: '', stderr: '替身\n' };
-  const spawn = ((exe: unknown, args?: readonly string[]) => {
-    child.calls.push(child.key(exe, args));
-    const a = answer(exe, args);
-    const proc = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-      kill: () => boolean;
-    };
-    proc.stdout = new EventEmitter();
-    proc.stderr = new EventEmitter();
-    proc.kill = () => true;
-    queueMicrotask(() => {
-      if (a.stdout) proc.stdout.emit('data', Buffer.from(a.stdout));
-      if (a.stderr) proc.stderr.emit('data', Buffer.from(a.stderr));
-      proc.emit('close', a.code);
-    });
-    return proc;
-  }) as unknown as typeof actual.spawn;
-  const spawnSync = ((exe: unknown, args?: readonly string[]) => {
-    child.calls.push(child.key(exe, args));
-    const a = answer(exe, args);
-    return { status: a.code, stdout: a.stdout, stderr: a.stderr, signal: null, output: [] };
-  }) as unknown as typeof actual.spawnSync;
-  const patched = { ...actual, spawn, spawnSync };
-  return { ...patched, default: patched };
+  const { childProcessDouble } =
+    await import('../../../../packages/core/test/acceptance/v4-child-double.js');
+  return childProcessDouble(await importOriginal<typeof ChildProcess>(), child);
 });
 
 const { AppRuntime } = await import('../../src/main/appRuntime.js');
@@ -107,7 +83,8 @@ function fakeCodex(dir: string, version: string): string {
   return exe;
 }
 
-const versionAsks = () => child.calls.filter((k) => k.endsWith('|--version')).length;
+const versionAsks = () =>
+  [...child.sync, ...child.async].filter((k) => k.endsWith('|--version')).length;
 
 let runtime: Awaited<ReturnType<typeof AppRuntime.create>> | null = null;
 let newest = '';

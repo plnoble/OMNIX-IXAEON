@@ -12,6 +12,9 @@
  *
  * 子进程全是替身，不碰真的 Codex；`requestSandboxAuth` 这一步不让替身给出提权成功的
  * 回话（回失败码），所以它只会走到「没授权」就收尾，绝不会真的弹管理员确认。
+ *
+ * 整合方 2026-10-19 锁定前改了：子进程替身换成共用的 v4-child-double.ts（forbidSync），
+ * 异步的 spawn、execFile、exec 及其 promisify 写法都认——实现用哪种异步写法是自由的。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,70 +24,18 @@ import type * as ChildProcess from 'node:child_process';
 
 const child = vi.hoisted(() => ({
   scripts: new Map<string, { code: number; stdout: string; stderr: string }>(),
-  syncCalls: [] as string[],
-  asyncCalls: [] as string[],
+  sync: [] as string[],
+  async: [] as string[],
   key: (exe: unknown, args: unknown) =>
     `${String(exe)}|${(Array.isArray(args) ? args : []).map(String).join('\0')}`,
 }));
 
+// 子进程替身（整合方 2026-10-19 统一成一份，见 v4-child-double.js）
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof ChildProcess>();
-  const { EventEmitter } = await import('node:events');
-  const answer = (exe: unknown, args: unknown) =>
-    child.scripts.get(child.key(exe, args)) ?? { code: 1, stdout: '', stderr: '替身\n' };
-  const forbidden =
-    (name: string) =>
-    (...args: unknown[]) => {
-      child.syncCalls.push(`${name}:${String(args[0])}`);
-      throw new Error(`V4 条件 2：${name} 不许在检查和授权里用`);
-    };
-  const spawn = ((exe: unknown, args?: readonly string[]) => {
-    child.asyncCalls.push(child.key(exe, args));
-    const a = answer(exe, args);
-    const proc = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-      kill: () => boolean;
-    };
-    proc.stdout = new EventEmitter();
-    proc.stderr = new EventEmitter();
-    proc.kill = () => true;
-    queueMicrotask(() => {
-      if (a.stdout) proc.stdout.emit('data', Buffer.from(a.stdout));
-      if (a.stderr) proc.stderr.emit('data', Buffer.from(a.stderr));
-      proc.emit('exit', a.code);
-      proc.emit('close', a.code);
-    });
-    return proc;
-  }) as unknown as typeof actual.spawn;
-  const callbackStyle = (exe: unknown, args?: unknown, opts?: unknown, cb?: unknown) => {
-    const done = (typeof opts === 'function' ? opts : cb) as
-      ((err: Error | null, stdout: string, stderr: string) => void) | undefined;
-    child.asyncCalls.push(child.key(exe, args));
-    const a = answer(exe, args);
-    queueMicrotask(() => {
-      const err =
-        a.code === 0
-          ? null
-          : Object.assign(new Error(`替身退出码 ${a.code}`), {
-              code: a.code,
-              stdout: a.stdout,
-              stderr: a.stderr,
-            });
-      done?.(err, a.stdout, a.stderr);
-    });
-    return { pid: 1, kill: () => true, stdout: null, stderr: null };
-  };
-  const patched = {
-    ...actual,
-    spawn,
-    execFile: callbackStyle as unknown as typeof actual.execFile,
-    exec: callbackStyle as unknown as typeof actual.exec,
-    spawnSync: forbidden('spawnSync') as unknown as typeof actual.spawnSync,
-    execSync: forbidden('execSync') as unknown as typeof actual.execSync,
-    execFileSync: forbidden('execFileSync') as unknown as typeof actual.execFileSync,
-  };
-  return { ...patched, default: patched };
+  const { childProcessDouble } = await import('./v4-child-double.js');
+  return childProcessDouble(await importOriginal<typeof ChildProcess>(), child, {
+    forbidSync: true,
+  });
 });
 
 const { checkSandboxAuth, requestSandboxAuth } =
@@ -95,8 +46,8 @@ const savedLocal = process.env.LOCALAPPDATA;
 
 beforeEach(() => {
   child.scripts.clear();
-  child.syncCalls.length = 0;
-  child.asyncCalls.length = 0;
+  child.sync.length = 0;
+  child.async.length = 0;
 });
 
 afterEach(() => {
@@ -149,8 +100,8 @@ describe('条件 2：检查与授权都不用同步子进程', () => {
     const { dataDir } = ready();
 
     expect(await checkSandboxAuth(dataDir)).toEqual({ ok: true });
-    expect(child.syncCalls).toEqual([]);
-    expect(child.asyncCalls.length).toBeGreaterThan(0);
+    expect(child.sync).toEqual([]);
+    expect(child.async.length).toBeGreaterThan(0);
   });
 
   it('requestSandboxAuth 也用异步子进程；spawnSync 一次都没被调', async () => {
@@ -159,19 +110,19 @@ describe('条件 2：检查与授权都不用同步子进程', () => {
     // 提权那一步的替身回失败码：只会走到「没授权」，不会真的弹确认框
     const result = await requestSandboxAuth(dataDir);
 
-    expect(child.syncCalls).toEqual([]);
+    expect(child.sync).toEqual([]);
     expect(result).toEqual({ ok: false, reason: 'unauthorized' });
     // 它确实起了异步的 codex（找版本 + 派沙箱），只是没成功
-    expect(child.asyncCalls.some((k) => k.startsWith(`${exe}|`))).toBe(true);
+    expect(child.async.some((k) => k.startsWith(`${exe}|`))).toBe(true);
   });
 
   it('检查期间没有同步子进程（异步替身照常回话）', async () => {
     const { dataDir } = ready();
-    const before = child.asyncCalls.length;
+    const before = child.async.length;
 
     await checkSandboxAuth(dataDir, { platform: 'win32' });
 
-    expect(child.syncCalls).toEqual([]);
-    expect(child.asyncCalls.length).toBeGreaterThan(before);
+    expect(child.sync).toEqual([]);
+    expect(child.async.length).toBeGreaterThan(before);
   });
 });

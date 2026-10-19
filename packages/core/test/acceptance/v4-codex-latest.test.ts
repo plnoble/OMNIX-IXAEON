@@ -3,7 +3,8 @@
  * 先测试后实现：这些测试在实现写出来之前是红的。
  *
  * 钉住的接缝（名字由实现定，这里按这个名字 import；实现换了名字改这一处 import，条件不变）：
- * - `findLatestCodex(): Promise<{ exe: string; version: string } | null>`
+ * - `findLatestCodex(): Promise<{ exe: string; version: string | null } | null>`
+ *   （`version` 只有在用 IXAEON_CODEX_EXE 指定、它又问不出版本号时才是 null）
  *   —— 沙箱这边每次查授权之前现找的那个办法（契约 3.1）。`resolveCodexLocator`（执行器，
  *   同步，应用启动时找一次）找到的必须是同一个文件。
  *
@@ -17,7 +18,8 @@
  *   （「执行器在应用启动时找一次，之后判断有没有 Codex 不再问版本」在
  *   apps/desktop/test/acceptance/v4-verify-sandbox.test.ts 里，那要真的起一次运行时。）
  * 条件 3：四样（cap_sid 三类、版本配对的 helper、setup 标记、服务 RUNNING）齐了是 ok；
- *   缺任何一样是 unauthorized；codex --version 说不出版本号是 unauthorized；
+ *   缺任何一样是 unauthorized；codex --version 说不出版本号：指定了的那个是 unauthorized，
+ *   没指定、又只有它一个是 codex_missing（整合方锁定前定，见下面那条的注释）；
  *   不是 Windows 是 unsupported_platform。checkSandboxAuth 不往数据目录写任何东西。
  * 条件 4：`findLatestCodex().version` 就是 `codex --version` 里的版本号，而且和授权检查
  *   用的是同一个 Codex；没有 Codex 是 null。
@@ -26,6 +28,9 @@
  * 条件 2（不许用 spawnSync）在 v4-sandbox-async.test.ts：那一份把 spawnSync 换成一调就抛错的替身。
  *
  * 版本号用合成的（9.9.9 之类），路径用临时目录。
+ *
+ * 整合方 2026-10-19 锁定前改了：子进程替身换成共用的 v4-child-double.ts（原来的不认
+ * promisify(execFile)，实现换种异步写法就过不了）；「问不出版本号」那一条见它的注释。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -34,82 +39,18 @@ import { join } from 'node:path';
 import type * as ChildProcess from 'node:child_process';
 import type { IndependentCheck } from '../../src/execution/executor.js';
 
-/**
- * 子进程替身：按 `exe|参数（\0 拼）` 回话。同步、异步都认同一张脚本表，
- * 没登记的命令回失败码（不会挂住）。同步调用与异步调用分开记，条件 2 那份靠它。
- */
-const child = vi.hoisted(() => {
-  const scripts = new Map<string, { code: number; stdout: string; stderr: string }>();
-  const sync: string[] = [];
-  const async: string[] = [];
-  const key = (exe: unknown, args: unknown) =>
-    `${String(exe)}|${(Array.isArray(args) ? args : []).map(String).join('\0')}`;
-  return { scripts, sync, async, key };
-});
+const child = vi.hoisted(() => ({
+  scripts: new Map<string, { code: number; stdout: string; stderr: string }>(),
+  sync: [] as string[],
+  async: [] as string[],
+  key: (exe: unknown, args: unknown) =>
+    `${String(exe)}|${(Array.isArray(args) ? args : []).map(String).join('\0')}`,
+}));
 
+// 子进程替身（整合方 2026-10-19 统一成一份，见 v4-child-double.js）
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof ChildProcess>();
-  const { EventEmitter } = await import('node:events');
-  const answer = (exe: unknown, args: unknown) =>
-    child.scripts.get(child.key(exe, args)) ?? {
-      code: 1,
-      stdout: '',
-      stderr: 'V4 替身：没有登记这个命令\n',
-    };
-  const spawn = ((exe: unknown, args?: readonly string[]) => {
-    child.async.push(child.key(exe, args));
-    const a = answer(exe, args);
-    const proc = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-      kill: () => boolean;
-    };
-    proc.stdout = new EventEmitter();
-    proc.stderr = new EventEmitter();
-    proc.kill = () => true;
-    queueMicrotask(() => {
-      if (a.stdout) proc.stdout.emit('data', Buffer.from(a.stdout));
-      if (a.stderr) proc.stderr.emit('data', Buffer.from(a.stderr));
-      proc.emit('exit', a.code);
-      proc.emit('close', a.code);
-    });
-    return proc;
-  }) as unknown as typeof actual.spawn;
-  const spawnSync = ((exe: unknown, args?: readonly string[]) => {
-    child.sync.push(child.key(exe, args));
-    const a = answer(exe, args);
-    return {
-      pid: 1,
-      status: a.code,
-      signal: null,
-      stdout: a.stdout,
-      stderr: a.stderr,
-      output: [null, a.stdout, a.stderr],
-    };
-  }) as unknown as typeof actual.spawnSync;
-  const callbackStyle =
-    (record: string[]) => (exe: unknown, args?: unknown, opts?: unknown, cb?: unknown) => {
-      const done = (typeof opts === 'function' ? opts : cb) as
-        ((err: Error | null, stdout: string, stderr: string) => void) | undefined;
-      record.push(child.key(exe, args));
-      const a = answer(exe, args);
-      queueMicrotask(() => {
-        const err =
-          a.code === 0
-            ? null
-            : Object.assign(new Error(`V4 替身：退出码 ${a.code}`), {
-                code: a.code,
-                stdout: a.stdout,
-                stderr: a.stderr,
-              });
-        done?.(err, a.stdout, a.stderr);
-      });
-      return { pid: 1, kill: () => true, stdout: null, stderr: null };
-    };
-  const execFile = callbackStyle(child.async) as unknown as typeof actual.execFile;
-  const exec = callbackStyle(child.async) as unknown as typeof actual.exec;
-  const patched = { ...actual, spawn, spawnSync, execFile, exec };
-  return { ...patched, default: patched };
+  const { childProcessDouble } = await import('./v4-child-double.js');
+  return childProcessDouble(await importOriginal<typeof ChildProcess>(), child);
 });
 
 const { findLatestCodex, checkSandboxAuth, requestSandboxAuth } =
@@ -313,13 +254,19 @@ describe('条件 3：检查口径不变', () => {
     }
   });
 
-  it('codex --version 说不出版本号是 unauthorized', async () => {
+  // 整合方锁定前改（2026-10-19）：规格条件 3 的「说不出版本号是 unauthorized」和契约 3.1 的
+  // 「问不出版本号的不算」原来对不上（只有这一个 Codex 时它就不算了）。定：用 IXAEON_CODEX_EXE
+  // 指定了的那个问不出版本号 → unauthorized（它在，只是配不上授权）；没指定时问不出版本号的候选
+  // 不算，一个都不剩就是 codex_missing。
+  it('codex --version 说不出版本号：没指定、只有它一个是 codex_missing；指定了的是 unauthorized', async () => {
     const { dataDir, exe } = authorized();
     child.scripts.set(child.key(exe, ['--version']), {
       code: 0,
       stdout: 'codex-cli\n',
       stderr: '',
     });
+    expect(await checkSandboxAuth(dataDir)).toEqual({ ok: false, reason: 'codex_missing' });
+    process.env.IXAEON_CODEX_EXE = exe;
     expect(await checkSandboxAuth(dataDir)).toEqual({ ok: false, reason: 'unauthorized' });
   });
 
@@ -331,11 +278,24 @@ describe('条件 3：检查口径不变', () => {
     });
   });
 
-  it('checkSandboxAuth 不往数据目录写任何东西', async () => {
-    const dataDir = temp('ixa-v4-data-');
-    const before = readdirSync(dataDir);
-    await checkSandboxAuth(dataDir);
-    expect(readdirSync(dataDir)).toEqual(before);
+  // 整合方锁定前改（2026-10-19）：原来这一条用的是本机真的 LOCALAPPDATA，替身问不出版本号，
+  // 检查在「没找到 Codex」那一步就收尾了，根本走不到会写东西的地方（往数据目录里建目录的
+  // 实现照样过）。改成 Codex 在、检查一路走到底的两种情况。
+  it('checkSandboxAuth 不往数据目录写任何东西（没授权、授权了都一样）', async () => {
+    const listAll = (dir: string) => readdirSync(dir, { recursive: true }).map(String).sort();
+    // 没授权：Codex 在，数据目录是空的
+    const local = temp('ixa-v4-local-');
+    process.env.LOCALAPPDATA = local;
+    fakeCodex(join(local, 'OpenAI', 'Codex', 'bin'), '9.9.9');
+    answerService(true);
+    const empty = temp('ixa-v4-data-');
+    expect(await checkSandboxAuth(empty)).toEqual({ ok: false, reason: 'unauthorized' });
+    expect(readdirSync(empty)).toEqual([]);
+    // 授权了：四样齐全，查完一个文件不多、一个不少
+    const { dataDir } = authorized();
+    const before = listAll(dataDir);
+    expect(await checkSandboxAuth(dataDir)).toEqual({ ok: true });
+    expect(listAll(dataDir)).toEqual(before);
   });
 });
 
@@ -421,5 +381,39 @@ describe('条件 5：没跑成的原因说人话', () => {
     expect(result.ran).toBe(false);
     expect(result.output).toBe(UNSUPPORTED);
     expect(spawned).toEqual([]);
+  });
+
+  // 整合方锁定前补（2026-10-19）：契约 3.1 说依赖档验证派生时用的 codex.exe 也要用新的找法，
+  // 原来没有测试照到这一步（派生还用旧的找法——取顶层那个——照样全绿）。
+  it('条件 1（依赖档派生）：授权过了，真去跑测试时用的也是最新版的 Codex', async () => {
+    const local = temp('ixa-v4-local-');
+    process.env.LOCALAPPDATA = local;
+    const bin = join(local, 'OpenAI', 'Codex', 'bin');
+    fakeCodex(bin, '0.10.0');
+    const newest = fakeCodex(join(bin, 'hash-new'), '0.11.0');
+    const root = temp('ixa-v4-proj-');
+    mkdirSync(join(root, 'node_modules', 'vitest'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'vitest', 'vitest.mjs'), '// 替身\n');
+    const copy = temp('ixa-v4-copy-');
+    const dataDir = temp('ixa-v4-data-');
+    const spawned: string[] = [];
+    const check = defaultCheck as unknown as (
+      argv: string[],
+      cwd: string,
+      signal?: AbortSignal,
+      runAsNode?: unknown,
+      versions?: unknown,
+      context?: unknown,
+    ) => Promise<IndependentCheck>;
+    await check(['ixaeon:vitest', 'run', 'src/a.test.ts'], copy, undefined, undefined, undefined, {
+      projectRoot: root,
+      dataDir,
+      checkAuth: async () => ({ ok: true }),
+      spawnCommand: async (cmd: string) => {
+        spawned.push(cmd);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+    expect(spawned).toEqual([newest]);
   });
 });

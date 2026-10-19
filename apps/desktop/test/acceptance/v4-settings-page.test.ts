@@ -11,6 +11,8 @@
  *
  * 界面只通过 `api` 拿数据：这里的 `getVerifySandbox`、`authorizeVerifySandbox` 都是替身，
  * 不会真的发起授权。
+ *
+ * 整合方 2026-10-19 锁定前补了一条：没拿到结果之前那一块显示「正在查……」（契约 4）。
  */
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -24,6 +26,7 @@ const state = vi.hoisted(() => ({
   sandbox: { status: 'ok', codexVersion: '9.9.9' } as VerifySandboxView,
   calls: [] as string[],
   reply: null as Promise<VerifySandboxView> | null,
+  pendingGet: null as Promise<VerifySandboxView> | null,
   fail: null as string | null,
 }));
 
@@ -33,7 +36,7 @@ vi.mock('../../src/renderer/src/api.js', () => {
     listAuditEvents: async () => [],
     getVerifySandbox: async () => {
       state.calls.push('getVerifySandbox');
-      return state.sandbox;
+      return state.pendingGet ? await state.pendingGet : state.sandbox;
     },
     authorizeVerifySandbox: async () => {
       state.calls.push('authorizeVerifySandbox');
@@ -120,6 +123,7 @@ beforeEach(() => {
   state.sandbox = { status: 'ok', codexVersion: '9.9.9' };
   state.calls.length = 0;
   state.reply = null;
+  state.pendingGet = null;
   state.fail = null;
   confirm.mockReset().mockReturnValue(true);
   (window as unknown as { confirm: unknown }).confirm = confirm;
@@ -159,6 +163,21 @@ async function clickAuthorize(): Promise<void> {
 }
 
 describe('条件 10：设置页那一块', () => {
+  it('没拿到结果之前显示「正在查……」，也没有按钮', async () => {
+    let release!: (v: VerifySandboxView) => void;
+    state.pendingGet = new Promise<VerifySandboxView>((r) => {
+      release = r;
+    });
+    await render();
+    expect(statusText()).toBe('正在查……');
+    expect(authorizeButton()).toBeNull();
+    await act(async () => {
+      release({ status: 'unauthorized', codexVersion: '9.9.9' });
+      await state.pendingGet;
+    });
+    expect(statusText()).toBe(UNAUTHORIZED_TEXT);
+  });
+
   it('打开时查了一次；排在「编码任务交给谁」后面；已授权时的那句话逐字、没有按钮', async () => {
     await render();
 

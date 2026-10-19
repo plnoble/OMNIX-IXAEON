@@ -17,6 +17,10 @@
  * 本文件里 `requestSandboxAuth` 一律是替身（记下调用、不真的弹管理员确认）；
  * `checkSandboxAuth` 默认走真的，要造某个状态时用 `sandbox.override` 顶一次。
  * 条件 1 的「应用启动时找一次」在 v4-codex-startup.test.ts。
+ *
+ * 整合方 2026-10-19 锁定前改了：子进程替身换成共用的 v4-child-double.ts；IPC 那一条原来数
+ * 运行时方法被调了几次，「发起授权」里面再查一次就会多数一次——那是实现的写法，不是条件。
+ * 改成给两个方法各顶一个独有的返回值，核对 IPC 原样转回来。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -70,42 +74,17 @@ vi.mock('../../../../packages/core/src/execution/verifySandbox.js', async (impor
 
 const child = vi.hoisted(() => ({
   scripts: new Map<string, { code: number; stdout: string; stderr: string }>(),
-  syncCalls: [] as string[],
-  asyncCalls: [] as string[],
+  sync: [] as string[],
+  async: [] as string[],
   key: (exe: unknown, args: unknown) =>
     `${String(exe)}|${(Array.isArray(args) ? args : []).map(String).join('\0')}`,
 }));
 
+// 子进程替身（整合方 2026-10-19 统一成一份，见 v4-child-double.js）
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof ChildProcess>();
-  const { EventEmitter } = await import('node:events');
-  const answer = (exe: unknown, args: unknown) =>
-    child.scripts.get(child.key(exe, args)) ?? { code: 1, stdout: '', stderr: '替身\n' };
-  const spawn = ((exe: unknown, args?: readonly string[]) => {
-    child.asyncCalls.push(child.key(exe, args));
-    const a = answer(exe, args);
-    const proc = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-      kill: () => boolean;
-    };
-    proc.stdout = new EventEmitter();
-    proc.stderr = new EventEmitter();
-    proc.kill = () => true;
-    queueMicrotask(() => {
-      if (a.stdout) proc.stdout.emit('data', Buffer.from(a.stdout));
-      if (a.stderr) proc.stderr.emit('data', Buffer.from(a.stderr));
-      proc.emit('close', a.code);
-    });
-    return proc;
-  }) as unknown as typeof actual.spawn;
-  const spawnSync = ((exe: unknown, args?: readonly string[]) => {
-    child.syncCalls.push(child.key(exe, args));
-    const a = answer(exe, args);
-    return { status: a.code, stdout: a.stdout, stderr: a.stderr, signal: null, output: [] };
-  }) as unknown as typeof actual.spawnSync;
-  const patched = { ...actual, spawn, spawnSync };
-  return { ...patched, default: patched };
+  const { childProcessDouble } =
+    await import('../../../../packages/core/test/acceptance/v4-child-double.js');
+  return childProcessDouble(await importOriginal<typeof ChildProcess>(), child);
 });
 
 const { AppRuntime } = await import('../../src/main/appRuntime.js');
@@ -132,8 +111,8 @@ beforeEach(() => {
   sandbox.override = null;
   sandbox.authResult = { ok: true };
   child.scripts.clear();
-  child.syncCalls.length = 0;
-  child.asyncCalls.length = 0;
+  child.sync.length = 0;
+  child.async.length = 0;
   delete process.env.IXAEON_CODEX_EXE;
 });
 
@@ -335,7 +314,7 @@ describe('条件 8：别处不弹', () => {
     expect(row.verify_output).toBe(CODEX_MISSING);
     expect(sandbox.requests).toEqual([]);
     // 没有派生任何子进程去跑沙箱/验证；也没有那一次「发起授权」的探针
-    const all = [...child.asyncCalls, ...child.syncCalls];
+    const all = [...child.async, ...child.sync];
     expect(all.some((k) => k.includes('ixaeon-sandbox-auth-ok'))).toBe(false);
     expect(all.some((k) => k.includes('sandbox\0windows'))).toBe(false);
     expect(all.some((k) => k.includes('vitest.mjs'))).toBe(false);
@@ -350,24 +329,26 @@ describe('条件 9：IPC', () => {
     const { rt } = runtime(dataDir);
     vi.mocked(ipcMain.handle).mockClear();
     registerIpc(rt);
-    const getSpy = vi.spyOn(rt, 'getVerifySandbox');
-    const authSpy = vi.spyOn(rt, 'authorizeVerifySandbox');
+    // 两个独有的返回值：IPC 原样转回来，才说明它调的是运行时上的方法
+    const viaRuntimeGet = { status: 'unsupported_platform', codexVersion: '1.2.3' } as const;
+    const viaRuntimeAuth = { status: 'unauthorized', codexVersion: '4.5.6' } as const;
     const calls = vi.mocked(ipcMain.handle).mock.calls;
     const getEntry = calls.find(([channel]) => channel === 'ixaeon:getVerifySandbox');
     const authEntry = calls.find(([channel]) => channel === 'ixaeon:authorizeVerifySandbox');
     if (!getEntry) throw new Error('没有注册 IPC：getVerifySandbox');
     if (!authEntry) throw new Error('没有注册 IPC：authorizeVerifySandbox');
 
-    const viaGet = await getEntry[1]({} as never);
-    const directGet = await rt.getVerifySandbox();
-    const viaAuth = await authEntry[1]({} as never);
-    const directAuth = await rt.authorizeVerifySandbox();
+    // 先走一遍真的：IPC 和直接调得到的一样
+    expect(await getEntry[1]({} as never)).toEqual(await rt.getVerifySandbox());
+    expect(await getEntry[1]({} as never)).toEqual({ status: 'ok', codexVersion: '9.9.9' });
 
-    expect(getSpy).toHaveBeenCalledTimes(2);
-    expect(authSpy).toHaveBeenCalledTimes(2);
-    expect(viaGet).toEqual(directGet);
-    expect(viaAuth).toEqual(directAuth);
-    expect(viaGet).toEqual({ status: 'ok', codexVersion: '9.9.9' });
+    // 再顶上独有的返回值：IPC 转回来的就是它
+    const getSpy = vi.spyOn(rt, 'getVerifySandbox').mockResolvedValue(viaRuntimeGet);
+    const authSpy = vi.spyOn(rt, 'authorizeVerifySandbox').mockResolvedValue(viaRuntimeAuth);
+    expect(await getEntry[1]({} as never)).toEqual(viaRuntimeGet);
+    expect(await authEntry[1]({} as never)).toEqual(viaRuntimeAuth);
+    expect(getSpy).toHaveBeenCalled();
+    expect(authSpy).toHaveBeenCalled();
   });
 });
 
