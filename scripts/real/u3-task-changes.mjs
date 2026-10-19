@@ -174,9 +174,26 @@ try {
   /** 卡片上真的渲染出来（不是只查 IPC）：按阶段断言清单、种类与着色行。 */
   const uiAssert = async (label, want) => {
     const box = page.getByTestId(`task-changes-${draft.id}`);
-    const text = await box.innerText();
-    const addCount = await page.locator('.diff-add').count();
-    const delCount = await page.locator('.diff-del').count();
+    // 着色行只在卡片里数（原来数全页，别处残留的 .diff-add/.diff-del 也会被算进去——见交付说明已知缺口 7）。
+    // 界面可能还是上一次渲染的结果（合并之后数据已经对了、DOM 还没跟上），所以按阶段等它收敛，最多 20 秒：
+    // 等不到再判失败。这不是放宽判定，是等它渲染完。
+    let text = '';
+    let addCount = 0;
+    let delCount = 0;
+    for (let i = 0; i < 40; i++) {
+      text = await box.innerText();
+      addCount = await box.locator('.diff-add').count();
+      delCount = await box.locator('.diff-del').count();
+      const settled =
+        want === 'modified'
+          ? text.includes('note.txt') && text.includes('修改') && addCount > 0 && delCount > 0
+          : text.includes('note.txt') &&
+            text.includes('没有变化') &&
+            addCount === 0 &&
+            delCount === 0;
+      if (settled) break;
+      await page.waitForTimeout(500);
+    }
     if (want === 'modified') {
       if (!text.includes('note.txt') || !text.includes('修改'))
         fail(`界面 [${label}] 没列出 note.txt 或种类「修改」`);
