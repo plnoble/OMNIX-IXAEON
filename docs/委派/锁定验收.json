@@ -426,7 +426,7 @@
     {
       "id": "P7",
       "title": "来源页加撤销读取",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/p7-preview-revoke.test.ts": "f0d54956b54251b070ddd9209ce8d54100382263b2ca6ac74b108f0125aa7ac6",
         "apps/desktop/test/acceptance/p7-revoke-page.test.ts": "b8dec8973a8e8922b4d2abd1d2054e1b6e5e92500c74811e3f18a45d95869f63"
