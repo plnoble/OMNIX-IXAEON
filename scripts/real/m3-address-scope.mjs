@@ -54,9 +54,17 @@ console.log('UPSTREAM_A', a.base, 'UPSTREAM_B', b.base);
 
 let app = null;
 try {
+  // 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell 与门禁都带），Electron 会当普通
+  // node 跑、主进程里 app 是 undefined、Playwright 报「Process failed to launch!」。
+  // 照 scripts/real/p8-delete-project.mjs 清掉。
+  const env = { ...process.env, IXAEON_DATA_DIR: dataDir };
+  delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({
-    args: [join(desktopApp, 'out', 'main', 'index.js')],
-    env: { ...process.env, IXAEON_DATA_DIR: dataDir },
+    args: [
+      join(desktopApp, 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
+    env,
   });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');

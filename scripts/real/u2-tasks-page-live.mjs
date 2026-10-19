@@ -69,19 +69,27 @@ writeFileSync(
 let app = null;
 let result = '没通过：脚本没跑完';
 try {
+  // 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell 与门禁都带），Electron 会当普通
+  // node 跑、主进程里 app 是 undefined、Playwright 报「Process failed to launch!」。
+  // 照 scripts/real/p8-delete-project.mjs 清掉。
+  const env = {
+    ...process.env,
+    IXAEON_DATA_DIR: dataDir,
+    IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+    IXAEON_FAKE_MODEL: '1',
+    IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
+    IXAEON_TEST_MODEL_DELAY_MS: String(DELAY_MS),
+    IXAEON_EMBED_MODEL: 'none',
+    IXAEON_CODEX_EXE: 'none',
+    IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({
-    args: [join(desktopApp, 'out', 'main', 'index.js')],
-    env: {
-      ...process.env,
-      IXAEON_DATA_DIR: dataDir,
-      IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
-      IXAEON_FAKE_MODEL: '1',
-      IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
-      IXAEON_TEST_MODEL_DELAY_MS: String(DELAY_MS),
-      IXAEON_EMBED_MODEL: 'none',
-      IXAEON_CODEX_EXE: 'none',
-      IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
-    },
+    args: [
+      join(desktopApp, 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
+    env,
   });
   const page = await app.firstWindow();
   await page.getByTestId('main-nav').waitFor({ timeout: 60_000 });

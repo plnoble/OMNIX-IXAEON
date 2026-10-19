@@ -59,17 +59,22 @@ const sourceStatusCounts = () =>
     .all();
 
 try {
+  // 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell 与门禁都带），Electron 会当普通
+  // node 跑、主进程里 app 是 undefined、Playwright 报「Process failed to launch!」。
+  // 照 scripts/real/p8-delete-project.mjs 清掉。
+  const env = {
+    ...process.env,
+    IXAEON_DATA_DIR: dataDir,
+    IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+    IXAEON_EMBED_MODEL: 'none',
+    IXAEON_CODEX_EXE: 'none',
+    IXAEON_FAKE_MODEL: '1',
+    IXAEON_TEST_DIALOG_RESPONSES: `directory|${synA}`,
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({
     args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(work, 'profile')}`],
-    env: {
-      ...process.env,
-      IXAEON_DATA_DIR: dataDir,
-      IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
-      IXAEON_EMBED_MODEL: 'none',
-      IXAEON_CODEX_EXE: 'none',
-      IXAEON_FAKE_MODEL: '1',
-      IXAEON_TEST_DIALOG_RESPONSES: `directory|${synA}`,
-    },
+    env,
   });
   // 目录对话框替身每次都现读环境变量：换文件夹就改主进程里的这个变量
   const pickDirectory = (dir) =>

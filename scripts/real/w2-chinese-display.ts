@@ -86,8 +86,18 @@ const env = {
   HERMES_HOME: '',
 };
 
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell 与门禁都带），Electron 会当普通 node
+// 跑、主进程里 app 是 undefined、Playwright 报「Process failed to launch!」。照 p8 的写法清掉。
+delete env.ELECTRON_RUN_AS_NODE;
+
 async function launch() {
-  const app = await electron.launch({ args: [join(desktopDir, 'out', 'main', 'index.js')], env });
+  const app = await electron.launch({
+    args: [
+      join(desktopDir, 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
+    env,
+  });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   return { app, page };
