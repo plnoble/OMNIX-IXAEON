@@ -391,6 +391,24 @@ export interface RevokeSourceReadingPreview {
   dependentProjects: string[];
 }
 
+/**
+ * P8：删除项目的结果。前两项是原来就有的。
+ */
+export interface DeleteProjectResult {
+  /** 变成未归属的来源数。 */
+  sourcesUnassigned: number;
+  /** 跟着删掉的理解条数。 */
+  itemsRemoved: number;
+  /** 撤销了哪条授权；没撤销是 null（没绑文件夹、别的项目也绑着同一个文件夹、或者没有单独的授权）。 */
+  revokedPermissionId: string | null;
+  /** 删除之前取消了几个在途的编码任务。 */
+  cancelledTasks: number;
+  /** 删掉了几个任务副本目录。 */
+  copiesRemoved: number;
+  /** 有几个任务副本目录没删掉（文件正被占用等）。它们还在数据目录的 workspaces 下。 */
+  copiesLeft: number;
+}
+
 /** P5：解除绑定之后的结果。 */
 export interface UnbindProjectFolderResult {
   /** 解除之后的项目（root_path 是 null）。 */

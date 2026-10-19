@@ -20,6 +20,9 @@
  * 原版里写坏的（改掉了）：查项目还在不在用了 `await expect(projects.get(id)).rejects`，可那是个
  * 同步函数、查不到返回 null；项目删掉之后又去读它的任务行，而任务是跟着项目一起删的。
  * 两处都是实现写对了也过不了。
+ *
+ * 整合方复审实现时补三条（2026-10-19）：条件 8 的跨盘符情形（记歪了的路径在另一个盘上）；
+ * 没绑文件夹的老数据里验证中的任务也算在途；副本全都删不掉时审计照记。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -36,7 +39,7 @@ import {
 import type * as NodeFs from 'node:fs';
 import type * as NodeFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, parse, resolve } from 'node:path';
 import { ipcMain } from 'electron';
 import {
   CodingOrchestrator,
@@ -584,6 +587,23 @@ describe('条件 4：没绑文件夹的项目', () => {
     expect(h.executed).toEqual([]);
     expect(audits('project.folder_unbound')).toEqual([]);
   });
+
+  // 整合方复审实现时补（2026-10-19）：「在途」是排队、执行、验证中三种，不只排队的
+  it('没绑文件夹、却还有验证中的任务（老数据）：也算在途，照样取消并回报', async () => {
+    const h = setup();
+    const { project } = await bound(h);
+    const verifying = await chatDraft(h, project.id, '验证中的');
+    await h.runtime.approveCodingTask(verifying.taskId);
+    db.prepare("UPDATE coding_tasks SET status = 'pending_verify' WHERE id = ?").run(
+      verifying.taskId,
+    );
+    db.prepare('UPDATE projects SET root_path = NULL WHERE id = ?').run(project.id);
+
+    const done = await h.runtime.deleteProject(project.id);
+
+    expect(done.cancelledTasks).toBe(1);
+    expect(reports(verifying.conversationId).map((r) => r.meta['status'])).toEqual(['cancelled']);
+  });
 });
 
 describe('条件 5：删除时有排队、执行中的任务', () => {
@@ -766,6 +786,33 @@ describe('清副本（条件 7、8、9）', () => {
     expect(existsSync(join(h.dataDir, '..', 'ixaeon.db'))).toBe(true);
   });
 
+  // 整合方复审实现时补（2026-10-19）：记歪了的路径在另一个盘上。path.relative 跨盘符时返回那个盘上的
+  // 绝对路径，看不出它在外面——执行方交的实现会把它整个删掉。数据目录在系统盘、项目在别的盘，是常见的
+  // 装法。要临时目录和仓库目录不在同一个盘上才跑得了（本机和 CI 都是）；在同一个盘上就跳过。
+  const otherDrive =
+    parse(resolve(process.cwd())).root.toLowerCase() !==
+    parse(resolve(tmpdir())).root.toLowerCase();
+  it.runIf(otherDrive)('条件 8（跨盘符）：记歪了的路径在另一个盘上，也一个字节都不碰', async () => {
+    const h = setup();
+    const { project } = await bound(h, '要删的');
+    const holder = join(process.cwd(), '.logs');
+    mkdirSync(holder, { recursive: true });
+    const elsewhere = mkdtempSync(join(holder, 'p8-other-drive-'));
+    try {
+      writeFileSync(join(elsewhere, 'keep.txt'), '另一个盘上的文件\n');
+      const id = draft(h, project.id, '记歪到另一个盘的任务').id;
+      db.prepare('UPDATE coding_tasks SET workspace_path = ? WHERE id = ?').run(elsewhere, id);
+
+      const done = await h.runtime.deleteProject(project.id);
+
+      expect(done.copiesRemoved).toBe(0);
+      expect(done.copiesLeft).toBe(0);
+      expect(readFileSync(join(elsewhere, 'keep.txt'), 'utf8')).toBe('另一个盘上的文件\n');
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
   it('条件 9：有一个副本目录删不掉：项目照样删了，copiesLeft 是 1，别的副本照删', async () => {
     const h = setup();
     const { project, grantId } = await bound(h);
@@ -788,5 +835,23 @@ describe('清副本（条件 7、8、9）', () => {
       { projectId: project.id, removed: 2, left: 1 },
     ]);
     expect(audits('project.deleted')).toHaveLength(1);
+  });
+
+  // 整合方复审实现时补（2026-10-19）：一个都没删掉也是「有副本要清」，审计照记
+  it('条件 9（全都删不掉）：copiesRemoved 是 0、copiesLeft 是 1，审计照记一条', async () => {
+    const h = setup();
+    const { project } = await bound(h);
+    const stuck = draft(h, project.id, '删不掉的').id;
+    await h.runtime.approveCodingTask(stuck);
+    fsHooks.undeletable.add(stuck);
+
+    const done = await h.runtime.deleteProject(project.id);
+
+    expect(done.copiesRemoved).toBe(0);
+    expect(done.copiesLeft).toBe(1);
+    expect(copies(h)).toEqual([stuck]);
+    expect(audits('project.task_copies_removed')).toEqual([
+      { projectId: project.id, removed: 0, left: 1 },
+    ]);
   });
 });
