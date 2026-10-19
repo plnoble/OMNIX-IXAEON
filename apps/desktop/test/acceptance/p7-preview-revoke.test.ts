@@ -14,6 +14,8 @@
  * 原版里写坏的（改掉了）：文件末尾用了几个没引入的名字，整份文件一加载就报错，实现写对了
  * 也是全红；条件 1 把资料归到一个不存在的项目上，库里的外键不让插；条件 12 说「条目一条不少」
  * 却没有建条目。
+ *
+ * 整合方复审实现时补一条（2026-10-19）：归档了的资料也算进 sourcesUnderGrant。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -225,6 +227,17 @@ describe('条件 2：导入文件夹得来的资料（这个文件夹没绑在�
       sourcesUnderGrant: 3,
       dependentProjects: [],
     });
+  });
+
+  // 整合方复审实现时补（2026-10-19）：「一共多少份」——归档了的资料也在这条授权下，撤了一样读不了原文
+  it('归档了的资料也算', async () => {
+    const h = setup();
+    const grant = h.permissions.grantFolder(folder('imported'));
+    const first = sourceUnder(h, grant.id, null);
+    const archived = sourceUnder(h, grant.id, null);
+    h.sources.archive(archived, '合成的经验摘要');
+
+    expect((await h.runtime.previewRevokeSourceReading(first)).sourcesUnderGrant).toBe(2);
   });
 });
 

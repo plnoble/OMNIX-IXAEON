@@ -124,8 +124,11 @@ export function SourcesPage({
     segments: Segment[];
     total: number;
   } | null>(null);
-  /** P7：撤销读取——note 显示在详情卡片里（不在这里撤的两种情况），result 显示在页面上。 */
-  const [revokeNote, setRevokeNote] = useState<string | null>(null);
+  /**
+   * P7：撤销读取——note 显示在详情卡片里（不在这里撤的两种情况），记着是哪份资料的，
+   * 换一份资料打开详情就不显示；result 显示在页面上。
+   */
+  const [revokeNote, setRevokeNote] = useState<{ sourceId: string; text: string } | null>(null);
   const [revokeResult, setRevokeResult] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /** S3b：编码代理会话选择导入。清单号 → 勾选 → 估算 → 导入。渲染层不接触路径。 */
@@ -384,12 +387,14 @@ export function SourcesPage({
   const revokeReading = async (sourceId: string) => {
     setError(null);
     setRevokeNote(null);
+    setRevokeResult(null);
     try {
       const preview = await api.previewRevokeSourceReading(sourceId);
       if (preview.scope === 'domain') {
-        setRevokeNote(
-          '这份资料不是读本机文件得来的（是网页采集或者保存的提问），没有本机的读取授权可撤。不想留着它，用「删除来源」。',
-        );
+        setRevokeNote({
+          sourceId,
+          text: '这份资料不是读本机文件得来的（是网页采集或者保存的提问），没有本机的读取授权可撤。不想留着它，用「删除来源」。',
+        });
         return;
       }
       if (preview.status === 'revoked') {
@@ -397,9 +402,10 @@ export function SourcesPage({
         return;
       }
       if (preview.dependentProjects.length > 0) {
-        setRevokeNote(
-          `项目「${preview.dependentProjects.join('、')}」正靠这条授权读它的文件夹：到项目页对它点「解除绑定」，会一并撤销这个文件夹的读取授权。`,
-        );
+        setRevokeNote({
+          sourceId,
+          text: `项目「${preview.dependentProjects.join('、')}」正靠这条授权读它的文件夹：到项目页对它点「解除绑定」，会一并撤销这个文件夹的读取授权。`,
+        });
         return;
       }
       const kind = preview.scope === 'file' ? '文件' : '文件夹';
@@ -912,7 +918,7 @@ export function SourcesPage({
             const source = await api.getSource(detail.source.id);
             if (source) setDetail({ ...detail, source });
           }}
-          revokeNote={revokeNote}
+          revokeNote={revokeNote?.sourceId === detail.source.id ? revokeNote.text : null}
           onRevoke={() => void revokeReading(detail.source.id)}
           onProjectBound={async (projectId) => {
             await api.bindSourceProject({ sourceId: detail.source.id, projectId });

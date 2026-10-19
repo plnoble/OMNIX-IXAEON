@@ -2135,38 +2135,29 @@ export class AppRuntime {
   async previewRevokeSourceReading(sourceId: string): Promise<RevokeSourceReadingPreview> {
     const source = this.sources.get(sourceId);
     if (!source) throw new IxaError(ErrorCodes.NOT_FOUND, '来源不存在');
-    const perm = this.db
-      .prepare('SELECT * FROM permissions WHERE id = ?')
-      .get(source.permission_id) as Permission | undefined;
-    const scope = perm?.scope_type ?? 'domain';
-    const authoritativeScope: RevokeSourceReadingPreview['scope'] =
-      scope === 'file' || scope === 'folder' || scope === 'domain' ? scope : 'domain';
+    const perm = this.permissions.get(source.permission_id);
+    if (!perm) throw new IxaError(ErrorCodes.NOT_FOUND, '这份资料的授权记录不存在');
     const sourcesUnderGrant = (
-      this.db
-        .prepare('SELECT count(*) AS n FROM sources WHERE permission_id = ?')
-        .get(source.permission_id) as { n: number }
-    ).n;
-    let dependentProjects: string[] = [];
-    if (perm && perm.status === 'active' && perm.scope_type === 'folder') {
-      const actives = this.db
-        .prepare("SELECT * FROM permissions WHERE scope_type = 'folder' AND status = 'active'")
-        .all() as Permission[];
-      const covering = (rootPath: string): Permission[] =>
-        actives.filter((g) => isPathInside(g.locator, rootPath));
-      const names: string[] = [];
-      for (const p of this.projects.list()) {
-        if (!p.root_path) continue;
-        const covers = covering(p.root_path);
-        if (!covers.some((g) => g.id === perm.id)) continue;
-        if (covers.some((g) => g.id !== perm.id)) continue;
-        names.push(p.name);
+      this.db.prepare('SELECT count(*) AS n FROM sources WHERE permission_id = ?').get(perm.id) as {
+        n: number;
       }
-      dependentProjects = names.sort();
+    ).n;
+    const dependentProjects: string[] = [];
+    if (perm.scope_type === 'folder' && perm.status === 'active') {
+      const folderGrants = this.permissions.list(false).filter((g) => g.scope_type === 'folder');
+      for (const p of this.projects.list()) {
+        const root = p.root_path;
+        if (!root) continue;
+        const covering = folderGrants.filter((g) => isPathInside(g.locator, root));
+        // 只有这一条护着它：撤了它就不在任何有效授权之内
+        if (covering.length === 1 && covering[0]!.id === perm.id) dependentProjects.push(p.name);
+      }
+      dependentProjects.sort();
     }
     return {
-      scope: authoritativeScope,
-      locator: perm?.locator ?? '',
-      status: perm?.status === 'active' ? 'active' : 'revoked',
+      scope: perm.scope_type,
+      locator: perm.locator,
+      status: perm.status,
       sourcesUnderGrant,
       dependentProjects,
     };
