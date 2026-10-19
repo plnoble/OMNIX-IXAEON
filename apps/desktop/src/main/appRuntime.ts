@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   ArchiveService,
   Extractor,
@@ -2149,6 +2149,8 @@ export class AppRuntime {
   /**
    * P8：只删严格在数据目录 workspaces/ 里面的副本目录。workspaces 自己、用 .. 绕出去的、
    * 早就不在的，都不计数；删不掉的算 copiesLeft，不拦住删除。对整个目录调一次 rmSync。
+   * 「在里面」照 CodingOrchestrator.remove 的判断：前缀是 workspaces 再加一个分隔符。
+   * 不用 path.relative——跨盘符时它返回另一个盘上的绝对路径，看不出是在外面。
    */
   private removeProjectCopies(paths: string[]): { copiesRemoved: number; copiesLeft: number } {
     const root = resolve(this.dataDir, 'workspaces');
@@ -2156,8 +2158,7 @@ export class AppRuntime {
     let copiesLeft = 0;
     for (const ws of paths) {
       const abs = resolve(ws);
-      const rel = relative(root, abs);
-      if (rel === '' || rel.startsWith('..') || rel.includes('..')) continue;
+      if (!abs.startsWith(root + '\\') && !abs.startsWith(root + '/')) continue;
       if (!existsSync(abs)) continue;
       try {
         rmSync(abs, { recursive: true, force: true });

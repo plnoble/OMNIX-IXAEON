@@ -166,14 +166,18 @@ function ProjectWorkRuns({ projectId }: { projectId: string }) {
   );
 }
 
+/** P5 / P8：确认框里讲授权的那一行，按预览的 grant 三选一（解除绑定、删除项目共用）。 */
+function grantLineOf(v: UnbindProjectFolderPreview): string {
+  return v.grant === 'revoke'
+    ? '- 这个文件夹的读取授权一并撤销。'
+    : v.grant === 'kept_other_project'
+      ? '- 读取授权不撤销：另一个项目也绑着这个文件夹。'
+      : '- 这个文件夹没有单独的读取授权，没有可撤销的。';
+}
+
 /** P5：确认框整段文字照契约 7；带数字的三行数字是 0 就不出现；讲授权的那一行三选一。 */
 function unbindConfirmText(p: Project, v: UnbindProjectFolderPreview): string {
-  const grantLine =
-    v.grant === 'revoke'
-      ? '- 这个文件夹的读取授权一并撤销。'
-      : v.grant === 'kept_other_project'
-        ? '- 读取授权不撤销：另一个项目也绑着这个文件夹。'
-        : '- 这个文件夹没有单独的读取授权，没有可撤销的。';
+  const grantLine = grantLineOf(v);
   const lines = [
     `解除「${p.name}」和这个文件夹的绑定？`,
     '',
@@ -215,13 +219,7 @@ function deleteConfirmText(p: Project, v: UnbindProjectFolderPreview | null): st
     '属于该项目的理解、关系、编码任务会删除，编码任务的隔离副本（里面有当时的项目文件）也一并删掉。来源会变成未归属，对话原文保留。个人记忆不动。此操作不能从列表撤销（可用备份恢复）。',
   ];
   if (v) {
-    const grantLine =
-      v.grant === 'revoke'
-        ? '- 这个文件夹的读取授权一并撤销。'
-        : v.grant === 'kept_other_project'
-          ? '- 读取授权不撤销：另一个项目也绑着这个文件夹。'
-          : '- 这个文件夹没有单独的读取授权，没有可撤销的。';
-    lines.push('', '这个项目绑着文件夹：', v.rootPath, grantLine);
+    lines.push('', '这个项目绑着文件夹：', v.rootPath, grantLineOf(v));
     if (v.sourcesUnderGrant > 0) {
       lines.push(`- 这条授权下导入过 ${v.sourcesUnderGrant} 份资料：之后不再读它们的原文。`);
     }
@@ -368,6 +366,7 @@ export function ProjectsPage({
    * 预览出错不问、不删，出错显示在这一页现有的报错条里。
    */
   const removeProject = async (p: Project) => {
+    setDeleteResult(null);
     setBusy(true);
     try {
       const preview = p.root_path ? await api.previewUnbindProjectFolder(p.id) : null;
