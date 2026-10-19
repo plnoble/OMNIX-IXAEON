@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import {
   ArchiveService,
   Extractor,
@@ -98,6 +98,7 @@ import {
   type CodingTask,
   type TodoView,
   type WorkRun,
+  type DeleteProjectResult,
   type UnbindProjectFolderPreview,
   type UnbindProjectFolderResult,
   type RevokeSourceReadingPreview,
@@ -2083,6 +2084,89 @@ export class AppRuntime {
       revokedPermissionId,
       cancelledTaskIds: inFlight.map((t) => t.id),
     };
+  }
+
+  /**
+   * P8：删除项目。绑着文件夹的先照 P5 解除绑定（直接调 unbindProjectFolder，不抄它的判断）；
+   * 没绑的、却还有在途任务的老数据，照样先取消并回报。再删项目、清这个项目的任务副本，
+   * 最后让对话上下文失效。project.deleted 只在这里记一条，IPC 不再记。
+   */
+  async deleteProject(projectId: string): Promise<DeleteProjectResult> {
+    const project = this.projects.get(projectId);
+    if (!project) throw new IxaError(ErrorCodes.NOT_FOUND, `项目不存在: ${projectId}`);
+    let revokedPermissionId: string | null = null;
+    let cancelledTasks = 0;
+    if (project.root_path) {
+      const unbound = await this.unbindProjectFolder(projectId);
+      revokedPermissionId = unbound.revokedPermissionId;
+      cancelledTasks = unbound.cancelledTaskIds.length;
+    } else {
+      const inFlight = this.db
+        .prepare(
+          "SELECT id FROM coding_tasks WHERE project_id = ? AND status IN ('queued','running','pending_verify')",
+        )
+        .all(projectId) as Array<{ id: string }>;
+      for (const t of inFlight) {
+        this.coding.cancel(t.id);
+        this.codingDispatch.onTaskSettled(t.id);
+      }
+      cancelledTasks = inFlight.length;
+    }
+    // 副本路径在删项目之前记下：任务行跟着项目一起没了
+    const copies = (
+      this.db
+        .prepare(
+          'SELECT workspace_path FROM coding_tasks WHERE project_id = ? AND workspace_path IS NOT NULL',
+        )
+        .all(projectId) as Array<{ workspace_path: string }>
+    ).map((r) => r.workspace_path);
+    const removed = this.projects.delete(projectId);
+    recordAudit(this.db, 'project.deleted', {
+      projectId,
+      sourcesUnassigned: removed.sourcesUnassigned,
+      itemsRemoved: removed.itemsRemoved,
+    });
+    const { copiesRemoved, copiesLeft } = this.removeProjectCopies(copies);
+    if (copiesRemoved + copiesLeft > 0) {
+      recordAudit(this.db, 'project.task_copies_removed', {
+        projectId,
+        removed: copiesRemoved,
+        left: copiesLeft,
+      });
+    }
+    // 没绑文件夹的也要失效：项目近况、挂着的任务都不在了
+    this.invalidateContext();
+    return {
+      sourcesUnassigned: removed.sourcesUnassigned,
+      itemsRemoved: removed.itemsRemoved,
+      revokedPermissionId,
+      cancelledTasks,
+      copiesRemoved,
+      copiesLeft,
+    };
+  }
+
+  /**
+   * P8：只删严格在数据目录 workspaces/ 里面的副本目录。workspaces 自己、用 .. 绕出去的、
+   * 早就不在的，都不计数；删不掉的算 copiesLeft，不拦住删除。对整个目录调一次 rmSync。
+   */
+  private removeProjectCopies(paths: string[]): { copiesRemoved: number; copiesLeft: number } {
+    const root = resolve(this.dataDir, 'workspaces');
+    let copiesRemoved = 0;
+    let copiesLeft = 0;
+    for (const ws of paths) {
+      const abs = resolve(ws);
+      const rel = relative(root, abs);
+      if (rel === '' || rel.startsWith('..') || rel.includes('..')) continue;
+      if (!existsSync(abs)) continue;
+      try {
+        rmSync(abs, { recursive: true, force: true });
+        copiesRemoved += 1;
+      } catch {
+        copiesLeft += 1;
+      }
+    }
+    return { copiesRemoved, copiesLeft };
   }
 
   /**

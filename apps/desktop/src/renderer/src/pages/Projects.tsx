@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, errMsg, type Project, type WorkRun } from '../api.js';
-import type { UnbindProjectFolderPreview } from '@ixaeon/contracts';
+import type { DeleteProjectResult, UnbindProjectFolderPreview } from '@ixaeon/contracts';
 import { Button, Card, Empty, ErrorBanner, Field, projectStatusLabel, Spinner } from '../ui.js';
 
 type WorkTest = { name: string; result: 'passed' | 'failed' | 'not_run' };
@@ -203,6 +203,48 @@ function unbindConfirmText(p: Project, v: UnbindProjectFolderPreview): string {
   return lines.join('\n');
 }
 
+/**
+ * P8：删除的确认框。前两段总有；绑着文件夹时才有后一段，和前一段之间空一行。
+ * 讲授权的那一行三选一，都以「- 」开头；带数字的两行数字是 0 就不出现。
+ * 等接受的任务数不进确认框（任务反正跟着项目删）。
+ */
+function deleteConfirmText(p: Project, v: UnbindProjectFolderPreview | null): string {
+  const lines = [
+    `删除项目「${p.name}」？`,
+    '',
+    '属于该项目的理解、关系、编码任务会删除，编码任务的隔离副本（里面有当时的项目文件）也一并删掉。来源会变成未归属，对话原文保留。个人记忆不动。此操作不能从列表撤销（可用备份恢复）。',
+  ];
+  if (v) {
+    const grantLine =
+      v.grant === 'revoke'
+        ? '- 这个文件夹的读取授权一并撤销。'
+        : v.grant === 'kept_other_project'
+          ? '- 读取授权不撤销：另一个项目也绑着这个文件夹。'
+          : '- 这个文件夹没有单独的读取授权，没有可撤销的。';
+    lines.push('', '这个项目绑着文件夹：', v.rootPath, grantLine);
+    if (v.sourcesUnderGrant > 0) {
+      lines.push(`- 这条授权下导入过 ${v.sourcesUnderGrant} 份资料：之后不再读它们的原文。`);
+    }
+    if (v.inFlightTasks > 0) {
+      lines.push(`- 有 ${v.inFlightTasks} 个编码任务正在排队或执行，会被取消。`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/** P8：结果那句话。没有的那几句不出现；不提删掉了几个副本，只在有没删掉的时候说一句。 */
+function deleteResultText(name: string, done: DeleteProjectResult): string {
+  const parts = [`已删除项目「${name}」。`];
+  if (done.revokedPermissionId !== null) parts.push('这个文件夹的读取授权已撤销。');
+  if (done.cancelledTasks > 0) parts.push(`取消了 ${done.cancelledTasks} 个编码任务。`);
+  if (done.copiesLeft > 0) {
+    parts.push(
+      `有 ${done.copiesLeft} 个任务副本没删掉（文件正被占用），还在数据目录的 workspaces 里。`,
+    );
+  }
+  return parts.join('');
+}
+
 /** 项目页：列表 + 新建 + 目录登记 + 状态切换。 */
 export function ProjectsPage({
   onOpenSources,
@@ -218,6 +260,8 @@ export function ProjectsPage({
   const [unbindResult, setUnbindResult] = useState<{ projectId: string; text: string } | null>(
     null,
   );
+  // P8：删除的结果，显示在项目列表上面
+  const [deleteResult, setDeleteResult] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -319,14 +363,18 @@ export function ProjectsPage({
     }
   };
 
+  /**
+   * P8：绑着文件夹的先预览再问；没绑的直接问。取消确认什么都不发生；
+   * 预览出错不问、不删，出错显示在这一页现有的报错条里。
+   */
   const removeProject = async (p: Project) => {
-    const ok = window.confirm(
-      `删除项目「${p.name}」？\n\n属于该项目的理解、关系、编码任务会删除。来源会变成未归属，对话原文保留。个人记忆不动。此操作不能从列表撤销（可用备份恢复）。`,
-    );
-    if (!ok) return;
     setBusy(true);
     try {
-      await api.deleteProject(p.id);
+      const preview = p.root_path ? await api.previewUnbindProjectFolder(p.id) : null;
+      const ok = window.confirm(deleteConfirmText(p, preview));
+      if (!ok) return;
+      const done = await api.deleteProject(p.id);
+      setDeleteResult(deleteResultText(p.name, done));
       await reload();
       onChanged?.();
     } catch (err) {
@@ -391,6 +439,11 @@ export function ProjectsPage({
           </div>
         )}
 
+        {deleteResult && (
+          <p className="note" data-testid="project-delete-result">
+            {deleteResult}
+          </p>
+        )}
         {projects === null ? (
           <Spinner />
         ) : projects.length === 0 ? (

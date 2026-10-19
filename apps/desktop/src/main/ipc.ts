@@ -148,15 +148,8 @@ export function registerIpc(runtime: AppRuntime): void {
     createProject: async (input) => runtime.projects.create(input),
     createProjects: async (inputs) => runtime.projects.createMany(inputs),
     updateProjectStatus: async (input) => runtime.projects.updateStatus(input.id, input.status),
-    deleteProject: async (id) => {
-      const result = runtime.projects.delete(id);
-      recordAudit(runtime.db, 'project.deleted', {
-        projectId: id,
-        sourcesUnassigned: result.sourcesUnassigned,
-        itemsRemoved: result.itemsRemoved,
-      });
-      return result;
-    },
+    // P8：审计由运行时记（project.deleted 只一条）；这里再记一遍就成了两条
+    deleteProject: async (id) => runtime.deleteProject(id),
 
     // --- 导入（票据制） ---
     pickFiles: async (kind): Promise<PickResult | null> => {
