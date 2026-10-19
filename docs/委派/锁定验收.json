@@ -435,7 +435,7 @@
     {
       "id": "P8",
       "title": "删除项目时撤销授权并清副本",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/p8-delete-project.test.ts": "b2a56d673e9923fcb5ee4d502fc315eb6e71735fc2e21a50903dcf9dac2ae466",
         "apps/desktop/test/acceptance/p8-delete-page.test.ts": "bc0061a97caa508dc724601403a95e73ee7e1be7593c0a3d3930b774660aad43"
