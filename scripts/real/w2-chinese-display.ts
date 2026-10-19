@@ -12,6 +12,56 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+const maskOut = (v: unknown): string => {
+  let text: string;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    // JSON.stringify 把反斜杠转义成双份：对象里的路径要照转义后的样子再遮一次
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn']) {
+  const orig = console[k].bind(console);
+  console[k] = (...a) => orig(...a.map(maskOut));
+}
+
+// 结论由脚本自己算出来的值决定：一处不符就不写「通过」；脚本出错也非零退出
+let passed = true;
+let firstFail = '';
+const fail = (why: string): void => {
+  console.log('不符：', why);
+  if (passed) firstFail = why;
+  passed = false;
+};
+const crash = (err: unknown): void => {
+  console.log('脚本出错：', err);
+  console.log('RESULT 没通过：脚本出错：' + (err instanceof Error ? err.message : String(err)));
+  process.exit(1);
+};
+process.on('uncaughtException', crash);
+process.on('unhandledRejection', crash);
+
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const desktopDir = join(root, 'apps', 'desktop');
@@ -125,10 +175,18 @@ try {
   console.log('RESEARCH_SHOWS_ZH', researchText.includes('本地模型运行时再提速'));
   console.log('RESEARCH_HIDES_EN', !researchText.includes('Local model runtime'));
   console.log('RESEARCH_SHOWS_ORIGINAL_TITLE', researchText.includes('本地模型的新进展'));
+  if (!researchText.includes('本地模型运行时再提速'))
+    fail('研究页没显示中文标题（期望 RESEARCH_SHOWS_ZH true，实际 false）');
+  if (researchText.includes('Local model runtime'))
+    fail('研究页露出了英文标题（期望 RESEARCH_HIDES_EN true，实际 false）');
+  if (!researchText.includes('本地模型的新进展'))
+    fail('研究页没显示只有中文标题的那条（期望 RESEARCH_SHOWS_ORIGINAL_TITLE true，实际 false）');
   await second.page.getByText('原文').first().click();
   await second.page.waitForTimeout(300);
   const expanded = await second.page.locator('main').innerText();
   console.log('ORIGINAL_EXPANDED', expanded.includes('Local model runtime reaches new speed'));
+  if (!expanded.includes('Local model runtime reaches new speed'))
+    fail('点「原文」展开后看不到原标题/原摘录（期望 ORIGINAL_EXPANDED true，实际 false）');
   await second.page.screenshot({ path: join(shotDir, 'w2-research.png'), fullPage: true });
 
   await second.page.getByTestId('nav-overview').click();
@@ -139,6 +197,8 @@ try {
   );
   console.log('OVERVIEW_BLOCKS', blocks.join(','));
   console.log('OVERVIEW_SHOWS_ZH', overviewText.includes('本地模型运行时再提速'));
+  if (!overviewText.includes('本地模型运行时再提速'))
+    fail('总览没显示中文标题（期望 OVERVIEW_SHOWS_ZH true，实际 false）');
   await second.page.screenshot({ path: join(shotDir, 'w2-overview.png'), fullPage: true });
 } finally {
   await second.app.close();
@@ -149,3 +209,14 @@ console.log(
   existsSync(join(shotDir, 'w2-research.png')),
   existsSync(join(shotDir, 'w2-overview.png')),
 );
+if (!existsSync(join(shotDir, 'w2-research.png')) || !existsSync(join(shotDir, 'w2-overview.png')))
+  fail(
+    `截图没落全（期望 shots true true，实际 ${existsSync(join(shotDir, 'w2-research.png'))} ${existsSync(join(shotDir, 'w2-overview.png'))}）`,
+  );
+console.log(
+  'RESULT',
+  passed
+    ? '通过：研究页显示中文标题、藏住英文标题、显示未翻译那条的中文标题，「原文」展开能看到原摘录，总览显示中文，2 张截图都在'
+    : `没通过：${firstFail}`,
+);
+process.exit(passed ? 0 : 1);

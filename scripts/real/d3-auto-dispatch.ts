@@ -21,7 +21,53 @@ const Database = require(require.resolve('better-sqlite3', { paths: [desktopDir,
 
 const dataDir = mkdtempSync(join(tmpdir(), 'ixaeon-d3-real-'));
 writeFileSync(join(dataDir, 'model-script.json'), JSON.stringify({ structured: [] }), 'utf8');
-console.log('DATA_DIR', dataDir);
+
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+const maskOut = (v: unknown): string => {
+  let text: string;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    // JSON.stringify 把反斜杠转义成双份：对象里的路径要照转义后的样子再遮一次
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn'] as const) {
+  const orig = console[k].bind(console);
+  console[k] = (...a: unknown[]) => orig(...a.map(maskOut));
+}
+
+// 出错也要有 RESULT 行，退出码和结论一致（照 p5/p7 的规矩）
+const fail = (why: string): never => {
+  console.log('RESULT 没通过：' + why);
+  process.exit(1);
+};
+process.on('uncaughtException', (err) => fail(err instanceof Error ? err.message : String(err)));
+process.on('unhandledRejection', (err) => fail(err instanceof Error ? err.message : String(err)));
+
+// 合成项目文件夹要先生成：绑文件夹走界面的「绑定文件夹」按钮，目录对话框用替身回话
+const projectRoot = join(dataDir, 'project');
+mkdirSync(projectRoot, { recursive: true });
+writeFileSync(join(projectRoot, 'note.txt'), '合成文件');
 
 const env = {
   ...process.env,
@@ -33,9 +79,20 @@ const env = {
   IXAEON_HERMES_HOME: '',
   HERMES_HOME: '',
   IXAEON_CODEX_EXE: 'none',
+  // P6 之后编码任务批准前要查项目文件夹的读取授权，绑定走界面、对话框用替身（不弹真对话框）
+  IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
 };
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），Electron 会当普通 node
+// 跑、主进程里 app 是 undefined、窗口起不来。照 scripts/real/p8-delete-project.mjs 清掉。
+delete env.ELECTRON_RUN_AS_NODE;
 
-const app = await electron.launch({ args: [join(desktopDir, 'out', 'main', 'index.js')], env });
+const app = await electron.launch({
+  args: [
+    join(desktopDir, 'out', 'main', 'index.js'),
+    `--user-data-dir=${join(dataDir, 'profile')}`,
+  ],
+  env,
+});
 const page = await app.firstWindow();
 await page.waitForLoadState('domcontentloaded');
 await page.getByTestId('setup-next-1').click();
@@ -44,16 +101,18 @@ await page.getByTestId('setup-next-2').click();
 await page.getByTestId('setup-project-name').fill('D3 合成项目');
 await page.getByTestId('setup-finish').click();
 await page.getByTestId('main-nav').waitFor({ timeout: 20_000 });
+await page.getByTestId('nav-projects').click();
+await page.waitForTimeout(500);
+const projRow = page.locator('[data-testid^="project-row-"]').first();
+const boundProjectId = (await projRow.getAttribute('data-testid')).replace('project-row-', '');
+await page.getByTestId(`project-bind-folder-${boundProjectId}`).click();
+await page.waitForTimeout(800);
 await app.close();
 
 // 应用关着时往库里塞合成数据：项目对话、一轮提问、编码任务草案、待办卡
 const db = new Database(join(dataDir, 'ixaeon.db'));
 const now = new Date().toISOString();
 const project = db.prepare('SELECT id FROM projects LIMIT 1').get() as { id: string };
-const projectRoot = join(dataDir, 'project');
-mkdirSync(projectRoot, { recursive: true });
-writeFileSync(join(projectRoot, 'note.txt'), '合成文件');
-db.prepare('UPDATE projects SET root_path = ? WHERE id = ?').run(projectRoot, project.id);
 
 const conversationId = randomUUID();
 const userMessageId = randomUUID();
@@ -125,7 +184,13 @@ db.prepare('UPDATE messages SET meta_json = ? WHERE id = ?').run(
 );
 db.close();
 
-const second = await electron.launch({ args: [join(desktopDir, 'out', 'main', 'index.js')], env });
+const second = await electron.launch({
+  args: [
+    join(desktopDir, 'out', 'main', 'index.js'),
+    `--user-data-dir=${join(dataDir, 'profile')}`,
+  ],
+  env,
+});
 const p2 = await second.firstWindow();
 await p2.waitForLoadState('domcontentloaded');
 await p2.getByTestId('main-nav').waitFor({ timeout: 20_000 });
@@ -156,3 +221,15 @@ console.log(report?.content ?? '无');
 db2.close();
 await second.close();
 rmSync(dataDir, { recursive: true, force: true });
+
+const ok =
+  task.status === 'pending_accept' &&
+  task.executor_name === 'fake' &&
+  (report?.content ?? '').includes('做完了，等你验收');
+console.log(
+  'RESULT',
+  ok
+    ? `通过：点「要做」后任务自动派给替身、状态 ${task.status}，对话里出现回报`
+    : `没通过：任务状态 ${task.status}、执行器 ${String(task.executor_name)}、库里的回报 ${report ? '有' : '没有'}`,
+);
+process.exit(ok ? 0 : 1);

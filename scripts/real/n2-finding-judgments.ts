@@ -10,6 +10,40 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+const maskOut = (v: unknown): string => {
+  let text: string;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    // JSON.stringify 把反斜杠转义成双份：对象里的路径要照转义后的样子再遮一次
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn']) {
+  const orig = console[k].bind(console);
+  console[k] = (...a) => orig(...a.map(maskOut));
+}
+
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const desktopDir = join(root, 'apps', 'desktop');
@@ -22,21 +56,37 @@ mkdirSync(shotDir, { recursive: true });
 
 const dataDir = mkdtempSync(join(tmpdir(), 'ixaeon-n2-real-'));
 writeFileSync(join(dataDir, 'model-script.json'), JSON.stringify({ structured: [] }), 'utf8');
-console.log('dataDir', dataDir);
+
+/** 逐条对照，只有全都符合才写「通过」；出错非零（照 p5/p7 的规矩）。 */
+let passed = true;
+const fail = (why: string) => {
+  passed = false;
+  console.log('不符：', why);
+};
 
 const env = {
   ...process.env,
   IXAEON_DATA_DIR: dataDir,
-  IXAEON_HTTP_PORT: '43291',
+  // 随机端口（照 p5/p7）：写死端口在并发时或端口被占时撞车
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
   IXAEON_FAKE_MODEL: '1',
   IXAEON_FAKE_MODEL_SCRIPT: join(dataDir, 'model-script.json'),
   IXAEON_HERMES_EXE: '',
   IXAEON_HERMES_HOME: '',
   HERMES_HOME: '',
 };
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），Electron 会当普通 node
+// 跑、主进程里 app 是 undefined、窗口起不来。照 scripts/real/p8-delete-project.mjs 清掉。
+delete env.ELECTRON_RUN_AS_NODE;
 
 async function launch() {
-  const app = await electron.launch({ args: [join(desktopDir, 'out', 'main', 'index.js')], env });
+  const app = await electron.launch({
+    args: [
+      join(desktopDir, 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
+    env,
+  });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   return { app, page };
@@ -109,15 +159,33 @@ try {
   await line.waitFor({ timeout: 10_000 });
   const summary = await line.innerText();
   console.log('SUMMARY', summary);
+  for (const want of ['对上 1', '看不出来 1', '还没判 1']) {
+    if (!summary.includes(want)) fail(`摘要行里没有「${want}」：${summary}`);
+  }
   const detail = second.page.getByTestId(`finding-judgments-detail-${findingId}`);
   await detail.locator('summary').click();
   await second.page.waitForTimeout(300);
   const expanded = await detail.innerText();
   console.log('DETAIL', expanded.replace(/\n/g, ' | '));
+  for (const want of ['对上（写了 24GB 内存）', '看不出来（没提本地模型）', '价格 3000 以内']) {
+    if (!expanded.includes(want)) fail(`展开内容里没有「${want}」`);
+  }
   await second.page.screenshot({ path: join(shotDir, 'n2-judgments.png'), fullPage: true });
-  console.log('SHOT', existsSync(join(shotDir, 'n2-judgments.png')));
+  const shotOk = existsSync(join(shotDir, 'n2-judgments.png'));
+  if (!shotOk) fail('截图没写出来');
+  console.log('SHOT', shotOk);
+} catch (err) {
+  passed = false;
+  console.log('脚本出错：', err instanceof Error ? err.message : String(err));
 } finally {
   await first?.app.close();
   await second?.app.close();
   rmSync(dataDir, { recursive: true, force: true });
 }
+console.log(
+  'RESULT',
+  passed
+    ? '通过：3 条要求的判定在摘要行里数对了（对上 1 · 看不出来 1 · 还没判 1），展开能看到每条的理由'
+    : '没通过：上面有不符或脚本出错的那条',
+);
+process.exit(passed ? 0 : 1);

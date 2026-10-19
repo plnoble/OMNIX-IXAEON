@@ -66,6 +66,22 @@ async function launch() {
   return { app, page };
 }
 
+let passed = true;
+let firstFail = '';
+const fail = (why: string): void => {
+  console.log('不符：', why);
+  if (passed) firstFail = why;
+  passed = false;
+};
+// 出错也要有 RESULT 行、退出码非零（照 p5/p7 的规矩）
+const crash = (err: unknown): void => {
+  console.log('脚本出错：', err);
+  console.log('RESULT 没通过：脚本出错：' + (err instanceof Error ? err.message : String(err)));
+  process.exit(1);
+};
+process.on('uncaughtException', crash);
+process.on('unhandledRejection', crash);
+
 const run = await launch();
 try {
   await run.page.getByTestId('setup-next-1').click();
@@ -81,6 +97,8 @@ try {
   const rows = await run.page.getByTestId('agent-sessions-list').innerText();
   console.log('LIST');
   console.log(rows);
+  if (rows.trim().length === 0)
+    fail('会话清单是空的（期望 LIST 里列出合成的 cc.jsonl 这一个会话）');
 
   await run.page.getByTestId('agent-sessions-select-new').click();
   await run.page
@@ -90,6 +108,8 @@ try {
   const estimate = await run.page.getByTestId('agent-sessions-estimate').innerText();
   console.log('ESTIMATE');
   console.log(estimate);
+  if (estimate.trim().length === 0)
+    fail('估算那一步没有内容（期望 ESTIMATE 里有选中的会话编号和字数）');
   await run.page.screenshot({ path: join(shotDir, 's3b-agent-list.png'), fullPage: true });
 
   await run.page.getByTestId('agent-sessions-import').click();
@@ -97,17 +117,31 @@ try {
     .getByTestId('agent-sessions-result')
     .waitFor({ timeout: 20_000, state: 'visible' });
   const result = await run.page.getByTestId('agent-sessions-result').innerText();
-  console.log('RESULT');
+  console.log('RESULT_IMPORT');
   console.log(result);
+  if (result.trim().length === 0)
+    fail('导入结果那一步没有内容（期望 RESULT_IMPORT 里有导入了几份）');
   await run.page.waitForTimeout(1500);
   const sourceRow = run.page.locator('[data-testid^="source-row-"]').first();
   const sourceVisible = await sourceRow.count();
   const sourceText = sourceVisible ? await sourceRow.innerText() : '';
   console.log('SOURCE_ROW', sourceVisible);
   console.log(sourceText);
+  if (sourceVisible < 1) fail(`资料页没有新来源（期望 SOURCE_ROW ≥ 1，实际 ${sourceVisible}）`);
+  else if (sourceText.trim().length === 0)
+    fail('资料页那一行是空的（期望 SOURCE_ROW 那行里有来源标题）');
   await run.page.screenshot({ path: join(shotDir, 's3b-after-import.png'), fullPage: true });
+} catch (err) {
+  console.log('脚本出错：', err);
+  passed = false;
+  firstFail = `脚本出错：${err instanceof Error ? err.message : String(err)}`;
 } finally {
   await run.app.close();
   rmSync(dataDir, { recursive: true, force: true });
 }
 console.log('done');
+console.log(
+  'RESULT',
+  passed ? '通过：列出、估算、导入三步都有输出，资料页出现 1 行新来源' : `没通过：${firstFail}`,
+);
+process.exit(passed ? 0 : 1);

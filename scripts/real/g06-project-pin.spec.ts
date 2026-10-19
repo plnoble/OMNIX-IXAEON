@@ -7,7 +7,12 @@
  *   4. 再打开 A 的那个对话；
  *   5. 确认下拉框回到 A、不可选，旁边有「换项目请开新对话」。
  *
- *   node_modules/.bin/playwright test -c e2e/playwright.config.ts scripts/real/g06-project-pin.spec.ts
+ *   仓库根目录下：
+ *   node apps/desktop/node_modules/@playwright/test/cli.js test \
+ *     -c scripts/real/playwright.real.config.ts g06-project-pin.spec.ts
+ *   （原来的 `node_modules/.bin/playwright test -c e2e/playwright.config.ts` 已经跑不动：
+ *   仓库根没有 playwright、`e2e/` 那份配置挪进了 apps/desktop，且它的 testDir 收集不到
+ *   scripts/real —— 2026-10-19 Q1 体检发现，见 docs/委派/交付/Q1.md。）
  *
  * 全程合成数据、临时目录，不碰用户的数据目录；用户 app 占着 43191 端口时脚本先如实失败。
  *
@@ -27,6 +32,11 @@ const { test, expect, _electron: electron } = pw as unknown as PlaywrightBundle;
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），playwright 拉起的
+// Electron 会当普通 node 跑、主进程里 app 是 undefined、窗口起不来。照
+// scripts/real/p8-delete-project.mjs 在模块层清掉（launch 用的是 process.env 的拷贝）。
+delete process.env.ELECTRON_RUN_AS_NODE;
 
 test('G06 复现：切到 B 后打开 A 的旧对话，下拉框回到 A 且锁定', async () => {
   const occupied = await fetch('http://127.0.0.1:43191/api/health', {

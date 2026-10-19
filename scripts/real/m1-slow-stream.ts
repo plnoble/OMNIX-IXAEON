@@ -74,10 +74,30 @@ globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     String(url).endsWith('/responses') &&
     res.headers.get('content-type')?.includes('event-stream')
   ) {
+    headersAfterSeconds = Math.round((Date.now() - started) / 1000);
     console.log('HEADERS_RECEIVED_AFTER_SECONDS', Math.round((Date.now() - started) / 1000));
   }
   return res;
 }) as typeof fetch;
+// 结论由脚本自己算出来的值决定：一处不符就不写「通过」
+let passed = true;
+let firstFail = '';
+const fail = (why: string): void => {
+  console.log('不符：', why);
+  if (passed) firstFail = why;
+  passed = false;
+};
+let headersAfterSeconds: number | null = null;
+let responsesSeconds: number | null = null;
+// 出错也要有 RESULT 行、退出码非零（照 p5/p7 的规矩）
+const crash = (err: unknown): void => {
+  console.log('脚本出错：', err);
+  console.log('RESULT 没通过：脚本出错：' + (err instanceof Error ? err.message : String(err)));
+  process.exit(1);
+};
+process.on('uncaughtException', crash);
+process.on('unhandledRejection', crash);
+
 try {
   const responses = new OpenAIResponsesProvider({
     apiKey: 'sk-test',
@@ -86,7 +106,16 @@ try {
   });
   const text = await responses.chatText({ system: 's', user: 'u' });
   console.log('RESPONSES_TEXT', text);
+  if (text !== '慢模型的完整回答')
+    fail(`慢模型的回答不完整（期望 RESPONSES_TEXT「慢模型的完整回答」，实际「${text}」）`);
+  responsesSeconds = Math.round((Date.now() - started) / 1000);
   console.log('RESPONSES_SECONDS', Math.round((Date.now() - started) / 1000));
+  if (headersAfterSeconds === null || headersAfterSeconds > 1)
+    fail(
+      `响应头不是立刻收到的（期望 HEADERS_RECEIVED_AFTER_SECONDS 0–1 秒，实际 ${headersAfterSeconds}）`,
+    );
+  if (responsesSeconds < 100)
+    fail(`慢响应没等满（期望 RESPONSES_SECONDS ≥ 100 秒，实际 ${responsesSeconds}）`);
 
   const chat = new OpenAIResponsesProvider({
     apiKey: 'sk-test',
@@ -95,6 +124,19 @@ try {
   });
   const chatText = await chat.chatText({ system: 's', user: 'u' });
   console.log('CHAT_TEXT', chatText);
+  if (chatText !== '兼容端点的回答')
+    fail(`兼容端点的回答不对（期望 CHAT_TEXT「兼容端点的回答」，实际「${chatText}」）`);
+} catch (err) {
+  console.log('脚本出错：', err);
+  passed = false;
+  firstFail = `脚本出错：${err instanceof Error ? err.message : String(err)}`;
 } finally {
   server.close();
 }
+console.log(
+  'RESULT',
+  passed
+    ? `通过：假服务端 ${headersAfterSeconds} 秒就回了响应头、等满 ${responsesSeconds} 秒拿到完整回答，兼容端点也拿到回答`
+    : `没通过：${firstFail}`,
+);
+process.exit(passed ? 0 : 1);

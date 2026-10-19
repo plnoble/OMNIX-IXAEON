@@ -25,6 +25,14 @@ const dataDir = mkdtempSync(join(tmpdir(), 'ixaeon-u1-real-'));
 const scriptPath = join(dataDir, 'model-script.json');
 writeFileSync(scriptPath, JSON.stringify({ structured: [] }), 'utf8');
 
+/** 逐条对照，只有全都符合才写「通过」；出错非零（照 p5/p7 的规矩）。 */
+let passed = true;
+let samplesSeen = 0;
+const fail = (why: string) => {
+  passed = false;
+  console.log('不符：', why);
+};
+
 const env = {
   ...process.env,
   IXAEON_DATA_DIR: dataDir,
@@ -34,10 +42,16 @@ const env = {
   IXAEON_HERMES_HOME: '',
   HERMES_HOME: '',
 };
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），Electron 会当普通 node
+// 跑、主进程里 app 是 undefined、窗口起不来。照 scripts/real/p8-delete-project.mjs 清掉。
+delete env.ELECTRON_RUN_AS_NODE;
 
 async function launch() {
   const app = await electron.launch({
-    args: [join(desktopDir, 'out', 'main', 'index.js')],
+    args: [
+      join(desktopDir, 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
     env,
   });
   const page = await app.firstWindow();
@@ -69,6 +83,7 @@ try {
   await run.page.getByTestId('research-question').fill('另一个关注');
   const createBtn = run.page.getByTestId('research-create');
   const createBefore = await createBtn.isDisabled();
+  if (createBefore) fail('新建表单的创建按钮一开始就是禁用的');
   console.log('CREATE_BEFORE', createBefore);
 
   const samples: boolean[] = [];
@@ -83,15 +98,32 @@ try {
   await notice.waitFor({ timeout: 30_000 });
   await sampling;
   console.log('CREATE_DISABLED_SAMPLES', samples.length, samples.some(Boolean));
+  samplesSeen = samples.length;
+  const createStayedEnabled = !samples.some(Boolean);
+  if (samples.length === 0) fail('采样一次都没取到（提示出现的比采样还快？）');
+  if (!createStayedEnabled) fail('检查期间新建表单的创建按钮被禁用了（头注释说不该禁用）');
+  const noticeText = (await notice.innerText()).trim();
+  if (noticeText.length === 0) fail('这个主题上的失败提示是空的');
   console.log('NOTICE');
-  console.log(await notice.innerText());
+  console.log(noticeText);
   const createAfter = await createBtn.isDisabled();
+  if (createAfter) fail('检查结束之后创建按钮还是禁用');
   console.log('CREATE_AFTER', createAfter);
   const bannerCount = await run.page.getByTestId('error-banner').count();
+  if (bannerCount !== 0) fail(`报错条出现了 ${bannerCount} 条（头注释说失败提示只挂在这个主题上）`);
   console.log('BANNER_COUNT', bannerCount);
   await run.page.screenshot({ path: join(shotDir, 'u1-research-busy.png'), fullPage: true });
+} catch (err) {
+  passed = false;
+  console.log('脚本出错：', err instanceof Error ? err.message : String(err));
 } finally {
   await run.app.close();
   rmSync(dataDir, { recursive: true, force: true });
 }
-console.log('done');
+console.log(
+  'RESULT',
+  passed
+    ? `通过：没来源没配搜索的主题点「立即检查」立刻给出失败提示（挂在这条主题上、${samplesSeen} 次采样里创建按钮全程可点、没有报错条）`
+    : '没通过：上面有不符或脚本出错的那条',
+);
+process.exit(passed ? 0 : 1);

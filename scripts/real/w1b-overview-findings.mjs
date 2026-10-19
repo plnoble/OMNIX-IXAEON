@@ -9,6 +9,56 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+const maskOut = (v) => {
+  let text;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    // JSON.stringify 把反斜杠转义成双份：对象里的路径要照转义后的样子再遮一次
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn']) {
+  const orig = console[k].bind(console);
+  console[k] = (...a) => orig(...a.map(maskOut));
+}
+
+// 结论由脚本自己算出来的值决定：一处不符就不写「通过」；脚本出错也非零退出
+let passed = true;
+let firstFail = '';
+const fail = (why) => {
+  console.log('不符：', why);
+  if (passed) firstFail = why;
+  passed = false;
+};
+const crash = (err) => {
+  console.log('脚本出错：', err);
+  console.log('RESULT 没通过：脚本出错：' + (err instanceof Error ? err.message : String(err)));
+  process.exit(1);
+};
+process.on('uncaughtException', crash);
+process.on('unhandledRejection', crash);
+
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const desktopDir = join(root, 'apps', 'desktop');
@@ -98,12 +148,18 @@ const beforeText = await second.page.getByTestId('overview-recent-findings').inn
 await second.page.screenshot({ path: join(shotDir, 'w1b-findings-before.png'), fullPage: true });
 console.log('BEFORE_BLOCK');
 console.log(beforeText);
+if (!beforeText.includes('W1b 真机合成发现'))
+  fail(
+    '概览「最近的新发现」里没有刚写进去的合成发现（期望 BEFORE_BLOCK 里有「W1b 真机合成发现」，实际没有）',
+  );
 await second.page.getByTestId('recent-findings-seen').click();
 await second.page.waitForTimeout(800);
 const afterNew = await second.page.locator('[data-testid^="recent-finding-new-"]').count();
 const afterText = await second.page.getByTestId('overview-recent-findings').innerText();
 await second.page.screenshot({ path: join(shotDir, 'w1b-findings-after.png'), fullPage: true });
 console.log('AFTER_NEW_BADGES', afterNew);
+if (afterNew !== 0)
+  fail(`点了「已看」之后还有 ${afterNew} 个「新」角标（期望 AFTER_NEW_BADGES 0）`);
 console.log('AFTER_BLOCK');
 console.log(afterText);
 await second.app.close();
@@ -112,3 +168,17 @@ console.log(
   existsSync(join(shotDir, 'w1b-findings-before.png')),
   existsSync(join(shotDir, 'w1b-findings-after.png')),
 );
+if (
+  !existsSync(join(shotDir, 'w1b-findings-before.png')) ||
+  !existsSync(join(shotDir, 'w1b-findings-after.png'))
+)
+  fail(
+    `截图没落全（期望 shots true true，实际 ${existsSync(join(shotDir, 'w1b-findings-before.png'))} ${existsSync(join(shotDir, 'w1b-findings-after.png'))}）`,
+  );
+console.log(
+  'RESULT',
+  passed
+    ? '通过：概览「最近的新发现」里看到 1 条合成发现，点「已看」后「新」角标 0 个，2 张截图都在'
+    : `没通过：${firstFail}`,
+);
+process.exit(passed ? 0 : 1);

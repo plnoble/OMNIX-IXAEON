@@ -11,6 +11,40 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+const maskOut = (v: unknown): string => {
+  let text: string;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    // JSON.stringify 把反斜杠转义成双份：对象里的路径要照转义后的样子再遮一次
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn']) {
+  const orig = console[k].bind(console);
+  console[k] = (...a) => orig(...a.map(maskOut));
+}
+
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const desktopDir = join(root, 'apps', 'desktop');
@@ -26,7 +60,13 @@ mkdirSync(shotDir, { recursive: true });
 const dataDir = mkdtempSync(join(tmpdir(), 'ixaeon-n1-real-'));
 const scriptPath = join(dataDir, 'model-script.json');
 writeFileSync(scriptPath, JSON.stringify({ structured: [] }), 'utf8');
-console.log('dataDir', dataDir);
+
+/** 逐条对照，只有全都符合才写「通过」；出错非零（照 p5/p7 的规矩）。 */
+let passed = true;
+const fail = (why: string) => {
+  passed = false;
+  console.log('不符：', why);
+};
 
 const env = {
   ...process.env,
@@ -37,10 +77,16 @@ const env = {
   IXAEON_HERMES_HOME: '',
   HERMES_HOME: '',
 };
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），Electron 会当普通 node
+// 跑、主进程里 app 是 undefined、窗口起不来。照 scripts/real/p8-delete-project.mjs 清掉。
+delete env.ELECTRON_RUN_AS_NODE;
 
 async function launch() {
   const app = await electron.launch({
-    args: [join(desktopDir, 'out', 'main', 'index.js')],
+    args: [
+      join(desktopDir, 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
     env,
   });
   const page = await app.firstWindow();
@@ -122,6 +168,14 @@ try {
   const beforeText = await second.page.getByTestId('overview-matched-findings').innerText();
   console.log('MATCHED_BEFORE');
   console.log(beforeText);
+  for (const want of [
+    'N1 真机合成发现',
+    '内存 24GB 以上：写了 24GB 内存',
+    '能跑本地大模型：写了能跑本地大模型',
+  ]) {
+    if (!beforeText.includes(want)) fail(`「符合你要求的新发现」里没有「${want}」`);
+  }
+  if (!beforeText.includes('都看过了')) fail('「符合你要求的新发现」里没有「都看过了」');
   const recentCount = await second.page.getByTestId('overview-recent-findings').count();
   console.log('RECENT_BELOW', recentCount);
   await second.page.screenshot({ path: join(shotDir, 'n1-matched-before.png'), fullPage: true });
@@ -130,16 +184,31 @@ try {
   const afterNew = await second.page.locator('[data-testid^="matched-finding-new-"]').count();
   const afterText = await second.page.getByTestId('overview-matched-findings').innerText();
   console.log('AFTER_NEW_BADGES', afterNew);
+  if (afterNew !== 0) fail(`点过「都看过了」之后还剩 ${afterNew} 条「新」标记（期望 0）`);
   console.log('MATCHED_AFTER');
   console.log(afterText);
+  if (!afterText.includes('N1 真机合成发现')) fail('点过「都看过了」之后那条发现不见了');
+  for (const want of ['内存 24GB 以上：写了 24GB 内存', '能跑本地大模型：写了能跑本地大模型']) {
+    if (!afterText.includes(want)) fail(`点过「都看过了」之后少了「${want}」`);
+  }
   await second.page.screenshot({ path: join(shotDir, 'n1-matched-after.png'), fullPage: true });
+} catch (err) {
+  passed = false;
+  console.log('脚本出错：', err instanceof Error ? err.message : String(err));
 } finally {
   await second.app.close();
   rmSync(dataDir, { recursive: true, force: true });
 }
-console.log(
-  'shots',
+const shots = [
   existsSync(join(shotDir, 'n1-matched-before.png')),
   existsSync(join(shotDir, 'n1-matched-after.png')),
+];
+console.log('shots', shots[0], shots[1]);
+if (!shots[0] || !shots[1]) fail('两张截图没都写出来');
+console.log(
+  'RESULT',
+  passed
+    ? '通过：对上要求的那条发现显示在「符合你要求的新发现」里（两条要求的判定与理由都在），点「都看过了」后「新」标记清零、内容还在'
+    : '没通过：上面有不符或脚本出错的那条',
 );
-console.log('done');
+process.exit(passed ? 0 : 1);

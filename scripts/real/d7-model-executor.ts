@@ -84,6 +84,23 @@ const task: CodingTask = {
   workspace_path: workspace,
 };
 
+// 结论由脚本自己算出来的值决定：一处不符就不写「通过」
+let passed = true;
+let firstFail = '';
+const fail = (why: string): void => {
+  console.log('不符：', why);
+  if (passed) firstFail = why;
+  passed = false;
+};
+// 出错也要有 RESULT 行、退出码非零（照 p5/p7 的规矩）
+const crash = (err: unknown): void => {
+  console.log('脚本出错：', err);
+  console.log('RESULT 没通过：脚本出错：' + (err instanceof Error ? err.message : String(err)));
+  process.exit(1);
+};
+process.on('uncaughtException', crash);
+process.on('unhandledRejection', crash);
+
 try {
   const report = await new ModelCodingExecutor(provider, 'd7-fake-model').run(
     task,
@@ -91,16 +108,33 @@ try {
     new AbortController().signal,
   );
   console.log('REQUESTS', JSON.stringify(requests.map((r) => ({ url: r.url, chars: r.chars }))));
+  const chatCalls = requests.filter((r) => r.url.includes('/chat/completions'));
+  const responsesProbes = requests.filter((r) => r.url.includes('/responses'));
+  if (responsesProbes.length < 1) fail('假上游没收到 /responses 探测（期望至少 1 次）');
+  if (chatCalls.length < 1) fail('假上游没收到 /chat/completions 请求（期望至少 1 次）');
+  if (requests.some((r) => r.chars === 0)) fail('有一次请求的请求体是空的（期望每次都有请求体）');
   const allBodies = requests.map((r) => r.body).join('\n');
   console.log('ENV_LEAKED', allBodies.includes('ENV_REAL_SECRET') ? '是（不该发生）' : '否');
+  if (allBodies.includes('ENV_REAL_SECRET'))
+    fail('发给模型的请求里有 .env 的内容（期望 ENV_LEAKED 否）');
   console.log('README_AFTER', JSON.stringify(readFileSync(join(workspace, 'README.md'), 'utf8')));
   console.log('REPORT', JSON.stringify(report));
+  if (report.claimedSuccess !== true || !report.changedPaths.includes('README.md'))
+    fail(
+      `执行器报告不对（期望 claimedSuccess true、改动里有 README.md，实际 claimedSuccess ${report.claimedSuccess}、改动 ${JSON.stringify(report.changedPaths)}）`,
+    );
   console.log(
     'CHECK_FILE_OK',
     readFileSync(join(workspace, 'README.md'), 'utf8').includes('第二行是 D7 真机加的')
       ? '是（改动已进副本）'
       : '否',
   );
+  if (!readFileSync(join(workspace, 'README.md'), 'utf8').includes('第二行是 D7 真机加的'))
+    fail('执行器的改动没进副本（期望 CHECK_FILE_OK「是（改动已进副本）」，实际「否」）');
+} catch (err) {
+  console.log('脚本出错：', err);
+  passed = false;
+  firstFail = `脚本出错：${err instanceof Error ? err.message : String(err)}`;
 } finally {
   server.close();
   try {
@@ -109,3 +143,12 @@ try {
     /* Windows 句柄延迟 */
   }
 }
+console.log(
+  'RESULT',
+  passed
+    ? `通过：假上游收到 ${requests.length} 次请求（/responses 探测 + /chat/completions），请求里没有 .env 内容，模型的改动进了副本`
+    : `没通过：${firstFail}`,
+);
+// 不用 process.exit：这个脚本退出时还有没关的句柄（假上游等），硬退会撞 libuv 的
+// 「Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)」（本机 2026-10-20 实测 exit=3221226505）。
+process.exitCode = passed ? 0 : 1;
