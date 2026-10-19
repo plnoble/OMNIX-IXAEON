@@ -140,7 +140,7 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 - 本单不改门禁，跑它是为了量：`node scripts/verify.mjs` 连跑三次全绿（exit 0），用时 259.9s / 195.6s / 197.5s，日志在操作目录 `.logs/verify-c3a-{1,2,3}.log`。
 - 交付的只有这一份说明，没有源码改动：分支上 `git show --stat` 只有 `docs/委派/交付/C3a.md`。
 - 在 `C3a` 工作目录里（这一分支的树）又跑了一遍 `node scripts/verify.mjs`：**全绿，exit 0**（末尾「全部通过（IXAEON v0.2 验证完成）」），说明加这份说明不影响门禁。
-- GitHub 上的 verify：分支 `grok/C3a` 推上去之后跑过两次。第一次（`e4d0f3d`，运行 39284824503）**绿**；第二次（`32605eb`，只多了一行文档，运行 39291200008）**红**，红的是 `apps/desktop/test/review/recheck-20260907.test.ts > B04 …` 报 `Error: Hook timed out in 10000ms`（慢 runner 上的钩子超时，不是这份文档导致的——分支上只有 `docs/委派/交付/C3a.md` 一个文件）。这一条恰好是本单第 3 条「套件本身有偶发」的实例，见下面已知缺口 6。本机在这一分支的树上跑 `node scripts/verify.mjs` 全绿（exit 0）。
+- GitHub 上的 verify：分支 `grok/C3a` 推上去之后跑过三次，同内容的两次绿、一次红——第一次（`e4d0f3d`，运行 39284824503）**绿**；第二次（`32605eb`，只多了一行文档，运行 39291200008）**红**，红的是 `apps/desktop/test/review/recheck-20260907.test.ts > B04 …` 报 `Error: Hook timed out in 10000ms`（慢 runner 上的钩子超时）；第三次（`cd0f5dd`，运行 39294416094）**绿**。分支上只有 `docs/委派/交付/C3a.md` 一个文件，红的那次与本分支内容无关。这一条恰好是本单「套件本身有偶发」的实例，见下面已知缺口 6。本机在这一分支的树上跑 `node scripts/verify.mjs` 全绿（exit 0）。这份文档每改一次都会再触发一次 CI（内容只在文档里，结论同前）。
 
 ## 真机通过
 
