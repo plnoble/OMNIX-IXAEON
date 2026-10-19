@@ -4,7 +4,8 @@
  * 文件夹选择用主进程的 IXAEON_TEST_DIALOG_RESPONSES 测试钩子（只在环境变量存在时生效）。
  * 截图落到 apps/desktop/release/screenshots/。
  * 没有选用户真实的会话文件夹；会话内容全是合成的。
- *   node_modules/.bin/jiti scripts/real/s3b-agent-sessions-ui.mjs
+ *   node scripts/real/s3b-agent-sessions-ui.ts
+ *   （本机没有 node_modules/.bin/jiti 的话，用 `node node_modules/.pnpm/jiti@2.7.0/node_modules/jiti/lib/jiti-cli.mjs scripts/real/s3b-agent-sessions-ui.ts`）
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
