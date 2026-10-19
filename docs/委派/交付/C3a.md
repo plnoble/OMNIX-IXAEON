@@ -140,7 +140,7 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 - 本单不改门禁，跑它是为了量：`node scripts/verify.mjs` 连跑三次全绿（exit 0），用时 259.9s / 195.6s / 197.5s，日志在操作目录 `.logs/verify-c3a-{1,2,3}.log`。
 - 交付的只有这一份说明，没有源码改动：分支上 `git show --stat` 只有 `docs/委派/交付/C3a.md`。
 - 在 `C3a` 工作目录里（这一分支的树）又跑了一遍 `node scripts/verify.mjs`：**全绿，exit 0**（末尾「全部通过（IXAEON v0.2 验证完成）」），说明加这份说明不影响门禁。
-- GitHub 上的 verify：分支 `grok/C3a` 推上去之后**已跑绿**（Actions 运行 39284824503，`conclusion: success`）；本机这一分支的树也全绿。
+- GitHub 上的 verify：分支 `grok/C3a` 推上去之后跑过两次。第一次（`e4d0f3d`，运行 39284824503）**绿**；第二次（`32605eb`，只多了一行文档，运行 39291200008）**红**，红的是 `apps/desktop/test/review/recheck-20260907.test.ts > B04 …` 报 `Error: Hook timed out in 10000ms`（慢 runner 上的钩子超时，不是这份文档导致的——分支上只有 `docs/委派/交付/C3a.md` 一个文件）。这一条恰好是本单第 3 条「套件本身有偶发」的实例，见下面已知缺口 6。本机在这一分支的树上跑 `node scripts/verify.mjs` 全绿（exit 0）。
 
 ## 真机通过
 
@@ -167,6 +167,7 @@ ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/
 3. 每步用时的本机抖动很大（第一次 integration 65.2s，后两次 25.6s；第一次 acceptance 70.9s，后两次 62.6s）。中位数只能当参考；CI 上的数会比本机高（少了缓存、runner 慢）。
 4. 界面 4 步并成 1 步后，失败时只能从 vitest/playwright 报告定位是哪一个 spec，比现在一步一个 spec 难一点；`workers: 1` 必须保持。
 5. 这一单没量「并起来之后实际差多少」——上面的 174s 是按「进程启动开销 ≈1.2s/个、应用启动 ≈2s/个」估的（这两个数是从 `review-*` 步骤里只有 2-4 项的套件仍要 2.0-2.6s 反推的）。整合方要精确数，得先真的并一套量一次。
+6. **回归套件有偶发（这一单亲眼见到一次，但不是本次量的 3 遍里）**：`grok/C3a` 第二次推上去时，CI 上 `review-recheck`（本机 6.9s / 4.0s）里 `B04: near-budget responses must include truncation notice and chars_used digits without overflow` 报 `Error: Hook timed out in 10000ms`（该文件跑了 112.3s，vitest 的 10s 钩子上限被慢 runner 撞上），而同一份内容上一次 CI 是绿的、本机连跑 3 遍也全绿。意思：**「可并」的套件里有偶发红，并在一切之前要先把这类钩子超时治掉**（例如给这一条加单测级超时或把重活挪进测试体），否则并成一步之后一次偶发会带走一整步。这一单只量没改，改法留给整合方定。
 
 ## 用户接受
 
