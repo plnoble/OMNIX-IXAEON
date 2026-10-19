@@ -191,17 +191,31 @@ export {
   CodingOrchestrator,
   FakeCodingExecutor,
   CodexCliExecutor,
+  codexLocatorFrom,
   resolveCodexLocator,
   DEFAULT_NOTE_VERIFY,
   isPlaceholderVerifyCommand,
   runControlledVerifyCommand,
   defaultCheck,
   electronRunAsNodeEnv,
+  type CodexLocator,
   type CodingExecutor,
   type ExecutorReport,
   type ExecutorRunOptions,
   type IndependentCheck,
 } from './execution/executor.js';
+export {
+  checkSandboxAuth,
+  requestSandboxAuth,
+  findLatestCodex,
+  findLatestCodexSync,
+  parseCodexVersion,
+  sandboxHomeDir,
+  type CodexFound,
+  type SandboxAuthEnv,
+  type SandboxAuthError,
+  type SandboxAuthResult,
+} from './execution/verifySandbox.js';
 export { landTask, landingText, type LandingOutcome } from './execution/landing.js';
 export {
   locateHermes,

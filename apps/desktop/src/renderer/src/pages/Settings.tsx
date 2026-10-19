@@ -7,6 +7,7 @@ import {
   type RestorePreview,
   type SettingsView,
   type UpdateStatusView,
+  type VerifySandboxView,
 } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 import { MODEL_EXECUTOR_SENDS, executorLabel } from '@ixaeon/contracts';
@@ -340,6 +341,33 @@ function savedCodingOf(v: SettingsView | null): { executor: 'codex' | 'model'; m
   };
 }
 
+/** V4（契约 4）：依赖档验证那一块的状态那句话，四种状态逐字。 */
+function verifySandboxText(view: VerifySandboxView): string {
+  switch (view.status) {
+    case 'ok':
+      return `已授权（Codex ${view.codexVersion}）。带 npm 依赖的项目，验收测试在 Codex 的沙箱里跑：不能联网，只能写任务副本。`;
+    case 'unauthorized':
+      return `还没授权（Codex ${view.codexVersion}）。带 npm 依赖的项目，验收测试现在跑不了。授权一次就行；Codex 升级之后要再授权一次。`;
+    case 'codex_missing':
+      return '没找到 Codex 命令行，依赖档验证跑不了。';
+    default:
+      return '依赖档验证只在 Windows 上跑得了。';
+  }
+}
+
+/** V4（契约 4）：点「授权」之前那句确认（逐字；会装系统账户和服务，只由用户自己点）。 */
+const SANDBOX_AUTHORIZE_CONFIRM = [
+  '给 Codex 沙箱授权？',
+  '',
+  'Windows 会弹一次管理员确认。同意之后，Codex 会在这台机器上装好它的沙箱：两个专用的本机账户、一个 Windows 服务和几条防火墙规则（已经装过的不重装）。之后跑依赖档验证不用再问。',
+  '',
+  '只有点这个按钮才会弹；任务在后台跑的时候绝不弹。Codex 升级之后要再点一次。',
+].join('\n');
+
+const SANDBOX_AUTHORIZED_MESSAGE = '授权好了。';
+const SANDBOX_NOT_AUTHORIZED_MESSAGE =
+  '没授权成：可能是 Windows 的确认被取消了，也可能是 Codex 的沙箱没装好。可以再点一次。';
+
 export function SettingsPage() {
   const [view, setView] = useState<SettingsView | null>(null);
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
@@ -372,6 +400,10 @@ export function SettingsPage() {
     busy: boolean;
     result: string | null;
   }>({ busy: false, result: null });
+  // V4：依赖档验证（Codex 沙箱）——null = 还没查到（显示「正在查……」）
+  const [verifySandbox, setVerifySandbox] = useState<VerifySandboxView | null>(null);
+  const [sandboxAuthorizing, setSandboxAuthorizing] = useState(false);
+  const [sandboxMessage, setSandboxMessage] = useState<string | null>(null);
 
   const reload = useCallback(async (): Promise<SettingsView | null> => {
     try {
@@ -402,6 +434,35 @@ export function SettingsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // V4（条件 10）：打开设置页时查一次依赖档验证的授权状态，不定时刷新。
+  useEffect(() => {
+    void (async () => {
+      try {
+        setVerifySandbox(await api.getVerifySandbox());
+      } catch (err) {
+        setError(errMsg(err));
+      }
+    })();
+  }, []);
+
+  /** V4（条件 11）：点「授权」——先问一次（会装系统账户和服务），确认后发起并等结果。 */
+  const authorizeSandbox = async (): Promise<void> => {
+    if (!window.confirm(SANDBOX_AUTHORIZE_CONFIRM)) return;
+    setSandboxAuthorizing(true);
+    setSandboxMessage(null);
+    try {
+      const view = await api.authorizeVerifySandbox();
+      setVerifySandbox(view);
+      setSandboxMessage(
+        view.status === 'ok' ? SANDBOX_AUTHORIZED_MESSAGE : SANDBOX_NOT_AUTHORIZED_MESSAGE,
+      );
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setSandboxAuthorizing(false);
+    }
+  };
 
   // M2：勾选清单与下拉框的计算状态
   const savedSet = useMemo(() => new Set(view?.config.savedModels ?? []), [view]);
@@ -905,6 +966,32 @@ export function SettingsPage() {
             保存
           </Button>
         </div>
+      </Card>
+
+      <Card title="依赖档验证（Codex 沙箱）" testId="settings-verify-sandbox">
+        <p className="muted" data-testid="settings-verify-sandbox-status">
+          {verifySandbox ? verifySandboxText(verifySandbox) : '正在查……'}
+        </p>
+        {sandboxMessage && (
+          <p
+            className={sandboxMessage === SANDBOX_AUTHORIZED_MESSAGE ? 'note' : 'warn'}
+            data-testid="settings-verify-sandbox-message"
+          >
+            {sandboxMessage}
+          </p>
+        )}
+        {verifySandbox?.status === 'unauthorized' && (
+          <div className="wizard-nav">
+            <Button
+              kind="primary"
+              disabled={sandboxAuthorizing}
+              onClick={() => void authorizeSandbox()}
+              testId="settings-verify-sandbox-authorize"
+            >
+              {sandboxAuthorizing ? '授权中……（等 Windows 的确认）' : '授权'}
+            </Button>
+          </div>
+        )}
       </Card>
 
       <Card title="网页搜索（研究用）" testId="settings-websearch">

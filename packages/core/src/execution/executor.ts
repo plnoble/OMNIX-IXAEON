@@ -24,13 +24,27 @@ import { SkillCandidateStore } from '../runtime/skills.js';
 import {
   checkSandboxAuth,
   ensureSandboxProfileConfig,
-  locateCodexExecutable,
+  findLatestCodex,
+  findLatestCodexSync,
   SANDBOX_PROFILE,
   sandboxHomeDir,
+  type CodexFound,
+  type SandboxAuthError,
   type SandboxAuthResult,
 } from './verifySandbox.js';
 
 const PLACEHOLDER_VERIFY = ['node', '-e', 'process.exit(0)'];
+
+/**
+ * V4 契约 3.4：依赖档验证没跑成时给人看的话（逐字，别再写回英文代码）。
+ * 这几句会随回报进对话、再随对话历史发给模型。
+ */
+const SANDBOX_REASON_TEXT: Record<SandboxAuthError, string> = {
+  unauthorized:
+    '这台机器还没给 Codex 沙箱授权，依赖档验证跑不了：到设置页「依赖档验证」点「授权」。授权之后新派的任务才会跑这一档验证。',
+  codex_missing: '没找到 Codex 命令行，依赖档验证跑不了（这一档要用 Codex 的沙箱）。',
+  unsupported_platform: '依赖档验证只在 Windows 上跑得了。',
+};
 
 export function isPlaceholderVerifyCommand(argv: string[]): boolean {
   return (
@@ -230,22 +244,20 @@ export interface CodexLocator {
 
 const DEFAULT_CODEX_SANDBOX: CodexLocator['sandbox'] = 'workspace-write';
 
-/** 用户已确认的真机隔离默认：workspace-write + 隔离工作区 + 忽略用户更宽配置。 */
+/** V4：把「找到的是哪个 codex.exe」变成执行器要的定位结果（沙箱档固定）。 */
+export function codexLocatorFrom(found: CodexFound | null): CodexLocator | null {
+  return found ? { exe: found.exe, sandbox: DEFAULT_CODEX_SANDBOX } : null;
+}
+
+/**
+ * 用户已确认的真机隔离默认：workspace-write + 隔离工作区 + 忽略用户更宽配置。
+ * V4（契约 3.1）：和沙箱检查用同一套找法，取本机最新版。这个函数是同步的，
+ * 生产路径上由 `AppRuntime.create()` 在应用启动时用异步的 `findLatestCodex()`
+ * 找一次、记下结果；这里留给测试与脚本用。
+ */
 export function resolveCodexLocator(): CodexLocator | null {
   // IXAEON_CODEX_EXE=none：明确不用真 Codex，走执行器替身（真机检查用）
-  if (process.env.IXAEON_CODEX_EXE?.trim() === 'none') return null;
-  const fromEnv = process.env.IXAEON_CODEX_EXE?.trim();
-  const localApp = process.env.LOCALAPPDATA;
-  const candidates = [
-    fromEnv,
-    localApp ? join(localApp, 'OpenAI', 'Codex', 'bin', 'codex.exe') : '',
-    'codex',
-  ].filter((p): p is string => Boolean(p));
-  for (const exe of candidates) {
-    if (exe === 'codex') continue;
-    if (existsSync(exe)) return { exe, sandbox: DEFAULT_CODEX_SANDBOX };
-  }
-  return null;
+  return codexLocatorFrom(findLatestCodexSync());
 }
 
 /**
@@ -1436,7 +1448,7 @@ async function checkDependencyTier(
     return {
       argv: ['ixaeon:vitest', ...args],
       exitCode: null,
-      output: `依赖档沙箱检查未过：${auth.reason}，不派生，不算验证。`,
+      output: SANDBOX_REASON_TEXT[auth.reason],
       ran: false,
     };
   }
@@ -1470,9 +1482,10 @@ async function checkDependencyTier(
       ) => spawnSandboxProcess(cmd, sargs, opts));
     // 复审整改 1：授权检查通过后不再判 Codex 在不在（检查函数已经保证；替身派生
     // 不许被本机没有 Codex 卡住——CI 上没有 Codex，13 条替身测试因此挂过）。
-    // 真派生时拿默认安装位置的路径；起不来就按「派生出错」记。
+    // V4（契约 3.1）：真派生时用的 codex.exe 也要是最新版那个（和检查、授权同一套找法）；
+    // 一个都没有（授权是替身顶过的）就退回默认安装位置，起不来按「派生出错」记。
     const codexExe =
-      locateCodexExecutable() ??
+      (await findLatestCodex())?.exe ??
       join(process.env.LOCALAPPDATA || 'C:/nonexistent', 'OpenAI', 'Codex', 'bin', 'codex.exe');
     const codexArgs = [
       'sandbox',
