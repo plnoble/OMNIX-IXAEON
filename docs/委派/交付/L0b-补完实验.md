@@ -5,32 +5,32 @@
 - 版号：Codex **`0.163.0-alpha.10.2`**、Claude Code **`2.1.304`**、DSH **`0.2.1-rc.2`**
 - 提权：**只做了一次**（用户 2026-10-20 在对话里点了「好，可以提权」），`codex sandbox setup --elevated --current-user --codex-home <一次性目录>`
 
-**一句话结论：新版 Codex 的沙箱现在是**能用的**——装一次（一次 UAC）之后，同一个 CODEX_HOME 不带任何提权动作连跑 10/10 成功、不弹窗、中位 1.15s；但**每次调用都必须显式带 `windows.sandbox="elevated"`**，而且**换一个新的 CODEX_HOME 又要重新提权**（从后台会话发起的提权弹不出来，会以 `ShellExecuteExW … 1223` 失败）。DSH 那一列仍然调不动，原因找到了：**headless profile 里凭据插件是关着的**。**
+**一句话结论：新版 Codex 的沙箱现在是**能用的**——装一次（一次 UAC）之后，同一个 CODEX_HOME 不带任何提权动作连跑 10/10 成功、不弹窗、中位 1.15s；但**每次调用都必须显式带 `windows.sandbox="elevated"`**，而且**换一个新的 CODEX_HOME 又要重新提权**（从后台会话发起的提权弹不出来，会以 `ShellExecuteExW … 1223` 失败）。DSH 那一列仍然调不动，原因找到了：**headless profile 里凭据插件是关着的**。Claude 那一列补上了：**`--allowedTools` 只按工具放行、关不住目录**（给了 `Write` 就把文件写到了工作目录外面），**要关在目录里得用 `--restricted`**（实测同一件事被拒），后台跑还要加 `--permission-prompts none`。**
 
 ## 已实现（这一单做了什么）
 
-- 新增 5 个真机实验脚本（都在 `scripts/real/`，都能复现）：`l0b-codex-elevate.mjs`（提权那一步，**开头写明会弹一次管理员确认**；另有 `--after-setup` 只补观察、`--no-elevate` 只做只读观察）、`l0b-codex-sandbox-caps.mjs`（沙箱里外的能力探测）、`l0b-codex-default-home.mjs`（默认配置目录那一条）、`l0b-codex-resume.mjs`（按会话号续）、`l0b-dsh-probe.mjs`（DSH 那一列）。
+- 新增 6 个真机实验脚本（都在 `scripts/real/`，都能复现）：`l0b-codex-elevate.mjs`（提权那一步，**开头写明会弹一次管理员确认**；另有 `--after-setup` 只补观察、`--no-elevate` 只做只读观察）、`l0b-codex-sandbox-caps.mjs`（沙箱里外的能力探测）、`l0b-codex-default-home.mjs`（默认配置目录那一条）、`l0b-codex-resume.mjs`（按会话号续）、`l0b-dsh-probe.mjs`（DSH 那一列）、`l0b-claude-allowlist.mjs`（乙：白名单 / `--restricted`，`--probe` 逐个场景）。
 - 真的提权了一次（用户在对话里同意）：同一个 CODEX_HOME 装过之后，**免提权连跑 10/10 成功**；换一个新的 CODEX_HOME 又要装一次（后台会话里弹不出来，`ShellExecuteExW … 1223`）。
 - **没有改应用源码**；**没有改用户的 `~/.codex`**（丁-4 那一步是用默认配置目录跑一次 `codex exec`，只看没修）；没有跑 `codex sandbox uninstall`、没有装软件、没有登录。
 
 ## 结论表
 
-| 部分          | 问题                                        | 结论                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **甲** DSH    | 最小真调用能不能成                          | **不能**：起得来、能建会话、能吐 JSONL，但模型调用报 `MISSING_CREDENTIAL … provider route "deepseek-official"`（exit 1）。原因见下（凭据插件在 headless 里 `disabled: true`），不是 key 没配                                                                                                                                                                                         |
-| 甲            | 结果从哪个字段取                            | `{"type":"final","text":…}` 是最终回答；一轮的过程在 `status`（`turn_start`/`step_start`/`step_end`/`turn_end`）里；会话号在第一条 `{"type":"session","sessionId":"session-…"}` 里                                                                                                                                                                                                   |
-| 甲            | 能不能关在一个目录里                        | **设置上有**（`sandbox-policy`：`mode = process.env.DSH_PERMISSION_MODE ?? 'workspace-write'`、`workspaceRoot = process.cwd()`；预设 `read-only` / `workspace-write` / `danger-full-access`，审批 `ask`/`never`），**实测没有**（调不动，写文件那两步跑不出来）                                                                                                                      |
-| 甲            | 按会话号续 / 与 Claude 并发 / `~/.dsh` 变化 | 前两条没有数据；`~/.dsh` 每次都只动一个文件：`profiles/headless/cordis.yml`（223 字节，修改时间变）                                                                                                                                                                                                                                                                                  |
-| **乙** Claude | 白名单写文件                                | **没做**：Claude 的会话额度用完了（`api_error_status: 429`、`usage_limit_reached`、「resets 3:10am (Asia/Shanghai)」），到 3:10 之前任何 `claude -p` 都直接退 1。L0 的结论不变：不开权限就写不了                                                                                                                                                                                     |
-| **丙** Codex  | 按会话号续                                  | **通过**：第一次 `thread_id=01a159f8-4a1d-7f80-b3bf-d5982e401933` 让它记住合成的词 `zq7k`，`codex exec --json --skip-git-repo-check resume <thread_id> …` 第二次答出 `zq7k`（exit 0，两次分别 17.9s / 23.7s）                                                                                                                                                                        |
-| **丁** 提权   | 弹了几次、成没成、装了什么                  | **弹 1 次**（用户点「是」），`Windows elevated sandbox setup completed for <本机账户> at <CODEX_HOME>`，exit 0。机器上：服务 `CodexSandboxService.OpenAI.Codex` 仍是 RUNNING（没重建）、本地账户仍是 `CodexSandboxOffline`/`CodexSandboxOnline`（没新建）、**防火墙里带 Codex 的规则 33 → 34 条**；沙箱自己的日志显示它给离线沙箱用户配了 loopback/出入站封锁规则 + 12 条 WFP 过滤器 |
-| 丁            | **装一次之后还要不要每次提权**（最要紧）    | **不用**：同一个 CODEX_HOME 带提权设置连跑 **10/10 成功**、全程 **0 次超过 5 秒**（中位 1.15s、1.08–1.56s），没有任何提权动作。**但换一个新的 CODEX_HOME（home-B）第一次就失败**（`orchestrator_helper_launch_canceled: ShellExecuteExW failed to launch setup helper: 1223`，等了 122.86s）→ 提权是**每个 CODEX_HOME 一次**，不是整台机器一次                                       |
-| 丁            | 不带提权设置呢                              | **0/10 成功**：不带 `windows.sandbox="elevated"` 时每次都是 `Restricted read-only access requires the elevated Windows sandbox backend`（0.1–0.28s）→ 那个设置**不是「安装开关」，是每次调用都要带的**                                                                                                                                                                               |
-| 丁            | D2c 的问题 3（沙箱里跑 vitest）             | **能跑**，但要给它一个可写的临时目录：直接跑时 vite 在系统临时目录里 `mkdir` 被拒（`EPERM … mkdir '<本机>\LekV-…\ssr'`，合成用例 1 failed）；把 `TEMP`/`TMP` 指到副本里之后 **1 passed**                                                                                                                                                                                             |
-| 丁            | 问题 4（联网挡不挡得住）                    | **外网挡得住、本机端口挡不住**：连 `1.1.1.1:443` 被拒（`EACCES`）；连本机 `127.0.0.1:<随机端口>` **连上了**（详细见下面「已知缺口」第 6 条）                                                                                                                                                                                                                                         |
-| 丁            | 问题 5（往外写挡不挡得住）                  | **挡得住**：副本里写成了；往副本外写 `EPERM`；经目录链接（`copy/node_modules` → 真 `node_modules`）往真实依赖写也 `EPERM`，落盘取证两次都没有那个文件                                                                                                                                                                                                                                |
-| 丁            | 问题 8（开销）                              | 沙箱外整条命令 0.92s / 沙箱里 2.19s；固定 CPU 活（600 万次循环）沙箱里 8–9ms、外面 10ms → **CPU 本身没有可测出的额外开销**，差的是 `codex sandbox` 自己的启动（约 1.1s/次）                                                                                                                                                                                                          |
-| 丁-4          | 默认配置目录还报 `.sandbox-bin` 加锁失败吗  | **不报了**：`codex exec --json --skip-git-repo-check -s workspace-write "只回三个字母：OK"` 用**默认 `~/.codex`** 跑，exit 0、23.2s、答 `OK`，输出里没有任何 `.sandbox-bin` / `helper_sandbox_lock` 字样。只看没修                                                                                                                                                                   |
+| 部分          | 问题                                        | 结论                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **甲** DSH    | 最小真调用能不能成                          | **不能**：起得来、能建会话、能吐 JSONL，但模型调用报 `MISSING_CREDENTIAL … provider route "deepseek-official"`（exit 1）。原因见下（凭据插件在 headless 里 `disabled: true`），不是 key 没配                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 甲            | 结果从哪个字段取                            | `{"type":"final","text":…}` 是最终回答；一轮的过程在 `status`（`turn_start`/`step_start`/`step_end`/`turn_end`）里；会话号在第一条 `{"type":"session","sessionId":"session-…"}` 里                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 甲            | 能不能关在一个目录里                        | **设置上有**（`sandbox-policy`：`mode = process.env.DSH_PERMISSION_MODE ?? 'workspace-write'`、`workspaceRoot = process.cwd()`；预设 `read-only` / `workspace-write` / `danger-full-access`，审批 `ask`/`never`），**实测没有**（调不动，写文件那两步跑不出来）                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 甲            | 按会话号续 / 与 Claude 并发 / `~/.dsh` 变化 | 前两条没有数据；`~/.dsh` 每次都只动一个文件：`profiles/headless/cordis.yml`（223 字节，修改时间变）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **乙** Claude | 白名单写文件 / 关不关在一个目录里           | **`--allowedTools` 只按「工具」放行、不按目录围栏**：给了 `Write` 之后，它**真把文件写到了工作目录外面**（13s、exit 0、`被拒的工具：(没有被拒的)`、目录外的 `outside.txt` 2 bytes）。**要关在目录里得用 `--restricted`**（它「把文件工具关进工作目录、拒 bypassPermissions」）：同一个「往目录外写」在 `--restricted` 之下**被拒**（`被拒的工具：Write`，原话「…is outside …\work; `--restricted` confines the file tools to the work…」）。放行的那条固定命令能跑（`PowerShell(node --version)` → `v24.14.0`），没放行的命令被拒。**项目里的 `.claude/settings.json` 在没被信任的目录里会被忽略**（原话「this workspace has not been trusted…」）——后台跑别指望它。 |
+| **丙** Codex  | 按会话号续                                  | **通过**：第一次 `thread_id=01a159f8-4a1d-7f80-b3bf-d5982e401933` 让它记住合成的词 `zq7k`，`codex exec --json --skip-git-repo-check resume <thread_id> …` 第二次答出 `zq7k`（exit 0，两次分别 17.9s / 23.7s）                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **丁** 提权   | 弹了几次、成没成、装了什么                  | **弹 1 次**（用户点「是」），`Windows elevated sandbox setup completed for <本机账户> at <CODEX_HOME>`，exit 0。机器上：服务 `CodexSandboxService.OpenAI.Codex` 仍是 RUNNING（没重建）、本地账户仍是 `CodexSandboxOffline`/`CodexSandboxOnline`（没新建）、**防火墙里带 Codex 的规则 33 → 34 条**；沙箱自己的日志显示它给离线沙箱用户配了 loopback/出入站封锁规则 + 12 条 WFP 过滤器                                                                                                                                                                                                                                                                                 |
+| 丁            | **装一次之后还要不要每次提权**（最要紧）    | **不用**：同一个 CODEX_HOME 带提权设置连跑 **10/10 成功**、全程 **0 次超过 5 秒**（中位 1.15s、1.08–1.56s），没有任何提权动作。**但换一个新的 CODEX_HOME（home-B）第一次就失败**（`orchestrator_helper_launch_canceled: ShellExecuteExW failed to launch setup helper: 1223`，等了 122.86s）→ 提权是**每个 CODEX_HOME 一次**，不是整台机器一次                                                                                                                                                                                                                                                                                                                       |
+| 丁            | 不带提权设置呢                              | **0/10 成功**：不带 `windows.sandbox="elevated"` 时每次都是 `Restricted read-only access requires the elevated Windows sandbox backend`（0.1–0.28s）→ 那个设置**不是「安装开关」，是每次调用都要带的**                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 丁            | D2c 的问题 3（沙箱里跑 vitest）             | **能跑**，但要给它一个可写的临时目录：直接跑时 vite 在系统临时目录里 `mkdir` 被拒（`EPERM … mkdir '<本机>\LekV-…\ssr'`，合成用例 1 failed）；把 `TEMP`/`TMP` 指到副本里之后 **1 passed**                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 丁            | 问题 4（联网挡不挡得住）                    | **外网挡得住、本机端口挡不住**：连 `1.1.1.1:443` 被拒（`EACCES`）；连本机 `127.0.0.1:<随机端口>` **连上了**（详细见下面「已知缺口」第 6 条）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 丁            | 问题 5（往外写挡不挡得住）                  | **挡得住**：副本里写成了；往副本外写 `EPERM`；经目录链接（`copy/node_modules` → 真 `node_modules`）往真实依赖写也 `EPERM`，落盘取证两次都没有那个文件                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 丁            | 问题 8（开销）                              | 沙箱外整条命令 0.92s / 沙箱里 2.19s；固定 CPU 活（600 万次循环）沙箱里 8–9ms、外面 10ms → **CPU 本身没有可测出的额外开销**，差的是 `codex sandbox` 自己的启动（约 1.1s/次）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 丁-4          | 默认配置目录还报 `.sandbox-bin` 加锁失败吗  | **不报了**：`codex exec --json --skip-git-repo-check -s workspace-write "只回三个字母：OK"` 用**默认 `~/.codex`** 跑，exit 0、23.2s、答 `OK`，输出里没有任何 `.sandbox-bin` / `helper_sandbox_lock` 字样。只看没修                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## 最终的「后台调用配方」
 
@@ -71,10 +71,19 @@ sandbox = "elevated"        # 不带这一段就退回旧路，报 Restricted re
 ### Claude Code
 
 ```
-claude -p "<这一棒的交代>" --output-format json          # 续上一轮：再加 --resume <session_id>
+claude --restricted --tools PowerShell \
+  -p "<这一棒的交代>" --output-format json \
+  --allowedTools "Write Edit PowerShell(node --version) PowerShell(git status)" \
+  --permission-prompts none
+                                                       # 续上一轮：再加 --resume <session_id>
 ```
 
-写文件这一条**这次没能补**（额度），按 L0 的结论：`-p` 模式不给权限就写不了。L0b 想试的白名单（`--allowedTools` / `--permission-mode`）留给下一次。
+- **`--allowedTools` 只按「工具」放行，不按目录围栏**（实测：给了 `Write` 之后它真把文件写到了工作目录外面；见下面乙那一节）。
+- **要关在一个目录里，用 `--restricted`**：把文件工具关进工作目录（`--add-dir` 也算）、拒 `bypassPermissions`、默认去掉跑命令/跑代码的工具（`--tools` 点名才放）。
+- 跑命令的工具在 Windows 上叫 **`PowerShell`**（不是 `Bash`）：白名单要写 `PowerShell(<命令>)`；`--allowedTools` 的写法是空格或逗号分隔的 `工具名(模式)`。
+- `--permission-prompts none`：没人回答弹窗，要弹的一律自动拒（后台跑必须有这一条，不然会卡住）。
+- **别把项目里的 `.claude/settings.json` 当白名单**：没被信任的工作目录里它会被忽略（原话 `this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog`）；要用设置文件就用 `--settings <文件>`（显式给的仍然生效），或者全写在命令行上。三个 probe 里它**没有**改过那个文件（修改时间/大小没变）。
+- 已知行为：`--restricted` 之下模型有时会走 `Set-Content` 这类 shell 写法去建文件 → 被拒，而且它不一定自己改用 `Write`。所以白名单和交代里最好两条路都留（`Write Edit` + 需要的那几条 `PowerShell(...)`）。
 
 ### DSH
 
@@ -278,7 +287,65 @@ RESULT 通过：按会话号续的那次记得第一次给的那个词（zq7k）
 
 凭据文件在（`~/.dsh/.credentials.yaml`，只列了键名：`refs` 下有 `DEEPSEEK_API_KEY` 等 7 个名字、`records` 有三条），所以不是「用户没配」，是 headless 这条路根本没挂那个插件。
 
-### 乙：Claude（额度用尽的原样输出）
+### 乙：Claude 用白名单写文件（额度恢复之后的 6 次真调用）
+
+先说额度：3:10 重置之后第一次 `claude -p` 就通了（8.2s、`total_cost_usd` 0.101172）。
+六个 probe 的原样输出（都遮掉了临时目录与账户名）：
+
+```
+== probe=inside｜--allowedTools Write（命令行白名单）
+   exit=0｜用时 10.1s
+   stderr（截 200 字）：Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted. …
+   is_error=false｜terminal_reason=completed｜total_cost_usd=0.1106268
+   被拒的工具：(没有被拒的)
+   模型说的话：「已在当前目录新建 `inside.txt`，内容只有 `OK`，末尾没有换行。」
+   工作目录里：inside.txt (2 bytes)、note.txt (31 bytes)、settings.json (78 bytes)
+   目录外：(空)
+   <工作目录>/.claude/settings.json：1792523788583/62 → 1792523788583/62（它自己没改）
+
+== probe=outside｜--allowedTools Write 但目标是目录外；同时 --permission-prompts none
+   exit=0｜用时 13s
+   被拒的工具：(没有被拒的)
+   模型说的话：「我新建了 `…\ixa-l0b-claude-dbte9x\outside\outside.txt`，文件内容是 `OK`，末尾没有换行。」
+   工作目录里：note.txt (31 bytes)、settings.json (78 bytes)
+   目录外：outside.txt (2 bytes)          ← **目录外真的写成了**
+
+== probe=cmd-both｜白名单里只有 Bash(node --version)，让它跑 node --version 和 node -e "console.log(2)"
+   exit=0｜用时 13.2s
+   被拒的工具：PowerShell
+   模型说的话：「两条命令都没跑出结果：1. `node --version` 被权限系统拦下了，返回的原话是
+   `This PowerShell command contains multiple operations. The following part requires approval: node --version`…」
+   → 在 Windows 上跑命令的工具名是 PowerShell，写 `Bash(...)` 匹配不上
+
+== probe=restricted-outside｜--restricted + --allowedTools Write，目标仍是目录外
+   exit=0｜用时 10s
+   被拒的工具：Write
+   模型说的话：「没写成，文件没有被创建… 原因是这个会话开启了 `--restricted` 模式。在这个模式下，
+   读写文件的工具只能操作工作目录 `…\work` 里面的文件。你要写的 `…\outside\restricted.txt` 在工作目录外面，
+   所以写入被拒绝了。报错原文是：`…\outside\restricted.txt is outside …\work; --restricted confines the file tools to the work…`」
+   目录外：(空)                            ← **关住了**
+
+== probe=restricted-full｜--restricted + --tools PowerShell + 白名单（Write Edit PowerShell(node --version)）
+   让它一次做三件事：目录里建文件、跑 node --version、往目录外写
+   exit=0｜用时 12.6s
+   被拒的工具：PowerShell、PowerShell
+   模型说的话：「三件事里只有第 2 件成功了…1. 没成功：`Set-Content` 被安全策略拦了…
+   2. 成功：`node --version` 输出的是 `v24.14.0`。3. 没成功：写入 `…\outside\restricted2.txt` 也被拦了…」
+   工作目录里：note.txt (31 bytes)、settings.json (78 bytes)     ← 它没改用 Write，所以第 1 件也没成
+   目录外：(空)
+```
+
+三条结论：
+
+1. **`--allowedTools Write` 不等于「关在一个目录里」**：目录外照样写成了。按工具放行 ≠ 按目录围栏。
+2. **`--restricted` 才是那个围栏**：同一个「往目录外写」在它之下被拒（`被拒的工具：Write`，原话里点明 `--restricted confines the file tools to the work…`），并且它自己就拒绝 `bypassPermissions`。
+3. **拼在一起的配方**：`--restricted --tools PowerShell --allowedTools "Write Edit PowerShell(node --version)" --permission-prompts none` 之下，放行的固定命令跑成了（`v24.14.0`），没放行的命令被拒；代价是模型有时会拿 `Set-Content` 去写文件（被拒、且它不一定改用 `Write`），所以交代里要说清「用 Write/Edit 工具，不要用 shell 写文件」。
+
+另：**项目里的 `.claude/settings.json` 在没被信任的目录里会被忽略**（每个 probe 的 stderr 都有那句
+`Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted…`）。
+三个 probe 里 Claude **没有**改过那个文件（修改时间/大小前后一致）。
+
+正好 3:10 之前那两次调用（并发那一组 + 直接查额度）都是 429、没有花钱，原样输出留在这里：
 
 ```
 {"duration_api_ms":0,"stop_reason":"stop_sequence","session_id":"5ea9e82e-…","total_cost_usd":0,
@@ -286,8 +353,6 @@ RESULT 通过：按会话号续的那次记得第一次给的那个词（zq7k）
  "api_error_status":429,"api_error_origin":"first_party","api_error":"usage_limit_reached",
  "result":"You've hit your session limit · resets 3:10am (Asia/Shanghai)","type":"result"}
 ```
-
-并发的第四次调用（DSH 与 Claude 同时起）也是这个结果：DSH 因凭据退 1，Claude 因额度退 1。
 
 ## 自动化通过
 
@@ -298,25 +363,27 @@ RESULT 通过：按会话号续的那次记得第一次给的那个词（zq7k）
   - `l0b-codex-default-home.mjs`（默认配置目录那一条，1 次真调用）
   - `l0b-codex-resume.mjs`（丙，2 次真调用）
   - `l0b-dsh-probe.mjs`（甲，`--probe help|tiny|write-inside|write-outside|resume|concurrent`）
+  - `l0b-claude-allowlist.mjs`（乙，`--probe help|tiny|inside|outside|cmd-both|cmd-allowed|cmd-denied|settings-inside|project-settings-inside|restricted-outside|restricted-inside|restricted-full|prompts-none`）
 
 ## 真调用次数（规格上限：DSH/Claude 各 8、Codex 4）
 
-| 命令行 | 用了几次 | 说明                                                                 |
-| ------ | -------- | -------------------------------------------------------------------- |
-| Codex  | **3**    | 丁-4 默认目录 1 次 + 丙 2 次；`codex sandbox` 那些不调模型，不算     |
-| DSH    | **2**    | tiny 1 次 + 并发 1 次，两次都卡在 `MISSING_CREDENTIAL`，没有继续浪费 |
-| Claude | **2**    | 并发 1 次 + 查额度 1 次，两次都是 429、`total_cost_usd` 0，没有花钱  |
+| 命令行 | 用了几次                                                          | 说明                                                                                                                                                                                                                                            |
+| ------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex  | **3**                                                             | 丁-4 默认目录 1 次 + 丙 2 次；`codex sandbox` 那些不调模型，不算                                                                                                                                                                                |
+| DSH    | **2**                                                             | tiny 1 次 + 并发 1 次，两次都卡在 `MISSING_CREDENTIAL`，没有继续浪费                                                                                                                                                                            |
+| Claude | **8 次尝试**（其中 6 次真跑成、2 次是 3:10 之前的 429、没有花钱） | 乙那六个 probe（tiny / inside / outside / cmd-both / restricted-outside / restricted-full）+ 并发 1 次 + 直接查额度 1 次；六次成功调用的花费合计约 $0.61（`total_cost_usd` 0.101172 + 0.1106268 + 0.1126022 + 0.1176206 + 0.0701518 + 0.09954） |
 
 ## 已知缺口
 
-1. **乙整条没做**：Claude 会话额度用尽（429，3:10 重置）。`--allowedTools` / `--permission-mode` 的白名单没试过；「命令行上的白名单」还是「项目里的设置文件」哪个稳，没有答案。
-2. **甲只有设置层的答案，没有实测**：headless 调不动，所以「目录里建文件 / 往目录外建 / 按会话号续」三条都没有数据。要不要给 headless 挂凭据插件、或者用环境变量给 key，由用户/整合方定。
-3. **`~/.codex` 里的 5 项不认识的设置和重复 hooks**：只记录，没改（那是用户的配置）。
-4. **`.sandbox-bin` 现在有 33 个历史 helper**（最老 2026-04-18）：没清理，也没跑 `codex sandbox uninstall`（规格不许）。
-5. **提权的边界只验到「每个 CODEX_HOME 一次」**：没有试「一个 HOME 装过之后，另一台机器/另一个用户怎么样」，也没试把同一个 HOME 复制一份算不算装过。
-6. **本机端口连得上**：沙箱里连 `127.0.0.1:<本机监听端口>` 成功了，连外网 443 被拒。也就是说「连不出去」这条对**外网**成立，对**本机其它进程**不成立——如果哪一步是靠「沙箱里连不上本机服务」来保证的，要重新想。没有继续往深里挖（那要动应用的沙箱档位）。
-7. **丁-4 只证明启动阶段不报错**：那次 `codex exec` 只回了一句话、没有真的跑命令，所以「`.sandbox-bin` 加锁失败不报了」这句只在启动路径上成立，沙箱内执行没走。
-8. **一次提权是用户在对话里点的「好」**；用户没有在真机上「接受」这份交付（见下）。
+1. **乙只试了「命令行白名单 + `--restricted`」这一路**：设置文件那一路只测到「项目里的 `.claude/settings.json` 在没被信任的目录里会被忽略」，`--settings <文件>`（显式给文件）**没有单独跑过**；`--permission-mode` 的几个取值（`acceptEdits` / `dontAsk` / `manual` / `auto`）也没逐个试。窗口 `--restricted` 与 `--allowedTools` 的配合只有 restricted-full 那一次数据。
+2. **`--restricted` 之下「目录里建文件」这一条没有干净的成功样本**：那次它改用 `Set-Content` 被拒、也没重试 `Write`；`--allowedTools Write`（不带 restricted）之下目录里建文件是成的。**「关住了 + 目录里照常写」这个组合还没拿到一次干净证据**，写 L1 的实现时要在提示词里交代「用 Write/Edit 工具，不要用 shell 写文件」再验一次。
+3. **甲只有设置层的答案，没有实测**：headless 调不动，所以「目录里建文件 / 往目录外建 / 按会话号续」三条都没有数据。要不要给 headless 挂凭据插件、或者用环境变量给 key，由用户/整合方定。
+4. **`~/.codex` 里的 5 项不认识的设置和重复 hooks**：只记录，没改（那是用户的配置）。
+5. **`.sandbox-bin` 现在有 33 个历史 helper**（最老 2026-04-18）：没清理，也没跑 `codex sandbox uninstall`（规格不许）。
+6. **提权的边界只验到「每个 CODEX_HOME 一次」**：没有试「一个 HOME 装过之后，另一台机器/另一个用户怎么样」，也没试把同一个 HOME 复制一份算不算装过。
+7. **本机端口连得上**：沙箱里连 `127.0.0.1:<本机监听端口>` 成功了，连外网 443 被拒。也就是说「连不出去」这条对**外网**成立，对**本机其它进程**不成立——如果哪一步是靠「沙箱里连不上本机服务」来保证的，要重新想。没有继续往深里挖（那要动应用的沙箱档位）。
+8. **丁-4 只证明启动阶段不报错**：那次 `codex exec` 只回了一句话、没有真的跑命令，所以「`.sandbox-bin` 加锁失败不报了」这句只在启动路径上成立，沙箱内执行没走。
+9. **一次提权是用户在对话里点的「好」**；用户没有在真机上「接受」这份交付（见下）。
 
 ## 用户接受
 
