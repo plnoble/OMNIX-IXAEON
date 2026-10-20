@@ -8,7 +8,17 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+
+// Q2：集成测试不需要真 Electron。不 mock 的话，appRuntime 顶层的 require('electron')
+// 会在二进制没装好时同步下载两百多兆，下载慢或失败就是那条偶发失败；照同目录其它文件的惯例 mock 掉。
+vi.mock('electron', () => ({
+  app: {},
+  BrowserWindow: {},
+  dialog: {},
+  ipcMain: {},
+  safeStorage: {},
+}));
 import { HERMES_TUI_TOOLSETS, locateHermes, type HermesLocator } from '@ixaeon/core';
 import {
   bridgeBlockedReason,

@@ -7,7 +7,17 @@
  *
  * 断言的是顺序：模型被调用时，补向量必须已经结束。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// Q2：集成测试不需要真 Electron。不 mock 的话，appRuntime 顶层的 require('electron')
+// 会在二进制没装好时同步下载两百多兆，下载慢或失败就是那条偶发失败；照同目录其它文件的惯例 mock 掉。
+vi.mock('electron', () => ({
+  app: {},
+  BrowserWindow: {},
+  dialog: {},
+  ipcMain: {},
+  safeStorage: {},
+}));
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

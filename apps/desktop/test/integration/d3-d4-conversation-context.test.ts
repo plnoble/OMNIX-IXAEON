@@ -9,7 +9,17 @@
  * Hermes，不清会意外启动真引擎）。断言的是「历史轮次有没有真的进到交给模型
  * 的提示词里」——不是「有没有调用过某个函数」。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// Q2：集成测试不需要真 Electron。不 mock 的话，appRuntime 顶层的 require('electron')
+// 会在二进制没装好时同步下载两百多兆，下载慢或失败就是那条偶发失败；照同目录其它文件的惯例 mock 掉。
+vi.mock('electron', () => ({
+  app: {},
+  BrowserWindow: {},
+  dialog: {},
+  ipcMain: {},
+  safeStorage: {},
+}));
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
