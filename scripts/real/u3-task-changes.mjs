@@ -80,16 +80,24 @@ const fail = (why) => {
   passed = false;
 };
 try {
+  // 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell 与门禁都带），Electron 会当普通
+  // node 跑、主进程里 app 是 undefined、Playwright 报「Process failed to launch!」。
+  // 照 scripts/real/p8-delete-project.mjs 清掉。
+  const env = {
+    ...process.env,
+    IXAEON_DATA_DIR: dataDir,
+    IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+    IXAEON_EMBED_MODEL: 'none',
+    IXAEON_CODEX_EXE: 'none',
+    IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({
-    args: [join(desktopApp, 'out', 'main', 'index.js')],
-    env: {
-      ...process.env,
-      IXAEON_DATA_DIR: dataDir,
-      IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
-      IXAEON_EMBED_MODEL: 'none',
-      IXAEON_CODEX_EXE: 'none',
-      IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
-    },
+    args: [
+      join(desktopApp, 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
+    env,
   });
   const page = await app.firstWindow();
   await page.getByTestId('main-nav').waitFor({ timeout: 60_000 });
@@ -166,9 +174,26 @@ try {
   /** 卡片上真的渲染出来（不是只查 IPC）：按阶段断言清单、种类与着色行。 */
   const uiAssert = async (label, want) => {
     const box = page.getByTestId(`task-changes-${draft.id}`);
-    const text = await box.innerText();
-    const addCount = await page.locator('.diff-add').count();
-    const delCount = await page.locator('.diff-del').count();
+    // 着色行只在卡片里数（原来数全页，别处残留的 .diff-add/.diff-del 也会被算进去——见交付说明已知缺口 7）。
+    // 界面可能还是上一次渲染的结果（合并之后数据已经对了、DOM 还没跟上），所以按阶段等它收敛，最多 20 秒：
+    // 等不到再判失败。这不是放宽判定，是等它渲染完。
+    let text = '';
+    let addCount = 0;
+    let delCount = 0;
+    for (let i = 0; i < 40; i++) {
+      text = await box.innerText();
+      addCount = await box.locator('.diff-add').count();
+      delCount = await box.locator('.diff-del').count();
+      const settled =
+        want === 'modified'
+          ? text.includes('note.txt') && text.includes('修改') && addCount > 0 && delCount > 0
+          : text.includes('note.txt') &&
+            text.includes('没有变化') &&
+            addCount === 0 &&
+            delCount === 0;
+      if (settled) break;
+      await page.waitForTimeout(500);
+    }
     if (want === 'modified') {
       if (!text.includes('note.txt') || !text.includes('修改'))
         fail(`界面 [${label}] 没列出 note.txt 或种类「修改」`);

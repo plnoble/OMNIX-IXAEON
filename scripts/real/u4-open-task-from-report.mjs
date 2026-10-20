@@ -49,7 +49,12 @@ const env = {
   IXAEON_HERMES_HOME: '',
   HERMES_HOME: '',
   IXAEON_CODEX_EXE: 'none',
+  // 绑定文件夹走界面的「绑定文件夹」按钮，目录对话框用替身回话（P6 起要靠这个发读取授权）
+  IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
 };
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），Electron 会当普通
+// node 跑，主进程里 app 是 undefined、窗口起不来。照 scripts/real/p8-delete-project.mjs 清掉。
+delete env.ELECTRON_RUN_AS_NODE;
 
 let app = null;
 let result = '没通过：脚本没跑完';
@@ -58,7 +63,10 @@ const fail = (why) => {
 };
 
 try {
-  app = await electron.launch({ args: [join(desktopDir, 'out', 'main', 'index.js')], env });
+  app = await electron.launch({
+    args: [join(desktopDir, 'out', 'main', 'index.js'), `--user-data-dir=${join(work, 'profile')}`],
+    env,
+  });
   const page = await app.firstWindow();
   await page.getByTestId('setup-next-1').click();
   await page.getByTestId('setup-model-name').fill('fake-model');
@@ -66,13 +74,21 @@ try {
   await page.getByTestId('setup-project-name').fill('U4 合成项目');
   await page.getByTestId('setup-finish').click();
   await page.getByTestId('main-nav').waitFor({ timeout: 20_000 });
+
+  // P6 之后：项目得有文件夹的读取授权，编码任务才批准得了（批准时才查）。
+  // 照 p5/p7 的写法走界面的「绑定文件夹」，不直接改库设 root_path。
+  await page.getByTestId('nav-projects').click();
+  await page.waitForTimeout(500);
+  const projRow = page.locator('[data-testid^="project-row-"]').first();
+  const boundProjectId = (await projRow.getAttribute('data-testid')).replace('project-row-', '');
+  await page.getByTestId(`project-bind-folder-${boundProjectId}`).click();
+  await page.waitForTimeout(800);
   await app.close();
   app = null;
 
   const db = new Database(join(dataDir, 'ixaeon.db'));
   const now = new Date().toISOString();
   const project = db.prepare('SELECT id FROM projects LIMIT 1').get();
-  db.prepare('UPDATE projects SET root_path = ? WHERE id = ?').run(projectRoot, project.id);
   const conversationId = randomUUID();
   const userMessageId = randomUUID();
   const assistantMessageId = randomUUID();
@@ -142,7 +158,10 @@ try {
   );
   db.close();
 
-  app = await electron.launch({ args: [join(desktopDir, 'out', 'main', 'index.js')], env });
+  app = await electron.launch({
+    args: [join(desktopDir, 'out', 'main', 'index.js'), `--user-data-dir=${join(work, 'profile')}`],
+    env,
+  });
   const p2 = await app.firstWindow();
   await p2.getByTestId('main-nav').waitFor({ timeout: 20_000 });
   await p2.getByTestId('nav-ask').click();

@@ -17,6 +17,40 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+const maskOut = (v) => {
+  let text;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    // JSON.stringify 把反斜杠转义成双份：对象里的路径要照转义后的样子再遮一次
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn']) {
+  const orig = console[k].bind(console);
+  console[k] = (...a) => orig(...a.map(maskOut));
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
 const desktopApp = join(root, 'apps', 'desktop');
@@ -28,6 +62,30 @@ const dataDir = mkdtempSync(join(tmpdir(), 'ixa-a5-real-'));
 const scriptPath = join(dataDir, 'model-script.json');
 console.log('DATA_DIR', dataDir);
 
+/** 逐条对照，只有全都符合才写「通过」；出错非零（照 p5/p7 的规矩）。 */
+let passed = true;
+const fail = (why) => {
+  passed = false;
+  console.log('不符：', why);
+};
+
+const env = {
+  ...process.env,
+  IXAEON_DATA_DIR: dataDir,
+  // 照现在的规矩隔离：随机端口（不和用户开着的应用撞）、不载嵌入模型、不碰真 Codex / 真 Hermes
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
+  IXAEON_CODEX_EXE: 'none',
+  IXAEON_FAKE_MODEL: '1',
+  IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
+  HERMES_HOME: '',
+  IXAEON_HERMES_HOME: '',
+  IXAEON_HERMES_EXE: '',
+};
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），Electron 会当普通 node
+// 跑、主进程里 app 是 undefined、窗口起不来。照 scripts/real/p8-delete-project.mjs 清掉。
+delete env.ELECTRON_RUN_AS_NODE;
+
 function desktopDir() {
   if (existsSync(join(desktopApp, 'out', 'main', 'index.js'))) return desktopApp;
   throw new Error('找不到 out/main/index.js（请先 build）');
@@ -35,16 +93,11 @@ function desktopDir() {
 
 async function launch() {
   const app = await electron.launch({
-    args: [join(desktopDir(), 'out', 'main', 'index.js')],
-    env: {
-      ...process.env,
-      IXAEON_DATA_DIR: dataDir,
-      IXAEON_FAKE_MODEL: '1',
-      IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
-      HERMES_HOME: '',
-      IXAEON_HERMES_HOME: '',
-      IXAEON_HERMES_EXE: '',
-    },
+    args: [
+      join(desktopDir(), 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
+    env,
   });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
@@ -88,6 +141,8 @@ try {
   await page.locator('[data-testid="loading"]').waitFor({ state: 'detached', timeout: 30_000 });
   console.log('Q1_UI', '失败气泡可见，转圈已消失');
   const beforeSources = sourceCount();
+  if (beforeSources !== 0)
+    fail(`失败的那一问之后，库里多出了 ${beforeSources} 条问答存档来源（不该有）`);
   await app.close();
   app = null;
   console.log('Q1_SOURCES_BEFORE', beforeSources);
@@ -98,7 +153,10 @@ try {
     [join(root, 'scripts', 'real', 'last-ask-status.mjs'), dataDir, '3'],
     { encoding: 'utf8' },
   );
-  console.log(status.stdout.trim());
+  const statusText = status.stdout.trim();
+  console.log(statusText);
+  if (!statusText.includes('failed')) fail('库里那条助手消息不是 failed 状态');
+  if (!statusText.includes('有错误信息:是')) fail('库里那条助手消息没有错误信息');
 
   // ---- 第二问：假模型给正常回答 → 照常回答、照常存档
   writeFileSync(
@@ -118,7 +176,14 @@ try {
   console.log('Q2_UI', '正常回答已显示');
   await app.close();
   app = null;
-  console.log('Q2_SOURCES_AFTER', sourceCount());
+  const afterSources = sourceCount();
+  if (afterSources !== beforeSources + 1) {
+    fail(`正常那一问之后，问答存档来源从 ${beforeSources} 变成 ${afterSources}（期望 +1）`);
+  }
+  console.log('Q2_SOURCES_AFTER', afterSources);
+} catch (err) {
+  passed = false;
+  console.log('脚本出错：', err instanceof Error ? err.message : String(err));
 } finally {
   if (app) await app.close().catch(() => undefined);
   try {
@@ -127,3 +192,10 @@ try {
     /* Windows 句柄延迟 */
   }
 }
+console.log(
+  'RESULT',
+  passed
+    ? '通过：模型失败那一问记成 failed（有错误信息、不再转圈、不进问答存档）→ 下一问正常回答并存档（来源 +1）'
+    : '没通过：上面有不符或脚本出错的那条',
+);
+process.exit(passed ? 0 : 1);

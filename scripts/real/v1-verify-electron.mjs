@@ -14,17 +14,56 @@
 import { createRequire } from 'node:module';
 const desktopRequire = createRequire(new URL('../../apps/desktop/package.json', import.meta.url));
 const { _electron: electron } = desktopRequire('playwright');
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+// 出错时打印的 err.message 可能带绝对路径（ENOENT … open 'C:\Users\<账户名>\…'），所以也走遮罩。
+const maskOut = (v) => {
+  let text;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn']) {
+  const orig = console[k].bind(console);
+  console[k] = (...a) => orig(...a.map(maskOut));
+}
+
 const root = mkdtempSync(join(tmpdir(), 'ixaeon-v1-real-'));
 const dataDir = join(root, 'data');
 const fakeLocal = join(root, 'localappdata');
+const projectRoot = join(root, 'syn');
 mkdirSync(fakeLocal, { recursive: true });
+mkdirSync(projectRoot, { recursive: true });
+// 项目文件夹不能空：批准时要照它做快照（P4 起「项目目录为空不能冒充快照」）
+writeFileSync(join(projectRoot, 'note.txt'), '合成文件\n');
 
 let app = null;
+let passed = true;
 const cleanup = async () => {
   if (app) {
     try {
@@ -43,6 +82,8 @@ const cleanup = async () => {
 };
 
 try {
+  // 43191 是应用默认端口：它被占说明用户自己的 IXAEON 开着。规矩是「用户的应用开着就不启动测试应用」，
+  // 所以先探它、占了就放弃。我们自己的应用用另一个随机端口（见下面的 IXAEON_HTTP_PORT），不会和它撞。
   const occupied = await fetch('http://127.0.0.1:43191/api/health', {
     signal: AbortSignal.timeout(1000),
   }).then(
@@ -53,14 +94,29 @@ try {
     throw new Error('43191 被占（本机正在跑 IXAEON？），拒绝打扰，未检查。');
   }
 
+  const env = {
+    ...process.env,
+    IXAEON_DATA_DIR: dataDir,
+    // 照现在的规矩隔离：随机端口、不载嵌入模型、不碰真 Codex / 真 Hermes
+    IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+    IXAEON_EMBED_MODEL: 'none',
+    IXAEON_CODEX_EXE: 'none',
+    IXAEON_HERMES_EXE: '',
+    IXAEON_HERMES_HOME: '',
+    HERMES_HOME: '',
+    LOCALAPPDATA: fakeLocal, // 让 resolveCodexLocator 找不到真 Codex → Fake 执行器
+    IXAEON_FAKE_MODEL: '1',
+    // P6 之后批准编码任务要查项目文件夹的读取授权：绑定走界面的「绑定文件夹」按钮，
+    // 目录对话框用替身回话（不弹真对话框）
+    IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
+  };
+  // 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），Electron 会当普通
+  // node 跑、主进程里 app 是 undefined、窗口起不来。照 scripts/real/p8-delete-project.mjs 清掉。
+  delete env.ELECTRON_RUN_AS_NODE;
+
   app = await electron.launch({
     args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(root, 'profile')}`],
-    env: {
-      ...process.env,
-      IXAEON_DATA_DIR: dataDir,
-      LOCALAPPDATA: fakeLocal, // 让 resolveCodexLocator 找不到真 Codex → Fake 执行器
-      IXAEON_FAKE_MODEL: '1',
-    },
+    env,
   });
   const page = await app.firstWindow();
   // 主进程视角：真是 Electron 在跑，execPath 是 Electron 可执行文件
@@ -92,6 +148,13 @@ try {
     });
   const projects = await page.evaluate(() => window.ixaeon.listProjects());
   const projectId = projects[0].id;
+
+  // P6 起：项目要有文件夹的读取授权，编码任务才批准得了（批准时才查）。照 p5/p7 的写法
+  // 走界面的「绑定文件夹」，不直接改库设 root_path。
+  await page.getByTestId('nav-projects').click();
+  await page.waitForTimeout(500);
+  await page.getByTestId(`project-bind-folder-${projectId}`).click();
+  await page.waitForTimeout(800);
 
   const runOne = async (label, verifyArgv, expectPassed) => {
     const windowsBefore = await app.evaluate(
@@ -161,7 +224,10 @@ try {
       mainsAfter === mainsBefore &&
       logsAfter === logsBefore;
     console.log(`判定: ${ok ? 'PASS' : 'FAIL'}`);
-    if (!ok) process.exitCode = 1;
+    if (!ok) {
+      passed = false;
+      process.exitCode = 1;
+    }
   };
 
   // 通过例：DEFAULT_NOTE_VERIFY 同款（fake 执行器会写出 note.txt）
@@ -176,6 +242,16 @@ try {
   );
   // 失败例：命令本身非零退出 → 验证失败如实反映
   await runOne('验证失败例（退出码 7 → failed）', [mainExec, '-e', 'process.exit(7)'], false);
+} catch (err) {
+  passed = false;
+  console.log('脚本出错：', err instanceof Error ? err.message : String(err));
 } finally {
   await cleanup();
 }
+console.log(
+  'RESULT',
+  passed
+    ? '通过：两例都对（验证真的跑了、退出码如实、全程没多出窗口），执行器是 fake'
+    : '没通过：上面判定有 FAIL 或者脚本抛了错',
+);
+process.exit(passed ? 0 : 1);

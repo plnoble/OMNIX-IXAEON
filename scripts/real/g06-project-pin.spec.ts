@@ -7,7 +7,12 @@
  *   4. 再打开 A 的那个对话；
  *   5. 确认下拉框回到 A、不可选，旁边有「换项目请开新对话」。
  *
- *   node_modules/.bin/playwright test -c e2e/playwright.config.ts scripts/real/g06-project-pin.spec.ts
+ *   仓库根目录下：
+ *   node apps/desktop/node_modules/@playwright/test/cli.js test \
+ *     -c scripts/real/playwright.real.config.ts g06-project-pin.spec.ts
+ *   （原来的 `node_modules/.bin/playwright test -c e2e/playwright.config.ts` 已经跑不动：
+ *   仓库根没有 playwright、`e2e/` 那份配置挪进了 apps/desktop，且它的 testDir 收集不到
+ *   scripts/real —— 2026-10-19 Q1 体检发现，见 docs/委派/交付/Q1.md。）
  *
  * 全程合成数据、临时目录，不碰用户的数据目录；用户 app 占着 43191 端口时脚本先如实失败。
  *
@@ -28,6 +33,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），playwright 拉起的
+// Electron 会当普通 node 跑、主进程里 app 是 undefined、窗口起不来。照
+// scripts/real/p8-delete-project.mjs 在模块层清掉（launch 用的是 process.env 的拷贝）。
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 test('G06 复现：切到 B 后打开 A 的旧对话，下拉框回到 A 且锁定', async () => {
   const occupied = await fetch('http://127.0.0.1:43191/api/health', {
     signal: AbortSignal.timeout(1000),
@@ -37,9 +47,21 @@ test('G06 复现：切到 B 后打开 A 的旧对话，下拉框回到 A 且锁�
   );
   expect(occupied, '不要碰正在跑的服务').toBe(false);
   const dir = mkdtempSync(join(tmpdir(), 'ixa-g06-real-'));
+  // 照现在的规矩隔离：随机端口（43191 上面探过是「用户是不是开着应用」，自己跑用别的端口）、
+  // 不载嵌入模型、不碰真 Codex / 真 Hermes
   const app = await electron.launch({
     args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(dir, 'profile')}`],
-    env: { ...process.env, IXAEON_DATA_DIR: dir, IXAEON_FAKE_MODEL: '1' },
+    env: {
+      ...process.env,
+      IXAEON_DATA_DIR: dir,
+      IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+      IXAEON_EMBED_MODEL: 'none',
+      IXAEON_CODEX_EXE: 'none',
+      IXAEON_HERMES_EXE: '',
+      IXAEON_HERMES_HOME: '',
+      HERMES_HOME: '',
+      IXAEON_FAKE_MODEL: '1',
+    },
   });
   try {
     const page = await app.firstWindow();
@@ -100,7 +122,16 @@ test('G06 复现：切到 B 后打开 A 的旧对话，下拉框回到 A 且锁�
     await expect(page.getByTestId('ask-project-select')).toHaveValue(projectA);
     await expect(page.getByTestId('ask-project-select')).toBeDisabled();
     await expect(page.getByTestId('ask-project-locked')).toContainText('换项目请开新对话');
+    // 与 node 脚本一致：全对才打这一行（失败时下面的 afterEach 打「没通过」，退出码由 Playwright 给）
+    console.log('RESULT 通过：切到 B 后打开 A 的旧对话，下拉框回到 A 且锁定');
   } finally {
     await app.close();
+  }
+});
+
+// 用例失败时也留一行 RESULT（和 node 脚本的「出错也要有 RESULT 行、退出码非零」对齐）
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus) {
+    console.log(`RESULT 没通过：${testInfo.title} → ${testInfo.status}`);
   }
 });

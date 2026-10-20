@@ -11,7 +11,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const out = [];
@@ -30,7 +30,8 @@ log(`系统 node: ${process.execPath} @ ${process.version}`);
 log(
   `--experimental-strip-types 在本版 node：${process.allowedNodeEnvironmentFlags.has('--experimental-strip-types') ? '可识别' : '未知'}`,
 );
-const unpacked = 'D:/Agent/Project/OMNIX-IXAEON析衍/apps/desktop/release/win-unpacked/IXAEON.exe';
+// 打包后的 exe 位置：现算（不写死本机路径——公开仓库里写死会带出账户名/目录名）
+const unpacked = resolve('apps/desktop/release/win-unpacked/IXAEON.exe');
 if (existsSync(unpacked)) {
   // 打包应用的"node"= IXAEON.exe（Electron）。executor 的 isNode 检查
   // （exe === process.execPath）在打包环境会命中它——验证它能否当 node 用

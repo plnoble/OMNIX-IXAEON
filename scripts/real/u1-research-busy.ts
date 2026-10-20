@@ -10,6 +10,40 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+// 出错时打印的 err.message 可能带绝对路径（ENOENT … open 'C:\Users\<账户名>\…'），所以也走遮罩。
+const maskOut = (v: unknown): string => {
+  let text: string;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn'] as const) {
+  const orig = console[k].bind(console);
+  console[k] = (...a: unknown[]) => orig(...a.map(maskOut));
+}
+
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const desktopDir = join(root, 'apps', 'desktop');
@@ -25,19 +59,37 @@ const dataDir = mkdtempSync(join(tmpdir(), 'ixaeon-u1-real-'));
 const scriptPath = join(dataDir, 'model-script.json');
 writeFileSync(scriptPath, JSON.stringify({ structured: [] }), 'utf8');
 
+/** 逐条对照，只有全都符合才写「通过」；出错非零（照 p5/p7 的规矩）。 */
+let passed = true;
+let samplesSeen = 0;
+const fail = (why: string) => {
+  passed = false;
+  console.log('不符：', why);
+};
+
 const env = {
   ...process.env,
   IXAEON_DATA_DIR: dataDir,
+  // 照现在的规矩隔离：随机端口、不载嵌入模型、不碰真 Codex / 真 Hermes
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
+  IXAEON_CODEX_EXE: 'none',
   IXAEON_FAKE_MODEL: '1',
   IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
   IXAEON_HERMES_EXE: '',
   IXAEON_HERMES_HOME: '',
   HERMES_HOME: '',
 };
+// 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell / 门禁都带），Electron 会当普通 node
+// 跑、主进程里 app 是 undefined、窗口起不来。照 scripts/real/p8-delete-project.mjs 清掉。
+delete env.ELECTRON_RUN_AS_NODE;
 
 async function launch() {
   const app = await electron.launch({
-    args: [join(desktopDir, 'out', 'main', 'index.js')],
+    args: [
+      join(desktopDir, 'out', 'main', 'index.js'),
+      `--user-data-dir=${join(dataDir, 'profile')}`,
+    ],
     env,
   });
   const page = await app.firstWindow();
@@ -46,6 +98,9 @@ async function launch() {
 }
 
 const run = await launch();
+// 采样循环的句柄放在外面：失败路径在 finally 里要能停掉它、并等它收尾，再关应用
+let samplingStopped = false;
+let sampling: Promise<void> | undefined;
 try {
   await run.page.getByTestId('setup-next-1').click();
   await run.page.getByTestId('setup-model-name').fill('fake-model');
@@ -69,29 +124,57 @@ try {
   await run.page.getByTestId('research-question').fill('另一个关注');
   const createBtn = run.page.getByTestId('research-create');
   const createBefore = await createBtn.isDisabled();
+  if (createBefore) fail('新建表单的创建按钮一开始就是禁用的');
   console.log('CREATE_BEFORE', createBefore);
 
   const samples: boolean[] = [];
   const notice = run.page.getByTestId(`research-run-notice-${topicId}`);
-  const sampling = (async () => {
-    while ((await notice.count()) === 0) {
+  // 采样循环要有上限、也要能停：提示一直不出现时不能永远转（一轮 20ms、最多 1500 轮 = 30 秒），
+  // 失败路径由外层 waitFor 收尾；应用关掉之后不再碰页面，避免后台采样抛未处理的 Promise 拒绝。
+  sampling = (async () => {
+    for (let i = 0; i < 1500 && !samplingStopped; i++) {
+      if ((await notice.count()) > 0) return;
       samples.push(await createBtn.isDisabled());
       await run.page.waitForTimeout(20);
     }
-  })();
+  })().catch((err: unknown) => {
+    // 采样本身出错不该把整个脚本带走（真正的结论由下面的断言给）
+    console.log('采样出错：', err instanceof Error ? err.message : String(err));
+  });
   await run.page.getByTestId(`research-check-${topicId}`).click();
   await notice.waitFor({ timeout: 30_000 });
+  samplingStopped = true;
   await sampling;
   console.log('CREATE_DISABLED_SAMPLES', samples.length, samples.some(Boolean));
+  samplesSeen = samples.length;
+  const createStayedEnabled = !samples.some(Boolean);
+  if (samples.length === 0) fail('采样一次都没取到（提示出现的比采样还快？）');
+  if (!createStayedEnabled) fail('检查期间新建表单的创建按钮被禁用了（头注释说不该禁用）');
+  const noticeText = (await notice.innerText()).trim();
+  if (noticeText.length === 0) fail('这个主题上的失败提示是空的');
   console.log('NOTICE');
-  console.log(await notice.innerText());
+  console.log(noticeText);
   const createAfter = await createBtn.isDisabled();
+  if (createAfter) fail('检查结束之后创建按钮还是禁用');
   console.log('CREATE_AFTER', createAfter);
   const bannerCount = await run.page.getByTestId('error-banner').count();
+  if (bannerCount !== 0) fail(`报错条出现了 ${bannerCount} 条（头注释说失败提示只挂在这个主题上）`);
   console.log('BANNER_COUNT', bannerCount);
   await run.page.screenshot({ path: join(shotDir, 'u1-research-busy.png'), fullPage: true });
+} catch (err) {
+  passed = false;
+  console.log('脚本出错：', err instanceof Error ? err.message : String(err));
 } finally {
+  // 先停采样、等它收尾，再关应用（否则后台采样会在应用关掉之后碰页面，抛未处理的拒绝、绕过 RESULT）
+  samplingStopped = true;
+  if (sampling) await sampling;
   await run.app.close();
   rmSync(dataDir, { recursive: true, force: true });
 }
-console.log('done');
+console.log(
+  'RESULT',
+  passed
+    ? `通过：没来源没配搜索的主题点「立即检查」立刻给出失败提示（挂在这条主题上、${samplesSeen} 次采样里创建按钮全程可点、没有报错条）`
+    : '没通过：上面有不符或脚本出错的那条',
+);
+process.exit(passed ? 0 : 1);
