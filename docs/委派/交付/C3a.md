@@ -66,9 +66,9 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 
 分类口径照规格：**保留**（没有别的测试管着、管的东西还重要）/ **可以并进**某处 / **可以删**（写清依据）。
 
-「锁定验收里最近的一条」这一列是照规格第 3 步查的：`docs/委派/锁定验收.json` 里 52 个已完成任务、每条登记了锁定测试文件，逐个套件去找**管得最近的那一条**。查到的情况一句话：**没有一条是「覆盖」关系**——锁定的都是「这个功能该有的行为」（正例），这 23 步里绝大多数是「这个坏情况不该发生」（反例），所以下面每行写的是「最近的一条」，不是「同一条」。
+「按主题最接近的锁定验收用例」这一列是照规格第 3 步查的：`docs/委派/锁定验收.json` 里 52 个已完成任务、每条登记了锁定测试文件，逐个套件去找**主题上最近的那一条**。查到的情况一句话：**没有一条找到了「覆盖」证据**——锁定里多数是「这个功能该有的行为」（正例），这 23 步里绝大多数是「这个坏情况不该发生」（反例）；所以下面每行写的是「主题上最接近」，**不是「覆盖」，也不是「同一条断言」**（第 1、2 轮审查都提醒过这个区别，界限见本节末尾「可以删」那一段）。
 
-| # | 门禁步骤 | 测试文件（`apps/desktop/test/review/`） | 测了什么（一句话） | 锁定验收里最近的一条 | 分类与理由 |
+| # | 门禁步骤 | 测试文件（`apps/desktop/test/review/`） | 测了什么（一句话） | 按主题最接近的锁定验收用例（不是覆盖证明） | 分类与理由 |
 | --- | --- | --- | --- | --- | --- |
 | 10 | review | `review-20260905.test.ts`（11 项，R1-R8b） | 恢复/回滚的原子性：恢复失败不重建、回滚不丢待分析、撤销期间不提炼、证据引用不泄漏、角色保留、尾随自动分析、对话合并 | R1「恢复失败后重建聊天」`apps/desktop/test/acceptance/r1-rebuild-conversations-semantic.test.ts`、G01「会话重建后补历史」`packages/core/test/acceptance/g01-session-rebuild.test.ts`（都是正例：重建该怎么做；这套管的是「失败时不许重建、回滚不许丢东西」） | 可以并进「早期审核反例」：与 11/12/13/24/25/26/27/28 同一批服务（ItemService/PermissionService/Vault/SourceStore）的相邻反例，一次 vitest 启动就能全跑 |
 | 11 | review-round3 | `identity-round3.test.ts`（2 项）、`lifecycle-round3.test.ts`（11 项，N1-N6） | 草稿/正式会话身份不被混同；暂停/恢复/回滚/8000 字拆分 | G01、G06「对话的项目固定」`apps/desktop/test/acceptance/g06-conversation-project.test.ts` | 可以并进「早期审核反例」：同上；`identity-round3` 只有 2 项，单独一个进程不划算 |
@@ -76,7 +76,7 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 | 13 | review-v02 | `v02-acceptance-20260906.test.ts`（15 项，G1-G8） | 队列取消、孤儿任务、内容修订号、v1 库升级不得标成已分析、纠正不得复活、矛盾不得被丢、来源移动/换项目、待复核、幂等键跨项目 | A1「分析失败耐心重试」`packages/core/test/acceptance/a1-patient-retry.test.ts`、A2「迁移前自动备份」`…/a2-backup-before-migrate.test.ts`、X1、N2 | 可以并进「早期审核反例」：同上 |
 | 14 | review-restructure | `restructure-20260913.test.ts`（15 项，A01-A05/A07-A09） | 工具边界 H01-H05（越界写、exit-0 冒充验证、漏跑第二条命令）、记忆边界 M01/M03、验证范围 E01-E03 | D7「只发批准范围内的文件、只改批准范围内的」`packages/core/test/acceptance/d7-model-executor.test.ts`、V3「零依赖档跑的程序连不出去」`…/v3-verify-no-network.test.ts`、D2「独立验证按档位进沙箱」`…/d2-*.test.ts`（正例都在；「越界写能不能得逞」「exit-0 能不能冒充验证」只有这套和 23 在管） | 保留（并进「边界与方向」也可以）：这套管**授权边界**，别处没有等价反例 |
 | 15 | review-bbe651f | `review-bbe651f-20260915.test.ts`（14 项，Q01-Q07） | 搜索/TinyFish 契约、技能证据门槛、看门狗、分数与来源 | G07「搜索预算按天恢复」`…/g07-daily-budget.test.ts` 等 3 份、W1a「关注方向」、P3「项目进展简报」 | 保留：外部契约类反例，锁定里没有对应条目 |
-| 16 | review-p0-f71da15 | `review-p0-boundaries-20260916.test.ts`（12 项）、`review-f71da15-20260916.test.ts`（7 项） | P0 可信基础边界 + MCP/搜索权限 + F02-F06 | P0 是阶段不是任务号，`锁定验收.json` 里没有 P0 条目；最近的是它之后的任务 X1、U6、V1 | 可以并进（两文件并成一步）：两个 config 各起一个 vitest 进程，两文件测同一批边界 |
+| 16 | review-p0-f71da15 | `review-p0-boundaries-20260916.test.ts`（12 项）、`review-f71da15-20260916.test.ts`（7 项） | P0 可信基础边界 + MCP/搜索权限 + F02-F06 | P0 是阶段不是任务号，`锁定验收.json` 里没有 P0 条目；最近的是它之后的任务 X1、U6、V1 | **保留现状**：它本来就是「一个 config、`include` 两行、一步跑完」（`vitest.review-p0-f71da15-20260929.config.ts`），没有进程可省；第 1 轮我误写成「两个 config 各起一个进程、建议并成一步」，第 2 轮审查指出前后矛盾，已更正 |
 | 17 | review-p1-action-loop | `review-p1-action-loop-20260916.test.ts`（4 项） | 目标驱动桌面办事闭环 + 真实产物独立断言 | P1 也是阶段；最近的锁定条目 T3「待办页」`apps/desktop/test/acceptance/t3-todos-ipc.test.ts`、D1「编码任务草案」 | 可以并进「P1-P3 阶段验收」：4 项一个进程不划算 |
 | 18 | review-p1-memory-projects | `review-p1-memory-projects-20260916.test.ts`（7 项） | 自动分寸记忆 + 三个项目统筹 | A1、G02「项目简报尊重授权撤销」`…/g02-brief-authorization.test.ts` | 可以并进「P1-P3 阶段验收」：同上 |
 | 19 | review-p1-research-skills | `review-p1-research-skills-20260916.test.ts`（5 项） | 主动研究去重 + 方法复用 | W1a「关注方向」`apps/desktop/test/acceptance/w1a-suggest-topics.test.ts`、G07 | 可以并进「P1-P3 阶段验收」：同上 |
@@ -98,21 +98,42 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 
 `锁定验收.json` 只登记锁定测试，不登记功能。我核到的层次是**「源码还在、符号还导出、套件还跑得绿」**，**不是**「行为没被改过」——第 2 轮审查指出这一层不够证明功能仍在被用，这个批评成立，下面把能做到的和没做到的分开写：
 
-做了的（都在 `C3a` 工作目录里跑过；脚本放 `.logs/check-sources.mjs`，不提交）：
+做了的（都在 `C3a` 工作目录里跑过；脚本放 `.logs/`，不提交）：
 
 - 30 个回归测试文件里的**相对源码引用全部 resolve 到现存的源文件**（0 处找不到；`.js` 后缀按 NodeNext 写法换回 `.ts` 再找）；
 - 这些文件从 `@ixaeon/core` 引的符号（ItemService、PermissionService、Vault、Extractor、McpService、MIGRATIONS、currentMigrationVersion、saveConfig、sha256 等）**现在都还能在 `packages/core/src` 里找到导出**；
 - 30 个文件对应的 23 个门禁步骤在这三次跑里**全是绿的**；
-- **删功能的提交只有一条**：`git log --diff-filter=D -- packages/core/src apps/desktop/src` 从 9 月起只有 `eba073f`（「删除 ModelPool/RoleCoordinator，Door 降级为设计稿」）。我拿这三个名字搜过 23 个回归套件（`apps/desktop/test/review/*.test.ts`），**一处都没有提到**——所以这次删功能没有让任何回归套件失去对象。
+- **逐套把「被测的源码模块」列出来，并核了每个模块「生产代码里还被引用几次」「9 月以来改过几次提交」**（第 2 轮审查要求逐套，脚本 `.logs/audit-modules.mjs`）：
 
-**没做的**（整合方要就得再排一单）：没有逐条比对「测试断言的行为」和「现在产品的行为」；没有读每个套件覆盖的界面/接口在当前版本里是否还被入口引用（例如某页被砍掉、套件还在测它）。这两件事都得逐套读断言 + 追调用链，规模比这一单大得多。
+  | 套件 | 被测源码模块（生产代码引用次数 / 9 月以来改动提交数） |
+  | --- | --- |
+  | `continuity-round4`、`lifecycle-round3` | `apps/desktop/src/main/appRuntime.ts`（3/114）、`…/server/localServer.ts`（1/21） |
+  | `direction-quality-20260911` | `packages/core/src/index.ts`（0/64，只看导出面）、`…/research/parse.ts`（2/2）、`…/research/fetchApproved.ts`（3/4） |
+  | `direction-recheck-20260914` | `packages/core/src/index.ts`（0/64） |
+  | `direction-round2-93ecaed` | `apps/desktop/src/main/ipc.ts`（2/67）、`appRuntime.ts`（3/114）、`packages/core/src/index.ts`（0/64）、`packages/core/src/access.ts`（12/9） |
+  | `project-audit-20260906`、`recheck-20260907`、`v02-acceptance-20260906`、`review-20260905` | `appRuntime.ts`（3/114）、`ipc.ts`（2/67）等 |
+  | `restructure-20260913` | `packages/core/src/memory/evalScenarios.ts`（1/5）、`index.ts`（0/64） |
+  | `review-bbe651f-20260915` | `ipc.ts`（2/67）、`appRuntime.ts`（3/114）、`index.ts`（0/64） |
+  | `review-p0-boundaries`、`review-f71da15` | `packages/contracts/src/index.ts`（0/1）、`packages/core/src/index.ts`（0/64）、`appRuntime.ts`（3/114）、`ipc.ts`（2/67）、`localServer.ts`（1/21） |
+  | `review-p1-action-loop`、`review-p1-memory`、`review-p1-research`、`review-p2`、`review-p3-*` | 只 `from '@ixaeon/core'` 拿公开导出（0/64）+ 契约（0/1），不直接碰实现文件 |
+  | 9 个界面/迁移/身份类套件（`*-ui`、`sources`、`wizard`、`f01-migration`、`identity-round3`、`needs-lifecycle`、`review-recheck-round2`、`closure-b8f216b`） | 没有相对源码引用（走 IPC/公开导出或纯界面），所以「模块还在不在」对它们不适用 |
+
+- **删功能的提交只有一条**：`git log --diff-filter=D -- packages/core/src apps/desktop/src` 从 9 月起只有 `eba073f`（「删除 ModelPool/RoleCoordinator，Door 降级为设计稿」）。拿这三个名字搜 23 个回归套件，**一处都没提到**。
+
+**没做的**（整合方要就得再排一单）：
+
+- 第 2 轮审查说得对：`git log --diff-filter=D` 只看得见**文件级删除**，看不见「文件还在、里面的功能被删/被改」。上表的「引用次数/改动提交数」只能说明模块还在被引用、且这段时间一直在改，**不能证明某条套件测的行为没变**；
+- 没有读每个套件的断言去比对当前行为，也没有追界面入口（某个 testid 是否还在渲染）。
 
 ### 「可以删」：这一单没有给出任何一条
 
 规格要求「可以删」的每一条都写出能核对的依据（被哪个锁定测试文件的哪一条覆盖，或功能在哪次提交里删掉了）。逐条查下来**一条都不满足**，理由：
 
 - 这 23 个回归步骤几乎全是**反例/边界**（「这个坏情况不该发生」），而锁定验收里多数是**功能正向验收**（「做了这个功能，行为应该这样」）。两者不是同一件事：把反例删掉，正向验收不会替它拦住回归。
-  **更正（第 2 轮审查指出）**：我原来写「锁定验收都是正例，所以没有覆盖关系」——**这个推论不成立**。AGENTS.md 自己就举了 W1a 的负向验收（「不发未采纳的 AI 建议」）。所以准确的写法是：**我没有做逐条断言的比对**，只能说「按标题与用例名粗看，没有一条回归套件和某条锁定验收讲同一件事」；「锁定验收里有没有某条负向用例正好接得住这套反例」**没核**，不能拿来做「可以删」的依据。
+  **更正（第 1、2 轮审查都指出）**：我原来写「锁定验收都是正例，所以没有覆盖关系」——**这个推论不成立**（AGENTS.md 自己就举了 W1a 的负向验收）。这一单**没有做断言级比对**；我做过的只有两条粗查：
+  1. 上表每行「锁定验收里最近的一条」是按**主题**挑的最接近的用例（不是覆盖证明，列名已改成「按主题最接近的」）；
+  2. 拿 678 条锁定验收用例的标题和 23 个套件的用例标题做 **2 字切片相似度**（中文没法按空格切词），阈值「共享 ≥6 个切片」时**只有 1 对候选**（`review-p1-memory-projects` × `a3-bridge-origin-tag.test.ts`，相似度 8，讲的是「用户采纳/系统推断」这类措辞，不是同一条断言）。
+  所以准确的说法是：**「没有发现标题级的重复」，不等于「没有覆盖关系」**；「锁定验收里有没有某条负向用例正好接得住这套反例」确实没核，不能当「可以删」的依据。
 - 唯一一类可能重叠的是「同一坏情况的相邻反例」——那些是**套件之间**重复，处理办法是并（上面已逐条写），不是删。
 - 功能被删掉的套件：一个都没有（见上一节：唯一一条删功能的提交 `eba073f` 删的 ModelPool/RoleCoordinator/Door，23 个套件一处都没提到）。
 
@@ -134,36 +155,38 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 | 方案 | 回归步骤 | 门禁总步数 | 说明 |
 | --- | --- | --- | --- |
 | 现在 | 23 | **32** | 9 个非回归 + 23 个回归 |
-| 本单建议（保留 3 各自单列 + 4 个合并组） | 3 + 4 = 7 | **16** | 保留：`review-restructure`、`review-bbe651f`、`review-direction-merged`；合并组：早期审核反例（9 套→1）、`review-p0-f71da15`（两文件→1）、P1-P3 阶段验收（6 套→1）、界面回归（4 套→1） |
-| 再把「边界与方向」（`review-restructure` + `review-bbe651f`）并成一步 | 2 + 4 = 6 | **15** | 两套都在测授权/工具边界，可并 |
+| **本单建议**（保留 4 步各自单列 + 3 个合并组） | 4 + 3 = **7** | **16** | 保留：`review-restructure`、`review-bbe651f`、`review-direction-merged`、`review-p0-f71da15`（它本来就是一步）；合并组：早期审核反例（9 套→1）、P1-P3 阶段验收（6 套→1）、界面回归（4 步 / 5 个 spec→1） |
+| 再把「边界与方向」（`review-restructure` + `review-bbe651f`）并成一步 | 6 | **15** | 两套都在测授权/工具边界，可并 |
 | 再把 P0 那一步并进「边界与方向」 | 5 | **14** | |
 | 再把「界面回归」并进「边界与方向」 | 4 | **13** | 不推荐：界面套件要起 Electron，和纯逻辑混在一起失败时不好定位 |
 
-（原来写的「12 步」是算错了——漏了保留的 `review-bbe651f` 没计入分母，也没算「边界与方向」是两套保留；按上表，**本单建议是 16 步**，再并两次才到 13。）
+（原来写的「12 步」是算错了——漏了 `review-bbe651f` 和 `review-p0-f71da15` 都还在分母里；按上表，**本单建议是 16 步**，再并两次才到 14 / 13。）
 
-时间（都按三次的中位数，`114.9` 是非回归 9 步、`55.2` 是 19 个 vitest 回归步、`28.6` 是 4 个界面步）：
+时间（都按三次的中位数，`114.9` 是非回归 9 步、`55.2` 是 19 个 vitest 回归步、`28.6` 是 4 个界面步；下面这些「套件耗时」**都已包含各自的进程启动开销**，所以合并时只减去省下来的那几次启动，别重复加）：
 
-- 早期审核反例 9 套：现在 `3.0+4.0+2.6+2.8+2.8+3.6+3.1+2.1+2.2 = 26.2s` 的活 + 9 个进程开销（约 `9×1.2 ≈ 10.8s`）→ 并成 1 个约 `27.4s`，省约 **9.6s**；
-- P1-P3 6 套：`13.5s` 的活 + `6×1.2 ≈ 7.2s` → 约 `14.7s`，省约 **6.0s**；
-- 界面 4 套：`28.6s` 里 3 次多余的启动（约 `3×2s`）→ 约 `22.6s`，省约 **6.0s**；
-- `review-p0-f71da15` 本来就是两个文件一个进程，并成一步**不省时间**。
+- 早期审核反例 9 套：合计 `26.2s`（已含 9 次启动）→ 并成 1 个后 `26.2 − 8×1.2 ≈ 16.6s`，省约 **9.6s**；
+- P1-P3 6 套：合计 `13.5s`（已含 6 次启动）→ `13.5 − 5×1.2 ≈ 7.5s`，省约 **6.0s**；
+- 界面 4 步：合计 `28.6s`（每个 spec 自己 `launch/close`，应用启动省不掉）→ 只省 3 次 runner 启动 ≈ **3.6s**（不是原来写的 6.0s）；
+- `review-p0-f71da15`：本来就是一步，**不省**。
 
-合计省约 **21.6s**：`198.7 → 约 177s`（**约 2 分 57 秒**）。这个数依赖两个假设（每个 vitest 进程固定开销 ≈1.2s、每次应用启动 ≈2s，都是从只 2-4 项的套件仍要 2.0-2.6s 反推的），**不是实测**——真要精确，得先按上表并一组、再跑三次。
+合计省约 **19.2s**：`198.7 → 约 179.5s`（**约 3 分 0 秒**）。两个假设（每个 vitest 进程启动 ≈1.2s、每次 playwright runner 启动 ≈1.2s）都是从只 2-4 项的套件仍要 2.0-2.6s 与 6.5-8.7s 反推的，**不是实测**——要精确，得先按上表并一组、再跑三次。
 
 说白了：**降步数主要是让门禁读得懂（32 行 → 16 行），省时间很少（20 秒上下）**。锁定验收那一步（62.6s）和 integration（25.7s）才是时间大头，它们不在这一单的范围里。
 
 ### 每一组并进哪里（给整合方的落地清单）
 
-上面每个「合并组」落地时是这样一件事（新增 1 个 config、改 `scripts/verify.mjs` 删掉若干 `run(...)`、删掉旧 config）：
+先说清楚这个仓库的「测试项目」是什么：**每个回归套件各有自己的 config**（`apps/desktop/test/review/vitest.<套件>.config.ts`，里面只有一行 `include` 指向一个文件；界面套件是 `playwright.<套件>.config.ts`），`scripts/verify.mjs` 里一个 `run(...)` 对应一个这样的 config。所以「并进」的实际做法是：**留一个现有 config 当落点、把它的 `include` 扩成多文件，删掉同组其余 config，再把 verify.mjs 里对应的 `run(...)` 删掉**（第 2 轮审查要求写明并入哪个现有项目，这就是答案）。
 
-| 合并组 | 新 config（要新建） | 被替换掉的 verify 步骤（`scripts/verify.mjs` 行号，按本单量时的版本） | 旧 config |
+| 合并组 | 落点（现有 config，改它的 `include`） | 删掉的 verify 步骤（`scripts/verify.mjs` 行号，按本单量时的版本） | 删掉的 config |
 | --- | --- | --- | --- |
-| 早期审核反例（9 套） | `apps/desktop/test/review/vitest.early-reviews.config.ts` | 106 `review`、115 `review-round3`、124 `review-round4`、133 `review-v02`、235 `review-project-audit`、244 `review-recheck`、253 `review-recheck-round2`、262 `review-needs-lifecycle`、271 `review-closure` | `vitest.config.ts`、`vitest.round3.config.ts`、`vitest.round4.config.ts`、`vitest.v02-review.config.ts`、`vitest.project-audit.config.ts`、`vitest.recheck-20260907.config.ts`、`vitest.recheck-round2-20260907.config.ts`、`vitest.needs-lifecycle-20260908.config.ts`、`vitest.closure-b8f216b-20260908.config.ts` |
-| P0 两份文件并一步 | `apps/desktop/test/review/vitest.p0-boundaries.config.ts`（或用现有的 `vitest.review-p0-f71da15-20260929.config.ts` 只改 `include`） | 163 `review-p0-f71da15` | `vitest.review-p0-f71da15-20260929.config.ts` |
-| P1-P3 阶段验收（6 套） | `apps/desktop/test/review/vitest.p1-p3-stages.config.ts` | 172 `review-p1-action-loop`、181 `review-p1-memory-projects`、190 `review-p1-research-skills`、199 `review-p2`、208 `review-p3-connectors-lifecycle`、217 `review-p3a-connector-registry` | `vitest.review-p1-action-loop-20260916.config.ts`、`vitest.review-p1-memory-projects-20260916.config.ts`、`vitest.review-p1-research-skills-20260916.config.ts`、`vitest.review-p2-evolution-upgrade-20260916.config.ts`、`vitest.review-p3-connectors-lifecycle-20260916.config.ts`、`vitest.review-p3a-connector-registry-20260916.config.ts` |
-| 界面回归（4 套） | 用 Playwright 的现有配置（`apps/desktop/playwright.config.ts` 那条 `review-*` 步骤）改成一次跑 4 个 spec | 4 个界面 `run(...)`（`review-needs-lifecycle-ui`、`review-understanding-ui`、`review-sources-wizard-ui`、`review-recheck-ui`，在第 271 行之后） | 不用删 config，4 个 spec 文件本身保留 |
+| 早期审核反例（9 套） | `apps/desktop/test/review/vitest.config.ts`（现在是 `review-20260905.test.ts` 一个文件）→ `include` 加 8 行 | 106 `review`（保留）、115 `review-round3`、124 `review-round4`、133 `review-v02`、235 `review-project-audit`、244 `review-recheck`、253 `review-recheck-round2`、262 `review-needs-lifecycle`、271 `review-closure` | `vitest.round3.config.ts`、`vitest.round4.config.ts`、`vitest.v02-review.config.ts`、`vitest.project-audit.config.ts`、`vitest.recheck-20260907.config.ts`、`vitest.recheck-round2-20260907.config.ts`、`vitest.needs-lifecycle-20260908.config.ts`、`vitest.closure-b8f216b-20260908.config.ts` |
+| P1-P3 阶段验收（6 套） | `apps/desktop/test/review/vitest.review-p1-action-loop-20260916.config.ts` → `include` 加 5 行 | 172（保留）、181、190、199、208、217 | `vitest.review-p1-memory-projects-20260916.config.ts`、`vitest.review-p1-research-skills-20260916.config.ts`、`vitest.review-p2-evolution-upgrade-20260916.config.ts`、`vitest.review-p3-connectors-lifecycle-20260916.config.ts`、`vitest.review-p3a-connector-registry-20260916.config.ts` |
+| 界面回归（4 步 / **5 个 spec**） | `apps/desktop/test/review/playwright.sources-wizard-20260929.config.ts` → 改成一次跑 5 个 spec | 4 个界面 `run(...)`（`review-needs-lifecycle-ui`、`review-understanding-ui`、`review-sources-wizard-ui`、`review-recheck-ui`，在第 271 行之后） | 不用删 config |
+| `review-p0-f71da15` | **不用并**：它本来就是「两个文件一个 config、一步跑完」（`vitest.review-p0-f71da15-20260929.config.ts` 的 `include` 是两行）。第 1 轮我写成「两个 config 各起一个进程」，第 2 轮审查发现前后矛盾，此处更正为**保留现状** | — | — |
 
-（行号是 `scripts/verify.mjs` 在本单量时的版本，§ 整合方合并前先 `git log -1 --oneline scripts/verify.mjs` 核一下有没有变。）
+界面的 4 步实际是 **5 个 spec**（`review-sources-wizard-ui` 那一步同时跑 `sources-20260908.spec.ts` 和 `wizard-20260908.spec.ts`，见 `playwright.sources-wizard-20260929.config.ts` 的 `testMatch`——第 2 轮审查提醒别漏，已按 5 个写）。合并后是不是能少 3 次应用启动，取决于每个 spec 是否各自 `launch`：4 个 `playwright.*.config.ts` 各自独立跑，spec 里自己 `launch/close`，所以**合并只省「playwright 进程与 runner 的启动」，不省应用启动**；上面时间估算里的「省 3×2s 应用启动」因此站不住，改成「省 3 次 runner 启动（约 3×1.2s ≈ 3.6s）」。
+
+（行号是 `scripts/verify.mjs` 在本单量时的版本，合并前先 `git log -1 --oneline scripts/verify.mjs` 核一下有没有变。）
 
 ## 自动化通过
 
@@ -307,16 +330,27 @@ CI（`.github/workflows/verify.yml`）只有一个「门禁（与本机 node scr
 
 **第 1 轮（2026-10-20 09:16 左右，额度恢复后）：需要修改（exit 1）**，6 条必须改。原样意见在 [`C3a-Codex审查.md`](C3a-Codex审查.md)，逐条处理：
 
+| # | Codex 说的 | 怎么处理的（含第 2 轮后的更正） |
+| --- | --- | --- |
+| 1 | 预计步数漏了明确「保留」的 `review-bbe651f`；按所列分组应是 15 步，两次合并也只能到 13 步，不能报 12 步 | **照改**：重算步数表：现状 32 → **本单建议 16**（保留 4 步 + 3 个合并组）→ 再并「边界与方向」15 → 再并 P0 14 → 再并界面 13 |
+| 2 | 用「锁定验收都是正例」推「没有覆盖关系」不成立（AGENTS.md 自己提到 W1a 的负向验收） | **照改（更正结论）**：没有做断言级比对；只做了「按主题挑最接近」+ 678 条锁定用例标题的 **2 字切片相似度**粗查（阈值 ≥6 时只有 1 对候选），并明确「没有发现标题级重复 ≠ 没有覆盖关系」 |
+| 3 | 源码引用在、符号还导出、测试绿，不能证明功能还在用、也不能排除行为被改 | **照改（分层写 + 逐套列表）**：「功能还在不在」一节现在写明核到哪一层，并**逐套列出被测源码模块 + 生产引用次数 + 9 月以来改动提交数**（`.logs/audit-modules.mjs` 产出）；同时写清 `--diff-filter=D` 只看得到文件级删除，看不到文件内删功能/改行为 |
+| 4 | 「早期审核反例」「P1-P3 阶段验收」只有组名，没说并入哪 | **照改（第 2 轮再改）**：说明「测试项目」在这个仓库就是**每个套件一个 config**，落地＝**改某个现有 config 的 `include` + 删同组其余 config + 删 verify.mjs 对应 `run(...)`**，并逐组给出落点 config、要删的 verify 行号、要删的 config 名 |
+| 5 | `local-user` 在 CI 上不检查，标成「跑」会误报 | **照改**：第 3 行改成「跑（CI 上等于不查）」，上面那句也改成「每一步都会被执行，但 `local-user` 在 CI 上查不出东西」 |
+| 6 | 三次测量只给了整理后的表和日志路径，没贴原始输出 | **照改**：「自动化通过」末尾新增「三次测量的原样输出」（36 行 × 3 原样贴入） |
+
+**第 2 轮（2026-10-20 09:44 左右）：需要修改（exit 1）**，又是 6 条必须改。逐条处理：
+
 | # | Codex 说的 | 怎么处理的 |
 | --- | --- | --- |
-| 1 | 预计步数漏了明确「保留」的 `review-bbe651f`；按所列分组应是 15 步，两次合并也只能到 13 步，不能报 12 步 | **照改**：重算了步数表（现状 32 → 本单建议 **16** → 再并两次 15 / 14 / 13），并说明原来 12 是算错（漏了 `review-bbe651f` 没计入、也没算「边界与方向」是两套保留）；时间按中位数重算约 **177s**（省 21.6s），并注明是估算、两个假设写清楚 |
-| 2 | 用「锁定验收都是正例」推「没有覆盖关系」不成立（AGENTS.md 自己提到 W1a 的负向验收） | **照改（更正结论）**：删掉那个推论，改成「**没有做逐条断言的比对**；只能说按标题与用例名粗看没有重叠，『锁定验收里有没有负向用例正好接得住这套反例』没核，不能拿来当『可以删』的依据」 |
-| 3 | 源码引用在、符号还导出、测试绿，不能证明功能还在用、也不能排除行为被改 | **照改（分层写）**：「功能还在不在」一节现在明确写「核到的是源码还在 / 符号还导出 / 套件还绿这一层，不是行为没变」，并补一条硬依据：从 9 月起删源码的提交只有 `eba073f`（删 ModelPool/RoleCoordinator、Door 降级），而 23 个回归套件里一处都没提到这三个名字。**没做的也写明**：没逐条比对断言、没追调用链 |
-| 4 | 「早期审核反例」「P1-P3 阶段验收」只有组名，没说并入哪 | **照改**：新增「每一组并进哪里」表——每组给出**要新建的 config 文件名**、要删的 `scripts/verify.mjs` 步骤（行号 + 名字）、要删的旧 config 列表，并提醒合并前先核 `verify.mjs` 有没有变 |
-| 5 | `local-user` 在 CI 上不检查，标成「跑」会误报 | **照改**：第 3 行改成「跑（CI 上等于不查）」，上面那句「每一步都在 CI 上跑」改成「每一步都会被执行，但 `local-user` 在 CI 上查不出东西（账户名是公用的）」 |
-| 6 | 三次测量只给了整理后的表和日志路径，没按 AGENTS.md 贴原始输出 | **照改**：「自动化通过」末尾新增「三次测量的原样输出」，把三次的步骤行（36 行 × 3，含 `build` 的三行子步骤）原样贴进来 |
+| 1 | 未比对断言，只看标题/用例名；第 69 行「没有覆盖关系」缺依据 | **照改**：删掉「没有覆盖关系」的断言，改成两条粗查的实际结果 + 明确写「没有断言级比对，给不出覆盖证明」；列名改成「按主题最接近的锁定验收用例（不是覆盖证明）」 |
+| 2 | 把功能现状推给别的任务；`--diff-filter=D` 排不掉「文件内删功能/改行为/移除入口」 | **照改**：补了逐套的模块存活表（生产引用次数 / 改动提交数），并把「看不到文件内改动」写成明确的局限，不再说「不能排除」以外的结论 |
+| 3 | 只给拟新建的测试组和 config，没指出并入哪个**现有**测试项目 | **照改**：落地清单改成「落点＝现有 config + 改它的 `include`」，逐个列出落点 config 与要删的 config |
+| 4 | P0「两个 config 各起一个进程」与后文「已经是两个文件共用一个进程」矛盾 | **照改**：查了 `vitest.review-p0-f71da15-20260929.config.ts` —— 它本来就是**一个 config、`include` 两行、一步跑完**，分类改成「保留现状」，并注明第 1 轮写错了 |
+| 5 | 26.2s / 13.5s 已含启动开销，再加一遍是重复计算；应为 16.6s / 7.5s | **照改**：按 `26.2 − 8×1.2 ≈ 16.6s`、`13.5 − 5×1.2 ≈ 7.5s` 重算；界面那组也改成「只省 3 次 runner 启动 ≈3.6s（每个 spec 自己 launch/close，应用启动省不掉）」，总节省 19.2s、总时长约 **179.5s** |
+| 6 | 4 个界面步骤实际是 5 个 spec，落地清单只写 4 个，有漏测风险 | **照改**：改成「4 步 / 5 个 spec」，并写明 `review-sources-wizard-ui` 那一步同时跑 `sources-20260908.spec.ts` 与 `wizard-20260908.spec.ts`（看 `playwright.sources-wizard-20260929.config.ts` 的 `testMatch`） |
 
-改完若还要再审，会按 AGENTS.md 最多三轮走。之前额度用完那次（exit 3）的记录留在下面：
+改完还没有再审（这一轮之后我会再跑一次，按 AGENTS.md 最多三轮）。之前额度用完那次（exit 3）的记录留着：
 
 ```text
 Codex 额度用完：分支先等着，队列状态改「待审（Codex 额度）」，稍后重跑。
@@ -329,7 +363,7 @@ ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/
 2. 「可以删」这一单没给出任何一条（理由见上）。如果整合方的意思是「回归整体不要了」，需要再给一条方向，我再出对照表——现在的分类只到「并」。
 3. 每步用时的本机抖动很大（第一次 integration 65.2s，后两次 25.6s；第一次 acceptance 70.9s，后两次 62.6s）。中位数只能当参考；CI 上的数会比本机高（少了缓存、runner 慢）。
 4. 界面 4 步并成 1 步后，失败时只能从 vitest/playwright 报告定位是哪一个 spec，比现在一步一个 spec 难一点；`workers: 1` 必须保持。
-5. 这一单没量「并起来之后实际差多少」——上面的 177s 是按「进程启动开销 ≈1.2s/个、应用启动 ≈2s/个」估的（这两个数是从 `review-*` 步骤里只有 2-4 项的套件仍要 2.0-2.6s 反推的）。整合方要精确数，得先按「每一组并进哪里」那张表真并一组、再跑三次。
+5. 这一单没量「并起来之后实际差多少」——上面的 179.5s 是按「vitest 进程启动 ≈1.2s/个、playwright runner 启动 ≈1.2s/次」估的（从只 2-4 项的套件仍要 2.0-2.6s、6.5-8.7s 反推），**不是实测**。整合方要精确数，得先按「每一组并进哪里」那张表真并一组、再跑三次。
 6. **回归套件有偶发（这一单亲眼见到一次，但不是本次量的 3 遍里）**：`grok/C3a` 第二次推上去时，CI 上 `review-recheck`（本机 6.9s / 4.0s）里 `B04: near-budget responses must include truncation notice and chars_used digits without overflow` 报 `Error: Hook timed out in 10000ms`（该文件跑了 112.3s，vitest 的 10s 钩子上限被慢 runner 撞上），而同一份内容上一次 CI 是绿的、本机连跑 3 遍也全绿。意思：**「可并」的套件里有偶发红，并在一切之前要先把这类钩子超时治掉**（例如给这一条加单测级超时或把重活挪进测试体），否则并成一步之后一次偶发会带走一整步。这一单只量没改，改法留给整合方定。
 
 ## 用户接受
