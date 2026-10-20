@@ -1,0 +1,11 @@
+{
+  "name": "@ixaeon/relay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "接力调度器：看队列定下一棒、跑一棒、核对有没有越界",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {}
+}

@@ -1,0 +1,20 @@
+{
+  "roles": {
+    "integrator": {
+      "argv": ["<统筹的命令行>", "-p", "{prompt_file}"],
+      "cwd": "<整合方工作目录>",
+      "timeoutMinutes": 60,
+      "quotaPatterns": ["session limit", "usage_limit_reached", "429"],
+      "quotaPauseMinutes": 200
+    },
+    "developer": {
+      "argv": ["<开发的命令行>", "{prompt_file}"],
+      "cwd": "<开发 agent 的操作目录>",
+      "timeoutMinutes": 180,
+      "quotaPatterns": ["usage limit", "quota", "429"],
+      "quotaPauseMinutes": 200
+    }
+  },
+  "idleSeconds": 60,
+  "localUserCheck": ["node", "scripts/check-local-user.mjs"]
+}
