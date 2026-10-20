@@ -125,6 +125,8 @@ for (const script of scripts) {
       cwd: process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      // 非 Windows 上单独开进程组，超时时才能整组杀
+      detached: process.platform !== 'win32',
     });
     const pipe = (buf) => {
       process.stdout.write(buf);
@@ -135,8 +137,21 @@ for (const script of scripts) {
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      console.log('[runner] 超时，杀进程');
-      child.kill('SIGKILL');
+      console.log('[runner] 超时，杀进程树（连同它拉起的 Electron）');
+      // 只杀 node 本身会把它拉起的 Electron 留在后台（下一项跑起来就多实例并跑了）
+      if (process.platform === 'win32' && child.pid) {
+        spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+      } else {
+        try {
+          if (child.pid) process.kill(-child.pid, 'SIGKILL');
+          else child.kill('SIGKILL');
+        } catch {
+          child.kill('SIGKILL');
+        }
+      }
     }, timeoutMs);
     // 等 close（不是 exit）：close 之后 stdout/stderr 已经收完，才不会漏掉最后的 RESULT 行
     child.on('close', (c, sig) => {

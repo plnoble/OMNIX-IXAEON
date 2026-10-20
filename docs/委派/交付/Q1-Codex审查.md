@@ -1,13 +1,11 @@
 # Q1 Codex 审查
 
-- 时间：2026-10-20T00:56:32.883Z
-- 分支：grok/Q1（1b337db），对照 docs/委派/Q1-真机脚本体检.md
+- 时间：2026-10-20T01:12:28.468Z
+- 分支：grok/Q1（d5fb935），对照 docs/委派/Q1-真机脚本体检.md
 - Codex：0.163.0；上下文由脚本喂入（不让 Codex 跑命令）
 
-- 必须改｜`docs/委派/交付/Q1.md:76`、`scripts/real/run-batch.mjs:79–93`：交付说明声称跑批器启动前会读取脚本源码、核对 `IXAEON_DATA_DIR`，实际代码直接启动子进程，没有这项检查；需更正说明并补充实际核对依据。需要人工确认：本轮逐脚本的临时数据目录核对究竟如何完成。
-- 必须改｜`scripts/real/run-batch.mjs:51–52、88`：找到 `.bin/jiti.cmd` 时，会把这个批处理包装脚本交给 Node 解析，导致 `.ts` 脚本启动失败；应解析到真正的 JavaScript CLI 入口。
-- 必须改｜`scripts/real/run-batch.mjs:106–115`：子进程 `exit` 时输出管道可能尚未读完，`out.end()` 也不会同步完成落盘；立即读取日志可能漏掉最后的 `RESULT`，甚至发生结束后继续写入。应等待子进程 `close` 和日志流 `finish` 后再生成摘要。
-- 必须改｜`scripts/real/m3-address-scope.mjs:125`、`scripts/real/u1-research-busy.ts:122`、`scripts/real/v1-verify-electron.mjs:213`：异常信息仍未经遮罩直接打印；Electron 启动失败、临时文件访问失败时，错误信息可能包含带本机账户名的绝对路径，未满足规格的输出隐私要求。
-- 建议｜`scripts/real/run-batch.mjs:71–76`：写摘要前应创建 `.logs/`；目录不存在时会直接报 `ENOENT`。需要人工确认：工作目录初始化流程是否保证预建该目录。
+- 必须改｜`scripts/real/run-batch.mjs:136–145`：超时只杀脚本的 Node 进程，没有清理它启动的 Electron 子进程，随后还会继续下一项；可能遗留测试应用并造成多实例并跑。应清理该脚本所属的进程树，确认退出后再继续。
+- 必须改｜`scripts/real/u1-research-busy.ts:129–137、154–159`：点击失败或等待提示超时时，`sampling` 没有被停止和收尾；关闭应用会使后台采样产生未处理的 Promise 拒绝，可能绕过最终 `RESULT`。应在清理应用前停止并处理采样任务，保证失败路径也输出结论并非零退出。
+- 建议｜`scripts/real/run-batch.mjs:87–100`：源码核对仅检查词元是否出现，注释也能满足，而且启动应用的分支没有验证目录来自临时目录；建议明确这是初步检查，保留实际启动环境与临时目录对应关系的核对依据，避免把它当成完整的隔离验证。
 
 结论：需要修改

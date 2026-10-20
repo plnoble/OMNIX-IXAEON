@@ -98,6 +98,9 @@ async function launch() {
 }
 
 const run = await launch();
+// 采样循环的句柄放在外面：失败路径在 finally 里要能停掉它、并等它收尾，再关应用
+let samplingStopped = false;
+let sampling: Promise<void> | undefined;
 try {
   await run.page.getByTestId('setup-next-1').click();
   await run.page.getByTestId('setup-model-name').fill('fake-model');
@@ -126,14 +129,21 @@ try {
 
   const samples: boolean[] = [];
   const notice = run.page.getByTestId(`research-run-notice-${topicId}`);
-  const sampling = (async () => {
-    while ((await notice.count()) === 0) {
+  // 采样循环要有上限、也要能停：提示一直不出现时不能永远转（一轮 20ms、最多 1500 轮 = 30 秒），
+  // 失败路径由外层 waitFor 收尾；应用关掉之后不再碰页面，避免后台采样抛未处理的 Promise 拒绝。
+  sampling = (async () => {
+    for (let i = 0; i < 1500 && !samplingStopped; i++) {
+      if ((await notice.count()) > 0) return;
       samples.push(await createBtn.isDisabled());
       await run.page.waitForTimeout(20);
     }
-  })();
+  })().catch((err: unknown) => {
+    // 采样本身出错不该把整个脚本带走（真正的结论由下面的断言给）
+    console.log('采样出错：', err instanceof Error ? err.message : String(err));
+  });
   await run.page.getByTestId(`research-check-${topicId}`).click();
   await notice.waitFor({ timeout: 30_000 });
+  samplingStopped = true;
   await sampling;
   console.log('CREATE_DISABLED_SAMPLES', samples.length, samples.some(Boolean));
   samplesSeen = samples.length;
@@ -155,6 +165,9 @@ try {
   passed = false;
   console.log('脚本出错：', err instanceof Error ? err.message : String(err));
 } finally {
+  // 先停采样、等它收尾，再关应用（否则后台采样会在应用关掉之后碰页面，抛未处理的拒绝、绕过 RESULT）
+  samplingStopped = true;
+  if (sampling) await sampling;
   await run.app.close();
   rmSync(dataDir, { recursive: true, force: true });
 }
