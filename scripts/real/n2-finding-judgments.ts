@@ -69,6 +69,8 @@ const env = {
   IXAEON_DATA_DIR: dataDir,
   // 随机端口（照 p5/p7）：写死端口在并发时或端口被占时撞车
   IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
+  IXAEON_CODEX_EXE: 'none',
   IXAEON_FAKE_MODEL: '1',
   IXAEON_FAKE_MODEL_SCRIPT: join(dataDir, 'model-script.json'),
   IXAEON_HERMES_EXE: '',

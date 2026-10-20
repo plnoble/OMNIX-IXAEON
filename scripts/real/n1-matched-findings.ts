@@ -67,10 +67,23 @@ const fail = (why: string) => {
   passed = false;
   console.log('不符：', why);
 };
+// 起动应用、过首次设置这些在 try 之外的步骤出错时，也要留一行 RESULT 并以非零退出
+// （否则异常直接把进程带走，看不到结论行）
+const failHard = (err: unknown): never => {
+  console.log('脚本出错：', err instanceof Error ? (err.stack ?? err.message) : err);
+  console.log('RESULT', `没通过：脚本出错：${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+};
+process.on('uncaughtException', failHard);
+process.on('unhandledRejection', failHard);
 
 const env = {
   ...process.env,
   IXAEON_DATA_DIR: dataDir,
+  // 照现在的规矩隔离：随机端口、不载嵌入模型、不碰真 Codex / 真 Hermes
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
+  IXAEON_CODEX_EXE: 'none',
   IXAEON_FAKE_MODEL: '1',
   IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
   IXAEON_HERMES_EXE: '',

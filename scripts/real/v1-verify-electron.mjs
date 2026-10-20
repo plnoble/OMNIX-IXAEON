@@ -48,6 +48,8 @@ const cleanup = async () => {
 };
 
 try {
+  // 43191 是应用默认端口：它被占说明用户自己的 IXAEON 开着。规矩是「用户的应用开着就不启动测试应用」，
+  // 所以先探它、占了就放弃。我们自己的应用用另一个随机端口（见下面的 IXAEON_HTTP_PORT），不会和它撞。
   const occupied = await fetch('http://127.0.0.1:43191/api/health', {
     signal: AbortSignal.timeout(1000),
   }).then(
@@ -61,6 +63,13 @@ try {
   const env = {
     ...process.env,
     IXAEON_DATA_DIR: dataDir,
+    // 照现在的规矩隔离：随机端口、不载嵌入模型、不碰真 Codex / 真 Hermes
+    IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+    IXAEON_EMBED_MODEL: 'none',
+    IXAEON_CODEX_EXE: 'none',
+    IXAEON_HERMES_EXE: '',
+    IXAEON_HERMES_HOME: '',
+    HERMES_HOME: '',
     LOCALAPPDATA: fakeLocal, // 让 resolveCodexLocator 找不到真 Codex → Fake 执行器
     IXAEON_FAKE_MODEL: '1',
     // P6 之后批准编码任务要查项目文件夹的读取授权：绑定走界面的「绑定文件夹」按钮，

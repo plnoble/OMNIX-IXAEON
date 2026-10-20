@@ -82,6 +82,10 @@ try {
     IXAEON_EMBED_MODEL: 'none',
     IXAEON_CODEX_EXE: 'none',
     IXAEON_TEST_DIALOG_RESPONSES: `directory|${projectRoot}`,
+    // 不碰真 Hermes（它研究页可能会去找）
+    IXAEON_HERMES_EXE: '',
+    IXAEON_HERMES_HOME: '',
+    HERMES_HOME: '',
   };
   delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({

@@ -164,17 +164,23 @@ process.on('unhandledRejection', bail);
   const done = await coding.accept(task.id);
   const manifest2 = readFileSync(join(done.applied_ref!, 'manifest.json'), 'utf8').trim();
   const userVersion = git(root, ['show', 'HEAD:note.txt']);
+  // 只查提交里那份不够：改动包落地时也可能把工作区那份覆盖掉，所以工作区文件也读一遍（两处都得是用户的版本）
+  const workingVersion = readFileSync(join(root, 'note.txt'), 'utf8').trim();
   console.log(`\n=== 场景 2：派发后用户提交了同一文件 → 改动包（applied_ref=${done.applied_ref}）`);
   console.log(`apply_error：${done.apply_error}`);
   console.log(`清单：${manifest2}`);
-  console.log('--- 用户版本留在原地：');
+  console.log('--- 用户版本留在原地（提交里）：');
   console.log(userVersion);
+  console.log('--- 用户版本留在原地（工作区）：');
+  console.log(workingVersion);
   if (!done.apply_error)
     fail('场景 2：用户先提交过同一文件，apply_error 却是空的（期望回退成改动包）');
   if (!String(done.applied_ref).includes('patches')) {
     fail('场景 2：没落到改动包目录（applied_ref 里没有 patches）');
   }
-  if (userVersion !== '用户先提交的') fail(`场景 2：用户自己的版本被覆盖了：${userVersion}`);
+  if (userVersion !== '用户先提交的') fail(`场景 2：提交里用户自己的版本被覆盖了：${userVersion}`);
+  if (workingVersion !== '用户先提交的')
+    fail(`场景 2：工作区里用户自己的版本被覆盖了：${workingVersion}`);
   if (!manifest2.includes('note.txt')) fail('场景 2：改动包清单里没有 note.txt');
   db.close();
 }

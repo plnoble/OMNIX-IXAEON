@@ -72,6 +72,9 @@ writeFileSync(join(projectRoot, 'note.txt'), '合成文件');
 const env = {
   ...process.env,
   IXAEON_DATA_DIR: dataDir,
+  // 照现在的规矩隔离：随机端口（不和用户开着的应用撞）、不载嵌入模型、不碰真 Codex / 真 Hermes
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
   IXAEON_FAKE_MODEL: '1',
   IXAEON_FAKE_MODEL_SCRIPT: join(dataDir, 'model-script.json'),
   // 不找真 Hermes、不找真 Codex：执行器用替身

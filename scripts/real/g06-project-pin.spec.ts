@@ -47,9 +47,21 @@ test('G06 复现：切到 B 后打开 A 的旧对话，下拉框回到 A 且锁�
   );
   expect(occupied, '不要碰正在跑的服务').toBe(false);
   const dir = mkdtempSync(join(tmpdir(), 'ixa-g06-real-'));
+  // 照现在的规矩隔离：随机端口（43191 上面探过是「用户是不是开着应用」，自己跑用别的端口）、
+  // 不载嵌入模型、不碰真 Codex / 真 Hermes
   const app = await electron.launch({
     args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(dir, 'profile')}`],
-    env: { ...process.env, IXAEON_DATA_DIR: dir, IXAEON_FAKE_MODEL: '1' },
+    env: {
+      ...process.env,
+      IXAEON_DATA_DIR: dir,
+      IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+      IXAEON_EMBED_MODEL: 'none',
+      IXAEON_CODEX_EXE: 'none',
+      IXAEON_HERMES_EXE: '',
+      IXAEON_HERMES_HOME: '',
+      HERMES_HOME: '',
+      IXAEON_FAKE_MODEL: '1',
+    },
   });
   try {
     const page = await app.firstWindow();
@@ -110,7 +122,16 @@ test('G06 复现：切到 B 后打开 A 的旧对话，下拉框回到 A 且锁�
     await expect(page.getByTestId('ask-project-select')).toHaveValue(projectA);
     await expect(page.getByTestId('ask-project-select')).toBeDisabled();
     await expect(page.getByTestId('ask-project-locked')).toContainText('换项目请开新对话');
+    // 与 node 脚本一致：全对才打这一行（失败时下面的 afterEach 打「没通过」，退出码由 Playwright 给）
+    console.log('RESULT 通过：切到 B 后打开 A 的旧对话，下拉框回到 A 且锁定');
   } finally {
     await app.close();
+  }
+});
+
+// 用例失败时也留一行 RESULT（和 node 脚本的「出错也要有 RESULT 行、退出码非零」对齐）
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus) {
+    console.log(`RESULT 没通过：${testInfo.title} → ${testInfo.status}`);
   }
 });

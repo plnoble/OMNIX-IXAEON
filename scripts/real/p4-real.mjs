@@ -62,6 +62,13 @@ writeFileSync(join(synDir, 'note.txt'), '合成项目文件\n');
 const env = {
   ...process.env,
   IXAEON_DATA_DIR: dataDir,
+  // 照现在的规矩隔离：随机端口、不载嵌入模型、不碰真 Codex / 真 Hermes
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
+  IXAEON_CODEX_EXE: 'none',
+  IXAEON_HERMES_EXE: '',
+  IXAEON_HERMES_HOME: '',
+  HERMES_HOME: '',
   IXAEON_FAKE_MODEL: '1',
   IXAEON_TEST_DIALOG_RESPONSES: `directory|${synDir}`,
 };

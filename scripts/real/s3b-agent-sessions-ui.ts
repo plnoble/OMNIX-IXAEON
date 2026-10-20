@@ -13,6 +13,40 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+const maskOut = (v: unknown): string => {
+  let text: string;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    // JSON.stringify 把反斜杠转义成双份：对象里的路径要照转义后的样子再遮一次
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn'] as const) {
+  const orig = console[k].bind(console);
+  console[k] = (...a: unknown[]) => orig(...a.map(maskOut));
+}
+
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const desktopDir = join(root, 'apps', 'desktop');
@@ -49,6 +83,10 @@ writeFileSync(scriptPath, JSON.stringify({ structured: [] }), 'utf8');
 const env = {
   ...process.env,
   IXAEON_DATA_DIR: dataDir,
+  // 照现在的规矩隔离：随机端口、不载嵌入模型、不碰真 Codex / 真 Hermes
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
+  IXAEON_CODEX_EXE: 'none',
   IXAEON_FAKE_MODEL: '1',
   IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
   IXAEON_TEST_DIALOG_RESPONSES: `directory|${sessionDir}`,
@@ -116,8 +154,13 @@ try {
   const estimate = await run.page.getByTestId('agent-sessions-estimate').innerText();
   console.log('ESTIMATE');
   console.log(estimate);
-  if (estimate.trim().length === 0)
-    fail('估算那一步没有内容（期望 ESTIMATE 里有选中的会话编号和字数）');
+  // 合成的会话是「S3b 合成任务：把会话选择导入做好」+「S3b 合成回答。」，不到一万字，
+  // 所以估算该是「约 0 万字（你说的 0 万、AI 回答 0 万）」——整句对，错误提示满足不了这一条。
+  const est = estimate.replace(/\s+/g, '');
+  if (!est.includes('将发给模型分析')) fail(`估算那一步不是估算结果：${estimate.slice(0, 80)}`);
+  else if (!est.includes('约0万字') || !est.includes('你说的0万') || !est.includes('AI回答0万'))
+    fail(`估算的数不对（期望 约 0 万字 / 你说的 0 万 / AI 回答 0 万）：${estimate}`);
+  else console.log('估算与合成会话的字数一致（0 万，共识别的显示为 0）');
   await run.page.screenshot({ path: join(shotDir, 's3b-agent-list.png'), fullPage: true });
 
   await run.page.getByTestId('agent-sessions-import').click();
@@ -127,8 +170,12 @@ try {
   const result = await run.page.getByTestId('agent-sessions-result').innerText();
   console.log('RESULT_IMPORT');
   console.log(result);
-  if (result.trim().length === 0)
-    fail('导入结果那一步没有内容（期望 RESULT_IMPORT 里有导入了几份）');
+  // 只有一行合成会话：该是「新导入 1 个、没变化 0 个、失败 0 个」——三个数都核对，
+  // 只查「非空」的话「导入失败」那类提示也会过。
+  const imp = result.replace(/\s+/g, '');
+  if (!imp.includes('新导入1个') || !imp.includes('没变化0个') || !imp.includes('失败0个'))
+    fail(`导入结果不对（期望 新导入 1 个、没变化 0 个、失败 0 个）：${result}`);
+  else console.log('导入结果与合成会话一致：新导入 1、没变化 0、失败 0');
   await run.page.waitForTimeout(1500);
   const sourceRow = run.page.locator('[data-testid^="source-row-"]').first();
   const sourceVisible = await sourceRow.count();
@@ -136,8 +183,10 @@ try {
   console.log('SOURCE_ROW', sourceVisible);
   console.log(sourceText);
   if (sourceVisible < 1) fail(`资料页没有新来源（期望 SOURCE_ROW ≥ 1，实际 ${sourceVisible}）`);
-  else if (sourceText.trim().length === 0)
-    fail('资料页那一行是空的（期望 SOURCE_ROW 那行里有来源标题）');
+  // 那一行要真的是这条合成会话：标题就是合成的那句
+  else if (!sourceText.includes('S3b 合成任务：把会话选择导入做好'))
+    fail(`资料页那行不是导入的合成会话：${sourceText.replace(/\s+/g, ' ').slice(0, 120)}`);
+  else console.log('资料页那行就是导入的合成会话（标题对得上）');
   await run.page.screenshot({ path: join(shotDir, 's3b-after-import.png'), fullPage: true });
 } catch (err) {
   console.log('脚本出错：', err);

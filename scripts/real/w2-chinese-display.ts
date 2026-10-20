@@ -79,6 +79,10 @@ console.log('dataDir', dataDir);
 const env = {
   ...process.env,
   IXAEON_DATA_DIR: dataDir,
+  // 照现在的规矩隔离：随机端口、不载嵌入模型、不碰真 Codex / 真 Hermes
+  IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  IXAEON_EMBED_MODEL: 'none',
+  IXAEON_CODEX_EXE: 'none',
   IXAEON_FAKE_MODEL: '1',
   IXAEON_FAKE_MODEL_SCRIPT: join(dataDir, 'model-script.json'),
   IXAEON_HERMES_EXE: '',
@@ -194,18 +198,33 @@ try {
   await second.page.getByText('原文').first().click();
   await second.page.waitForTimeout(300);
   const expanded = await second.page.locator('main').innerText();
-  console.log('ORIGINAL_EXPANDED', expanded.includes('Local model runtime reaches new speed'));
+  // 原标题与原摘录分别核（只查一个字符串的话，只显示标题也能过）
+  console.log('ORIGINAL_TITLE', expanded.includes('Local model runtime reaches new speed'));
+  console.log(
+    'ORIGINAL_EXCERPT',
+    expanded.includes('A runtime for local models with a long enough excerpt.'),
+  );
   if (!expanded.includes('Local model runtime reaches new speed'))
-    fail('点「原文」展开后看不到原标题/原摘录（期望 ORIGINAL_EXPANDED true，实际 false）');
+    fail('点「原文」展开后看不到原标题（期望 ORIGINAL_TITLE true，实际 false）');
+  if (!expanded.includes('A runtime for local models with a long enough excerpt.'))
+    fail('点「原文」展开后看不到原摘录（期望 ORIGINAL_EXCERPT true，实际 false）');
   await second.page.screenshot({ path: join(shotDir, 'w2-research.png'), fullPage: true });
 
   await second.page.getByTestId('nav-overview').click();
   await second.page.getByTestId('overview-matched-findings').waitFor({ timeout: 10_000 });
   const overviewText = await second.page.locator('main').innerText();
-  const blocks = ['overview-matched-findings', 'overview-recent-findings'].filter(
-    (id) => overviewText.length >= 0 && id,
-  );
-  console.log('OVERVIEW_BLOCKS', blocks.join(','));
+  // 区块名从真实 DOM 里取（原来的过滤条件恒真，等于没查、永远把两个名字都打出来）
+  const blocks: string[] = [];
+  for (const id of ['overview-matched-findings', 'overview-recent-findings']) {
+    if ((await second.page.getByTestId(id).count()) > 0) blocks.push(id);
+  }
+  console.log('OVERVIEW_BLOCKS', blocks.join(',') || '(无)');
+  if (!blocks.includes('overview-matched-findings'))
+    fail(
+      '总览没有「符合你要求的新发现」区块（期望 OVERVIEW_BLOCKS 里有 overview-matched-findings）',
+    );
+  if (!blocks.includes('overview-recent-findings'))
+    fail('总览没有「最近的新发现」区块（期望 OVERVIEW_BLOCKS 里有 overview-recent-findings）');
   console.log('OVERVIEW_SHOWS_ZH', overviewText.includes('本地模型运行时再提速'));
   if (!overviewText.includes('本地模型运行时再提速'))
     fail('总览没显示中文标题（期望 OVERVIEW_SHOWS_ZH true，实际 false）');

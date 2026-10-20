@@ -57,7 +57,19 @@ try {
   // 宿主要是带着 ELECTRON_RUN_AS_NODE（开发 agent 的 shell 与门禁都带），Electron 会当普通
   // node 跑、主进程里 app 是 undefined、Playwright 报「Process failed to launch!」。
   // 照 scripts/real/p8-delete-project.mjs 清掉。
-  const env = { ...process.env, IXAEON_DATA_DIR: dataDir };
+  // 照现在的规矩隔离：随机端口（不和用户开着的应用撞）、不载嵌入模型、不碰真 Codex / 真 Hermes。
+  // 这里**不能**设 IXAEON_FAKE_MODEL：M3 量的是「地址甲收到合成 Key、换地址后新地址收不到旧 Key」，
+  // 得让应用真的按设置里的地址去取模型，替身模型会把这条测没了。
+  const env = {
+    ...process.env,
+    IXAEON_DATA_DIR: dataDir,
+    IXAEON_HTTP_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+    IXAEON_EMBED_MODEL: 'none',
+    IXAEON_CODEX_EXE: 'none',
+    IXAEON_HERMES_EXE: '',
+    IXAEON_HERMES_HOME: '',
+    HERMES_HOME: '',
+  };
   delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({
     args: [
