@@ -61,6 +61,7 @@ for (const k of ['log', 'error', 'warn']) {
 }
 
 let failed = false;
+let tenRunMedian = null;
 const fail = (why) => {
   failed = true;
   console.log('不符：' + why);
@@ -332,6 +333,7 @@ if (!elevationBlocked) fail('三种 profile 不是都以「需要提权后端」
   }
   const sorted = [...times].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
+  tenRunMedian = median;
   console.log('\n== 6) 连着跑 10 次（确定性 / 弹窗 / 耗时） ==');
   console.log(`   退出码：${statuses.join(',')}`);
   console.log(`   每次都是同一条提权错误：${sameError.every(Boolean) ? '是' : '不是'}`);
@@ -365,6 +367,6 @@ console.log(
   '\nRESULT ' +
     (failed
       ? '没通过：上面有「不符」的那条（见输出）'
-      : '通过：新版 0.163 的 codex sandbox 在**不提权**时一律以「Restricted read-only access requires the elevated Windows sandbox backend」失败（exit 1、中位 0.06s、不弹窗、不改机器状态）；配方与结论见交付说明'),
+      : `通过：新版 0.163 的 codex sandbox 在**不提权**时一律以「Restricted read-only access requires the elevated Windows sandbox backend」失败（exit 1、中位 ${tenRunMedian ?? '?'}s、不弹窗、不改机器状态）；配方与结论见交付说明`),
 );
 process.exit(failed ? 1 : 0);
