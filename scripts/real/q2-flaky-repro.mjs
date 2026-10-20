@@ -70,16 +70,63 @@ function electronDir() {
 const el = electronDir();
 const bak = { path: join(el, 'path.txt.q2bak'), dist: join(el, 'dist.q2bak') };
 
+/** 只动**这一次真的藏起来过**的东西：没藏过就什么都不做，绝不删已经装好的二进制。
+ *  第一遍把原来的 path.txt/dist 挪成备份；之后每一遍都把上一遍现场装出来的丢掉，
+ *  让每一遍都真的从「二进制不在」开始。 */
+let backupTaken = false;
 function hideBinary() {
-  if (existsSync(join(el, 'path.txt'))) renameSync(join(el, 'path.txt'), bak.path);
-  if (existsSync(join(el, 'dist'))) renameSync(join(el, 'dist'), bak.dist);
+  if (backupTaken) {
+    if (existsSync(join(el, 'path.txt'))) rmSync(join(el, 'path.txt'), { force: true });
+    if (existsSync(join(el, 'dist'))) rmSync(join(el, 'dist'), { recursive: true, force: true });
+    return;
+  }
+  // 上一次崩掉留下的备份先收拾：活的那个不在就把备份放回去，活的那个在就把过期备份删掉
+  for (const [live, back] of [
+    [join(el, 'path.txt'), bak.path],
+    [join(el, 'dist'), bak.dist],
+  ]) {
+    if (!existsSync(back)) continue;
+    if (existsSync(live)) rmSync(back, { recursive: true, force: true });
+    else renameSync(back, live);
+  }
+  const renameWithRetry = (from, to) => {
+    let last;
+    for (let i = 0; i < 6; i++) {
+      try {
+        renameSync(from, to);
+        return;
+      } catch (e) {
+        last = e;
+        spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},400)'], { timeout: 2000 });
+      }
+    }
+    throw new Error(
+      `改不了名 ${from} → ${to}：${last?.code || last?.message}（有进程还捏着它？先跑 --restore-only）`,
+    );
+  };
+  if (existsSync(join(el, 'path.txt'))) renameWithRetry(join(el, 'path.txt'), bak.path);
+  if (existsSync(join(el, 'dist'))) renameWithRetry(join(el, 'dist'), bak.dist);
+  backupTaken = true;
 }
 function restoreBinary() {
-  // 现场装出来的那些先清掉，再把备份放回去
-  if (existsSync(join(el, 'path.txt'))) rmSync(join(el, 'path.txt'), { force: true });
-  if (existsSync(join(el, 'dist'))) rmSync(join(el, 'dist'), { recursive: true, force: true });
+  if (!backupTaken) {
+    console.log('   （这一次没有藏过二进制，什么都不动）');
+    return;
+  }
+  // 现场装出来的那些先清掉，再把备份放回去（备份在才动）。
+  // 刚跑完的进程/杀毒有时还捏着 dist：重试几次，真删不掉就如实报出来、不装作收干净了。
+  const rm = (p, opts) => {
+    try {
+      rmSync(p, { force: true, maxRetries: 8, retryDelay: 250, ...opts });
+    } catch (e) {
+      console.log(`   ⚠ 收尾没能删掉 ${p}：${e.code || e.message}（下次跑 --restore-only 再收）`);
+    }
+  };
+  if (existsSync(join(el, 'path.txt'))) rm(join(el, 'path.txt'), {});
+  if (existsSync(join(el, 'dist'))) rm(join(el, 'dist'), { recursive: true });
   if (existsSync(bak.path)) renameSync(bak.path, join(el, 'path.txt'));
   if (existsSync(bak.dist)) renameSync(bak.dist, join(el, 'dist'));
+  backupTaken = false;
 }
 const binaryState = () =>
   `path.txt=${existsSync(join(el, 'path.txt'))} dist=${existsSync(join(el, 'dist', 'electron.exe'))}`;
@@ -134,6 +181,8 @@ const RESULT_LINE =
   /Tests {2}|Test Files {2}|^ *ok \d|^ *\d+ passed|^ *\d+ failed|Electron failed to install correctly|timed out|Timeout|❯ /;
 
 if (flag('restore-only')) {
+  // 上一次跑到一半留下的备份也收掉（手动收尾用）
+  backupTaken = existsSync(bak.path) || existsSync(bak.dist);
   restoreBinary();
   console.log(`还原完成：${mask(binaryState())}`);
   process.exit(0);
@@ -142,6 +191,9 @@ if (!COMMANDS[scenario]) throw new Error(`不认识的 scenario：${scenario}`);
 
 const hogs = [];
 const runOne = (label) => {
+  // 每遍开跑前重新把二进制藏起来：这样每一遍都是**冷**的「二进制不在」，
+  // 不会出现「第一遍装好了、后两遍其实是热的」这种假证据。
+  if (binary === 'hidden') hideBinary();
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   if (mirror === 'broken') env.ELECTRON_MIRROR = 'http://127.0.0.1:9/';
@@ -174,8 +226,19 @@ console.log(`   仓库：${mask(repo)}｜electron 包：${mask(el)}｜跑之前 
 
 const codes = [];
 try {
-  if (binary === 'hidden') hideBinary();
+  // --baseline 要临时换回 origin/main 那一版文件：先确认那个文件没有被别的改动动过，
+  // 免得把未提交的改动覆盖掉（规格也要求保留他人的未提交改动）。
   if (baseline) {
+    const dirty = spawnSync('git', ['status', '--porcelain', '--', integrationFile], {
+      cwd: repo,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    if ((dirty.stdout ?? '').trim()) {
+      throw new Error(
+        `${integrationFile} 有未提交的改动，--baseline 会覆盖它，拒绝执行：${dirty.stdout.trim()}`,
+      );
+    }
     git(['checkout', 'origin/main', '--', integrationFile]);
     console.log('   已把 integration 的文件临时换回 origin/main 那一版（治之前）');
   }
