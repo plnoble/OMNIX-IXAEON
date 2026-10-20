@@ -7,6 +7,12 @@
 
 **一句话结论：新版 Codex 的沙箱现在是**能用的**——装一次（一次 UAC）之后，同一个 CODEX_HOME 不带任何提权动作连跑 10/10 成功、不弹窗、中位 1.15s；但**每次调用都必须显式带 `windows.sandbox="elevated"`**，而且**换一个新的 CODEX_HOME 又要重新提权**（从后台会话发起的提权弹不出来，会以 `ShellExecuteExW … 1223` 失败）。DSH 那一列仍然调不动，原因找到了：**headless profile 里凭据插件是关着的**。**
 
+## 已实现（这一单做了什么）
+
+- 新增 5 个真机实验脚本（都在 `scripts/real/`，都能复现）：`l0b-codex-elevate.mjs`（提权那一步，**开头写明会弹一次管理员确认**；另有 `--after-setup` 只补观察、`--no-elevate` 只做只读观察）、`l0b-codex-sandbox-caps.mjs`（沙箱里外的能力探测）、`l0b-codex-default-home.mjs`（默认配置目录那一条）、`l0b-codex-resume.mjs`（按会话号续）、`l0b-dsh-probe.mjs`（DSH 那一列）。
+- 真的提权了一次（用户在对话里同意）：同一个 CODEX_HOME 装过之后，**免提权连跑 10/10 成功**；换一个新的 CODEX_HOME 又要装一次（后台会话里弹不出来，`ShellExecuteExW … 1223`）。
+- **没有改应用源码**；**没有改用户的 `~/.codex`**（丁-4 那一步是用默认配置目录跑一次 `codex exec`，只看没修）；没有跑 `codex sandbox uninstall`、没有装软件、没有登录。
+
 ## 结论表
 
 | 部分          | 问题                                        | 结论                                                                                                                                                                                                                                                                                                                                                                                 |
