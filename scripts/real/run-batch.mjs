@@ -32,8 +32,14 @@ import { basename, join, resolve } from 'node:path';
 const args = process.argv.slice(2);
 let timeoutMs = 300_000;
 const scripts = [];
+/** `--` 后面的原样传给每个脚本（比如 hermes-ask.ts 的问题）。 */
+let scriptArgs = [];
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
+  if (a === '--') {
+    scriptArgs = args.slice(i + 1);
+    break;
+  }
   if (a === '--timeout') {
     timeoutMs = Number(args[++i]);
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('--timeout 要给毫秒数');
@@ -44,7 +50,9 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 if (scripts.length === 0) {
-  throw new Error('用法：node scripts/real/run-batch.mjs [--timeout 毫秒] <脚本> [<脚本> ...]');
+  throw new Error(
+    '用法：node scripts/real/run-batch.mjs [--timeout 毫秒] <脚本> [<脚本> ...] [-- 给脚本的参数 ...]',
+  );
 }
 
 /** jiti 的 CLI 路径：一定要拿到 **真正的 JS 入口**（`.bin/jiti.cmd` 是批处理包装，
@@ -120,7 +128,7 @@ for (const script of scripts) {
   console.log(`[runner] 数据目录核对：${dataDirNote}`);
   const out = createWriteStream(outPath);
   const code = await new Promise((done) => {
-    const child = spawn(process.execPath, isTs ? [jiti, script] : [script], {
+    const child = spawn(process.execPath, [...(isTs ? [jiti, script] : [script]), ...scriptArgs], {
       env,
       cwd: process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe'],

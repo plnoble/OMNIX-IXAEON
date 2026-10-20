@@ -80,8 +80,9 @@
 - `node scripts/acceptance.mjs run <任务号>` 全过；
 - `node scripts/verify.mjs` 全过（其中 `acceptance-lock` 一步核对锁定测试没被改）；
 - **真机检查**：委派单或规格要求的检查照做，输出原样贴进交付说明。检查工具：
-  - `node_modules/.bin/jiti scripts/real/agent-sessions.ts`：在内存里试解析本机的 Claude Code / Codex 会话，只输出数量与开头类别（改了会话导入的必跑）；
-  - `node_modules/.bin/jiti scripts/real/hermes-ask.ts "问题一" "问题二"`：真 Hermes、临时空库、合成的问题（改了发给模型的提示词或约定的必跑，该触发的、不该触发的都要问到）；
+  - `node scripts/real/run-batch.mjs scripts/real/agent-sessions.ts`：在内存里试解析本机的 Claude Code / Codex 会话，只输出数量与开头类别（改了会话导入的必跑）；
+  - `node scripts/real/run-batch.mjs scripts/real/hermes-ask.ts -- "问题一" "问题二"`（`--` 后面的原样传给脚本）：真 Hermes、临时空库、合成的问题（改了发给模型的提示词或约定的必跑，该触发的、不该触发的都要问到）；
+  - `.ts` 脚本一律经 `scripts/real/run-batch.mjs` 跑：新建的工作目录里没有 `node_modules/.bin/jiti`，跑批器会自己找（Q1 加的）；它还清掉宿主带进来的 `ELECTRON_RUN_AS_NODE`、把输出落进 `.logs/`。
   - 界面：设环境变量 `IXAEON_DATA_DIR=<临时目录>` 启动应用，用合成数据点一遍，描述或截图。
   - 没跑就写没跑，**没跑的不能合并**。
 - 交付说明写进 `docs/委派/交付/<任务号>.md`（模板见 [该目录的 README](docs/委派/交付/README.md)），随分支提交；
