@@ -22,6 +22,7 @@ import {
   appendFileSync,
   createWriteStream,
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   writeFileSync,
@@ -46,28 +47,60 @@ if (scripts.length === 0) {
   throw new Error('用法：node scripts/real/run-batch.mjs [--timeout 毫秒] <脚本> [<脚本> ...]');
 }
 
-/** jiti 的 CLI 路径：`.bin` 里没有就从 `.pnpm` 里找（jiti 不是根依赖）。 */
+/** jiti 的 CLI 路径：一定要拿到 **真正的 JS 入口**（`.bin/jiti.cmd` 是批处理包装，
+ *  交给 node 解析会直接失败）。先找 `.pnpm/jiti@*`，再退到提升到根上的 `node_modules/jiti`。 */
 function findJiti() {
-  const direct = join('node_modules', '.bin', process.platform === 'win32' ? 'jiti.cmd' : 'jiti');
-  if (existsSync(direct)) return direct;
+  const candidates = [];
   try {
-    const dir = readdirSync(join('node_modules', '.pnpm')).find((d) => d.startsWith('jiti@'));
-    if (!dir) return null;
-    return resolve(
-      join('node_modules', '.pnpm', dir, 'node_modules', 'jiti', 'lib', 'jiti-cli.mjs'),
-    );
+    for (const dir of readdirSync(join('node_modules', '.pnpm'))) {
+      if (dir.startsWith('jiti@')) {
+        candidates.push(
+          resolve(
+            join('node_modules', '.pnpm', dir, 'node_modules', 'jiti', 'lib', 'jiti-cli.mjs'),
+          ),
+        );
+      }
+    }
   } catch {
-    return null;
+    /* 没有 .pnpm 就试下面的 */
   }
+  candidates.push(resolve(join('node_modules', 'jiti', 'lib', 'jiti-cli.mjs')));
+  return candidates.find((p) => existsSync(p)) ?? null;
 }
 
-const jiti = scripts.some((s) => s.endsWith('.ts')) ? findJiti() : null;
-if (scripts.some((s) => s.endsWith('.ts')) && !jiti) {
+const wantsTs = scripts.some((s) => s.endsWith('.ts'));
+const jiti = wantsTs ? findJiti() : null;
+if (wantsTs && !jiti) {
   throw new Error(
-    '要跑 .ts 脚本，但没找到 jiti（node_modules/.bin/jiti 与 node_modules/.pnpm/jiti@* 都没有）',
+    '要跑 .ts 脚本，但没找到 jiti 的 CLI（node_modules/.pnpm/jiti@*/node_modules/jiti/lib/jiti-cli.mjs 与 node_modules/jiti/lib/jiti-cli.mjs 都没有）',
   );
 }
 
+/** 跑之前核对数据目录（规格第 2 步）：起应用的脚本必须自己设 IXAEON_DATA_DIR，否则不许跑。 */
+function checkDataDir(script) {
+  let src = '';
+  try {
+    src = readFileSync(script, 'utf8');
+  } catch {
+    throw new Error(`读不到脚本源码：${script}`);
+  }
+  const launchesApp = /electron\.launch/.test(src);
+  const setsDataDir = /IXAEON_DATA_DIR/.test(src);
+  const usesTemp = /mkdtempSync/.test(src);
+  if (launchesApp && !setsDataDir) {
+    throw new Error(
+      `${script} 会起应用但没设 IXAEON_DATA_DIR（默认数据目录是用户的真实数据），拒绝运行`,
+    );
+  }
+  if (!launchesApp && !usesTemp) {
+    throw new Error(`${script} 既不起应用也没有 mkdtempSync 临时目录，拒绝运行`);
+  }
+  return launchesApp
+    ? '起应用=是，IXAEON_DATA_DIR=有'
+    : `起应用=否，临时目录当参数传（mkdtempSync=${usesTemp ? '有' : '无'}）`;
+}
+
+mkdirSync('.logs', { recursive: true });
 const summaryPath = resolve('.logs', 'run-batch-summary.md');
 writeFileSync(
   summaryPath,
@@ -78,11 +111,13 @@ writeFileSync(
 const rows = [];
 for (const script of scripts) {
   const isTs = script.endsWith('.ts');
+  const dataDirNote = checkDataDir(script);
   const outPath = resolve('.logs', `${basename(script)}.out`);
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
 
   console.log(`\n===== ${script} =====`);
+  console.log(`[runner] 数据目录核对：${dataDirNote}`);
   const out = createWriteStream(outPath);
   const code = await new Promise((done) => {
     const child = spawn(process.execPath, isTs ? [jiti, script] : [script], {
@@ -103,12 +138,14 @@ for (const script of scripts) {
       console.log('[runner] 超时，杀进程');
       child.kill('SIGKILL');
     }, timeoutMs);
-    child.on('exit', (c, sig) => {
+    // 等 close（不是 exit）：close 之后 stdout/stderr 已经收完，才不会漏掉最后的 RESULT 行
+    child.on('close', (c, sig) => {
       clearTimeout(timer);
       done(timedOut ? 124 : (c ?? (sig ? 125 : 1)));
     });
   });
-  out.end();
+  // 等日志流真正落盘再读（否则读到的是半截）
+  await new Promise((done) => out.end(done));
 
   let text = '';
   try {

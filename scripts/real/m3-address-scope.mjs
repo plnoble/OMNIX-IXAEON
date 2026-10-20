@@ -12,6 +12,40 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// 打印遮掉本机账户名与临时目录（照 scripts/real/p5-unbind-folder.mjs 的规矩；真机输出会进交付说明）
+// 出错时打印的 err.message 可能带绝对路径（ENOENT … open 'C:\Users\<账户名>\…'），所以也走遮罩。
+const maskOut = (v) => {
+  let text;
+  if (typeof v === 'string') text = v;
+  else if (v instanceof Error) text = v.stack ?? v.message;
+  else {
+    try {
+      const json = JSON.stringify(v);
+      text = json === undefined ? String(v) : json;
+    } catch {
+      text = String(v);
+    }
+  }
+  let s = text;
+  for (const p of [
+    process.env.TEMP,
+    process.env.TMP,
+    process.env.USERPROFILE,
+    process.env.LOCALAPPDATA,
+    process.env.APPDATA,
+  ]) {
+    if (!p || !p.trim()) continue;
+    s = s.replaceAll(p, '<本机>');
+    const escaped = JSON.stringify(p).slice(1, -1);
+    if (escaped !== p) s = s.replaceAll(escaped, '<本机>');
+  }
+  return s;
+};
+for (const k of ['log', 'error', 'warn']) {
+  const orig = console[k].bind(console);
+  console[k] = (...a) => orig(...a.map(maskOut));
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
 const desktopApp = join(root, 'apps', 'desktop');
