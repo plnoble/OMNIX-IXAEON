@@ -69,7 +69,8 @@ export async function runTurn(
   const role = config.roles[turn.role];
   const dir = join(opts.dataDir, 'turns', String(opts.turnNumber));
   const promptPath = writeTurnPrompt(turn, { dataDir: opts.dataDir, turnNumber: opts.turnNumber });
-  const argv = role.argv.map((a) => (a === '{prompt_file}' ? promptPath : a));
+  // 整合方改：嵌在参数里的也换（真 Claude 要写成 -p "读 {prompt_file} 照做"）
+  const argv = role.argv.map((a) => a.split('{prompt_file}').join(promptPath));
   const child = spawn(argv[0]!, argv.slice(1), {
     cwd: role.cwd,
     windowsHide: true,
@@ -114,7 +115,7 @@ export async function runTurn(
     exitCode: timedOut ? null : code,
     timedOut,
     quotaHit,
-    doneLine: lines.find((l) => l.startsWith('RELAY-DONE')) ?? null,
+    doneLine: lines.findLast((l) => l.startsWith('RELAY-DONE')) ?? null, // 交代要的是最后一行
     usage: usageOf(out),
   };
 }

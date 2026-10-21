@@ -325,6 +325,20 @@ describe('条件 5 / 9：命令与记账', () => {
     expect(ledgerRows(s.dataDir)).toHaveLength(2);
   });
 
+  // 整合方补（2026-10-21，复审实现时）：relay run 越界之后要退出，不能空转
+  it('relay run：越界之后停下、退出（只跑了那一棒）', () => {
+    const s = setupCli({ queue: QUEUE_RUNNING, devMode: 'merge-b', pauseIntegrator: true });
+    const r = relay(s.dataDir, ['run']);
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    const rows = ledgerRows(s.dataDir);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.violations).toContain('b-tier-merged-by-developer');
+    const state = JSON.parse(readFileSync(join(s.dataDir, 'state.json'), 'utf8')) as {
+      stoppedReason?: string | null;
+    };
+    expect(state.stoppedReason).toContain('b-tier-merged-by-developer');
+  });
+
   it('relay run --exit-when-idle：开发领 → 整合方完成 → 队列空了就退出', () => {
     const s = setupCli({ queue: QUEUE_ONE_TODO, devMode: 'dev-claim', integMode: 'integ-done' });
     const r = relay(s.dataDir, ['run', '--exit-when-idle']);

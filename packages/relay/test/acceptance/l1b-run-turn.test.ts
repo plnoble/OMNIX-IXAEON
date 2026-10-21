@@ -60,6 +60,14 @@ const STUB = [
   '} else if (mode === "tokens") {',
   '  say(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 100, output_tokens: 20 } }));',
   '  say(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 5, output_tokens: 3 } }));',
+  '} else if (mode === "twodone") {',
+  '  say("先照抄一遍交代：RELAY-DONE 60 <这一行现在的状态>");',
+  '  say("RELAY-DONE 60 进行中（dev）");',
+  '  say("又做了一点");',
+  '  say("RELAY-DONE 60 待复审（整合方）");',
+  '} else if (mode === "quota-stderr") {',
+  '  console.error("ERROR: usage_limit_reached");',
+  '  process.exit(1);',
   '} else if (mode === "quota") {',
   '  say("usage_limit_reached: session limit");',
   '  process.exit(3);',
@@ -158,6 +166,30 @@ describe('条件 5：替身收到真路径、在配置的 cwd 里跑、输出落
   });
 });
 
+// 整合方补（2026-10-21，复审实现时）：嵌在参数里的 {prompt_file} 也要换；RELAY-DONE 取最后一行
+describe('条件 5（整合方补）：参数里嵌着的 {prompt_file}、最后一行 RELAY-DONE', () => {
+  it('参数是「file={prompt_file}」→ 替身收到「file=<真路径>」', async () => {
+    const s = setup('ok');
+    s.config.roles.developer.argv = [
+      process.execPath,
+      s.stub,
+      'file={prompt_file}',
+      '--mode',
+      'ok',
+    ];
+    const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 8 });
+    const stdout = readFileSync(result.stdoutPath, 'utf8');
+    const first = JSON.parse(stdout.split('\n')[0]!) as { promptFile: string };
+    expect(first.promptFile).toBe(`file=${result.promptPath}`);
+  });
+
+  it('输出里有几行 RELAY-DONE → 取最后一行（交代里要的是最后一行）', async () => {
+    const s = setup('twodone');
+    const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 9 });
+    expect(result.doneLine).toBe('RELAY-DONE 60 待复审（整合方）');
+  });
+});
+
 describe('条件 6：超时连子进程一起杀', () => {
   it('替身拉起子进程后一直不退 → 超时后两个进程都不在了，timedOut: true', async () => {
     const s = setup('timeout');
@@ -218,6 +250,14 @@ describe('条件 7：额度字样 → 那个角色歇到点', () => {
     const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 7 });
     expect(result.quotaHit).toBe(false);
     expect(s.state.pausedUntil.developer).toBeUndefined();
+  });
+
+  // 整合方补（2026-10-21，复审实现时）：Codex 这类命令行把额度错误打在错误输出里
+  it('额度字样只出现在错误输出里 → 也算撞上', async () => {
+    const s = setup('quota-stderr');
+    const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 10 });
+    expect(result.quotaHit).toBe(true);
+    expect(s.state.pausedUntil.developer).toBeTruthy();
   });
 });
 

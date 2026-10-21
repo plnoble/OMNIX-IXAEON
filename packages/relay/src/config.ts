@@ -26,11 +26,13 @@ export function isInside(child: string, parent: string): boolean {
 /** 共用检出目录 = git 认的主检出（`git worktree list` 第一条），不是当前工作目录。 */
 export function findSharedCheckout(): string {
   const out = git(process.cwd(), ['rev-parse', '--path-format=absolute', '--git-common-dir']).out;
-  return out ? dirname(out) : resolve(process.cwd());
+  // 整合方改：找不到就返回空，由 checkConfig 拒绝启动（原来退回当前目录，等于没拦）
+  return out ? resolve(dirname(out)) : '';
 }
 
 export function checkConfig(config: RelayConfig): { ok: true } | { ok: false; reason: string } {
   const shared = findSharedCheckout();
+  if (!shared) return { ok: false, reason: '找不到共用检出目录：要在 IXAEON 仓库里启动' };
   for (const role of ['integrator', 'developer'] as Role[]) {
     const rc = config.roles[role];
     const bad = FORBIDDEN_SWITCHES.find((sw) => rc.argv.some((a) => a.includes(sw)));

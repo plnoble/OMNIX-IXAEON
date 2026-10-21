@@ -457,27 +457,27 @@
     {
       "id": "L1",
       "title": "接力调度器核心：配置检查、定下一棒、交代、核对",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "packages/relay/test/acceptance/l1-next-turn.test.ts": "726caf476580c72bae638c50f6c69a8eb01f07eef6e414b068d30c2933590f0a",
+        "packages/relay/test/acceptance/l1-next-turn.test.ts": "c17107555b50f8e42ffd18093939bc3c2a019fabd4f0b452f21835c5fbc57c41",
         "packages/relay/test/acceptance/l1-prompt.test.ts": "210a7ba5e897b0785b20b2fbc9b236c381182ad3ac6d98d71a98f6557cb6a8f5",
         "packages/relay/test/acceptance/l1-config.test.ts": "0636998945f91c34158bdb6946af5450c2b8e67ef61a01d6f85aec5ef8ac57a7",
-        "packages/relay/test/acceptance/l1-verify.test.ts": "e55afb93ee0262e50a46521e8913a9dc6bd4c39d10874639dc3e990ae1d78dfd"
+        "packages/relay/test/acceptance/l1-verify.test.ts": "890c9d4895d1dfa1ed603cbc3a7ec48c3891b73e7346fe34e013b7851e06d2a4"
       }
     },
     {
       "id": "L1b",
       "title": "接力调度器：跑一棒、用量、记账、命令和锁",
-      "status": "queued",
+      "status": "done",
       "files": {
-        "packages/relay/test/acceptance/l1b-run-turn.test.ts": "fea49f87cecfc00f35bd7ef02b1fe03c35f679534b29b54a015109b7005a199e",
-        "packages/relay/test/acceptance/l1b-commands.test.ts": "f317f97fc40e8f73f254c124a266122f0d63f0e1698db2dc595807be07de96d4"
+        "packages/relay/test/acceptance/l1b-run-turn.test.ts": "9b2650e29dd55e68e22da749d821fd6246184064eeb36a7062b7007b2011b941",
+        "packages/relay/test/acceptance/l1b-commands.test.ts": "d0d0588b62449ccb81d78bbe838ce5fcc7f315003137a884f6ee5054737731aa"
       }
     },
     {
       "id": "L3",
       "title": "飞书汇报",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l3-format.test.ts": "42a08c4fe411d87381fdfbc17726c54917c8e1ec98f144ad5d774d89bd8edb95",
         "packages/relay/test/acceptance/l3-send.test.ts": "4611cbac4bf3de0b4c3dfd3ebcee91e184dbcdd37190ebfcdf835c5c96836f06",

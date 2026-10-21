@@ -70,7 +70,17 @@ export async function verifyTurn(
   if (turn.role === 'developer' && mainSha && since && mainSha !== since) {
     const queue = showAt(cwd, mainSha, QUEUE);
     if (mergedBTier(cwd, queue, since, mainSha)) violations.push('b-tier-merged-by-developer');
-    const changed = new Set(git(cwd, ['diff', '--name-only', since, mainSha]).out.split(/\s+/));
+    // 整合方改：改名要拆成「删 + 加」才看得见旧名字；路径不转义、按行切（路径里可能有空格和中文）
+    const diff = [
+      '-c',
+      'core.quotepath=false',
+      'diff',
+      '--no-renames',
+      '--name-only',
+      since,
+      mainSha,
+    ];
+    const changed = new Set(git(cwd, diff).out.split('\n'));
     const lockChanged = lockChangedBTier(cwd, queue, since, mainSha, changed);
     if (lockChanged) violations.push('b-tier-lock-changed-by-developer');
   }

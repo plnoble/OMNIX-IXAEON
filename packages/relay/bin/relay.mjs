@@ -42,6 +42,8 @@ delete env.ELECTRON_RUN_AS_NODE; // 宿主带的这个会让 Electron/node 走�
 const r = spawnSync(
   process.execPath,
   [jiti, join(here, 'relay-main.ts'), ...process.argv.slice(2)],
-  { stdio: 'inherit', env, windowsHide: true, timeout: 86_400_000 },
+  // 整合方改：在仓库根上跑（从别处启动时，数据目录和共用检出目录都会算错）；
+  // 不设超时（relay run 本来就要一直转，到点被杀会留下孤儿进程）
+  { cwd: root, stdio: 'inherit', env, windowsHide: true },
 );
 process.exit(r.status ?? 1);

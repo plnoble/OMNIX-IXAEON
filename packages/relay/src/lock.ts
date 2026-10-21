@@ -7,8 +7,9 @@ const alive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    // 整合方改：别的用户的进程会报 EPERM——它活着
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
   }
 };
 export interface LockInfo {

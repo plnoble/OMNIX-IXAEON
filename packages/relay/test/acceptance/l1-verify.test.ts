@@ -214,6 +214,16 @@ describe('条件 9：越界怎么认', () => {
     expect(r.violations).toContain('local-user');
   });
 
+  // 整合方补（2026-10-21，复审实现时）：git diff 默认把改名算成改名、只列新名字
+  it('开发把 B 档的锁定测试改名挪走（git mv）→ 越界', async () => {
+    const s = setup();
+    commitAndPush(s.dev, 'L0b：挪一下测试', (c) => {
+      git(c, ['mv', B_LOCK_FILE, 'packages/relay/test/acceptance/l0b-moved.test.ts']);
+    });
+    const r = await verifyTurn(s.turn, s.config(false), s.state);
+    expect(r.violations).toContain('b-tier-lock-changed-by-developer');
+  });
+
   it('origin/main 一点没动 → 一条越界也没有', async () => {
     const s = setup();
     const r = await verifyTurn(s.turn, s.config(false), s.state);
