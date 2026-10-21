@@ -12,7 +12,7 @@
  * 全是临时仓库和合成文件，不调模型。
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -45,6 +45,7 @@ const QUEUE = [
   '| ---- | ---- | ------------ | ---- | ---- | ---- |',
   '| 59 | L0b 补完三个命令行的实验 | [L0b](L0b.md) | B | 无 | 待复审（整合方） |',
   '| 60 | L1 接力调度器核心 | [L1](L1.md) | A | 无 | 进行中（dev） |',
+  '| 62 | L3 飞书汇报 | [L3](L3.md) | B | 无 | 测试待审（整合方） |',
   '',
 ].join('\n');
 
@@ -112,6 +113,11 @@ function setup() {
   git(clone, ['commit', '-m', '初始合成仓库']);
   git(clone, ['push', 'origin', 'HEAD:main']);
   const baseSha = git(clone, ['rev-parse', 'origin/main']);
+  // 整合方补：开发在自己的目录里提交、推送（和真的一样），整合方的目录不会自己变——核对得先拉一下
+  const dev = join(root, 'dev');
+  git(root, ['clone', origin, dev]);
+  git(dev, ['config', 'user.email', 'dev@example.invalid']);
+  git(dev, ['config', 'user.name', 'dev']);
 
   const config = (checkFails: boolean): RelayConfig => ({
     roles: {
@@ -124,7 +130,7 @@ function setup() {
       },
       developer: {
         argv: ['unused'],
-        cwd: clone,
+        cwd: dev,
         timeoutMinutes: 60,
         quotaPatterns: [],
         quotaPauseMinutes: 10,
@@ -147,7 +153,7 @@ function setup() {
     turns: 1,
     mainShaAtTurnStart: baseSha,
   };
-  return { root, clone, config, turn, state, baseSha, sha };
+  return { root, clone, dev, config, turn, state, baseSha, sha };
 }
 
 /** 这一棒里干的事：改点东西、提交、推到 origin/main。 */
@@ -161,7 +167,7 @@ function commitAndPush(clone: string, message: string, change: (c: string) => vo
 describe('条件 9：越界怎么认', () => {
   it('开发这一棒「并入 L0b」（B 档）→ b-tier-merged-by-developer', async () => {
     const s = setup();
-    commitAndPush(s.clone, '并入 L0b：补完实验', (c) =>
+    commitAndPush(s.dev, '并入 L0b：补完实验', (c) =>
       writeFileSync(join(c, 'docs', '委派', '笔记.md'), '并入的一笔\n', 'utf8'),
     );
     const r = await verifyTurn(s.turn, s.config(false), s.state);
@@ -170,7 +176,7 @@ describe('条件 9：越界怎么认', () => {
 
   it('开发这一棒「并入 L1」（A 档）→ 不越界', async () => {
     const s = setup();
-    commitAndPush(s.clone, '并入 L1：接力调度器核心', (c) =>
+    commitAndPush(s.dev, '并入 L1：接力调度器核心', (c) =>
       writeFileSync(join(c, 'docs', '委派', '笔记.md'), '并入的一笔\n', 'utf8'),
     );
     const r = await verifyTurn(s.turn, s.config(false), s.state);
@@ -179,7 +185,7 @@ describe('条件 9：越界怎么认', () => {
 
   it('开发这一棒改了 B 档任务的锁定指纹 → b-tier-lock-changed-by-developer', async () => {
     const s = setup();
-    commitAndPush(s.clone, 'L0b：顺手改了测试', (c) =>
+    commitAndPush(s.dev, 'L0b：顺手改了测试', (c) =>
       writeFileSync(join(c, B_LOCK_FILE), '// L0b 的锁定验收测试：被改了\n', 'utf8'),
     );
     const r = await verifyTurn(s.turn, s.config(false), s.state);
@@ -188,7 +194,7 @@ describe('条件 9：越界怎么认', () => {
 
   it('改的是 A 档任务的锁定指纹 → 不越界', async () => {
     const s = setup();
-    commitAndPush(s.clone, 'L1：改了测试', (c) =>
+    commitAndPush(s.dev, 'L1：改了测试', (c) =>
       writeFileSync(join(c, A_LOCK_FILE), '// L1 的锁定验收测试：被改了\n', 'utf8'),
     );
     const r = await verifyTurn(s.turn, s.config(false), s.state);
@@ -217,10 +223,126 @@ describe('条件 9：越界怎么认', () => {
 
   it('同一个文件被改了、但锁定清单里没登记它 → 不算越界', async () => {
     const s = setup();
-    commitAndPush(s.clone, '随手改了个没锁的文件', (c) =>
+    commitAndPush(s.dev, '随手改了个没锁的文件', (c) =>
       writeFileSync(join(c, 'docs', '委派', '别的.md'), '没登记过\n', 'utf8'),
     );
     const r = await verifyTurn(s.turn, s.config(false), s.state);
+    expect(r.violations).toEqual([]);
+  });
+});
+
+/** 改锁定清单里某个任务的那一条（开发在自己的目录里改）。 */
+const editLock = (c: string, edit: (tasks: Array<Record<string, unknown>>) => void) => {
+  const p = join(c, LOCK_FILE);
+  const j = JSON.parse(readFileSync(p, 'utf8')) as { tasks: Array<Record<string, unknown>> };
+  edit(j.tasks);
+  writeFileSync(p, `${JSON.stringify(j, null, 2)}\n`, 'utf8');
+};
+
+// 整合方补（2026-10-21）：规格第 8 条「开发这一棒」「锁定指纹在这一棒里变了」的几种走法
+describe('条件 9（整合方补）：开发的几种越界走法，和整合方那一棒不算', () => {
+  it('并入 B 档的那一笔不是最后一笔（后面又提交了别的）→ 照样认出来', async () => {
+    const s = setup();
+    commitAndPush(s.dev, '并入 L0b：补完实验', (c) =>
+      writeFileSync(join(c, 'docs', '委派', '笔记.md'), '并入的一笔\n', 'utf8'),
+    );
+    commitAndPush(s.dev, '队列：标成已完成', (c) =>
+      writeFileSync(join(c, 'docs', '委派', '笔记.md'), '又一笔\n', 'utf8'),
+    );
+    const r = await verifyTurn(s.turn, s.config(false), s.state);
+    expect(r.violations).toContain('b-tier-merged-by-developer');
+  });
+
+  it('并入 B 档任务的第二支（「并入 L3b」，队列里还是 L3 那一行）→ 越界', async () => {
+    const s = setup();
+    commitAndPush(s.dev, '并入 L3b：飞书汇报第二支', (c) =>
+      writeFileSync(join(c, 'docs', '委派', '笔记.md'), '第二支\n', 'utf8'),
+    );
+    const r = await verifyTurn(s.turn, s.config(false), s.state);
+    expect(r.violations).toContain('b-tier-merged-by-developer');
+  });
+
+  it('并入 A 档任务的第二支（「并入 L1b」）→ 不越界', async () => {
+    const s = setup();
+    commitAndPush(s.dev, '并入 L1b：调度器第二支', (c) =>
+      writeFileSync(join(c, 'docs', '委派', '笔记.md'), '第二支\n', 'utf8'),
+    );
+    const r = await verifyTurn(s.turn, s.config(false), s.state);
+    expect(r.violations).toEqual([]);
+  });
+
+  it('开发自己把 B 档重锁了一遍（测试和清单里的指纹一起改，指纹对得上）→ 越界', async () => {
+    const s = setup();
+    commitAndPush(s.dev, 'L0b：重锁测试', (c) => {
+      writeFileSync(join(c, B_LOCK_FILE), '// L0b 的锁定验收测试：放宽了\n', 'utf8');
+      editLock(c, (tasks) => {
+        const t = tasks.find((x) => x.id === 'L0b')!;
+        t.files = { [B_LOCK_FILE]: s.sha(B_LOCK_FILE) };
+      });
+    });
+    const r = await verifyTurn(s.turn, s.config(false), s.state);
+    expect(r.violations).toContain('b-tier-lock-changed-by-developer');
+  });
+
+  it('开发自己把 B 档标成 done（acceptance.mjs done，只改了清单里的状态）→ 越界', async () => {
+    const s = setup();
+    commitAndPush(s.dev, '并入 X：顺手 done 了 L0b', (c) =>
+      editLock(c, (tasks) => {
+        tasks.find((x) => x.id === 'L0b')!.status = 'done';
+      }),
+    );
+    const r = await verifyTurn(s.turn, s.config(false), s.state);
+    expect(r.violations).toContain('b-tier-lock-changed-by-developer');
+  });
+
+  it('开发自己在 main 上锁了一个 B 档任务的测试（清单里新添一条 L3）→ 越界', async () => {
+    const s = setup();
+    commitAndPush(s.dev, 'L3：锁测试', (c) => {
+      writeFileSync(join(c, 'packages', 'relay', 'test', 'acceptance', 'l3-x.test.ts'), '// x\n');
+      editLock(c, (tasks) => {
+        tasks.push({
+          id: 'L3',
+          title: '飞书汇报',
+          status: 'queued',
+          files: { 'packages/relay/test/acceptance/l3-x.test.ts': 'abc' },
+        });
+      });
+    });
+    const r = await verifyTurn(s.turn, s.config(false), s.state);
+    expect(r.violations).toContain('b-tier-lock-changed-by-developer');
+  });
+
+  it('整合方那一棒并了 B 档、改了 B 档的锁定 → 都不算越界（那是整合方的活）', async () => {
+    const s = setup();
+    commitAndPush(s.dev, '并入 L0b：整合方复审后并入', (c) => {
+      writeFileSync(join(c, B_LOCK_FILE), '// L0b 的锁定验收测试：整合方改严了\n', 'utf8');
+      editLock(c, (tasks) => {
+        const t = tasks.find((x) => x.id === 'L0b')!;
+        t.files = { [B_LOCK_FILE]: s.sha(B_LOCK_FILE) };
+        t.status = 'done';
+      });
+    });
+    const asIntegrator: Turn = {
+      role: 'integrator',
+      kind: 'integrator-review',
+      taskId: '59',
+      task: 'L0b 补完三个命令行的实验',
+      status: '待复审（整合方）',
+    };
+    const r = await verifyTurn(asIntegrator, s.config(false), s.state);
+    expect(r.violations).toEqual([]);
+  });
+
+  it('开发那一棒之前就已经在 main 上的「并入 L0b」不算这一棒的', async () => {
+    const s = setup();
+    commitAndPush(s.dev, '并入 L0b：上一棒整合方并的', (c) =>
+      writeFileSync(join(c, 'docs', '委派', '笔记.md'), '上一棒\n', 'utf8'),
+    );
+    const start = git(s.dev, ['rev-parse', 'HEAD']);
+    commitAndPush(s.dev, 'L1：开发这一棒的提交', (c) =>
+      writeFileSync(join(c, 'docs', '委派', '笔记.md'), '这一棒\n', 'utf8'),
+    );
+    const r = await verifyTurn(s.turn, s.config(false), { ...s.state, mainShaAtTurnStart: start });
     expect(r.violations).toEqual([]);
   });
 });

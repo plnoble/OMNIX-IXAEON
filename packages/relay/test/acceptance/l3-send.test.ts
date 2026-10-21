@@ -16,7 +16,7 @@
 import { createHmac } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { sendFeishu } from '../../src/index.js';
+import { sendFeishu } from '../../src/notify/feishu.js';
 
 interface Recorded {
   body: Record<string, unknown>;
@@ -115,6 +115,19 @@ describe('条件 3 / 4：成功、重试、失败都不抛错', () => {
     expect(elapsed).toBeGreaterThanOrEqual(6_000);
   }, 60_000);
 
+  // 整合方补（2026-10-21）：HTTP 不是 2xx 就算失败，哪怕回的正文是 code 0；回的正文里没有 code 也算失败、不抛错
+  it('HTTP 502 + code 0、HTTP 200 + 正文里没有 code → 都算失败要重试；第三次成功', async () => {
+    const fake = await startFakeFeishu([
+      { status: 502, json: { code: 0 } },
+      { json: '<html>网关错误</html>' },
+      { json: { code: 0 } },
+    ]);
+    cleanups.push(fake.close);
+    const r = await sendFeishu('二点五', { webhookUrl: fake.url, secret: SECRET });
+    expect(r).toEqual({ ok: true });
+    expect(fake.requests).toHaveLength(3);
+  }, 60_000);
+
   it('三次都失败 → { ok: false }、一共 3 次、没有抛错', async () => {
     const fake = await startFakeFeishu([{ json: { code: 19021, msg: 'invalid signature' } }]);
     cleanups.push(fake.close);
@@ -129,7 +142,13 @@ describe('条件 3 / 4：成功、重试、失败都不抛错', () => {
     await fake.close();
     const r = await sendFeishu('四', { webhookUrl: url, secret: SECRET });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(typeof r.error).toBe('string');
+    if (!r.ok) {
+      expect(typeof r.error).toBe('string');
+      // 整合方补（2026-10-21）：连不上时的错误文字也不许带地址（网络错误的原文里常带着目标地址）
+      expect(r.error).not.toContain(url);
+      expect(r.error).not.toContain('synthetic-hook');
+      expect(r.error).not.toContain(SECRET);
+    }
   }, 60_000);
 });
 

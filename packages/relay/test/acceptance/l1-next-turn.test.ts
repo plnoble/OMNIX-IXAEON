@@ -97,6 +97,46 @@ describe('条件 1：定下一棒的次序', () => {
     });
   });
 
+  // 整合方补：次序按「哪一种」排，不按表里的先后
+  it('待复审那一行排在表的最后，也先给整合方；「进行中」排在「待领」后面，也先于「待领」', () => {
+    const reordered = queue([
+      row('3', 'L3 待领的一行', 'A', '无', '待领'),
+      row('2', 'L2 进行中的一行', 'A', '无', '进行中（dev）'),
+      row('1', 'L1 待复审的一行', 'B', '无', '待复审（整合方）'),
+    ]);
+    expect(asTurn(decideNextTurn(reordered, state(), NOW))).toMatchObject({
+      kind: 'integrator-review',
+      taskId: '1',
+    });
+    const paused = state({ pausedUntil: { integrator: '2026-10-21T12:00:00+08:00' } });
+    expect(asTurn(decideNextTurn(reordered, paused, NOW))).toMatchObject({
+      kind: 'developer-continue',
+      taskId: '2',
+    });
+  });
+
+  // 整合方补：规格第 4 条列的另外两种状态
+  it('「测试待审（整合方）」也给整合方；「待审（Codex 额度）」算开发接着做', () => {
+    const md = queue([
+      row('3', 'L3 待领的一行', 'A', '无', '待领'),
+      row('2', 'L2 等 Codex 额度', 'A', '无', '待审（Codex 额度）'),
+      row('1', 'L1 测试等整合方', 'B', '无', '测试待审（整合方）'),
+    ]);
+    expect(asTurn(decideNextTurn(md, state(), NOW))).toMatchObject({
+      role: 'integrator',
+      kind: 'integrator-review',
+      taskId: '1',
+      status: '测试待审（整合方）',
+    });
+    const paused = state({ pausedUntil: { integrator: '2026-10-21T12:00:00+08:00' } });
+    expect(asTurn(decideNextTurn(md, paused, NOW))).toMatchObject({
+      role: 'developer',
+      kind: 'developer-continue',
+      taskId: '2',
+      status: '待审（Codex 额度）',
+    });
+  });
+
   it('两个角色都在歇着 → 谁也不给（all-paused）', () => {
     const both = state({
       pausedUntil: {
@@ -131,14 +171,18 @@ describe('条件 2：依赖怎么算', () => {
     ]);
     expect(asTurn(decideNextTurn(done, state(), NOW)).taskId).toBe('1');
 
-    // 依赖的那行还在做（不是「已完成」）→ 这一行跳过，去看下一行能领的
+    // 依赖的那行还没做完（不是「已完成」）→ 这一行跳过，去看下一行能领的
+    // （整合方改：原来把开发设成歇着、又要开发去领第 3 行，自相矛盾；改成依赖那行等整合方、整合方歇着）
     const depRunning = queue([
-      row('1', 'L1 依赖 L2（还在做）', 'B', 'L2', '待领'),
-      row('2', 'L2 还在做', 'B', '无', '进行中（dev）'),
+      row('1', 'L1 依赖 L2（还没做完）', 'B', 'L2', '待领'),
+      row('2', 'L2 等整合方看测试', 'B', '无', '测试待审（整合方）'),
       row('3', 'L3 没依赖', 'A', '无', '待领'),
     ]);
-    const pausedDev = state({ pausedUntil: { developer: '2026-10-21T12:00:00+08:00' } });
-    expect(asTurn(decideNextTurn(depRunning, pausedDev, NOW)).taskId).toBe('3');
+    const pausedInteg = state({ pausedUntil: { integrator: '2026-10-21T12:00:00+08:00' } });
+    expect(asTurn(decideNextTurn(depRunning, pausedInteg, NOW))).toMatchObject({
+      kind: 'developer-claim',
+      taskId: '3',
+    });
     // 只把第 1 行留下：依赖没完成 → 没得领，也没别的活
     const onlyBlocked = queue([
       row('1', 'L1 依赖 L2（没做完）', 'B', 'L2', '待领'),
@@ -158,6 +202,31 @@ describe('条件 2：依赖怎么算', () => {
       row('9', 'L9 还没领', 'B', '无', '待领'),
     ]);
     expect(asTurn(decideNextTurn(half, state(), NOW)).taskId).toBe('9');
+    // 整合方补：全角「，」也要切开（L9 没做完 → 第 1 行不给）
+    const fullWidth = queue([
+      row('1', 'L1 两个依赖', 'B', 'P5 ✅，L9', '待领'),
+      row('9', 'L9 还没领', 'B', '无', '待领'),
+    ]);
+    expect(asTurn(decideNextTurn(fullWidth, state(), NOW)).taskId).toBe('9');
+    // 整合方补：带勾的排在前面、不带勾的排在后面——不切开的话整串既不以 ✅ 结尾、也找不到任务号
+    for (const deps of ['P5 ✅, L2', 'P5 ✅，L2', 'P5 ✅、L2']) {
+      const both = queue([
+        row('1', 'L1 两个依赖', 'B', deps, '待领'),
+        row('2', 'L2 做完了', 'B', '无', '已完成（2026-10-21）'),
+      ]);
+      expect(asTurn(decideNextTurn(both, state(), NOW)).taskId, deps).toBe('1');
+    }
+  });
+
+  // 整合方补：表里找不到的依赖不算完成
+  it('依赖的任务号在主表里找不到 → 不算完成，这一行不给', () => {
+    const md = queue([
+      row('1', 'L1 依赖一个不存在的', 'B', 'Z9', '待领'),
+      row('2', 'L2 没依赖', 'A', '无', '待领'),
+    ]);
+    expect(asTurn(decideNextTurn(md, state(), NOW)).taskId).toBe('2');
+    const only = queue([row('1', 'L1 依赖一个不存在的', 'B', 'Z9', '待领')]);
+    expect(asIdle(decideNextTurn(only, state(), NOW)).idle).toBe('all-blocked');
   });
 
   it('全被依赖挡着 → all-blocked', () => {

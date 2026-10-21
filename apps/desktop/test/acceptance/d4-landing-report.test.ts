@@ -35,6 +35,10 @@ import {
 import { AppRuntime } from '../../src/main/appRuntime.js';
 import { registerIpc } from '../../src/main/ipc.js';
 
+// 2026-10-21 整合方改（Q2 查出来的偶发）：vi.waitFor 默认 1 秒就判超时，机器一忙，落库那几步就会超过 1 秒。
+// 等的条件一条没改，只给一个 10 秒的上限（规格 Q2：「等条件成立（带上限）」）。
+const waitFor = <T>(fn: () => T | Promise<T>) => vi.waitFor(fn, { timeout: 10_000, interval: 50 });
+
 vi.mock('electron', () => ({
   app: {},
   BrowserWindow: {},
@@ -200,7 +204,7 @@ describe('接受之后把落地结果回报给原对话', () => {
       files: { 'note.txt': '改过了' },
     });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
+    await waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
     const before = reports(conversationId);
     expect(before.length).toBeGreaterThan(0); // D3 的「等你验收」回报已在
     await h.runtime.acceptCodingTask(taskId);
@@ -230,7 +234,7 @@ describe('接受之后把落地结果回报给原对话', () => {
       files: { 'note.txt': '改过了' },
     });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
+    await waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
     const before = reports(conversationId);
     await h.runtime.acceptCodingTask(taskId);
     const all = reports(conversationId);
@@ -251,7 +255,7 @@ describe('接受之后把落地结果回报给原对话', () => {
       files: { 'note.txt': '改过了' },
     });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
+    await waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
     // 派发之后、接受之前，你在项目里提交了同一个文件 → 建分支被冲突挡下
     writeFileSync(join(h.root, 'note.txt'), '你先提交的');
     execFileSync('git', ['add', 'note.txt'], { cwd: h.root });
@@ -283,7 +287,7 @@ describe('接受之后把落地结果回报给原对话', () => {
       files: {},
     });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
+    await waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
     const before = reports(conversationId);
     await h.runtime.acceptCodingTask(taskId);
     const all = reports(conversationId);
@@ -302,7 +306,7 @@ describe('接受之后把落地结果回报给原对话', () => {
       files: { 'note.txt': '改过了' },
     });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
+    await waitFor(() => expect(taskStatus(taskId)).toBe('pending_accept'));
     const before = reports(conversationId);
     vi.mocked(ipcMain.handle).mockClear();
     registerIpc(h.runtime);

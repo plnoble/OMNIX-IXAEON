@@ -13,7 +13,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createNotifier, loadFeishuTarget, type RelayEvent } from '../../src/index.js';
+import {
+  createNotifier,
+  formatEvent,
+  loadFeishuTarget,
+  type RelayEvent,
+} from '../../src/notify/feishu.js';
 
 const SECRET = 'synthetic-secret-not-real';
 const dirs: string[] = [];
@@ -90,6 +95,54 @@ describe('条件 5：同一种事件 30 分钟只发一次', () => {
     expect(fake.bodies).toHaveLength(5);
   }, 60_000);
 
+  // 整合方补（2026-10-21）：发出去的正文就是 formatEvent 那段（规格第 4 条）
+  it('发出去的正文就是 formatEvent 拼出来的那段，别的什么都不带', async () => {
+    const fake = await startFakeFeishu();
+    const n = createNotifier(
+      { webhookUrl: fake.url, secret: SECRET },
+      { sent: {} },
+      { now: () => new Date('2026-10-21T10:00:00+08:00') },
+    );
+    const e: RelayEvent = {
+      kind: 'stopped',
+      reason: '开发这一棒并了 B 档',
+      taskId: '59',
+      task: 'L0b 补完实验',
+    };
+    await n.notify(e);
+    const body = fake.bodies[0] as Record<string, unknown>;
+    expect(body.content).toEqual({ text: formatEvent(e) });
+    expect(Object.keys(body).sort()).toEqual(['content', 'msg_type', 'sign', 'timestamp']);
+  }, 60_000);
+
+  // 整合方补（2026-10-21）：没发出去不能占掉 30 分钟——不然网络抖一下，「停下来了」就半小时发不出去
+  it('发失败了不算发过：下一次同一件事照发', async () => {
+    let ok = false;
+    const bodies: unknown[] = [];
+    const server = createServer((req, res) => {
+      let raw = '';
+      req.on('data', (c) => (raw += c));
+      req.on('end', () => {
+        bodies.push(JSON.parse(raw || '{}'));
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ code: ok ? 0 : 19021 }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    cleanups.push(() => new Promise<void>((r) => server.close(() => r())));
+    const addr = server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    const store = { sent: {} as Record<string, string> };
+    const n = createNotifier({ webhookUrl: `http://127.0.0.1:${port}/x`, secret: SECRET }, store, {
+      now: () => new Date('2026-10-21T10:00:00+08:00'),
+    });
+    const e: RelayEvent = { kind: 'idle', why: 'all-blocked' };
+    const first = await n.notify(e);
+    expect(first.ok).toBe(false);
+    ok = true;
+    expect(await n.notify(e)).toEqual({ ok: true, sent: true });
+  }, 60_000);
+
   it('idle 按 why 分：两种 why 各发一次，各自第二次不发', async () => {
     const fake = await startFakeFeishu();
     const n = createNotifier(
@@ -158,11 +211,38 @@ describe('条件 7：没配置就不发、不抛错', () => {
     });
   });
 
-  it('默认路径（数据目录里的 feishu.json）读不到就是 null，读得到就是地址 + 密钥', () => {
-    const t = loadFeishuTarget();
-    expect(t === null || (typeof t.webhookUrl === 'string' && typeof t.secret === 'string')).toBe(
-      true,
-    );
+  // 整合方改（2026-10-21）：原来这条不带参数直接读默认路径——会去读用户本机真的 feishu.json
+  // （里面是 webhook 地址和密钥）。改成把数据目录指到临时目录再读。
+  it('默认路径是数据目录里的 feishu.json（IXAEON_RELAY_DIR 指到临时目录验）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ixa-l3-cfg-'));
+    dirs.push(dir);
+    const old = process.env.IXAEON_RELAY_DIR;
+    process.env.IXAEON_RELAY_DIR = dir;
+    try {
+      expect(loadFeishuTarget()).toBeNull();
+      writeFileSync(
+        join(dir, 'feishu.json'),
+        `${JSON.stringify({ webhookUrl: 'http://127.0.0.1:1/synthetic', secret: SECRET })}\n`,
+        'utf8',
+      );
+      expect(loadFeishuTarget()).toEqual({
+        webhookUrl: 'http://127.0.0.1:1/synthetic',
+        secret: SECRET,
+      });
+    } finally {
+      if (old === undefined) delete process.env.IXAEON_RELAY_DIR;
+      else process.env.IXAEON_RELAY_DIR = old;
+    }
+  });
+
+  it('feishu.json 坏了（不是 JSON、缺字段）→ 也当没配置（null），不抛错', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ixa-l3-cfg-'));
+    dirs.push(dir);
+    const p = join(dir, 'feishu.json');
+    writeFileSync(p, '{ 不是 json', 'utf8');
+    expect(loadFeishuTarget(p)).toBeNull();
+    writeFileSync(p, JSON.stringify({ webhookUrl: 'http://127.0.0.1:1/synthetic' }), 'utf8');
+    expect(loadFeishuTarget(p)).toBeNull();
   });
 
   it('目标为 null（没配置）→ notify 返回 sent: false，一个请求都不发，不抛错', async () => {

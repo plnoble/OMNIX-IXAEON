@@ -55,6 +55,8 @@ describe('条件 4：三种交代都要有的东西', () => {
 
   it.each(kinds)('$kind：都写「照 AGENTS.md 做」和「只做这一件…」', (t) => {
     const p = buildTurnPrompt(t, { turnNumber: 1 });
+    // 整合方补：要的是「照 AGENTS.md 做」这句，不是哪里提到了 AGENTS.md（停点那句里也会提到）
+    expect(p).toContain('照 AGENTS.md 做');
     expect(p).toContain('AGENTS.md');
     expect(p).toContain('只做这一件，做到它的停点就停，不要接着领别的');
   });
@@ -76,6 +78,10 @@ describe('条件 4：三种交代都要有的东西', () => {
   it('开发那份的停点写到 AGENTS.md 说的停点；整合方那份写到「复审完」', () => {
     const dev = buildTurnPrompt(turn(), { turnNumber: 1 });
     expect(dev).toContain('停点');
+    // 整合方补：「停点」两个字在「只做这一件，做到它的停点就停」里本来就有，要查停点的内容
+    expect(dev).toContain('B 档');
+    expect(dev).toContain('A 档');
+    expect(dev).toMatch(/转给整合方/);
     const integ = buildTurnPrompt(kinds[0]!, { turnNumber: 1 });
     expect(integ).toMatch(/复审/);
     expect(integ).toMatch(/并入 main|把状态改成/);

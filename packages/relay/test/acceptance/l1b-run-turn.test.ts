@@ -1,5 +1,5 @@
 /**
- * L1 验收测试（三）：跑一棒（规格条件 5、6、7、8，对应规格第 6、7 条）。
+ * L1b 验收测试（一）：跑一棒（规格条件 5、6、7、8，对应规格第 6、7 条）。2026-10-21 整合方按拆法改名（跑一棒归 L1b）。
  *
  * 逐条对应：
  * - 条件 5：替身命令行收到了 {prompt_file} 换成的真路径、在配置的 cwd 里跑；标准输出、错误输出存进
@@ -29,7 +29,16 @@ const mkTmp = () => {
   dirs.push(d);
   return d;
 };
+/** 测试失败时留下的替身进程，收尾时清掉（别让一个十分钟的进程挂在机器上）。 */
+const leftovers: number[] = [];
 afterEach(() => {
+  for (const pid of leftovers.splice(0)) {
+    try {
+      process.kill(pid);
+    } catch {
+      /* 已经不在了 */
+    }
+  }
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -55,7 +64,9 @@ const STUB = [
   '  say("usage_limit_reached: session limit");',
   '  process.exit(3);',
   '} else if (mode === "timeout") {',
-  '  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], { stdio: "ignore" });',
+  // 整合方改（2026-10-21）：子进程要 detached。Windows 上 Node 拉起的子进程默认跟父进程绑在一起
+  // （父进程一死它就跟着死），那样「只杀替身、不杀子进程」也测不出来；真的命令行拉起的子进程不是这样。
+  '  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], { stdio: "ignore", detached: true });',
   '  if (pidfile) writeFileSync(pidfile, JSON.stringify({ stub: process.pid, child: child.pid }), "utf8");',
   '  await new Promise(() => {});',
   '}',
@@ -157,6 +168,8 @@ describe('条件 6：超时连子进程一起杀', () => {
       timeoutMs: 4000,
     });
     const elapsed = Date.now() - started;
+    const pids = JSON.parse(readFileSync(s.pidfile, 'utf8')) as { stub: number; child: number };
+    leftovers.push(pids.stub, pids.child);
 
     expect(result.timedOut).toBe(true);
     expect(result.exitCode).toBeNull();
@@ -164,7 +177,6 @@ describe('条件 6：超时连子进程一起杀', () => {
     expect(elapsed).toBeGreaterThan(3_000);
     expect(elapsed).toBeLessThan(60_000);
 
-    const pids = JSON.parse(readFileSync(s.pidfile, 'utf8')) as { stub: number; child: number };
     expect(pids.child).toBeGreaterThan(0);
     expect(await waitDead(pids.stub)).toBe(true);
     expect(await waitDead(pids.child)).toBe(true);
@@ -191,6 +203,21 @@ describe('条件 7：额度字样 → 那个角色歇到点', () => {
       '| 60 | L1 接力调度器核心 | [L1](L1.md) | B | 无 | 待领 |',
     ].join('\n');
     expect(decideNextTurn(queue, s.state, new Date(after))).toEqual({ idle: 'all-blocked' });
+  });
+
+  // 整合方补：规格第 3 条「不分大小写」
+  it('额度字样不分大小写：配置写 Session Limit，输出是 session limit → 也算撞上', async () => {
+    const s = setup('quota', { quotaPatterns: ['Session Limit'], quotaPauseMinutes: 30 });
+    const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 6 });
+    expect(result.quotaHit).toBe(true);
+    expect(s.state.pausedUntil.developer).toBeTruthy();
+  });
+
+  it('没撞额度 → 不歇', async () => {
+    const s = setup('ok');
+    const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 7 });
+    expect(result.quotaHit).toBe(false);
+    expect(s.state.pausedUntil.developer).toBeUndefined();
   });
 });
 

@@ -35,6 +35,10 @@ import {
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
 
+// 2026-10-21 整合方改（Q2 查出来的偶发）：vi.waitFor 默认 1 秒就判超时，机器一忙，落库那几步就会超过 1 秒。
+// 等的条件一条没改，只给一个 10 秒的上限（规格 Q2：「等条件成立（带上限）」）。
+const waitFor = <T>(fn: () => T | Promise<T>) => vi.waitFor(fn, { timeout: 10_000, interval: 50 });
+
 vi.mock('electron', () => ({
   app: {},
   BrowserWindow: {},
@@ -212,11 +216,11 @@ describe('点「要做」就开工并回报', () => {
     expect(Date.now() - started).toBeLessThan(1000);
     expect(accepted.status).toBe('accepted');
     // 点击返回时执行器已经被调用（任务在跑），不用再点派发
-    await vi.waitFor(() => expect(taskStatus(taskId)).toBe('running'));
-    await vi.waitFor(() => expect(h.executor.lastGoal).toContain('修掉导入时的乱码'));
+    await waitFor(() => expect(taskStatus(taskId)).toBe('running'));
+    await waitFor(() => expect(h.executor.lastGoal).toContain('修掉导入时的乱码'));
     releaseRun();
     // 等执行结束再退出：否则库先关，迟到的派发会撞上已关闭的连接
-    await vi.waitFor(() => expect(reports(conversationId)).toHaveLength(1));
+    await waitFor(() => expect(reports(conversationId)).toHaveLength(1));
     expect(taskStatus(taskId)).not.toBe('running');
   });
 
@@ -241,15 +245,15 @@ describe('点「要做」就开工并回报', () => {
       conversationId: first.conversationId,
     });
     await h.runtime.acceptTodo(first.todoId);
-    await vi.waitFor(() => expect(order).toEqual(['第一个任务']));
+    await waitFor(() => expect(order).toEqual(['第一个任务']));
     // 第一个还在执行时批准第二个：先排队，不抢跑
     await h.runtime.acceptTodo(second.todoId);
     await new Promise((r) => setTimeout(r, 50));
     expect(order).toEqual(['第一个任务']);
     expect(taskStatus(second.taskId)).toBe('queued');
     releaseFirst();
-    await vi.waitFor(() => expect(order).toEqual(['第一个任务', '第二个任务']));
-    await vi.waitFor(() => expect(taskStatus(second.taskId)).not.toBe('running'));
+    await waitFor(() => expect(order).toEqual(['第一个任务', '第二个任务']));
+    await waitFor(() => expect(taskStatus(second.taskId)).not.toBe('running'));
   });
 
   it('条件 3：做完验证通过 → 对话里回报含目标、验收条件、验证通过、改动文件，不重复写', async () => {
@@ -260,7 +264,7 @@ describe('点「要做」就开工并回报', () => {
       commands: [[process.execPath, '-e', 'process.exit(0)']],
     });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => {
+    await waitFor(() => {
       const reports = withMeta(h_messages(conversationId)).filter(
         (m) => m.meta['kind'] === 'task_report',
       );
@@ -290,7 +294,7 @@ describe('点「要做」就开工并回报', () => {
     const h = setup({ files: { 'note.txt': '改过了' }, claimedSuccess: true });
     const { todoId, conversationId } = await proposedTask(h, { goal: '加个说明文件' });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(reports(conversationId)).toHaveLength(1));
+    await waitFor(() => expect(reports(conversationId)).toHaveLength(1));
     const [report] = reports(conversationId);
     expect(report!.content).toContain('加个说明文件');
     expect(report!.content).toContain('还没有独立验收');
@@ -310,7 +314,7 @@ describe('点「要做」就开工并回报', () => {
       made.taskId,
     );
     await h.runtime.acceptTodo(made.todoId);
-    await vi.waitFor(() => expect(reports(made.conversationId)).toHaveLength(1));
+    await waitFor(() => expect(reports(made.conversationId)).toHaveLength(1));
     const [report] = reports(made.conversationId);
     const line = report!.content.split('\n').find((l) => l.startsWith('改了 '))!;
     const listed = line.slice(2).split('，')[0]!.split('、');
@@ -332,7 +336,7 @@ describe('点「要做」就开工并回报', () => {
       commands: [[process.execPath, '-e', 'process.exit(0)']],
     });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(reports(conversationId)).toHaveLength(1));
+    await waitFor(() => expect(reports(conversationId)).toHaveLength(1));
     expect(reports(conversationId)[0]!.content).toContain('验证没跑：工作区里没有 pnpm');
   });
 
@@ -349,9 +353,9 @@ describe('点「要做」就开工并回报', () => {
       commands: [[process.execPath, '-e', 'process.exit(0)']],
     });
     await h.runtime.acceptTodo(first.todoId);
-    await vi.waitFor(() => expect(reports(first.conversationId)).toHaveLength(1));
+    await waitFor(() => expect(reports(first.conversationId)).toHaveLength(1));
     await h.runtime.acceptTodo(second.todoId);
-    await vi.waitFor(() => expect(reports(other.id)).toHaveLength(1));
+    await waitFor(() => expect(reports(other.id)).toHaveLength(1));
     expect(reports(first.conversationId)[0]!.content).toContain('第一个对话的任务');
     expect(reports(other.id)[0]!.content).toContain('第二个对话的任务');
     expect(reports(first.conversationId)).toHaveLength(1);
@@ -364,7 +368,7 @@ describe('点「要做」就开工并回报', () => {
       commands: [[process.execPath, '-e', 'process.exit(1)']],
     });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(reports(conversationId)).toHaveLength(1));
+    await waitFor(() => expect(reports(conversationId)).toHaveLength(1));
     const [report] = reports(conversationId);
     expect(report!.content).toContain('修乱码');
     expect(report!.content).toContain('没做成');
@@ -377,7 +381,7 @@ describe('点「要做」就开工并回报', () => {
     const h = setup({ claimedSuccess: false, summary: '写文件失败' });
     const { todoId, conversationId } = await proposedTask(h, { goal: '修乱码' });
     await h.runtime.acceptTodo(todoId);
-    await vi.waitFor(() => expect(reports(conversationId)).toHaveLength(1));
+    await waitFor(() => expect(reports(conversationId)).toHaveLength(1));
     const [report] = reports(conversationId);
     expect(report!.content).toContain('没做成');
     expect(report!.content).toContain('执行器未声称成功');
@@ -410,7 +414,7 @@ describe('点「要做」就开工并回报', () => {
       conversationId: first.conversationId,
     });
     await h.runtime.acceptTodo(first.todoId);
-    await vi.waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
+    await waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
     await h.runtime.acceptTodo(second.todoId);
     // 走任务页的取消入口。先不放行：若取消没有拦住执行器，后继会在这里抢跑
     await h.runtime.finishCodingTask(first.taskId, 'cancel');
@@ -418,7 +422,7 @@ describe('点「要做」就开工并回报', () => {
     expect(overlap).toBe(false);
     expect(taskStatus(second.taskId)).toBe('queued');
     releaseRun();
-    await vi.waitFor(() => expect(taskStatus(second.taskId)).toBe('pending_accept'));
+    await waitFor(() => expect(taskStatus(second.taskId)).toBe('pending_accept'));
     expect(overlap).toBe(false);
     const texts = reports(first.conversationId).map((r) => r.content);
     expect(texts.some((t) => t === '「先取消」取消了。')).toBe(true);
@@ -432,7 +436,7 @@ describe('点「要做」就开工并回报', () => {
     await h.runtime.acceptTodo(todoId);
     // 点击返回时任务停在已批准；随后才回报「没找到 Codex」
     expect(taskStatus(taskId)).toBe('queued');
-    await vi.waitFor(() => expect(reports(conversationId)).toHaveLength(1));
+    await waitFor(() => expect(reports(conversationId)).toHaveLength(1));
     expect(taskStatus(taskId)).toBe('queued');
     expect(h.executor.lastGoal).toBe('');
     const [report] = reports(conversationId);
@@ -454,7 +458,7 @@ describe('点「要做」就开工并回报', () => {
     };
     const first = await proposedTask(h, { goal: '先跑的' });
     await h.runtime.acceptTodo(first.todoId);
-    await vi.waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
+    await waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
     // 执行中途 Codex 没了
     h.runtime.codexLocator = () => null;
     const second = await proposedTask(h, {
@@ -462,9 +466,9 @@ describe('点「要做」就开工并回报', () => {
       conversationId: first.conversationId,
     });
     await h.runtime.acceptTodo(second.todoId);
-    await vi.waitFor(() => expect(reports(first.conversationId).length).toBeGreaterThan(0));
+    await waitFor(() => expect(reports(first.conversationId).length).toBeGreaterThan(0));
     releaseRun();
-    await vi.waitFor(() => expect(taskStatus(first.taskId)).not.toBe('running'));
+    await waitFor(() => expect(taskStatus(first.taskId)).not.toBe('running'));
     expect(taskStatus(second.taskId)).toBe('queued');
   });
 
@@ -485,7 +489,7 @@ describe('点「要做」就开工并回报', () => {
     });
     const before = h_messages(conv.id).length;
     await h.runtime.acceptTodo(todo!.id);
-    await vi.waitFor(() => expect(taskStatus(task.id)).toBe('pending_accept'));
+    await waitFor(() => expect(taskStatus(task.id)).toBe('pending_accept'));
     expect(h_messages(conv.id)).toHaveLength(before);
     const anyReport = (
       db
@@ -519,7 +523,7 @@ describe('点「要做」就开工并回报', () => {
     });
     await h.coding.approveAndQueue(manual.id);
     const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
-    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    await waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
     // 手动任务执行中点「要做」：先排队
     const queued = await proposedTask(h, { goal: '排队的任务' });
     await h.runtime.acceptTodo(queued.todoId);
@@ -527,8 +531,8 @@ describe('点「要做」就开工并回报', () => {
     expect(taskStatus(queued.taskId)).toBe('queued');
     releaseManual();
     await running;
-    await vi.waitFor(() => expect(taskStatus(queued.taskId)).not.toBe('queued'));
-    await vi.waitFor(() => expect(reports(queued.conversationId)).toHaveLength(1));
+    await waitFor(() => expect(taskStatus(queued.taskId)).not.toBe('queued'));
+    await waitFor(() => expect(reports(queued.conversationId)).toHaveLength(1));
   });
 
   it('排队中的任务被取消：对话里有一句话回报，下一个照常开始', async () => {
@@ -548,7 +552,7 @@ describe('点「要做」就开工并回报', () => {
       return original(task, workspace, signal);
     };
     await h.runtime.acceptTodo(first.todoId);
-    await vi.waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
+    await waitFor(() => expect(taskStatus(first.taskId)).toBe('running'));
     await h.runtime.acceptTodo(second.todoId);
     expect(taskStatus(second.taskId)).toBe('queued');
     // 第二个还在排队时从任务页取消：要有取消回报（走真实入口）
@@ -556,7 +560,7 @@ describe('点「要做」就开工并回报', () => {
     const [report] = reports(first.conversationId);
     expect(report!.content).toBe('「后开始的」取消了。');
     releaseFirst();
-    await vi.waitFor(() => expect(taskStatus(first.taskId)).not.toBe('running'));
+    await waitFor(() => expect(taskStatus(first.taskId)).not.toBe('running'));
   });
 
   it('两个同时排队的任务按批准先后派发，同时间戳也一样', async () => {
@@ -578,7 +582,7 @@ describe('点「要做」就开工并回报', () => {
     const jia = await proposedTask(h, { goal: '甲', conversationId: block.conversationId });
     const yi = await proposedTask(h, { goal: '乙', conversationId: block.conversationId });
     await h.runtime.acceptTodo(block.todoId);
-    await vi.waitFor(() => expect(taskStatus(block.taskId)).toBe('running'));
+    await waitFor(() => expect(taskStatus(block.taskId)).toBe('running'));
     await h.runtime.acceptTodo(yi.todoId);
     await h.runtime.acceptTodo(jia.todoId);
     db.prepare('UPDATE coding_approvals SET granted_at = ? WHERE task_id IN (?, ?)').run(
@@ -587,7 +591,7 @@ describe('点「要做」就开工并回报', () => {
       jia.taskId,
     );
     releaseBlock();
-    await vi.waitFor(() => expect(order).toEqual(['乙', '甲']));
+    await waitFor(() => expect(order).toEqual(['乙', '甲']));
   });
 
   it('正在执行的任务失败后，排队的下一个照常开始', async () => {
@@ -611,10 +615,10 @@ describe('点「要做」就开工并回报', () => {
       conversationId: first.conversationId,
     });
     await h.runtime.acceptTodo(first.todoId);
-    await vi.waitFor(() => expect(order).toEqual(['会失败的']));
+    await waitFor(() => expect(order).toEqual(['会失败的']));
     await h.runtime.acceptTodo(second.todoId);
     releaseFirst();
-    await vi.waitFor(() => expect(order).toEqual(['会失败的', '失败后的']));
+    await waitFor(() => expect(order).toEqual(['会失败的', '失败后的']));
     const [report] = reports(first.conversationId);
     expect(report!.content).toContain('没做成');
   });
@@ -641,7 +645,7 @@ describe('点「要做」就开工并回报', () => {
     });
     await h.coding.approveAndQueue(manual.id);
     const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
-    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    await waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
     const queued = await proposedTask(h, { goal: '排队的' });
     await h.runtime.acceptTodo(queued.todoId);
     expect(taskStatus(queued.taskId)).toBe('queued');
@@ -650,7 +654,7 @@ describe('点「要做」就开工并回报', () => {
     expect(taskStatus(queued.taskId)).toBe('queued');
     releaseManual();
     await running;
-    await vi.waitFor(() => expect(order).toContain('排队的'));
+    await waitFor(() => expect(order).toContain('排队的'));
   });
 
   it('点击时空闲，派发前有任务抢先执行：那个任务结束后再派', async () => {
@@ -678,11 +682,11 @@ describe('点「要做」就开工并回报', () => {
     });
     await h.coding.approveAndQueue(manual.id);
     const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
-    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    await waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
     expect(taskStatus(queued.taskId)).toBe('queued');
     releaseBlock();
     await running;
-    await vi.waitFor(() => expect(order).toEqual(['抢先的', '排队的']));
+    await waitFor(() => expect(order).toEqual(['抢先的', '排队的']));
   });
 
   it('手动任务已取消但执行器还没退出时点「要做」：执行器退出后续派', async () => {
@@ -706,7 +710,7 @@ describe('点「要做」就开工并回报', () => {
     });
     await h.coding.approveAndQueue(manual.id);
     const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
-    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    await waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
     await h.runtime.finishCodingTask(manual.id, 'cancel');
     const queued = await proposedTask(h, { goal: '稍后的' });
     await h.runtime.acceptTodo(queued.todoId);
@@ -714,7 +718,7 @@ describe('点「要做」就开工并回报', () => {
     expect(order).toEqual(['手动的']);
     releaseRun();
     await running;
-    await vi.waitFor(() => expect(order).toEqual(['手动的', '稍后的']));
+    await waitFor(() => expect(order).toEqual(['手动的', '稍后的']));
   });
 
   it('派发被拒的任务不卡住后面的：跳过它继续派下一个', async () => {
@@ -737,7 +741,7 @@ describe('点「要做」就开工并回报', () => {
       new Date().toISOString(),
       blocked.taskId,
     );
-    await vi.waitFor(() => expect(order).toEqual(['后面的']));
+    await waitFor(() => expect(order).toEqual(['后面的']));
     expect(taskStatus(blocked.taskId)).toBe('queued');
   });
 
@@ -762,7 +766,7 @@ describe('点「要做」就开工并回报', () => {
     });
     await h.coding.approveAndQueue(manual.id);
     const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
-    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    await waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
     const blocked = await proposedTask(h, { goal: '被拒的' });
     const next = await proposedTask(h, {
       goal: '后面的',
@@ -776,7 +780,7 @@ describe('点「要做」就开工并回报', () => {
     );
     releaseRun();
     await running;
-    await vi.waitFor(() => expect(order).toEqual(['手动的', '后面的']));
+    await waitFor(() => expect(order).toEqual(['手动的', '后面的']));
     expect(taskStatus(blocked.taskId)).toBe('queued');
   });
 
@@ -796,12 +800,12 @@ describe('点「要做」就开工并回报', () => {
     });
     await h.coding.approveAndQueue(manual.id);
     const running = h.runtime.finishCodingTask(manual.id, 'dispatch');
-    await vi.waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
+    await waitFor(() => expect(taskStatus(manual.id)).toBe('running'));
     const queued = await proposedTask(h, { goal: '排队的' });
     await h.runtime.acceptTodo(queued.todoId);
     await h.runtime.finishCodingTask(manual.id, 'cancel');
     await running;
-    await vi.waitFor(() => expect(order).toEqual(['手动的', '排队的']));
+    await waitFor(() => expect(order).toEqual(['手动的', '排队的']));
   });
 });
 

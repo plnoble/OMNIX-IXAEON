@@ -238,7 +238,7 @@
       "title": "点要做就开工并回报",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "8af093ec3df58ba7f1c13c6c43e0b47ea05d6dd875416785055948f8b7aeaf97"
+        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "02542d8e8dca1dc93035916b28dcc90647e068fdea9134acc073b8c78cf19cb5"
       }
     },
     {
@@ -256,7 +256,7 @@
       "status": "done",
       "files": {
         "packages/core/test/acceptance/d4-apply-branch.test.ts": "232ff8af0125c246ac4623dffc052152c08ba127109c4c027c2e15a808d83e18",
-        "apps/desktop/test/acceptance/d4-landing-report.test.ts": "6e0b11500757b9d480d03c6027404a5a3f2f4c9b74a639e2407f7f929d3b3313",
+        "apps/desktop/test/acceptance/d4-landing-report.test.ts": "8956d6555a4618f74abb46b14b89a43c91a963a83ecd7178b01432ef9e41530a",
         "apps/desktop/test/acceptance/d4-tasks-page.test.ts": "a5f5c84663903b96c338c818047519f7a344c50f2e7179b78e778020de85bba6"
       }
     },
@@ -452,6 +452,36 @@
         "apps/desktop/test/acceptance/v4-verify-sandbox.test.ts": "42f64ee0662efe0c4e4db503f19f3ecc40af6840a39c2d27c344414853488eab",
         "apps/desktop/test/acceptance/v4-codex-startup.test.ts": "a6cc604adf6e82535fbe6ff379ac216b22b52abf3022824380b323e50ef6cb0f",
         "apps/desktop/test/acceptance/v4-settings-page.test.ts": "5e3409c0f904f57cf1c6211c7768914c32831b0c4d2c8e0046bb624a38e87196"
+      }
+    },
+    {
+      "id": "L1",
+      "title": "接力调度器核心：配置检查、定下一棒、交代、核对",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l1-next-turn.test.ts": "726caf476580c72bae638c50f6c69a8eb01f07eef6e414b068d30c2933590f0a",
+        "packages/relay/test/acceptance/l1-prompt.test.ts": "210a7ba5e897b0785b20b2fbc9b236c381182ad3ac6d98d71a98f6557cb6a8f5",
+        "packages/relay/test/acceptance/l1-config.test.ts": "0636998945f91c34158bdb6946af5450c2b8e67ef61a01d6f85aec5ef8ac57a7",
+        "packages/relay/test/acceptance/l1-verify.test.ts": "e55afb93ee0262e50a46521e8913a9dc6bd4c39d10874639dc3e990ae1d78dfd"
+      }
+    },
+    {
+      "id": "L1b",
+      "title": "接力调度器：跑一棒、用量、记账、命令和锁",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l1b-run-turn.test.ts": "fea49f87cecfc00f35bd7ef02b1fe03c35f679534b29b54a015109b7005a199e",
+        "packages/relay/test/acceptance/l1b-commands.test.ts": "f317f97fc40e8f73f254c124a266122f0d63f0e1698db2dc595807be07de96d4"
+      }
+    },
+    {
+      "id": "L3",
+      "title": "飞书汇报",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l3-format.test.ts": "42a08c4fe411d87381fdfbc17726c54917c8e1ec98f144ad5d774d89bd8edb95",
+        "packages/relay/test/acceptance/l3-send.test.ts": "4611cbac4bf3de0b4c3dfd3ebcee91e184dbcdd37190ebfcdf835c5c96836f06",
+        "packages/relay/test/acceptance/l3-notify.test.ts": "c8aa454b5fe07b6f2527c28d025d8b8d54cdb4da81d817f2d311c42e0046440b"
       }
     }
   ]

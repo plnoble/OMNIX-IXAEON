@@ -7,7 +7,7 @@
  * 纯函数，不连网、不调模型。
  */
 import { describe, expect, it } from 'vitest';
-import { formatEvent, type RelayEvent } from '../../src/index.js';
+import { formatEvent, type RelayEvent } from '../../src/notify/feishu.js';
 
 describe('条件 1：五种事件的文字逐字对', () => {
   it('stopped：带 taskId 时接一行「第 <taskId> 行：<task>」', () => {
