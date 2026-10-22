@@ -1,8 +1,8 @@
 /** 数据目录（第 2 条）、状态、记账，以及从 origin/main 读队列（不读工作区）。 */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { git } from './git.js';
-import type { RelayConfig, RelayState } from './types.js';
+import { fetchMain, git } from './git.js';
+import type { RelayConfig, RelayState, Usage } from './types.js';
 
 export interface LedgerEntry {
   turn: number;
@@ -14,7 +14,7 @@ export interface LedgerEntry {
   exitCode: number | null;
   timedOut: boolean;
   quotaHit: boolean;
-  usage?: { costUsd?: number; inputTokens?: number; outputTokens?: number };
+  usage?: Usage;
   statusBefore: string;
   statusAfter: string | null;
   doneLine: string | null;
@@ -54,9 +54,22 @@ export function appendLedger(dataDir: string, entry: LedgerEntry): void {
   appendFileSync(join(dataDir, 'ledger.jsonl'), `${JSON.stringify(entry)}\n`, 'utf8');
 }
 
-/** 队列从 **origin/main** 上读（`git show`）：开发在自己的目录里推，整合方的目录不会跟着变。 */
-export function readMainQueue(config: RelayConfig): string {
+export function readLedger(dataDir: string): LedgerEntry[] {
+  const p = join(dataDir, 'ledger.jsonl');
+  if (!existsSync(p)) return [];
+  return readFileSync(p, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as LedgerEntry);
+}
+
+/**
+ * 队列从 **origin/main** 上读（`git show`）：开发在自己的目录里推，整合方的目录不会跟着变。
+ * 拉不下来回 `null`（L2 契约第 2 条）：这时不开棒、也不核对。
+ */
+export async function readMainQueue(config: RelayConfig): Promise<string | null> {
   const cwd = config.roles.integrator.cwd;
-  git(cwd, ['fetch', 'origin']);
-  return git(cwd, ['show', 'origin/main:docs/委派/队列.md']).out;
+  if (!(await fetchMain(cwd))) return null;
+  const r = git(cwd, ['show', 'origin/main:docs/委派/队列.md']);
+  return r.code === 0 ? r.out : null;
 }

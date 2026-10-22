@@ -2,14 +2,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseRoleOutput } from './output.js';
 import { writeTurnPrompt } from './prompt.js';
-import type { RelayConfig, RelayState, Turn } from './types.js';
+import type { RelayConfig, RelayState, Turn, Usage } from './types.js';
 
-export interface Usage {
-  costUsd?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-}
 export interface TurnResult {
   promptPath: string;
   stdoutPath: string;
@@ -36,28 +32,6 @@ function killTree(pid?: number): void {
   } catch {
     /* 已经退了 */
   }
-}
-
-/** 标准输出里的用量：`total_cost_usd` / `usage.input_tokens`、`output_tokens`（加总）。 */
-function usageOf(stdout: string): Usage | undefined {
-  const u: Usage = {};
-  for (const line of stdout.split('\n')) {
-    try {
-      const j = JSON.parse(line) as {
-        total_cost_usd?: number;
-        usage?: { input_tokens?: number; output_tokens?: number };
-      };
-      if (typeof j.total_cost_usd === 'number') u.costUsd = j.total_cost_usd;
-      const add = (n: number | undefined, f: 'inputTokens' | 'outputTokens') => {
-        if (typeof n === 'number') u[f] = (u[f] ?? 0) + n;
-      };
-      add(j.usage?.input_tokens, 'inputTokens');
-      add(j.usage?.output_tokens, 'outputTokens');
-    } catch {
-      /* 不是 JSON 的行不算 */
-    }
-  }
-  return Object.keys(u).length ? u : undefined;
 }
 
 export async function runTurn(
@@ -107,7 +81,8 @@ export async function runTurn(
     const until = Date.now() + role.quotaPauseMinutes * 60_000;
     state.pausedUntil[turn.role] = new Date(until).toISOString();
   }
-  const lines = out.split('\n').map((l) => l.trim());
+  // L2：真 Claude 的 RELAY-DONE 在 result 里、DSH 在 final.text 里，按行找不到
+  const parsed = parseRoleOutput(out);
   return {
     promptPath,
     stdoutPath,
@@ -115,7 +90,7 @@ export async function runTurn(
     exitCode: timedOut ? null : code,
     timedOut,
     quotaHit,
-    doneLine: lines.findLast((l) => l.startsWith('RELAY-DONE')) ?? null, // 交代要的是最后一行
-    usage: usageOf(out),
+    doneLine: parsed.doneLine,
+    usage: parsed.usage,
   };
 }

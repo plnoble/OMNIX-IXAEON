@@ -6,5 +6,7 @@ export { decideNextTurn, leadingId, parseMainTable, tierOfTask } from './queue.j
 export { checkConfig, findSharedCheckout, FORBIDDEN_SWITCHES, isInside } from './config.js';
 export { buildTurnPrompt, writeTurnPrompt } from './prompt.js';
 export { verifyTurn, type VerifyResult } from './verify.js';
-export { runTurn, type TurnResult, type Usage } from './run-turn.js';
+export { fetchMain, git } from './git.js';
+export { parseRoleOutput, type RoleOutput } from './output.js';
+export { runTurn, type TurnResult } from './run-turn.js';
 export { runOnce, statusOfTask, type Outcome } from './engine.js';
