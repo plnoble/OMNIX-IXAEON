@@ -1,8 +1,8 @@
 /** 飞书汇报（L3）：只发 formatEvent 拼出来的那段文字。不加依赖包。 */
-import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { relayDir } from '../datadir.js';
 
 export type RelayEvent =
   | { kind: 'stopped'; reason: string; taskId?: string; task?: string }
@@ -137,28 +137,6 @@ export function createNotifier(
       return { ok: true, sent: true };
     },
   };
-}
-
-/** IXAEON_RELAY_DIR，否则 IXAEON_WORKTREES，否则主检出往上两级再加 relay。 */
-function relayDir(): string {
-  const env = process.env.IXAEON_RELAY_DIR?.trim();
-  if (env) return resolve(env);
-  const trees = process.env.IXAEON_WORKTREES?.trim();
-  if (trees) return join(resolve(trees), 'relay');
-  const git = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-    cwd: process.cwd(),
-    encoding: 'utf8',
-    windowsHide: true,
-  });
-  const common = (git.stdout ?? '').trim();
-  return resolve(
-    common ? dirname(common) : process.cwd(),
-    '..',
-    '..',
-    'Worktrees',
-    'IXAEON',
-    'relay',
-  );
 }
 
 /** 不在、不是 JSON、缺字段，都当没配置，不抛错。 */

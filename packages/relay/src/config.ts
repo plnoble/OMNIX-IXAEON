@@ -1,6 +1,7 @@
-/** 配置检查（第 3 条）：不许「跳过所有权限」的开关；cwd 不许是共用检出目录、也不许不存在。 */
+/** 配置检查（第 3 条）：不许「跳过所有权限」的开关；cwd 不许是共用检出目录、也不许不存在；cwd 不许包着数据目录。 */
 import { existsSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
+import { relayDir } from './datadir.js';
 import { git } from './git.js';
 import type { RelayConfig, Role } from './types.js';
 
@@ -33,12 +34,20 @@ export function findSharedCheckout(): string {
 export function checkConfig(config: RelayConfig): { ok: true } | { ok: false; reason: string } {
   const shared = findSharedCheckout();
   if (!shared) return { ok: false, reason: '找不到共用检出目录：要在 IXAEON 仓库里启动' };
+  // L4 契约第 3 条：模型在自己的 cwd 里能写，所以 cwd 不许把调度器的数据目录包在里面（state/config/feishu 都在那儿）。
+  const dataDir = relayDir();
   for (const role of ['integrator', 'developer'] as Role[]) {
     const rc = config.roles[role];
     const bad = FORBIDDEN_SWITCHES.find((sw) => rc.argv.some((a) => a.includes(sw)));
     if (bad) return { ok: false, reason: `${role} 的命令行里有不允许的开关：${bad}` };
     if (!existsSync(rc.cwd)) return { ok: false, reason: `${role}.cwd 不存在：${rc.cwd}` };
     if (isInside(rc.cwd, shared)) return { ok: false, reason: `${role}.cwd 是共用检出：${rc.cwd}` };
+    if (isInside(dataDir, rc.cwd)) {
+      return {
+        ok: false,
+        reason: `${role}.cwd 把数据目录包在里面了：${rc.cwd}（数据目录 ${dataDir}）`,
+      };
+    }
   }
   return { ok: true };
 }
