@@ -7,6 +7,7 @@ export { checkConfig, findSharedCheckout, FORBIDDEN_SWITCHES, isInside } from '.
 export { buildTurnPrompt, writeTurnPrompt } from './prompt.js';
 export { verifyTurn, type VerifyResult } from './verify.js';
 export { fetchMain, git } from './git.js';
+export { dailyDue, dailyEvent } from './daily.js';
 export { parseRoleOutput, type RoleOutput } from './output.js';
 export { runTurn, type TurnResult } from './run-turn.js';
-export { runOnce, statusOfTask, type Outcome } from './engine.js';
+export { runOnce, statusOfTask, type Outcome, type RunOptions } from './engine.js';

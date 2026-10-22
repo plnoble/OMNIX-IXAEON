@@ -1,20 +1,51 @@
 {
   "roles": {
     "integrator": {
-      "argv": ["<统筹的命令行>", "-p", "{prompt_file}"],
+      "argv": [
+        "claude",
+        "--restricted",
+        "--tools",
+        "PowerShell Write Edit Read",
+        "--allowedTools",
+        "Write Edit PowerShell(git:*) PowerShell(node:*) PowerShell(corepack:*) PowerShell(gh:*)",
+        "--permission-prompts",
+        "none",
+        "--output-format",
+        "json",
+        "--add-dir",
+        "<数据目录>",
+        "-p",
+        "读 {prompt_file}，照里面做。"
+      ],
       "cwd": "<整合方工作目录>",
-      "timeoutMinutes": 60,
-      "quotaPatterns": ["session limit", "usage_limit_reached", "429"],
-      "quotaPauseMinutes": 200
+      "timeoutMinutes": 90,
+      "quotaPatterns": ["usage_limit_reached", "session limit"],
+      "quotaPauseMinutes": 120
     },
     "developer": {
-      "argv": ["<开发的命令行>", "{prompt_file}"],
+      "argv": [
+        "claude",
+        "--restricted",
+        "--tools",
+        "PowerShell Write Edit Read",
+        "--allowedTools",
+        "Write Edit PowerShell(git:*) PowerShell(node:*) PowerShell(corepack:*) PowerShell(gh:*)",
+        "--permission-prompts",
+        "none",
+        "--output-format",
+        "json",
+        "--add-dir",
+        "<数据目录>",
+        "-p",
+        "读 {prompt_file}，照里面做。"
+      ],
       "cwd": "<开发 agent 的操作目录>",
       "timeoutMinutes": 180,
-      "quotaPatterns": ["usage limit", "quota", "429"],
+      "quotaPatterns": ["usage_limit_reached", "session limit"],
       "quotaPauseMinutes": 200
     }
   },
   "idleSeconds": 60,
-  "localUserCheck": ["node", "scripts/check-local-user.mjs"]
+  "localUserCheck": ["node", "scripts/check-local-user.mjs"],
+  "_备选_dsh": "等用户定了凭据再换成：[\"dsh\", \"--profile\", \"headless\", \"--json\", \"读 {prompt_file}，照里面做。\"]（见 L0b 交付说明 DSH 那一节）"
 }

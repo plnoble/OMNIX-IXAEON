@@ -1,15 +1,15 @@
 /** 命令逻辑（契约第 10 条）：`once` / `run [--exit-when-idle]` / `status` / `resume`。 */
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   acquireLock,
   checkConfig,
   loadState,
+  readLedger,
   relayDir,
   releaseLock,
   runOnce,
   saveState,
-  type LedgerEntry,
   type RelayConfig,
 } from '../src/index.js';
 
@@ -21,16 +21,9 @@ const die = (msg: string): never => {
   process.exit(1);
 };
 
-/** 用户本机的配置与记账：只有这个命令行用，所以放在这里。 */
+/** 用户本机的配置：只有这个命令行用，所以放在这里。 */
 const loadConfig = (dir: string): RelayConfig =>
   JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as RelayConfig;
-const readLedger = (dir: string): LedgerEntry[] =>
-  existsSync(join(dir, 'ledger.jsonl'))
-    ? readFileSync(join(dir, 'ledger.jsonl'), 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((l) => JSON.parse(l) as LedgerEntry)
-    : [];
 
 if (!['once', 'run', 'status', 'resume'].includes(cmd)) {
   die(`用法：relay once | run [--exit-when-idle] | status | resume（数据目录 ${dataDir}）`);
@@ -56,11 +49,11 @@ const lock = acquireLock(dataDir);
 if (!lock.ok) die(`不启动：${lock.reason}`);
 try {
   if (cmd === 'once') {
-    await runOnce(config, state, dataDir);
+    await runOnce(config, state, dataDir, { sendIdle: false });
   } else {
     // 一直转：有活就跑，没活等 idleSeconds 再看；停住就退出；--exit-when-idle 时第一次没活就退。
     for (;;) {
-      const outcome = await runOnce(config, state, dataDir);
+      const outcome = await runOnce(config, state, dataDir, { sendIdle: true });
       if (outcome === 'stopped') break;
       if (outcome !== 'idle') continue;
       if (argv.includes('--exit-when-idle')) break;

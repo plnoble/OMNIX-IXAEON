@@ -1,32 +1,56 @@
-/** 命令背后的逻辑（第 9 条）：定一棒、跑一棒、核对、记账；越界就停、resume 之后接着。 */
+/** 命令背后的逻辑（第 9 条）：定一棒、跑一棒、核对、记账；越界就停、resume 之后接着；L2b 接飞书。 */
+import { dailyDue, dailyEvent } from './daily.js';
 import { git } from './git.js';
+import { createNotifier, loadFeishuTarget } from './notify/feishu.js';
 import { decideNextTurn, parseMainTable } from './queue.js';
 import { runTurn } from './run-turn.js';
-import { appendLedger, readMainQueue, saveState } from './store.js';
+import { appendLedger, readLedger, readMainQueue, relayNow, saveState } from './store.js';
 import { verifyTurn } from './verify.js';
 import type { RelayConfig, RelayState } from './types.js';
 
 export type Outcome = 'ran' | 'idle' | 'stopped';
+export interface RunOptions {
+  /** 只有 `run` 发 idle；`once` 不发（规格末尾第 3 条）。 */
+  sendIdle?: boolean;
+}
 
 /** 做完之后重读 origin/main：这一行现在的状态。 */
 export function statusOfTask(queueMd: string, taskId: string): string | null {
   return parseMainTable(queueMd).find((r) => r.no === taskId)?.status ?? null;
 }
 
+/** 限频记在 state.json 里，跨命令保留；没配飞书也照常存。 */
+const notifyStore = (state: RelayState): { sent: Record<string, string> } =>
+  (state.notify ??= { sent: {} });
+
 export async function runOnce(
   config: RelayConfig,
   state: RelayState,
   dataDir: string,
+  opts: RunOptions = {},
 ): Promise<Outcome> {
+  const now = relayNow();
+  const notifier = createNotifier(loadFeishuTarget(), notifyStore(state), { now: () => now });
   // L2 契约第 2 条：开棒前拉不下来就不开棒（不建 turns/、不记账、不停下），当作没活。
   const queueMd = await readMainQueue(config);
   if (queueMd === null) {
     console.log('没活：拉不下来 origin/main');
     return 'idle';
   }
-  const decision = decideNextTurn(queueMd, state, new Date());
+  // 日报在定下一棒之前发：到点之后的第一次（`once`、`run` 都发）。
+  const due = dailyDue(state, now);
+  if (due) {
+    await notifier.notify(dailyEvent(readLedger(dataDir), due, queueMd));
+    state.lastDailyDate = due;
+    saveState(dataDir, state);
+  }
+  const decision = decideNextTurn(queueMd, state, now);
   if ('idle' in decision) {
     console.log(`没活：${decision.idle}`);
+    if (opts.sendIdle && (decision.idle === 'queue-empty' || decision.idle === 'all-blocked')) {
+      await notifier.notify({ kind: 'idle', why: decision.idle });
+    }
+    saveState(dataDir, state);
     return decision.idle === 'stopped' ? 'stopped' : 'idle';
   }
   const turn = state.turns + 1;
@@ -54,10 +78,33 @@ export async function runOnce(
     violations: verdict.violations,
   });
   state.turns = turn;
-  if (verdict.violations.includes('verify-fetch-failed')) {
-    state.stoppedReason = `第 ${turn} 棒之后拉不下来 origin/main，没法核对`;
-  } else if (verdict.violations.length) {
-    state.stoppedReason = `第 ${turn} 棒越界（${decision.role}）：${verdict.violations.join('、')}`;
+  const stopReason = verdict.violations.includes('verify-fetch-failed')
+    ? `第 ${turn} 棒之后拉不下来 origin/main，没法核对`
+    : verdict.violations.length
+      ? `第 ${turn} 棒越界（${decision.role}）：${verdict.violations.join('、')}`
+      : null;
+  if (stopReason) state.stoppedReason = stopReason;
+  // 什么时候发（规格契约第 4 条的表）：停下 → stopped；撞额度 → paused；等用户 → needs-user。
+  if (stopReason) {
+    await notifier.notify({
+      kind: 'stopped',
+      reason: stopReason,
+      taskId: decision.taskId,
+      task: decision.task,
+    });
+  } else if (result.quotaHit && state.pausedUntil[decision.role]) {
+    await notifier.notify({
+      kind: 'paused',
+      role: decision.role,
+      until: state.pausedUntil[decision.role]!,
+    });
+  } else if (statusAfter?.startsWith('等用户')) {
+    await notifier.notify({
+      kind: 'needs-user',
+      taskId: decision.taskId,
+      task: decision.task,
+      status: statusAfter,
+    });
   }
   saveState(dataDir, state);
   console.log(
