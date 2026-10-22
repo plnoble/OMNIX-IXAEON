@@ -487,7 +487,7 @@
     {
       "id": "L2",
       "title": "接力调度器接上真的命令行：认得真输出、网络抖不漏查、要拍板时找用户",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l2-output.test.ts": "3112e611fc5570b0df7ebeb053c5e6f4942caf5dd00c1492019a1f308488e4f5",
         "packages/relay/test/acceptance/l2-fetch.test.ts": "2ab27ad7bb532f9b62598b499300ac620e41d2f6c1a7f9bd0dc0fad59bcf649e",
@@ -497,7 +497,7 @@
     {
       "id": "L2b",
       "title": "接力调度器接上飞书、日报、配置样例",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l2b-notify.test.ts": "12616850e399cf3c9a7c058706570a4485c9bd13f2e88a2c20b1bbfd89430a57",
         "packages/relay/test/acceptance/l2b-daily.test.ts": "dc59e29ed5a0277ed3dfc93102f81b5bfd68b59c03be097ac7f1170fa0392651",

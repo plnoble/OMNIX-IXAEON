@@ -71,7 +71,7 @@ const origin = join(work, 'origin.git');
 const integ = join(work, 'integ');
 const dev = join(work, 'dev');
 const dataDir = join(work, 'relay');
-mkdirSync(dataDir, { recursive: true });
+mkdirSync(join(dataDir, 'turns'), { recursive: true }); // --add-dir 指的目录先建好
 git(work, ['init', '--bare', '-b', 'main', origin]);
 git(work, ['clone', origin, integ]);
 git(integ, ['config', 'user.email', 'relay@example.invalid']);
@@ -105,14 +105,15 @@ const integArgv = [
   claudeExe,
   '--restricted',
   '--tools',
-  withAddDir ? 'PowerShell Write Edit' : 'PowerShell',
+  withAddDir ? 'PowerShell Write Edit Read' : 'PowerShell',
   '--allowedTools',
   ALLOW,
   '--permission-prompts',
   'none',
   '--output-format',
   'json',
-  ...(withAddDir ? ['--add-dir', dataDir] : []),
+  // 整合方改（2026-10-22）：只放开 turns/（交代文件在那里），不让它碰到 state.json、config.json、feishu.json
+  ...(withAddDir ? ['--add-dir', join(dataDir, 'turns')] : []),
   '-p',
   '读 {prompt_file}，照里面做。',
 ];

@@ -13,7 +13,7 @@
         "--output-format",
         "json",
         "--add-dir",
-        "<数据目录>",
+        "<数据目录>/turns",
         "-p",
         "读 {prompt_file}，照里面做。"
       ],
@@ -35,7 +35,7 @@
         "--output-format",
         "json",
         "--add-dir",
-        "<数据目录>",
+        "<数据目录>/turns",
         "-p",
         "读 {prompt_file}，照里面做。"
       ],
@@ -47,5 +47,5 @@
   },
   "idleSeconds": 60,
   "localUserCheck": ["node", "scripts/check-local-user.mjs"],
-  "_备选_dsh": "等用户定了凭据再换成：[\"dsh\", \"--profile\", \"headless\", \"--json\", \"读 {prompt_file}，照里面做。\"]（见 L0b 交付说明 DSH 那一节）"
+  "_备选_dsh": "DSH 的凭据用户已经打开（2026-10-22）。dsh.cmd 是批处理、调度器不经 shell 起不了，要一个直接起 DeepSeek Harness.exe 并带 ELECTRON_RUN_AS_NODE=1 的小启动器（照 scripts/real/l2-dsh-turn.mjs），接进正式配置是下一单的事"
 }
