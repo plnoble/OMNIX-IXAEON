@@ -18,13 +18,10 @@ export function relayDir(): string {
   return env ? resolve(env) : defaultRelayDir();
 }
 
-/**
- * 旧位置：`<Worktrees>/IXAEON/relay`（照 scripts/worktree.mjs 现算。
- * 数据目录挪出去之后只用来提醒「这里还有文件」，**不自动搬**（契约第 2 条）。
- */
-export function oldRelayDir(): string {
+/** 工作目录根：`IXAEON_WORKTREES` 有值就是它，否则主检出往上两级的 `Worktrees/IXAEON`（照 scripts/worktree.mjs）。 */
+export function worktreesRoot(): string {
   const trees = process.env.IXAEON_WORKTREES?.trim();
-  if (trees) return join(resolve(trees), 'relay');
+  if (trees) return resolve(trees);
   const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
     cwd: process.cwd(),
     encoding: 'utf8',
@@ -32,5 +29,13 @@ export function oldRelayDir(): string {
   });
   const common = (r.stdout ?? '').trim();
   const mainRoot = common ? dirname(common) : process.cwd();
-  return resolve(mainRoot, '..', '..', 'Worktrees', 'IXAEON', 'relay');
+  return resolve(mainRoot, '..', '..', 'Worktrees', 'IXAEON');
+}
+
+/**
+ * 旧位置：`<工作目录根>/relay`。
+ * 数据目录挪出去之后只用来提醒「这里还有文件」，**不自动搬**（L4 契约第 2 条）。
+ */
+export function oldRelayDir(): string {
+  return join(worktreesRoot(), 'relay');
 }
