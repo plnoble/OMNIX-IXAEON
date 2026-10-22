@@ -73,3 +73,16 @@ export async function readMainQueue(config: RelayConfig): Promise<string | null>
   const r = git(cwd, ['show', 'origin/main:docs/委派/队列.md']);
   return r.code === 0 ? r.out : null;
 }
+
+/**
+ * 调度器眼里的「现在」：`IXAEON_RELAY_NOW`（ISO 时间）有值就用它，只给测试用（规格末尾第 2 条）。
+ * 撞额度歇到几点不用它，那边是 `runTurn` 真的时间。
+ */
+export function relayNow(): Date {
+  const raw = process.env.IXAEON_RELAY_NOW?.trim();
+  if (raw) {
+    const t = Date.parse(raw);
+    if (!Number.isNaN(t)) return new Date(t);
+  }
+  return new Date();
+}
