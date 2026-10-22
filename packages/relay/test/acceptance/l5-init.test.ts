@@ -117,12 +117,16 @@ describe('条件 2：relay init 写配置', () => {
     expect(norm(config.roles.integrator.cwd)).toBe(norm(intCwd));
 
     // 那个 cwd 真的是 git 工作目录，且停在 origin/main
-    const listed = spawnSync('git', ['worktree', 'list', '--porcelain'], {
-      cwd: REPO,
-      encoding: 'utf8',
-      windowsHide: true,
-    }).stdout;
-    expect(norm(listed)).toContain(norm(intCwd));
+    // 整合方改（2026-10-22）：原来拿 `git worktree list` 的输出（正斜杠、长路径）去比反斜杠的临时路径，
+    // 本机就对不上，CI 上临时目录还常是 RUNNER~1 这种短写法。改成让 git 自己说它属于哪个仓库。
+    const commonDir = (cwd: string) =>
+      spawnSync('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
+        cwd: REPO,
+        encoding: 'utf8',
+        windowsHide: true,
+      }).stdout.trim();
+    expect(commonDir(intCwd)).not.toBe('');
+    expect(norm(commonDir(intCwd))).toBe(norm(commonDir(REPO)));
     const head = spawnSync('git', ['-C', intCwd, 'rev-parse', 'HEAD'], {
       cwd: REPO,
       encoding: 'utf8',

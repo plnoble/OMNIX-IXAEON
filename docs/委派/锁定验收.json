@@ -513,6 +513,14 @@
         "packages/relay/test/acceptance/l4-datadir.test.ts": "e839fbdf281ab748dc4ad3d5e5b075f191655f34d47f6ef3c43f00e051b1eaf5",
         "packages/relay/test/acceptance/l4-config.test.ts": "5f14ee2a658d8647862b475e70444c39e43c3cc51e5f6ce34433e03a1f7b9e7e"
       }
+    },
+    {
+      "id": "L5",
+      "title": "接力第一次真转前：relay init 一条命令生成配置",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l5-init.test.ts": "019ef7857e12519fc868995f69e60aec0557d1ac17422ec6a89c624526b80934"
+      }
     }
   ]
 }
