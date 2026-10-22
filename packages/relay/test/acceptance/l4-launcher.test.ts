@@ -93,4 +93,18 @@ describe('条件 1：启动器', () => {
     expect(r.status).toBe(2);
     expect(`${r.stdout}${r.stderr}`).toContain('没找到 DSH 的安装目录');
   }, 60_000);
+
+  // 整合方补（2026-10-22，复审实现时）：真机上 resources/app.asar 是一个**文件**（cli.js 在它里面，
+  // 只有 Electron 穿得进去）。启动器不能往 app.asar 里面探 cli.js，不然真机上永远「没找到」。
+  it('app.asar 是文件（跟真机一样）→ 照样认出安装目录，不报「没找到」', () => {
+    const asarFile = join(root, 'install-asar-file');
+    mkdirSync(join(asarFile, 'resources'), { recursive: true });
+    copyFileSync(process.execPath, join(asarFile, 'DeepSeek Harness.exe'));
+    if (process.platform !== 'win32') chmodSync(join(asarFile, 'DeepSeek Harness.exe'), 0o755);
+    writeFileSync(join(asarFile, 'resources', 'app.asar'), 'not a real asar', 'utf8');
+    const r = runLauncher(['--version'], { IXAEON_DSH_INSTALL: asarFile });
+    // 替身（node 的副本）穿不进假的 asar，会自己报错退出；要的只是「找到了安装目录、真的起了它」
+    expect(`${r.stdout}${r.stderr}`).not.toContain('没找到 DSH 的安装目录');
+    expect(r.status).not.toBe(2);
+  }, 60_000);
 });
