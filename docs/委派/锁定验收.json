@@ -503,6 +503,16 @@
         "packages/relay/test/acceptance/l2b-daily.test.ts": "dc59e29ed5a0277ed3dfc93102f81b5bfd68b59c03be097ac7f1170fa0392651",
         "packages/relay/test/acceptance/l2b-config.test.ts": "6440d06de07917312f2d2087cc54b3f025be093bac1cd9a6f15ebdbf8f14c87b"
       }
+    },
+    {
+      "id": "L4",
+      "title": "接力上线前的准备：DSH 启动器、数据目录挪出去、配置检查",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l4-launcher.test.ts": "d182de0ac912f1d470122d889d44ad4bfc7881f7e08cd12eb797d68d1eb670da",
+        "packages/relay/test/acceptance/l4-datadir.test.ts": "e839fbdf281ab748dc4ad3d5e5b075f191655f34d47f6ef3c43f00e051b1eaf5",
+        "packages/relay/test/acceptance/l4-config.test.ts": "5f14ee2a658d8647862b475e70444c39e43c3cc51e5f6ce34433e03a1f7b9e7e"
+      }
     }
   ]
 }

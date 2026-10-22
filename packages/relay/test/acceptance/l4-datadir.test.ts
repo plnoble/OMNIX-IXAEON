@@ -144,6 +144,25 @@ describe('条件 3：旧位置提醒', () => {
     expect(r.stdout).not.toContain('SENTINEL-不该出现');
   }, 60_000);
 
+  // 整合方补（2026-10-22）：用户本机真实的情况——旧位置里只有 feishu.json；提醒里不许带出地址和密钥
+  it('旧数据目录里只有 feishu.json → 也提醒，且不打出地址和密钥', () => {
+    const localAppData = mkTmp('ixa-l4-appdata-');
+    const worktrees = mkTmp('ixa-l4-trees-');
+    const home = mkTmp('ixa-l4-home-');
+    const relayDir = mkTmp('ixa-l4-relay-');
+    const oldDir = join(worktrees, 'relay');
+    mkdirSync(oldDir, { recursive: true });
+    writeFileSync(
+      join(oldDir, 'feishu.json'),
+      `${JSON.stringify({ webhookUrl: 'http://127.0.0.1:1/hook-SENTINEL', secret: 'secret-SENTINEL' })}\n`,
+      'utf8',
+    );
+    const r = status(envFor({ relayDir, localAppData, worktrees, home }));
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    expect(r.stdout).toContain('旧的数据目录里还有文件');
+    expect(`${r.stdout}${r.stderr}`).not.toContain('SENTINEL');
+  }, 60_000);
+
   it('旧目录是空的 → 不打那一行', () => {
     const localAppData = mkTmp('ixa-l4-appdata-');
     const worktrees = mkTmp('ixa-l4-trees-');

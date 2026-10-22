@@ -59,6 +59,21 @@ describe('条件 4：cwd 不许把数据目录包在里面', () => {
     if (!r.ok) expect(r.reason).toContain('developer');
   });
 
+  // 整合方补（2026-10-22）：数据目录在 cwd 下面好几层也算包着；Windows 上不分大小写
+  it('开发的 cwd 是数据目录往上两层（写法大小写不同）→ 也拒绝', () => {
+    const top = mkTmp('ixa-l4-top-');
+    const dataDir = join(top, 'a', 'relay');
+    mkdirSync(dataDir, { recursive: true });
+    const devCwd = process.platform === 'win32' ? top.toUpperCase() : top;
+    const config: RelayConfig = {
+      roles: { integrator: role(mkTmp('ixa-l4-integ-')), developer: role(devCwd) },
+      idleSeconds: 60,
+    };
+    const r = withRelayDir(dataDir, () => checkConfig(config));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain('developer');
+  });
+
   it('整合方的 cwd 就是数据目录 → 拒绝', () => {
     const dataDir = mkTmp('ixa-l4-data-');
     const config: RelayConfig = {

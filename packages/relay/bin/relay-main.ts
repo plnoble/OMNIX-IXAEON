@@ -63,4 +63,6 @@ try {
 } finally {
   releaseLock(dataDir);
 }
-process.exit(0);
+// 整合方改（2026-10-22）：这一棒可能发过飞书（真 HTTPS）。发过之后 process.exit 会在这台机器上
+// （Windows + Node 24 + jiti）退出时断言失败崩掉（退出码 0xC0000409）。设 exitCode，让进程自己退。
+process.exitCode = 0;

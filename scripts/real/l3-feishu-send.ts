@@ -33,10 +33,12 @@ if (!target) {
   process.exit(1);
 }
 const sent = await sendFeishu('【IXAEON 接力】这是一条测试消息，不用回。', target);
+// 整合方改（2026-10-22）：发过真 HTTPS 请求之后不能 process.exit——这台机器上（Windows + Node 24 + jiti）
+// 退出时会断言失败崩掉（退出码 0xC0000409）。设 exitCode，让进程自己退。
 if (sent.ok) {
   console.log('发成了');
-  process.exit(0);
+} else {
+  const code = /code\s+(\S+)/.exec(sent.error)?.[1] ?? '未知';
+  console.log(`没发成 code=${code}`);
+  process.exitCode = 1;
 }
-const code = /code\s+(\S+)/.exec(sent.error)?.[1] ?? '未知';
-console.log(`没发成 code=${code}`);
-process.exit(1);
