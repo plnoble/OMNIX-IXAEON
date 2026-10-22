@@ -45,6 +45,16 @@ describe('条件 1：三种输出里的 RELAY-DONE', () => {
     expect(parseRoleOutput(stdout).doneLine).toBe('RELAY-DONE 61 待复审（整合方）');
   });
 
+  // 整合方补（2026-10-22）：DSH 的最终回答只在 type 为 final 的那一行；过程里照抄的不算
+  it('DSH：不是 final 的那几行里照抄了 RELAY-DONE、final 里没有 → null', () => {
+    const stdout = [
+      JSON.stringify({ type: 'item', text: '交代里说最后一行输出 RELAY-DONE 61 <状态>' }),
+      JSON.stringify({ type: 'item', text: 'RELAY-DONE 61 先抄一遍' }),
+      dshFinal('还没做完，先停在这里'),
+    ].join('\n');
+    expect(parseRoleOutput(stdout).doneLine).toBeNull();
+  });
+
   it('普通文字的输出照旧：按行找 RELAY-DONE', () => {
     const stdout = '替身跑完了\nRELAY-DONE 62 已完成（2026-10-21）\n';
     expect(parseRoleOutput(stdout).doneLine).toBe('RELAY-DONE 62 已完成（2026-10-21）');
