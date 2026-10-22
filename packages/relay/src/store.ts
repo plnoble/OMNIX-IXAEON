@@ -1,8 +1,11 @@
 /** 数据目录（第 2 条）、状态、记账，以及从 origin/main 读队列（不读工作区）。 */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fetchMain, git } from './git.js';
 import type { RelayConfig, RelayState, Usage } from './types.js';
+
+// 位置的计算搬到 datadir.ts（L4）：`relay status` 和飞书读配置两处都要用同一套，别再各写一份。
+export { defaultRelayDir, oldRelayDir, relayDir } from './datadir.js';
 
 export interface LedgerEntry {
   turn: number;
@@ -19,22 +22,6 @@ export interface LedgerEntry {
   statusAfter: string | null;
   doneLine: string | null;
   violations: string[];
-}
-
-/** 数据目录：`IXAEON_RELAY_DIR`，或者 `<Worktrees>/IXAEON/relay`（照 scripts/worktree.mjs 现算）。 */
-export function relayDir(): string {
-  const env = process.env.IXAEON_RELAY_DIR?.trim();
-  if (env) return resolve(env);
-  const wt = process.env.IXAEON_WORKTREES?.trim();
-  const common = git(process.cwd(), [
-    'rev-parse',
-    '--path-format=absolute',
-    '--git-common-dir',
-  ]).out;
-  const base = wt
-    ? resolve(wt)
-    : resolve(common ? dirname(common) : process.cwd(), '..', '..', 'Worktrees', 'IXAEON');
-  return join(base, 'relay');
 }
 
 export function loadState(dataDir: string): RelayState {

@@ -1,10 +1,11 @@
 /** 命令逻辑（契约第 10 条）：`once` / `run [--exit-when-idle]` / `status` / `resume`。 */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   acquireLock,
   checkConfig,
   loadState,
+  oldRelayDir,
   readLedger,
   relayDir,
   releaseLock,
@@ -33,6 +34,11 @@ const state = loadState(dataDir);
 if (cmd === 'status') {
   console.log(JSON.stringify({ dataDir, state }, null, 2));
   for (const row of readLedger(dataDir).slice(-5)) console.log(JSON.stringify(row));
+  // L4 契约第 2 条：旧位置还有文件就多打一行（只打路径，不打内容）；不自动搬。
+  const oldDir = oldRelayDir();
+  if (['config.json', 'state.json', 'feishu.json'].some((f) => existsSync(join(oldDir, f)))) {
+    console.log(`旧的数据目录里还有文件：${oldDir}，请挪到 ${dataDir}`);
+  }
   process.exit(0);
 }
 if (cmd === 'resume') {
