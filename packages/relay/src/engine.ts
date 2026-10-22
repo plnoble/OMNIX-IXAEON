@@ -18,7 +18,13 @@ export async function runOnce(
   state: RelayState,
   dataDir: string,
 ): Promise<Outcome> {
-  const decision = decideNextTurn(readMainQueue(config), state, new Date());
+  // L2 契约第 2 条：开棒前拉不下来就不开棒（不建 turns/、不记账、不停下），当作没活。
+  const queueMd = await readMainQueue(config);
+  if (queueMd === null) {
+    console.log('没活：拉不下来 origin/main');
+    return 'idle';
+  }
+  const decision = decideNextTurn(queueMd, state, new Date());
   if ('idle' in decision) {
     console.log(`没活：${decision.idle}`);
     return decision.idle === 'stopped' ? 'stopped' : 'idle';
@@ -28,7 +34,9 @@ export async function runOnce(
   const startedAt = new Date().toISOString();
   const result = await runTurn(decision, config, state, { dataDir, turnNumber: turn });
   const verdict = await verifyTurn(decision, config, state);
-  const statusAfter = statusOfTask(readMainQueue(config), decision.taskId);
+  // 拉不下来就没法核对：停下，做完后的状态也不猜（规格末尾第 4 条）。
+  const after = verdict.mainSha === null ? null : await readMainQueue(config);
+  const statusAfter = after === null ? null : statusOfTask(after, decision.taskId);
   appendLedger(dataDir, {
     turn,
     role: decision.role,
@@ -46,7 +54,9 @@ export async function runOnce(
     violations: verdict.violations,
   });
   state.turns = turn;
-  if (verdict.violations.length) {
+  if (verdict.violations.includes('verify-fetch-failed')) {
+    state.stoppedReason = `第 ${turn} 棒之后拉不下来 origin/main，没法核对`;
+  } else if (verdict.violations.length) {
     state.stoppedReason = `第 ${turn} 棒越界（${decision.role}）：${verdict.violations.join('、')}`;
   }
   saveState(dataDir, state);

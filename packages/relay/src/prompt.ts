@@ -3,6 +3,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Turn } from './types.js';
 
+/** L2 契约第 3 条：要用户拍板的事不要自己定，写成「等用户：…」然后停。逐字照规格。 */
+const ASK =
+  '要用户拍板的事，不要自己定：把这一行的状态改成「等用户：<一句话说清要定什么>」，然后停。';
+
 export function buildTurnPrompt(turn: Turn, opts: { turnNumber: number }): string {
   const integ = turn.role === 'integrator';
   const role = integ
@@ -12,7 +16,7 @@ export function buildTurnPrompt(turn: Turn, opts: { turnNumber: number }): strin
     ? '停点：这一行复审完就停（并入 main，或者把状态改成你给的结论）。'
     : '停点：这一行到了 AGENTS.md 说的停点就停（B 档推了测试或实现、A 档审过合并，或者转给整合方）。';
   const head = `${role}\n\n这是第 ${opts.turnNumber} 棒。\n\n序号：${turn.taskId}\n任务：${turn.task}\n现在的状态：${turn.status}`;
-  const tail = `\n\n只做这一件，做到它的停点就停，不要接着领别的。\n\n${stop}\n\n做完在最后一行输出：RELAY-DONE ${turn.taskId} <这一行现在的状态>\n`;
+  const tail = `\n\n只做这一件，做到它的停点就停，不要接着领别的。\n\n${ASK}\n\n${stop}\n\n做完在最后一行输出：RELAY-DONE ${turn.taskId} <这一行现在的状态>\n`;
   return head + tail;
 }
 

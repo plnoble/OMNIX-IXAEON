@@ -1,6 +1,6 @@
 /** 核对有没有越界（第 8 条）：只看开发那一棒；`local-user` 任何一棒之后都查。 */
 import { spawnSync } from 'node:child_process';
-import { git } from './git.js';
+import { fetchMain, git } from './git.js';
 import { tierOfTask } from './queue.js';
 import type { RelayConfig, RelayState, Turn, Violation } from './types.js';
 
@@ -63,7 +63,9 @@ export async function verifyTurn(
   state: RelayState,
 ): Promise<VerifyResult> {
   const cwd = config.roles.integrator.cwd;
-  git(cwd, ['fetch', 'origin']); // 开发在自己的目录里推，整合方的目录不会跟着变
+  // L2 契约第 2 条：开发在自己的目录里推，整合方的目录不会跟着变，核对前得先拉一下。
+  // 拉不下来就没法核对：停下（不再跑 local-user，也不猜）。
+  if (!(await fetchMain(cwd))) return { violations: ['verify-fetch-failed'], mainSha: null };
   const mainSha = git(cwd, ['rev-parse', 'origin/main']).out || null;
   const since = state.mainShaAtTurnStart ?? null;
   const violations: Violation[] = [];
