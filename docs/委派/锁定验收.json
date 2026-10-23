@@ -517,7 +517,7 @@
     {
       "id": "L5",
       "title": "接力第一次真转前：relay init 一条命令生成配置",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l5-init.test.ts": "019ef7857e12519fc868995f69e60aec0557d1ac17422ec6a89c624526b80934"
       }

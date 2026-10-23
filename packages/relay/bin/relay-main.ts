@@ -43,7 +43,8 @@ const findClaudeExe = (): string | null => {
   }
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (!dir.trim()) continue;
-    for (const name of process.platform === 'win32' ? ['claude.exe', 'claude.cmd'] : ['claude']) {
+    // 整合方改（2026-10-23）：不认 claude.cmd——批处理不经 shell 起不了，调度器起角色不走 shell
+    for (const name of process.platform === 'win32' ? ['claude.exe'] : ['claude']) {
       const p = join(dir, name);
       if (existsSync(p)) return p;
     }
