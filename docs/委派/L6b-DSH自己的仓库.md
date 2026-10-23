@@ -39,3 +39,11 @@ v2 规格：先把验收条件写成测试（`packages/relay/test/acceptance/l6b
 ## 真机检查
 
 **乙（L6 那一条重跑；DSH 真调用不超过 2 次）**——`scripts/real/l6-relay-push.mjs` 照新布局改：开发的工作目录根里一份独立克隆（`origin` 是临时裸仓库），开发用真 DSH，整合方用替身，`relay once`。看：DSH 提交得了吗、写出 `RELAY-PUSH` 了吗、调度器推上去了吗。不连 GitHub。
+
+## 整合方写好的测试（2026-10-23）
+
+这一单的验收测试由整合方直接写好、锁定（`l6b-launcher` `l6b-layout` `l6b-init`），开发不用再写测试，直接写实现。整合方用一次性实现跑通，再改坏 8 处，全部有测试变红。
+
+- 交代里那句的 `<cwd>/repo` 是**字面拼接**：`<cwd>` 原样（这个角色 `cwd` 的绝对路径），后面接 `/repo`。
+- `relay init` 本地克隆用 `git clone <仓库根> <工作目录根>/dsh/repo`。注意：git 克隆本地仓库要用到 `sh.exe`（PATH 里要有 Git 自带的 `usr/bin`），用户本机和 CI 上都有。
+- L5 的锁定测试有三条跟着改（整合方，并入前后都能过）：开发的 `cwd` 认「根」或「根/dsh」；找不到 Claude 那条改成从 PATH 里拿掉有 `claude.exe` 的目录（原来缩到只剩 node 和 git，git 克隆用的 `sh.exe` 也没了）；配置检查不过那条把数据目录放到 `<根>/dsh/relay`。

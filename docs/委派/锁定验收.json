@@ -519,7 +519,7 @@
       "title": "接力第一次真转前：relay init 一条命令生成配置",
       "status": "done",
       "files": {
-        "packages/relay/test/acceptance/l5-init.test.ts": "019ef7857e12519fc868995f69e60aec0557d1ac17422ec6a89c624526b80934"
+        "packages/relay/test/acceptance/l5-init.test.ts": "a4f5e520f079add369a547f84e63ca8465bb5c861e0a65d0f7add4c97200e50e"
       }
     },
     {
@@ -539,6 +539,16 @@
       "status": "done",
       "files": {
         "packages/core/test/acceptance/d4c-git-stderr.test.ts": "9d3cd2819c60b43902ceb75fd07eb7b8738e1fa3fc1aa4daa157459cad259f3d"
+      }
+    },
+    {
+      "id": "L6b",
+      "title": "DSH 自己的仓库：开发的工作目录根换成 dsh/，沙箱里提交得了",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l6b-launcher.test.ts": "01c818acb8ffa1b4cb5420af55ad751fd842796ffda98c2428dc0626d21a0994",
+        "packages/relay/test/acceptance/l6b-layout.test.ts": "71579b3f56420f686cc9e343e73dbd391108d95c2b419af10c3b7e5df1eb1fed",
+        "packages/relay/test/acceptance/l6b-init.test.ts": "4e07ae4a7e81cdc4a162494524809f5f5cc02fb62d13b6875608b8b05f5b0b3c"
       }
     }
   ]

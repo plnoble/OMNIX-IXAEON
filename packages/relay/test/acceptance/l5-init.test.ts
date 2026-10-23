@@ -149,7 +149,10 @@ describe('条件 2：relay init 写配置', () => {
     expect(devArgv).toContain('headless');
     expect(devArgv).toContain('--json');
     expect(devArgv.some((a) => a.includes('{prompt_file}'))).toBe(true);
-    expect(norm(config.roles.developer.cwd)).toBe(norm(worktrees));
+    // 整合方改（2026-10-23，为 L6b）：L6b 起开发的 cwd 是 <工作目录根>/dsh；两种都认（L6b 自己的测试严格要求 dsh）
+    expect([norm(worktrees), norm(join(worktrees, 'dsh'))]).toContain(
+      norm(config.roles.developer.cwd),
+    );
 
     // --add-dir 后面是 <数据目录>/turns
     const i = config.roles.integrator.argv.indexOf('--add-dir');
@@ -176,8 +179,16 @@ describe('条件 3：没找到 Claude', () => {
     treeRoots.push(worktrees);
     const relayDir = mkTmp('ixa-l5-relay-');
     const appdata = mkTmp('ixa-l5-appdata-');
-    // PATH 收紧：只留 node 所在的目录和 git 所在的目录（git 留着，不然 init 建不了工作目录）
-    const smallPath = [dirname(process.execPath), gitDir].filter(Boolean).join(delimiter);
+    // 整合方改（2026-10-23，为 L6b）：原来把 PATH 缩到只剩 node 和 git 的目录——L6b 起 init 要本地克隆一份仓库，
+    // git 克隆本地仓库要用到 sh.exe，缩没了就克隆不了。这条要的只是「PATH 里没有 claude.exe」：
+    // 从 PATH 里拿掉有 claude.exe 的目录，别的照留。
+    void gitDir;
+    const smallPath = (process.env.PATH ?? '')
+      .split(delimiter)
+      .filter(
+        (d) => d.trim() && !existsSync(join(d, 'claude.exe')) && !existsSync(join(d, 'claude')),
+      )
+      .join(delimiter);
 
     const r = runInit(envFor({ relayDir, worktrees, appdata, path: smallPath }));
     expect(r.status, r.stderr || r.stdout).toBe(0);
@@ -217,7 +228,8 @@ describe('条件 5：配置检查不过就不留文件', () => {
   it('数据目录放在工作目录根下面（开发的 cwd 包着它）→ 退出码 1、不留下 config.json', () => {
     const worktrees = mkTmp('ixa-l5-trees-');
     treeRoots.push(worktrees);
-    const relayDir = join(worktrees, 'relay');
+    // 整合方改（2026-10-23，为 L6b）：放在 <工作目录根>/dsh 下面——L6b 前后开发的 cwd（根，或者根/dsh）都包着它
+    const relayDir = join(worktrees, 'dsh', 'relay');
     mkdirSync(relayDir, { recursive: true });
     const appdata = mkTmp('ixa-l5-appdata-');
     putFakeClaude(appdata);
