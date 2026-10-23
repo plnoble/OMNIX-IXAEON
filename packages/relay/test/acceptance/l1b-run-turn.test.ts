@@ -65,6 +65,13 @@ const STUB = [
   '  say("RELAY-DONE 60 进行中（dev）");',
   '  say("又做了一点");',
   '  say("RELAY-DONE 60 待复审（整合方）");',
+  // 整合方补（2026-10-23）：DSH --json 的事件流。读到的、想到的里有额度字样；命令行自己报的那条在 final 里
+  '} else if (mode === "quota-in-tool" || mode === "quota-dsh-final") {',
+  '  say(JSON.stringify({ type: "session", sessionId: "s-1", cwd: process.cwd() }));',
+  '  say(JSON.stringify({ type: "tool_call", name: "read", input: { path: "config.ts" } }));',
+  '  say(JSON.stringify({ type: "tool_result", output: "quotaPatterns: [\'usage_limit_reached\', \'session limit\']" }));',
+  '  say(JSON.stringify({ type: "thinking", text: "配置里写着 usage_limit_reached 和 session limit" }));',
+  '  say(JSON.stringify({ type: "final", text: mode === "quota-in-tool" ? "做完了\\nRELAY-DONE 60 待复审（整合方）" : "error: usage_limit_reached" }));',
   '} else if (mode === "quota-stderr") {',
   '  console.error("ERROR: usage_limit_reached");',
   '  process.exit(1);',
@@ -256,6 +263,22 @@ describe('条件 7：额度字样 → 那个角色歇到点', () => {
   it('额度字样只出现在错误输出里 → 也算撞上', async () => {
     const s = setup('quota-stderr');
     const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 10 });
+    expect(result.quotaHit).toBe(true);
+    expect(s.state.pausedUntil.developer).toBeTruthy();
+  });
+
+  // 整合方补（2026-10-23）：第 3 棒 DSH 读了写着额度字样的配置，被误判成撞额度、歇了一个钟头
+  it('额度字样只出现在 DSH 的工具结果、思考里 → 不算撞上', async () => {
+    const s = setup('quota-in-tool');
+    const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 11 });
+    expect(result.doneLine).toBe('RELAY-DONE 60 待复审（整合方）');
+    expect(result.quotaHit).toBe(false);
+    expect(s.state.pausedUntil.developer).toBeUndefined();
+  });
+
+  it('DSH 的 final 里报额度错误 → 算撞上（事件流里别的行照样找）', async () => {
+    const s = setup('quota-dsh-final');
+    const result = await runTurn(s.turn, s.config, s.state, { dataDir: s.dataDir, turnNumber: 12 });
     expect(result.quotaHit).toBe(true);
     expect(s.state.pausedUntil.developer).toBeTruthy();
   });

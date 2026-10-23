@@ -34,6 +34,17 @@ function killTree(pid?: number): void {
   }
 }
 
+/** DSH `--json` 里工具调用、工具结果、思考这几种事件：是它读到、想到的，不是命令行自己报的。 */
+const NOISE_TYPES = new Set(['tool_call', 'tool_result', 'thinking']);
+function agentNoise(line: string): boolean {
+  if (!line.startsWith('{')) return false;
+  try {
+    return NOISE_TYPES.has(String((JSON.parse(line) as { type?: unknown }).type));
+  } catch {
+    return false;
+  }
+}
+
 export async function runTurn(
   turn: Turn,
   config: RelayConfig,
@@ -80,7 +91,10 @@ export async function runTurn(
   const stderrPath = join(dir, 'stderr.txt');
   writeFileSync(stdoutPath, out, 'utf8');
   writeFileSync(stderrPath, err, 'utf8');
-  const hay = `${out}\n${err}`.toLowerCase();
+  // 整合方改（2026-10-23）：额度字样不在 DSH 的工具结果、思考里找——第 3 棒读了写着这些字样的配置，被误判成撞额度。
+  const hay = [...out.split('\n').filter((l) => !agentNoise(l.trim())), err]
+    .join('\n')
+    .toLowerCase();
   const quotaHit = role.quotaPatterns.some((p) => p.trim() && hay.includes(p.trim().toLowerCase()));
   if (quotaHit) {
     const until = Date.now() + role.quotaPauseMinutes * 60_000;

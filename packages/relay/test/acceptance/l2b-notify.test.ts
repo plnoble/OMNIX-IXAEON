@@ -92,7 +92,8 @@ const STUB = [
   'g("pull", "--ff-only", "-q", "origin", "main");',
   'const q = clone + "/docs/委派/队列.md";',
   'let after = "待复审（整合方）";',
-  'if (mode === "ask") {',
+  // 整合方补（2026-10-23）：ask-quota = 改成等用户，同时输出里有额度字样
+  'if (mode === "ask" || mode === "ask-quota") {',
   '  writeFileSync(q, readFileSync(q, "utf8").replace("| 待领 |", "| 等用户：要不要买新电脑 |"), "utf8");',
   '  after = "等用户：要不要买新电脑";',
   '} else if (mode === "merge-b") {',
@@ -106,6 +107,7 @@ const STUB = [
   'g("commit", "-q", "-m", mode === "merge-b" ? "并入 L7：合成的越界" : "合成：替身改状态");',
   'g("push", "-q", "origin", "HEAD:main");',
   'console.log("RELAY-DONE 70 " + after);',
+  'if (mode === "ask-quota") console.log("usage_limit_reached");',
   '',
 ].join('\n');
 
@@ -251,6 +253,29 @@ describe('条件 4 / 5：什么时候发', () => {
       until: state.pausedUntil.developer ?? '',
     });
     expect(fake.texts).toContain(want);
+  }, 120_000);
+
+  // 整合方补（2026-10-23）：第 3 棒改成了等用户、又撞了额度，只发了 paused，等用户那条被吞了
+  it('改成等用户、同时撞额度 → paused 和 needs-user 两条都发', async () => {
+    const fake = await fakeFeishu();
+    const s = setup({ status: '待领', mode: 'ask-quota', feishu: fake, pause: true });
+    const r = await relay(s.dataDir, ['once']);
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    const state = JSON.parse(readFileSync(join(s.dataDir, 'state.json'), 'utf8')) as {
+      pausedUntil: { developer?: string };
+    };
+    expect(state.pausedUntil.developer).toBeTruthy();
+    expect(fake.texts).toContain(
+      formatEvent({ kind: 'paused', role: 'developer', until: state.pausedUntil.developer ?? '' }),
+    );
+    expect(fake.texts).toContain(
+      formatEvent({
+        kind: 'needs-user',
+        taskId: '70',
+        task: 'L7 合成的一行',
+        status: '等用户：要不要买新电脑',
+      }),
+    );
   }, 120_000);
 
   it('run --exit-when-idle 转到 queue-empty → 一条 idle', async () => {

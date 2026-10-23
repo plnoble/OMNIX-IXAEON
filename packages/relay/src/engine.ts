@@ -106,19 +106,23 @@ export async function runOnce(
       taskId: decision.taskId,
       task: decision.task,
     });
-  } else if (result.quotaHit && state.pausedUntil[decision.role]) {
-    await notifier.notify({
-      kind: 'paused',
-      role: decision.role,
-      until: state.pausedUntil[decision.role]!,
-    });
-  } else if (statusAfter?.startsWith('等用户')) {
-    await notifier.notify({
-      kind: 'needs-user',
-      taskId: decision.taskId,
-      task: decision.task,
-      status: statusAfter,
-    });
+  } else {
+    if (result.quotaHit && state.pausedUntil[decision.role]) {
+      await notifier.notify({
+        kind: 'paused',
+        role: decision.role,
+        until: state.pausedUntil[decision.role]!,
+      });
+    }
+    // 整合方改（2026-10-23）：歇了也照样告诉用户「等你拍板」——原来 else if 把它吞了（第 3 棒）。
+    if (statusAfter?.startsWith('等用户')) {
+      await notifier.notify({
+        kind: 'needs-user',
+        taskId: decision.taskId,
+        task: decision.task,
+        status: statusAfter,
+      });
+    }
   }
   saveState(dataDir, state);
   console.log(

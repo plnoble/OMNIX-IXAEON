@@ -470,7 +470,7 @@
       "title": "接力调度器：跑一棒、用量、记账、命令和锁",
       "status": "done",
       "files": {
-        "packages/relay/test/acceptance/l1b-run-turn.test.ts": "9b2650e29dd55e68e22da749d821fd6246184064eeb36a7062b7007b2011b941",
+        "packages/relay/test/acceptance/l1b-run-turn.test.ts": "01578025871c13b7e4759dfd6cae6d9f1c3474c2b9396b18d2ee28d3de723ce6",
         "packages/relay/test/acceptance/l1b-commands.test.ts": "d0d0588b62449ccb81d78bbe838ce5fcc7f315003137a884f6ee5054737731aa"
       }
     },
@@ -499,7 +499,7 @@
       "title": "接力调度器接上飞书、日报、配置样例",
       "status": "done",
       "files": {
-        "packages/relay/test/acceptance/l2b-notify.test.ts": "12616850e399cf3c9a7c058706570a4485c9bd13f2e88a2c20b1bbfd89430a57",
+        "packages/relay/test/acceptance/l2b-notify.test.ts": "459b81aa65a227481caf5f56a95a8806703568920b00be3579aaf44546ac9198",
         "packages/relay/test/acceptance/l2b-daily.test.ts": "dc59e29ed5a0277ed3dfc93102f81b5bfd68b59c03be097ac7f1170fa0392651",
         "packages/relay/test/acceptance/l2b-config.test.ts": "6440d06de07917312f2d2087cc54b3f025be093bac1cd9a6f15ebdbf8f14c87b"
       }

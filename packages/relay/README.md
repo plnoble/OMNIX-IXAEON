@@ -25,7 +25,8 @@
    这个文件不进仓库、也别外传。**不配也能跑**，只是停下和日报没人通知你。
    - 数据目录以前在 `<工作目录根>/relay`，**旧位置的文件不会自动搬**：跑一次 `relay status`，它会提醒你「旧的数据目录里还有文件」。
 
-3. **确认开发那份工作目录**。开发的 `cwd` 是 `<工作目录根>`（就是 `Worktrees/IXAEON` 这一层），因为开发要照 `AGENTS.md` 在它底下用 `git worktree` 建自己的活儿目录；整合方的 `cwd` 是它自己的 `relay-int`，**不和开发共用**。
+3. **（可选）定接力的 DSH 用哪个 plan、什么权限**。DSH 的 `headless` 配置自己不带模型设置，默认走 DeepSeek 官方 API，而且关在沙箱里（装不了依赖、跑不了测试）。2026-10-23 起的做法：在 `~/.dsh/ixaeon-relay.patch.yml` 写一层 DSH 补丁（选哪个 provider / model、要不要完全权限），在 `config.json` 开发的命令里 `--profile headless` 后面加 `--patch <这个文件>`。**换 plan 只改这个文件**，下一棒就生效；你平时用的 DSH 桌面版不读它。`relay init` 不会替你加这一项，重新生成配置后要补上。
+4. **确认开发那份工作目录**。开发的 `cwd` 是 `<工作目录根>`（就是 `Worktrees/IXAEON` 这一层），因为开发要照 `AGENTS.md` 在它底下用 `git worktree` 建自己的活儿目录；整合方的 `cwd` 是它自己的 `relay-int`，**不和开发共用**。
 
 ## 日常怎么使
 
