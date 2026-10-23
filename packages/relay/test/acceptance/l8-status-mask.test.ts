@@ -107,6 +107,22 @@ describe('条件 1：status 打印时用户目录换成 ~', () => {
     for (const form of homeForms()) expect(out).not.toContain(form);
     expect(r.stdout).toContain('~');
   }, 60_000);
+
+  // 整合方补（2026-10-23，接力第 6 棒）：变异检查发现「旧的数据目录里还有文件」那一行不遮也能过。
+  it('旧位置提醒那一行（旧目录、新目录都在用户目录下）也遮掉', () => {
+    const base = mkTmp(HOME, 'ixa-l8-');
+    const dataDir = join(base, 'relay');
+    const worktrees = join(base, 'worktrees');
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(join(worktrees, 'relay'), { recursive: true });
+    writeFileSync(join(worktrees, 'relay', 'state.json'), '{}\n', 'utf8');
+
+    const r = status(dataDir, worktrees);
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    expect(r.stdout).toContain('旧的数据目录里还有文件：~');
+    const out = `${r.stdout}${r.stderr}`;
+    for (const form of homeForms()) expect(out).not.toContain(form);
+  }, 60_000);
 });
 
 describe('条件 2：只改打印，不改存的东西', () => {
