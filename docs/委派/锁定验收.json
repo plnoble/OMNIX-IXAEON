@@ -593,6 +593,14 @@
         "packages/relay/test/acceptance/l9-prompt.test.ts": "5cb642a957414b4152fdf3729d51c628f33fe55098522890c801344e1805ad27",
         "packages/relay/test/acceptance/l9-verify.test.ts": "fa9bec19c6bf9269ed270ec71a90925a947972177d2109a167ac3a3d6ff34ccd"
       }
+    },
+    {
+      "id": "L13",
+      "title": "L13 替开发推 main 被拒时，先 rebase 再推一次",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l13-rebase-push.test.ts": "80b3c9f48e612d2fbf4ff9ab8f81e0d930137d70958549daaf777c33b48cee8f"
+      }
     }
   ]
 }
