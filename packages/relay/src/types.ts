@@ -1,6 +1,11 @@
 /** L1 接力调度器核心：类型（规格契约第 3、4、5、8 条），L2 又加了用量与拉不下来。 */
 export type Role = 'integrator' | 'developer';
-export type TurnKind = 'integrator-review' | 'developer-claim' | 'developer-continue';
+export type TurnKind =
+  | 'integrator-review'
+  | 'developer-claim'
+  | 'developer-continue'
+  /** L9 契约第 1 条：没活时派给整合方的规划棒。 */
+  | 'integrator-plan';
 export interface Turn {
   role: Role;
   kind: TurnKind;
@@ -30,6 +35,8 @@ export interface RelayConfig {
   roles: Record<Role, RoleConfig>;
   idleSeconds: number;
   localUserCheck?: string[];
+  /** L9 契约第 2 条：每个北京日最多派几棒规划；没有或 <= 0 就不规划。 */
+  planPerDay?: number;
 }
 /** 一棒的用量（L1 第 7 条）：Claude 的 total_cost_usd、Codex 那种 usage 的 token 数。 */
 export interface Usage {
@@ -46,10 +53,16 @@ export interface RelayState {
   notify?: { sent: Record<string, string> };
   /** L2b：最近一次发日报的日期，写 `10月21日` 这种。 */
   lastDailyDate?: string;
+  /** L9 契约第 3 条：最近一次派规划棒的日子、当天次数、那时队列全文的 sha256。 */
+  plan?: { date: string; count: number; queueHash: string };
 }
 export type Violation =
   | 'b-tier-merged-by-developer'
   | 'b-tier-lock-changed-by-developer'
   | 'local-user'
   /** L2：核对时拉不下来 origin/main，这一棒没法核对。 */
-  | 'verify-fetch-failed';
+  | 'verify-fetch-failed'
+  /** L9 契约第 6 条：规划棒改了 `docs/` 以外的文件。 */
+  | 'plan-touched-code'
+  /** L9 契约第 6 条：规划棒动了主表里已有的行、加超 3 行、或新行状态不对。 */
+  | 'plan-changed-rows';

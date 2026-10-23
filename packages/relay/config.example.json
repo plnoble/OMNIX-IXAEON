@@ -39,6 +39,7 @@
     }
   },
   "idleSeconds": 60,
+  "planPerDay": 2,
   "localUserCheck": ["node", "scripts/check-local-user.mjs"],
   "_开发说明_dsh": {
     "启动器": "packages/relay/bin/dsh.mjs 直接起 DeepSeek Harness.exe（dsh.cmd 是批处理，Node 不经 shell 起不了）。找不到安装目录时退出码 2；IXAEON_DSH_INSTALL 有值就只认它。",
