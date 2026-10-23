@@ -115,10 +115,14 @@ export const BLOCKED_ROWS: QueueRow[] = [
 /** 替身整合方：照 `--plan` 给的 JSON 改文件、提交、推 main，最后打一行 `RELAY-DONE plan <N>`。 */
 const STUB = [
   "import { spawnSync } from 'node:child_process';",
-  "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
-  "import { dirname } from 'node:path';",
+  "import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+  "import { dirname, join } from 'node:path';",
   'const argv = process.argv.slice(2);',
   'const plan = JSON.parse(readFileSync(argv[argv.indexOf("--plan") + 1], "utf8"));',
+  '// 整合方补：开跑时把调度器的 state.json 抄一份（看「跑之前存盘」）',
+  'if (plan.snapshotState) {',
+  '  copyFileSync(join(process.env.IXAEON_RELAY_DIR, "state.json"), plan.snapshotState);',
+  '}',
   'const cwd = process.cwd();',
   'const g = (...a) => {',
   '  const r = spawnSync("git", a, { cwd, encoding: "utf8" });',

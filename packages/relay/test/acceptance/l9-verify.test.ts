@@ -15,7 +15,7 @@
  *
  * 不调真模型、不连 GitHub。
  */
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { verifyTurn } from '../../src/index.js';
@@ -98,6 +98,39 @@ describe('条件 3：规划棒的核对', () => {
     expect(r.violations).toContain('plan-touched-code');
   }, 120_000);
 
+  // 整合方补（2026-10-24）：只认 `docs/` 这个目录，名字以 docs 开头的别的目录不算。
+  it('(b) 改了 docs-extra/ 下的文件（不是 docs/）→ plan-touched-code', async () => {
+    const s = setup();
+    s.w.commitPushInInteg('规划：写到了 docs 旁边', (dir) => {
+      mkdirSync(join(dir, 'docs-extra'), { recursive: true });
+      writeFileSync(join(dir, 'docs-extra', 'x.md'), '# 合成\n', 'utf8');
+    });
+    const r = await verifyTurn(PLAN_TURN, s.config, s.state);
+    expect(r.violations).toContain('plan-touched-code');
+  }, 120_000);
+
+  // 整合方补（2026-10-24）：契约第 6 条是「任何一格变了」，不只是状态那一格。
+  // 委派单或规格那一格 parseMainTable 不读，实现只比 parseMainTable 的几栏会漏掉。
+  it('(c) 改了已有一行的任务、或委派单那一格（状态没动）→ plan-changed-rows', async () => {
+    const task = setup();
+    task.w.commitPushInInteg('规划：改了已有一行的任务名', (dir) => {
+      editQueue(dir, (md) => md.replace('| L8 合成的一行 |', '| L8 合成的一行（改过） |'));
+    });
+    expect((await verifyTurn(PLAN_TURN, task.config, task.state)).violations).toContain(
+      'plan-changed-rows',
+    );
+
+    const link = setup();
+    link.w.commitPushInInteg('规划：改了已有一行的规格链接', (dir) => {
+      editQueue(dir, (md) =>
+        md.replace('| L8 合成的一行 | [x](x.md) |', '| L8 合成的一行 | [y](y.md) |'),
+      );
+    });
+    expect((await verifyTurn(PLAN_TURN, link.config, link.state)).violations).toContain(
+      'plan-changed-rows',
+    );
+  }, 120_000);
+
   it('(c) 改了已有一行的状态 → plan-changed-rows', async () => {
     const s = setup();
     s.w.commitPushInInteg('规划：动了已有的行', (dir) => {
@@ -172,7 +205,9 @@ describe('条件 3 / 契约第 6 条：越界就停下并发 stopped', () => {
     const fake = await fakeFeishu();
     closers.push(fake.close);
     const w = world({ rows: DONE_ROWS, planPerDay: 2, feishu: fake });
+    // 整合方改（2026-10-24）：同时加了一行合规的——越界时不发 planned（契约第 7 条「没越界」）。
     w.writePlan({
+      rows: [{ no: '73', task: 'L11 合成的一件', status: '待领' }],
       code: [{ file: 'packages/core/src/chain-plan.ts', content: 'export const x = 1;\n' }],
       message: '规划：顺手改了代码',
     });
@@ -190,6 +225,7 @@ describe('条件 3 / 契约第 6 条：越界就停下并发 stopped', () => {
         task: '找下一批活',
       }),
     ]);
+    expect(fake.texts.some((t) => t.includes('整合方排了'))).toBe(false);
     expect(w.ledger()).toHaveLength(1);
   }, 120_000);
 });

@@ -13,7 +13,7 @@
  * 纯函数 + 临时合成仓库（替身当整合方），不调真模型、不连 GitHub。
  */
 import { createHash } from 'node:crypto';
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decideNextTurn } from '../../src/index.js';
 import type { Idle, RelayState, Turn } from '../../src/index.js';
@@ -123,10 +123,19 @@ describe('条件 1：什么时候派规划棒', () => {
     expect(asIdle(decideNextTurn(EMPTY, same, NOW, { planPerDay: 2 })).idle).toBe('queue-empty');
   });
 
-  it('换了北京日 → 次数重算，照样派（昨天派满、队列没变也派）', () => {
-    const yesterday = state({ plan: { date: YESTERDAY, count: 5, queueHash: hashOf(EMPTY) } });
+  it('换了北京日 → 次数重算，照样派（昨天派满、队列变了）', () => {
+    const yesterday = state({ plan: { date: YESTERDAY, count: 5, queueHash: otherHash } });
     expect(asTurn(decideNextTurn(EMPTY, yesterday, NOW, { planPerDay: 2 })).kind).toBe(
       'integrator-plan',
+    );
+  });
+
+  // 整合方审测试时改（2026-10-24）：原来这条写「昨天派满、队列没变也派」，和契约第 4 条相反——
+  // 三条要同时成立，队列和上次一字不差就不派，不管是不是换了日子。
+  it('换了北京日、但队列和上次一字不差 → 照样不派', () => {
+    const yesterday = state({ plan: { date: YESTERDAY, count: 1, queueHash: hashOf(EMPTY) } });
+    expect(asIdle(decideNextTurn(EMPTY, yesterday, NOW, { planPerDay: 2 })).idle).toBe(
+      'queue-empty',
     );
   });
 
@@ -182,6 +191,23 @@ describe('条件 1（契约第 4 条）：runOnce 传 planPerDay、更新 state.
     expect(st.plan?.count).toBe(1);
     expect(st.plan?.queueHash).toMatch(/^[a-f0-9]{64}$/);
     expect(w.ledger()).toHaveLength(1);
+  }, 120_000);
+
+  // 整合方补（2026-10-24）：契约第 4 条「跑之前存盘」——替身开跑时读一份 state.json，
+  // 里面已经要有这一次的 plan（不然这一棒把调度器带崩，下次还会接着规划、次数也不涨）。
+  it('state.plan 在规划棒开跑之前就存了盘', async () => {
+    const w = world({
+      planPerDay: 2,
+      state: { plan: { date: TODAY, count: 1, queueHash: otherHash } },
+    });
+    const snap = `${w.root}/state-during-turn.json`;
+    w.writePlan({ rows: [], snapshotState: snap });
+    expect((await w.run(['once'])).status).toBe(0);
+    const during = JSON.parse(readFileSync(snap, 'utf8')) as { plan?: Plan };
+    expect(during.plan?.date).toBe(TODAY);
+    expect(during.plan?.count).toBe(2);
+    expect(during.plan?.queueHash).not.toBe(otherHash);
+    expect(during.plan?.queueHash).toBe((w.state() as { plan?: Plan }).plan?.queueHash);
   }, 120_000);
 
   it('同一个北京日、队列没变：第二次没活就不再规划', async () => {

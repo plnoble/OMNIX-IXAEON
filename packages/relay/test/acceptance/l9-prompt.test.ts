@@ -64,6 +64,17 @@ describe('条件 2：规划棒的交代', () => {
       expect(p).toContain(ASK);
       expect(p).toContain('停点：加完行、推上 main 就停。');
       expect(p).toContain('做完在最后一行输出：RELAY-DONE plan <加了几行>');
+      // 整合方补（2026-10-24）：契约第 5 条的先后（那段开头、最后一行收尾），且不带普通棒的停点和行信息。
+      expect(p.startsWith(PLAN_PARA)).toBe(true);
+      expect(p.trimEnd().endsWith('做完在最后一行输出：RELAY-DONE plan <加了几行>')).toBe(true);
+      const at = (s: string) => p.indexOf(s);
+      expect(at('这是第 3 棒。')).toBeGreaterThan(at(PLAN_PARA));
+      expect(at(ASK)).toBeGreaterThan(at('这是第 3 棒。'));
+      expect(at('停点：加完行、推上 main 就停。')).toBeGreaterThan(at(ASK));
+      expect(p).not.toContain('这一行复审完就停');
+      expect(p).not.toContain('序号：');
+      expect(p).not.toContain('RELAY-DONE plan <这一行现在的状态>');
+      expect(p.match(/停点：/g)).toHaveLength(1);
     },
   );
 });
