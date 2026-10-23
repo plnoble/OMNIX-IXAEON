@@ -4,7 +4,7 @@
  *
  *   node scripts/real/d4c-flaky-repro.mjs
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { cpus } from 'node:os';
 
 process.env.GIT_CONFIG_GLOBAL = 'nul';
@@ -38,23 +38,20 @@ console.log('== 阶段 2：机器忙时跑 12 遍（起 CPU 烤机进程，限�
 const burnCount = Math.max(2, cpus().length);
 const burners = [];
 for (let i = 0; i < burnCount; i++) {
+  // 不经 shell：参数按数组传，`<` 和空格不会被 cmd.exe 解析掉；拿到 pid 才算起成
   burners.push(
-    spawnSync(
-      'start',
-      [
-        '/B',
-        'node',
-        '-e',
-        'const t=Date.now();while(Date.now()-t<120000){Math.sqrt(Math.random())}',
-      ],
+    spawn(
+      process.execPath,
+      ['-e', 'const t=Date.now();while(Date.now()-t<120000){Math.sqrt(Math.random())}'],
       {
-        shell: true,
+        stdio: 'ignore',
         windowsHide: true,
       },
     ),
   );
 }
-console.log(`已起 ${burnCount} 个占 CPU 的进程`);
+const alive = burners.filter((b) => b.pid).length;
+console.log(`已起 ${alive} 个占 CPU 的真实进程（共想起 ${burnCount} 个）`);
 
 let pass2 = 0;
 let fail2 = 0;
@@ -78,5 +75,12 @@ for (let i = 1; i <= 12; i++) {
     console.log(`  忙时第 ${i} 遍红：${(r.stdout || r.stderr).slice(0, 300)}`);
   }
 }
-console.log(`阶段 2 结果：pass=${pass2} fail=${fail2}`);
+for (const b of burners) {
+  try {
+    b.kill();
+  } catch {
+    /* 已经自己到点退了 */
+  }
+}
+console.log(`阶段 2 结果：pass=${pass2} fail=${fail2}（负载进程已收）`);
 console.log(`总计：pass=${pass1 + pass2} fail=${fail1 + fail2}`);

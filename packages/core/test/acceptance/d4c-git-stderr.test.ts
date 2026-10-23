@@ -78,7 +78,7 @@ interface World {
   runWithHook(
     hookContent: string,
     hookName?: 'post-checkout' | 'pre-commit',
-  ): Promise<{ taskId: string; error: string; rawWhy: string }>;
+  ): Promise<{ taskId: string; error: string }>;
 }
 
 function makeWorld(): World {
@@ -188,10 +188,12 @@ describe('D4c 验收条件：建分支失败带上 git 的原话', () => {
     const { error } = await w.runWithHook(hook);
 
     expect(error.startsWith('建分支失败：Command failed: git ')).toBe(true);
-    // 格式必须完全是 `建分支失败：Command failed: git …`，末尾不能带冒号
+    // node 的 Command failed 里本来就带一个中文冒号（提交标题 `IXAEON：…`），所以不能全句禁冒号；
+    // 要证明的是「没有追加原话」：结尾不是冒号，且不再出现追加内容的样子。
+    const afterPrefix = error.replace(/^建分支失败：/, '').split('；且')[0]!;
+    expect(afterPrefix.endsWith('：')).toBe(false);
+    // node 原话以 commit 的命令行结束（`-m <提交信息>`），末尾不会再跟中文冒号
     expect(error.endsWith('：')).toBe(false);
-    // 整句在 `建分支失败：` 之后只包含 Command failed 这一段，没有中文冒号「：」追加在最后
-    const afterPrefix = error.replace(/^建分支失败：/, '');
-    expect(afterPrefix.split('；且')[0]!.endsWith('：')).toBe(false);
+    expect(afterPrefix).not.toMatch(/：D4C_/); // 没把 stderr 里的东西接上来
   });
 });
