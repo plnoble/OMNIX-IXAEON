@@ -15,6 +15,16 @@ export interface RoleConfig {
   timeoutMinutes: number;
   quotaPatterns: string[];
   quotaPauseMinutes: number;
+  /** L6 契约第 2 条：这一棒跑完之后，调度器替它推它写出来的那些分支（开发用）。 */
+  pushByRelay?: boolean;
+}
+
+/** L6 契约第 4 条：一条替推记录（写进记账的 `pushes`）。 */
+export interface PushRecord {
+  dir: string;
+  local: string;
+  remote: string;
+  ok: boolean;
 }
 export interface RelayConfig {
   roles: Record<Role, RoleConfig>;

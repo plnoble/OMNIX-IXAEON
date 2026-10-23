@@ -3,6 +3,7 @@ import { dailyDue, dailyEvent } from './daily.js';
 import { git } from './git.js';
 import { createNotifier, loadFeishuTarget } from './notify/feishu.js';
 import { decideNextTurn, parseMainTable } from './queue.js';
+import { parsePushLines, readTurnStdout, relayPushes } from './push.js';
 import { runTurn } from './run-turn.js';
 import { appendLedger, readLedger, readMainQueue, relayNow, saveState } from './store.js';
 import { verifyTurn } from './verify.js';
@@ -57,7 +58,15 @@ export async function runOnce(
   state.mainShaAtTurnStart = git(config.roles.integrator.cwd, ['rev-parse', 'origin/main']).out;
   const startedAt = new Date().toISOString();
   const result = await runTurn(decision, config, state, { dataDir, turnNumber: turn });
-  const verdict = await verifyTurn(decision, config, state);
+  // L6 契约第 4 条：标了 pushByRelay 的角色，替它把这一棒要推的推上去。**先推后端**再核对——
+  // 替推上去的东西（比如「并入 B 档」）也要被核对到。
+  const role = config.roles[decision.role];
+  const push = role.pushByRelay
+    ? relayPushes(parsePushLines(readTurnStdout(result.stdoutPath)), role, turn)
+    : null;
+  const verdict = push?.stopReason
+    ? { violations: [], mainSha: null }
+    : await verifyTurn(decision, config, state);
   // 拉不下来就没法核对：停下，做完后的状态也不猜（规格末尾第 4 条）。
   const after = verdict.mainSha === null ? null : await readMainQueue(config);
   const statusAfter = after === null ? null : statusOfTask(after, decision.taskId);
@@ -76,13 +85,16 @@ export async function runOnce(
     statusAfter,
     doneLine: result.doneLine,
     violations: verdict.violations,
+    ...(push && push.pushes.length ? { pushes: push.pushes } : {}),
   });
   state.turns = turn;
-  const stopReason = verdict.violations.includes('verify-fetch-failed')
-    ? `第 ${turn} 棒之后拉不下来 origin/main，没法核对`
-    : verdict.violations.length
-      ? `第 ${turn} 棒越界（${decision.role}）：${verdict.violations.join('、')}`
-      : null;
+  const stopReason =
+    push?.stopReason ??
+    (verdict.violations.includes('verify-fetch-failed')
+      ? `第 ${turn} 棒之后拉不下来 origin/main，没法核对`
+      : verdict.violations.length
+        ? `第 ${turn} 棒越界（${decision.role}）：${verdict.violations.join('、')}`
+        : null);
   if (stopReason) state.stoppedReason = stopReason;
   // 什么时候发（规格契约第 4 条的表）：停下 → stopped；撞额度 → paused；等用户 → needs-user。
   if (stopReason) {

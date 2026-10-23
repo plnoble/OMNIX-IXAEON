@@ -47,10 +47,19 @@ if (!found) {
   console.error('没找到 DSH 的安装目录');
   process.exitCode = 2;
 } else {
+  // L6 契约第 1 条：让 DSH 里的 git 走 OpenSSL（这台机器上 schannel 握手失败）。
+  // 用 `GIT_CONFIG_PARAMETERS`（git 拿它当 `-c` 用）而不是 `GIT_CONFIG_KEY_*`——后者名字里带 KEY，
+  // 会被 DSH 的子进程层擦掉。原来的值放前面、空格隔开；不设 GIT_CONFIG_COUNT。
+  const prev = process.env.GIT_CONFIG_PARAMETERS?.trim();
+  const parameters = prev ? `${prev} 'http.sslBackend=openssl'` : "'http.sslBackend=openssl'";
   const r = spawnSync(found.exe, ['--expose-internals', found.cli, ...process.argv.slice(2)], {
     stdio: 'inherit',
     windowsHide: true,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
+      GIT_CONFIG_PARAMETERS: parameters,
+    },
   });
   if (r.error) {
     console.error(`起不了 DSH：${r.error.message}`);

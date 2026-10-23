@@ -87,6 +87,8 @@ const buildConfig = (o: {
     '读 {prompt_file}，照里面做。',
   ];
   developer.cwd = o.trees;
+  // L6 契约第 2 条：开发只提交，推送由调度器替它做（整合方不写这个字段）。
+  developer.pushByRelay = true;
   return example;
 };
 
