@@ -580,6 +580,19 @@
       "files": {
         "packages/relay/test/acceptance/l14-electron-args.test.ts": "3ead069a0e25bb6d0eac69e56c29825303e70320d5ed20a1501fe88e5b89a534"
       }
+    },
+    {
+      "id": "L9",
+      "title": "没活时整合方自己找活（规划棒）",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l9-config.test.ts": "dbe5c87f49cd75edb7e2b81c9cd502c85b2107c93b7e3a6749911ceb41d7d8d6",
+        "packages/relay/test/acceptance/l9-decide.test.ts": "cf9505c54e0cf7d2b3696e0e6946b281bb94b3fe1cbf15002522c8822e1c84b4",
+        "packages/relay/test/acceptance/l9-harness.ts": "87596ee36437c3244f7662713f1a3558f88ee5e247df930307881f8f5a472321",
+        "packages/relay/test/acceptance/l9-notify.test.ts": "0df436f8717c1974aa1dabfe0365a75085fce27e57996693337c2388e0331cc7",
+        "packages/relay/test/acceptance/l9-prompt.test.ts": "5cb642a957414b4152fdf3729d51c628f33fe55098522890c801344e1805ad27",
+        "packages/relay/test/acceptance/l9-verify.test.ts": "fa9bec19c6bf9269ed270ec71a90925a947972177d2109a167ac3a3d6ff34ccd"
+      }
     }
   ]
 }
