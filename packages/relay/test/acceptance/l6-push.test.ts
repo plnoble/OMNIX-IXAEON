@@ -225,7 +225,10 @@ describe('条件 4（整合方补）：dir 在 cwd 里面，但不是这个仓�
       '-m',
       'x',
     ]);
-    w.git(other, ['remote', 'add', 'origin', w.origin]);
+    // 整合方改（2026-10-23，为 L6b）：origin 指到另一个裸仓库——L6b 之后「cwd 里、origin 一样」的独立克隆会被放行
+    const otherBare = `${w.root}/other.git`;
+    w.git(w.root, ['init', '--bare', '-q', otherBare]);
+    w.git(other, ['remote', 'add', 'origin', otherBare]);
     w.writePlan({ pushes: [`RELAY-PUSH ${other} main main`] });
     const beforeMain = w.originSha('refs/heads/main');
     const r = await w.run(['once']);
