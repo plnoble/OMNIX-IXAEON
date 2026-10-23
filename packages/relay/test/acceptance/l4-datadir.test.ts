@@ -13,7 +13,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadFeishuTarget } from '../../src/notify/feishu.js';
@@ -35,6 +35,14 @@ const newDefault = (localAppData: string, home: string) =>
   process.platform === 'win32'
     ? join(localAppData, 'IXAEON', 'relay')
     : join(home, '.local', 'share', 'ixaeon', 'relay');
+/**
+ * 整合方改（2026-10-23，为 L10）：L10 契约第 6 条把默认挪到 `~/.ixaeon/relay`（所有系统）。
+ * 这里两种都认：L4 的写法和 L10 的写法；要的仍是「不是旧的 Worktrees 位置」（L10 自己的测试严格要求新位置）。
+ */
+const defaults = (localAppData: string, home: string) => [
+  newDefault(localAppData, home),
+  join(home, '.ixaeon', 'relay'),
+];
 
 /** 起 CLI 时用的环境：把三个位置都显式给死，不碰用户本机的任何数据目录。 */
 const envFor = (opts: {
@@ -48,6 +56,8 @@ const envFor = (opts: {
   delete env.IXAEON_NOW;
   env.LOCALAPPDATA = opts.localAppData;
   env.HOME = opts.home;
+  // 整合方改（2026-10-23，为 L10）：Windows 上用户目录看 USERPROFILE，也指到临时目录（不碰本机的 ~/.ixaeon）
+  env.USERPROFILE = opts.home;
   env.IXAEON_WORKTREES = opts.worktrees;
   if (opts.relayDir) env.IXAEON_RELAY_DIR = opts.relayDir;
   return env;
@@ -66,7 +76,8 @@ const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p)
  * `~` 换回子进程的用户目录（Windows 上是本机的，别的系统是测试给的 `HOME`），换回来之后
  * 还是要和原来一样逐字相等——条件没放宽，L8 之前原样打印的写法也照样过。
  */
-const childHome = (home: string) => (process.platform === 'win32' ? homedir() : home);
+// 整合方改（2026-10-23，为 L10）：子进程的 USERPROFILE 也是测试给的 home 了，两个系统都用它
+const childHome = (home: string) => home;
 const expandHome = (text: string, home: string) =>
   text.replace(/(^|[\s"：])~(?=[\\/])/g, (_m, pre: string) => `${pre}${childHome(home)}`);
 
@@ -86,7 +97,9 @@ describe('条件 2：数据目录的位置', () => {
     const home = mkTmp('ixa-l4-home-');
     const r = status(envFor({ localAppData, worktrees, home }));
     expect(r.status, r.stderr || r.stdout).toBe(0);
-    expect(norm(expandHome(dataDirOf(r.stdout), home))).toBe(norm(newDefault(localAppData, home)));
+    expect(defaults(localAppData, home).map(norm)).toContain(
+      norm(expandHome(dataDirOf(r.stdout), home)),
+    );
   }, 60_000);
 
   it('有 IXAEON_RELAY_DIR 时用它', () => {
@@ -103,13 +116,15 @@ describe('条件 2：数据目录的位置', () => {
     const localAppData = mkTmp('ixa-l4-appdata-');
     const worktrees = mkTmp('ixa-l4-trees-');
     const home = mkTmp('ixa-l4-home-');
-    const fresh = newDefault(localAppData, home);
-    mkdirSync(fresh, { recursive: true });
-    writeFileSync(
-      join(fresh, 'feishu.json'),
-      `${JSON.stringify({ webhookUrl: 'http://127.0.0.1:1/fresh', secret: 'synthetic-fresh' })}\n`,
-      'utf8',
-    );
+    // 整合方改（2026-10-23，为 L10）：L4、L10 两处新默认都放同一份（都在临时目录里）
+    for (const fresh of defaults(localAppData, home)) {
+      mkdirSync(fresh, { recursive: true });
+      writeFileSync(
+        join(fresh, 'feishu.json'),
+        `${JSON.stringify({ webhookUrl: 'http://127.0.0.1:1/fresh', secret: 'synthetic-fresh' })}\n`,
+        'utf8',
+      );
+    }
     // 旧位置也放一份不一样的：读错了就会露出来
     mkdirSync(join(worktrees, 'relay'), { recursive: true });
     writeFileSync(
@@ -125,7 +140,7 @@ describe('条件 2：数据目录的位置', () => {
       const target = loadFeishuTarget();
       expect(target?.webhookUrl).toBe('http://127.0.0.1:1/fresh');
     } finally {
-      for (const k of ['LOCALAPPDATA', 'HOME', 'IXAEON_WORKTREES', 'IXAEON_RELAY_DIR']) {
+      for (const k of ['LOCALAPPDATA', 'HOME', 'USERPROFILE', 'IXAEON_WORKTREES', 'IXAEON_RELAY_DIR']) {
         if (old[k] === undefined) delete process.env[k];
         else process.env[k] = old[k];
       }

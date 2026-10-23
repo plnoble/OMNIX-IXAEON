@@ -207,7 +207,17 @@ export function makeWorld(
         delete merged.IXAEON_RELAY_DIR;
         delete merged.IXAEON_RELAY_CODE;
         delete merged.IXAEON_RELAY_INSTALL;
-        Object.assign(merged, { IXAEON_RELAY_DIR: dataDir, IXAEON_RELAY_NOW: MORNING }, env);
+        // 整合方补（2026-10-23）：工作目录根也指到临时目录——实现万一没认 IXAEON_RELAY_CODE，
+        // relay-run 会建在这里，不会建到本机真的 Worktrees 下面（测试也靠它查「没建」）。
+        Object.assign(
+          merged,
+          {
+            IXAEON_RELAY_DIR: dataDir,
+            IXAEON_RELAY_NOW: MORNING,
+            IXAEON_WORKTREES: join(root, 'trees'),
+          },
+          env,
+        );
         const p = spawn(process.execPath, [CLI, ...args], {
           cwd: REPO,
           env: merged as NodeJS.ProcessEnv,

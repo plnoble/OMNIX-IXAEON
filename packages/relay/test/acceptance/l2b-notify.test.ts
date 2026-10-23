@@ -195,7 +195,13 @@ const relay = (dataDir: string, args: string[], now = MORNING) =>
   new Promise<{ status: number | null; stdout: string; stderr: string }>((done) => {
     const p = spawn(process.execPath, [CLI, ...args], {
       cwd: REPO,
-      env: { ...process.env, IXAEON_RELAY_DIR: dataDir, IXAEON_RELAY_NOW: now },
+      // 整合方改（2026-10-23，为 L10）：`relay run` 是看门人，用本仓库这份代码跑子进程（L10 之前设了也不影响）
+      env: {
+        ...process.env,
+        IXAEON_RELAY_DIR: dataDir,
+        IXAEON_RELAY_NOW: now,
+        IXAEON_RELAY_CODE: REPO,
+      },
       windowsHide: true,
     });
     let stdout = '';

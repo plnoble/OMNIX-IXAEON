@@ -37,13 +37,16 @@ afterEach(() => {
 describe('条件 6：{relay_root}', () => {
   it('配置里写 {relay_root}/x → 替身收到的是 <IXAEON_RELAY_CODE>/x', async () => {
     const dump = join(tmp('ixa-l10-argv-'), 'argv.json');
-    const w = makeWorld({ devExtraArgs: ['--dump-argv', dump, '{relay_root}/x'] });
+    // 整合方改严（2026-10-23）：嵌在参数中间的也换（照 {prompt_file}）
+    const w = makeWorld({ devExtraArgs: ['--dump-argv', dump, '{relay_root}/x', '--y={relay_root}/y'] });
     worlds.push(w);
 
     const r = await w.run(['once'], { IXAEON_RELAY_CODE: REPO });
     expect(r.status, r.stderr || r.stdout).toBe(0);
     const seen = JSON.parse(readFileSync(dump, 'utf8')) as string[];
     expect(seen).toContain(`${REPO}/x`);
+    expect(seen).toContain(`--y=${REPO}/y`);
+    expect(seen.join(' ')).not.toContain('{relay_root}');
     expect(w.ledger()).toHaveLength(1);
   }, 120_000);
 
