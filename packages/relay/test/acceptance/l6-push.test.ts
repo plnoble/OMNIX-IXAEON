@@ -280,3 +280,29 @@ describe('条件 4（整合方补）：同一个仓库的工作目录，但不�
     expect(reason).toContain('elsewhere');
   }, 120_000);
 });
+
+// 整合方补（2026-10-23，复审实现时）：推上去过东西、后面一条才失败——先推上去的那些照样要核对
+describe('条件 5（整合方补）：前面推成了、后面一条失败 → 照样核对', () => {
+  it('main 推成了（里面有「并入 L7」）、dev/ 那条失败 → 停下，越界也认出来', async () => {
+    const w = world();
+    w.writePlan({
+      commits: [
+        {
+          branch: 'relay-dev',
+          file: 'docs/委派/笔记.md',
+          content: '并入的一笔\n',
+          message: '并入 L7：合成的越界',
+        },
+      ],
+      pushes: [`RELAY-PUSH ${w.dev} relay-dev main`, `RELAY-PUSH ${w.dev} no-such-branch dev/z`],
+    });
+    const r = await w.run(['once']);
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    const row = rowOf(w);
+    const pushes = row.pushes as Array<Record<string, unknown>>;
+    expect(pushes[0]).toMatchObject({ remote: 'main', ok: true });
+    expect(pushes[1]).toMatchObject({ remote: 'dev/z', ok: false });
+    expect(row.violations).toContain('b-tier-merged-by-developer');
+    expect(String(w.state().stoppedReason ?? '')).toContain('第 1 棒替开发推送失败：');
+  }, 120_000);
+});

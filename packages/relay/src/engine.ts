@@ -64,9 +64,11 @@ export async function runOnce(
   const push = role.pushByRelay
     ? relayPushes(parsePushLines(readTurnStdout(result.stdoutPath)), role, turn)
     : null;
-  const verdict = push?.stopReason
-    ? { violations: [], mainSha: null }
-    : await verifyTurn(decision, config, state);
+  // 整合方改（2026-10-23）：只有一条都没推（被拒）才跳过核对；推上去过东西（哪怕后面一条失败了）照样核对
+  const verdict =
+    push?.stopReason && push.pushes.length === 0
+      ? { violations: [], mainSha: null }
+      : await verifyTurn(decision, config, state);
   // 拉不下来就没法核对：停下，做完后的状态也不猜（规格末尾第 4 条）。
   const after = verdict.mainSha === null ? null : await readMainQueue(config);
   const statusAfter = after === null ? null : statusOfTask(after, decision.taskId);
