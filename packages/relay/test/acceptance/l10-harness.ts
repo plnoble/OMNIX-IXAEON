@@ -135,6 +135,8 @@ export function makeWorld(
   mkdirSync(join(integ, 'docs', '委派'), { recursive: true });
   writeFileSync(join(integ, 'docs', '委派', '队列.md'), queueOf(opts.status ?? '待领'), 'utf8');
   writeFileSync(join(integ, 'docs', '委派', '锁定验收.json'), '{"tasks":[]}\n', 'utf8');
+  // 契约第 4 条要 `pnpm-lock.yaml`：合成一份，免得依赖那一步永远 'skipped'
+  writeFileSync(join(integ, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n', 'utf8');
   must(integ, ['add', '-A']);
   must(integ, ['commit', '-q', '-m', '初始合成仓库']);
   must(integ, ['push', '-q', 'origin', 'HEAD:main']);
@@ -207,7 +209,13 @@ export function makeWorld(
         delete merged.IXAEON_RELAY_DIR;
         delete merged.IXAEON_RELAY_CODE;
         delete merged.IXAEON_RELAY_INSTALL;
-        Object.assign(merged, { IXAEON_RELAY_DIR: dataDir, IXAEON_RELAY_NOW: MORNING }, env);
+        Object.assign(
+          merged,
+          { IXAEON_RELAY_DIR: dataDir, IXAEON_RELAY_NOW: MORNING },
+          // 默认把「装依赖」换成空操作：不然合成仓库里会去跑真 pnpm（慢且会失败）
+          { IXAEON_RELAY_INSTALL: JSON.stringify([process.execPath, '-e', 'process.exit(0)']) },
+          env,
+        );
         const p = spawn(process.execPath, [CLI, ...args], {
           cwd: REPO,
           env: merged as NodeJS.ProcessEnv,

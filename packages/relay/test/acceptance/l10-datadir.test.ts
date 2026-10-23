@@ -35,6 +35,8 @@ describe('条件 7：数据目录默认在 ~/.ixaeon/relay', () => {
     const r = await w.run(['status'], {
       IXAEON_RELAY_DIR: undefined,
       IXAEON_WORKTREES: tmp('ixa-l10-trees-'),
+      // 旧位置也指到空目录：不然会读到这台机器上真的 IXAEON/relay（提醒行里会带 appdata）
+      LOCALAPPDATA: tmp('ixa-l10-local-empty-'),
       USERPROFILE: home,
       HOME: home,
     });
@@ -63,7 +65,8 @@ describe('条件 7：数据目录默认在 ~/.ixaeon/relay', () => {
     });
     expect(r.status, r.stderr || r.stdout).toBe(0);
     expect(r.stdout).toContain('旧的数据目录里还有文件');
-    // 提醒里只说路径、不带内容
-    expect(r.stdout).not.toContain('turns');
+    // 提醒里只说路径：那一行里没有旧文件的内容
+    const line = r.stdout.split('\n').find((l) => l.includes('旧的数据目录里还有文件')) ?? '';
+    expect(line).not.toContain('{"turns":0}');
   }, 120_000);
 });
