@@ -521,6 +521,17 @@
       "files": {
         "packages/relay/test/acceptance/l5-init.test.ts": "019ef7857e12519fc868995f69e60aec0557d1ac17422ec6a89c624526b80934"
       }
+    },
+    {
+      "id": "L6",
+      "title": "调度器替开发推送：DSH 只提交，调度器推",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l6-launcher.test.ts": "2ddfc735c759ad5f83b57927c560549e5cf9cd171fe6149d899576d59e703bc8",
+        "packages/relay/test/acceptance/l6-prompt.test.ts": "af6ba66e5ef717be334ace8784bd3d5a271ff6e345d68a0c67dc6e0819108e04",
+        "packages/relay/test/acceptance/l6-push.test.ts": "4c138f01ce8ad2904d4d4926a0b278e639f7b18d090f827070a66b1426b715f9",
+        "packages/relay/test/acceptance/l6-harness.ts": "20238da9e54b3a6bc3f257c820c10a457eee4a685c55f9ee6eca657a6aebca8d"
+      }
     }
   ]
 }

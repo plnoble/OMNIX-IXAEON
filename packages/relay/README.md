@@ -11,7 +11,7 @@
 ## 第一次用
 
 1. **准备一份配置**。调度器要一个「数据目录」，默认在 `%LOCALAPPDATA%\IXAEON\relay`（别的系统是 `~/.local/share/ixaeon/relay`）。目录里要有一份 `config.json`，写着两个角色怎么起、在哪个目录起。
-   - **一条命令生成它**：`relay init`（**正在做**，见 L5）。它会：找这台机器上的 Claude Code 可执行文件、在 `<工作目录根>/relay-int` 建一个整合方的专用工作目录（`git worktree`）、把开发的命令行指向仓库里的 DSH 启动器，然后在写出来之前用配置检查过一遍。
+   - **一条命令生成它**：`relay init`（L5，已经有了）。它会：找这台机器上的 Claude Code 可执行文件、在 `<工作目录根>/relay-int` 建一个整合方的专用工作目录（`git worktree`）、把开发的命令行指向仓库里的 DSH 启动器，写出来之后用配置检查过一遍，不过就删掉、说清是哪一条。
    - L5 并入 `main` 之前，这个命令还不存在，得照 `packages/relay/config.example.json` 手写一份。
 2. **想收飞书通知就配机器人**。在飞书群里加一个**自定义机器人**、打开**签名校验**，把地址和密钥写进 `<数据目录>/feishu.json`：
 

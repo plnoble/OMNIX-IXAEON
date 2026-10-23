@@ -113,7 +113,12 @@ describe('条件 4：替推被拒（一条都没推、停下、原因写清）',
       token: 'integ',
       line: (w) => `RELAY-PUSH ${w.integ} relay-dev main`,
     },
-    { what: 'local 带 +', token: '+', line: (w) => `RELAY-PUSH ${w.dev} dev/x+ dev/x` },
+    // 整合方改（2026-10-23）：+ 写在开头才是 git 的强推写法（+本地:远端），原来写在末尾测不到要害
+    {
+      what: 'local 开头带 +（强推写法）',
+      token: '+',
+      line: (w) => `RELAY-PUSH ${w.dev} +relay-dev main`,
+    },
   ];
 
   for (const c of cases) {
@@ -199,5 +204,79 @@ describe('条件 6：没标的角色不推', () => {
     expect('pushes' in row).toBe(false);
     expect(w.state().stoppedReason).toBe(null);
     expect(existsSync(`${w.dataDir}/feishu.json`)).toBe(false);
+  }, 120_000);
+});
+
+// 整合方补（2026-10-23）：契约第 4 条「dir 是调度器所在仓库的工作目录」——在 cwd 里面、却是另一个仓库
+describe('条件 4（整合方补）：dir 在 cwd 里面，但不是这个仓库的工作目录', () => {
+  it('cwd 里另外 git init 的仓库 → 一条都没推、停下、原因里有它', async () => {
+    const w = world();
+    const other = `${w.dev}/other-repo`;
+    w.git(w.dev, ['init', '-q', '-b', 'main', 'other-repo']);
+    writeFileSync(`${other}/a.txt`, '另一个仓库\n', 'utf8');
+    w.git(other, ['add', '-A']);
+    w.git(other, [
+      '-c',
+      'user.email=x@example.invalid',
+      '-c',
+      'user.name=x',
+      'commit',
+      '-q',
+      '-m',
+      'x',
+    ]);
+    w.git(other, ['remote', 'add', 'origin', w.origin]);
+    w.writePlan({ pushes: [`RELAY-PUSH ${other} main main`] });
+    const beforeMain = w.originSha('refs/heads/main');
+    const r = await w.run(['once']);
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    expect(w.originSha('refs/heads/main')).toBe(beforeMain);
+    const reason = String(w.state().stoppedReason ?? '');
+    expect(reason).toContain('第 1 棒替开发推送被拒：');
+    expect(reason).toContain('other-repo');
+  }, 120_000);
+});
+
+// 整合方补（2026-10-23）：契约第 4 条「verifyTurn 之前」推——替推上去的东西也要被核对到
+describe('条件 3（整合方补）：替推上去的「并入 B 档」照样认成越界', () => {
+  it('开发提交「并入 L7」（L7 是 B 档），调度器替它推上 main → b-tier-merged-by-developer、停下', async () => {
+    const w = world();
+    w.writePlan({
+      commits: [
+        {
+          branch: 'relay-dev',
+          file: 'docs/委派/笔记.md',
+          content: '并入的一笔\n',
+          message: '并入 L7：合成的越界',
+        },
+      ],
+      pushes: [`RELAY-PUSH ${w.dev} relay-dev main`],
+    });
+    const r = await w.run(['once']);
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    const row = rowOf(w);
+    expect((row.pushes as Array<Record<string, unknown>>)[0]).toMatchObject({ ok: true });
+    expect(row.violations).toContain('b-tier-merged-by-developer');
+    expect(String(w.state().stoppedReason ?? '')).toContain('b-tier-merged-by-developer');
+  }, 120_000);
+});
+
+// 整合方补（2026-10-23）：上面「dir 在 cwd 外面」那条用的是另一个克隆，会先被「不是同一个仓库」拦下；
+// 这一条是同一个仓库的工作目录、只是不在开发的 cwd 里——要靠「在不在 cwd 里」那一道拦
+describe('条件 4（整合方补）：同一个仓库的工作目录，但不在开发的 cwd 里', () => {
+  it('cwd 外面的同仓库工作目录 → 一条都没推、停下', async () => {
+    const w = world();
+    const elsewhere = `${w.root}/elsewhere`;
+    w.git(w.sched, ['worktree', 'add', '-q', '-b', 'dev/y', elsewhere]);
+    writeFileSync(`${elsewhere}/y.txt`, '别处的一笔\n', 'utf8');
+    w.git(elsewhere, ['add', '-A']);
+    w.git(elsewhere, ['commit', '-q', '-m', '别处：一笔']);
+    w.writePlan({ pushes: [`RELAY-PUSH ${elsewhere} dev/y dev/y`] });
+    const r = await w.run(['once']);
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    expect(w.originBranches()).toEqual(['main']);
+    const reason = String(w.state().stoppedReason ?? '');
+    expect(reason).toContain('第 1 棒替开发推送被拒：');
+    expect(reason).toContain('elsewhere');
   }, 120_000);
 });
