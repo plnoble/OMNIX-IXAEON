@@ -46,6 +46,7 @@ export async function runTurn(
     dataDir: opts.dataDir,
     turnNumber: opts.turnNumber,
     pushByRelay: role.pushByRelay === true,
+    cwd: role.cwd,
   });
   // 整合方改：嵌在参数里的也换（真 Claude 要写成 -p "读 {prompt_file} 照做"）
   const argv = role.argv.map((a) => a.split('{prompt_file}').join(promptPath));

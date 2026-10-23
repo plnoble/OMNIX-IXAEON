@@ -52,6 +52,9 @@ if (!found) {
   // 会被 DSH 的子进程层擦掉。原来的值放前面、空格隔开；不设 GIT_CONFIG_COUNT。
   const prev = process.env.GIT_CONFIG_PARAMETERS?.trim();
   const parameters = prev ? `${prev} 'http.sslBackend=openssl'` : "'http.sslBackend=openssl'";
+  // L6b 契约第 1 条：DSH 自己的仓库根。没有设就设成它自己的当前目录（调度器起开发时的 cwd）——
+  // 这样 DSH 里跑的 scripts/worktree.mjs 把工作目录建在它自己的根下面，git 只写自己的目录。
+  const trees = process.env.IXAEON_WORKTREES?.trim() || process.cwd();
   const r = spawnSync(found.exe, ['--expose-internals', found.cli, ...process.argv.slice(2)], {
     stdio: 'inherit',
     windowsHide: true,
@@ -59,6 +62,7 @@ if (!found) {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
       GIT_CONFIG_PARAMETERS: parameters,
+      IXAEON_WORKTREES: trees,
     },
   });
   if (r.error) {

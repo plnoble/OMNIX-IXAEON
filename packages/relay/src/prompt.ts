@@ -11,9 +11,13 @@ const ASK =
 const PUSH =
   '这一棒的推送由调度器替你做：你只提交，不要 git push。要推的，在最后一行之前每条写一行：RELAY-PUSH <工作目录的绝对路径> <本地分支> <远端分支>。远端分支只能是 main 或者以 dev/ 开头。';
 
+/** L6b 契约第 3 条：开发的仓库是 `<cwd>/repo`，工作目录建在 `<cwd>` 下面。逐字照规格（`<cwd>/repo` 字面拼接）。 */
+const ownRepo = (cwd: string): string =>
+  `你的仓库是 ${cwd}/repo：AGENTS.md 里说的「共用检出目录」换成它；工作目录照 AGENTS.md 用 node scripts/worktree.mjs 建，会落在 ${cwd} 下面。`;
+
 export function buildTurnPrompt(
   turn: Turn,
-  opts: { turnNumber: number; pushByRelay?: boolean },
+  opts: { turnNumber: number; pushByRelay?: boolean; cwd?: string },
 ): string {
   const integ = turn.role === 'integrator';
   const role = integ
@@ -23,21 +27,26 @@ export function buildTurnPrompt(
     ? '停点：这一行复审完就停（并入 main，或者把状态改成你给的结论）。'
     : '停点：这一行到了 AGENTS.md 说的停点就停（B 档推了测试或实现、A 档审过合并，或者转给整合方）。';
   const push = opts.pushByRelay ? `\n\n${PUSH}` : '';
+  const own = opts.pushByRelay && opts.cwd ? `\n\n${ownRepo(opts.cwd)}` : '';
   const head = `${role}\n\n这是第 ${opts.turnNumber} 棒。\n\n序号：${turn.taskId}\n任务：${turn.task}\n现在的状态：${turn.status}`;
-  const tail = `${push}\n\n只做这一件，做到它的停点就停，不要接着领别的。\n\n${ASK}\n\n${stop}\n\n做完在最后一行输出：RELAY-DONE ${turn.taskId} <这一行现在的状态>\n`;
+  const tail = `${push}${own}\n\n只做这一件，做到它的停点就停，不要接着领别的。\n\n${ASK}\n\n${stop}\n\n做完在最后一行输出：RELAY-DONE ${turn.taskId} <这一行现在的状态>\n`;
   return head + tail;
 }
 
 export function writeTurnPrompt(
   turn: Turn,
-  opts: { dataDir: string; turnNumber: number; pushByRelay?: boolean },
+  opts: { dataDir: string; turnNumber: number; pushByRelay?: boolean; cwd?: string },
 ): string {
   const dir = join(opts.dataDir, 'turns', String(opts.turnNumber));
   mkdirSync(dir, { recursive: true });
   const file = join(dir, 'prompt.md');
   writeFileSync(
     file,
-    buildTurnPrompt(turn, { turnNumber: opts.turnNumber, pushByRelay: opts.pushByRelay }),
+    buildTurnPrompt(turn, {
+      turnNumber: opts.turnNumber,
+      pushByRelay: opts.pushByRelay,
+      cwd: opts.cwd,
+    }),
     'utf8',
   );
   return file;

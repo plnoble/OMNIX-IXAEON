@@ -86,7 +86,7 @@ const buildConfig = (o: {
     '--json',
     '读 {prompt_file}，照里面做。',
   ];
-  developer.cwd = o.trees;
+  developer.cwd = join(o.trees, 'dsh');
   // L6 契约第 2 条：开发只提交，推送由调度器替它做（整合方不写这个字段）。
   developer.pushByRelay = true;
   return example;
@@ -115,6 +115,21 @@ const initCommand = async (dir: string): Promise<void> => {
       process.exitCode = 1;
       return;
     }
+  }
+  // L6b 契约第 4 条：给 DSH 一套它自己的仓库——<工作目录根>/dsh 是它的根，里面的 repo 是本地克隆
+  // （`.git` 在它自己里面，DSH 的沙箱才提交得了），origin 改成调度器所在仓库的 origin 地址。
+  const dshRoot = join(trees, 'dsh');
+  const devRepo = join(dshRoot, 'repo');
+  if (!existsSync(devRepo)) {
+    mkdirSync(dshRoot, { recursive: true });
+    const cloned = git(root, ['clone', root, devRepo], 300_000);
+    if (cloned.code !== 0) {
+      console.error(`建不了开发的仓库：${cloned.out}`);
+      process.exitCode = 1;
+      return;
+    }
+    const originUrl = git(root, ['remote', 'get-url', 'origin']).out;
+    if (originUrl) git(devRepo, ['remote', 'set-url', 'origin', originUrl]);
   }
   const claude = findClaudeExe();
   if (!claude) console.log('没找到 Claude Code 的可执行文件，配置里先写 claude，要手动改');
