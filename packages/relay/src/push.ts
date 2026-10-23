@@ -88,15 +88,40 @@ const sameRepo = (dir: string, shared: string): boolean => {
   return normalize(dirname(out)) === normalize(shared);
 };
 
+/** `origin` 地址归一：去首尾空白、去末尾的 `/` 和 `.git`（再去一次 `/`），Windows 上不分大小写。 */
+const normUrl = (url: string): string => {
+  const u = url
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '');
+  return process.platform === 'win32' ? u.toLowerCase() : u;
+};
+
+/**
+ * L6b 契约第 2 条（新加的一条）：`dir` 的 `.git` 在这个角色的 `cwd` 里面，
+ * **并且** `dir` 的 `origin` 和调度器所在仓库的 `origin` 是同一个地址。
+ * 这样 DSH 自己的克隆（`<cwd>/repo`，`.git` 在它里面）也能代推。
+ */
+const ownRepoInCwd = (dir: string, roleCwd: string, shared: string): boolean => {
+  const common = git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']).out;
+  if (!common || !isInside(common, roleCwd)) return false;
+  const mine = git(dir, ['remote', 'get-url', 'origin']).out;
+  const theirs = git(shared, ['remote', 'get-url', 'origin']).out;
+  if (!mine || !theirs) return false;
+  return normUrl(mine) === normUrl(theirs);
+};
+
 /** 分支名里不许有 `+` `:` 空格，也不许以 `-` 开头（`+`/`:` 是 refspec 的写法，`-` 会被当成开关）。 */
 const badName = (s: string): boolean => /[+:\s]/.test(s) || s.startsWith('-');
 
-/** 目录这一道：在这个角色的 cwd 里面、是调度器所在仓库的工作目录、不是开关写法。 */
+/** 目录这一道：在这个角色的 cwd 里面、是同一个仓库（或它自己的克隆）、不是开关写法。 */
 function dirReason(dir: string, roleCwd: string, shared: string): string | null {
   if (!isInside(dir, roleCwd)) return `${dir} 不在这个角色的 cwd（${roleCwd}）里面`;
   if (dir.trim().startsWith('-')) return `目录不能用开关的写法：${dir}`;
-  if (!sameRepo(dir, shared)) return `${dir} 不是调度器所在仓库的工作目录`;
-  return null;
+  if (sameRepo(dir, shared)) return null;
+  if (ownRepoInCwd(dir, roleCwd, shared)) return null;
+  return `${dir} 既不是调度器所在仓库的工作目录，origin 也和它不一样`;
 }
 
 function lineReason(line: PushLine, roleCwd: string, shared: string): string | null {

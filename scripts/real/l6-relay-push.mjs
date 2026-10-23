@@ -30,10 +30,12 @@ import { join } from 'node:path';
 
 const REPO = process.cwd();
 const RELAY_MAIN = join(REPO, 'packages', 'relay', 'bin', 'relay-main.ts');
-const root = mkdtempSync(join(tmpdir(), 'ixa-l6-push-'));
+const root = mkdtempSync(join(tmpdir(), 'ixa-l6b-push-'));
 const origin = join(root, 'origin.git');
 const sched = join(root, 'sched');
-const dev = join(root, 'dev');
+// L6b：开发的工作目录根是 <根>/dsh，它自己的克隆在 <根>/dsh/repo（`.git` 在里面）。
+const devRoot = join(root, 'dsh');
+const devRepo = join(devRoot, 'repo');
 const integ = join(root, 'integ');
 const dataDir = join(root, 'relay');
 
@@ -115,24 +117,6 @@ if (!dsh || !jiti) {
   process.exit(1);
 }
 
-/** 起 DSH 的启动器：真起 DeepSeek Harness.exe --expose-internals <app.asar 里的 cli.js>。 */
-const launcher = join(root, 'dsh-launcher.mjs');
-writeFileSync(
-  launcher,
-  [
-    "import { spawn } from 'node:child_process';",
-    'const [exe, cli, ...rest] = process.argv.slice(2);',
-    'const child = spawn(exe, ["--expose-internals", cli, ...rest], {',
-    '  stdio: "inherit", windowsHide: true,',
-    '  env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },',
-    '});',
-    'child.on("error", (e) => { console.error(String(e)); process.exit(1); });',
-    'child.on("close", (c) => process.exit(c ?? 1));',
-    '',
-  ].join('\n'),
-  'utf8',
-);
-
 log('== 乙：真 DSH + 调度器替推（origin 是本地裸仓库，不连 GitHub）');
 
 // 1) 合成仓库：裸 origin → seed 推一笔 → sched 克隆（调度器所在仓库）→ 开发的工作目录
@@ -156,21 +140,22 @@ writeFileSync(
 );
 git(seed, ['add', '-A']);
 git(seed, ['commit', '-q', '-m', '初始合成仓库']);
-// 合成仓库也要有一份 AGENTS.md：真仓库里开发照它干活，这里没有它就等于让它猜（第一次真跑就是这么空转的）。
+// 合成仓库也要有一份 AGENTS.md：真仓库里开发照它干活，这里没有它就等于让它猜（第一轮真跑就是这么空转的）。
 writeFileSync(
   join(seed, 'AGENTS.md'),
   [
     '# 合成仓库的干活规矩（给这一棒用）',
     '',
-    '这是一次合成的演练，仓库里只有 docs/委派/队列.md 这份队列。这一棒只做队列里那一行：',
+    '这是一次合成的演练，仓库里只有 docs/委派/队列.md 这份队列。**你就在这个仓库里干活**',
+    '（这个仓库就是你自己的那份克隆，`.git` 在里面）。这一棒只做队列里那一行：',
     '',
     '1. 把 `docs/委派/队列.md` 里第 70 行（任务 L7）的状态从「待领」改成「测试待审（整合方）」；',
     '2. `git add -A && git commit -m "领 70：合成的一行"`（**不要** `git push`）；',
-    '3. 在最后一行之前写一行 `RELAY-PUSH <这个工作目录的绝对路径> relay-dev main`' +
-      '（本地分支 `relay-dev`，远端分支 `main`）——推送由调度器替你做；',
+    '3. 在最后一行之前写一行 `RELAY-PUSH <这个仓库的绝对路径> <当前分支> main`' +
+      '（当前分支就是你刚提交的那个分支；推送由调度器替你做）；',
     '4. 最后一行输出 `RELAY-DONE 70 测试待审（整合方）`。',
     '',
-    '做完就停，不要领别的、不要建分支、不要碰别的文件。',
+    '做完就停，不要领别的、不要碰别的文件、不要建新的工作目录。',
     '',
   ].join('\n'),
   'utf8',
@@ -184,17 +169,27 @@ git(sched, ['config', 'user.name', 'relay']);
 git(root, ['clone', origin, integ]);
 git(integ, ['config', 'user.email', 'relay@example.invalid']);
 git(integ, ['config', 'user.name', 'relay']);
-// 开发的工作目录：**这个目录里的独立克隆**（不是 `git worktree`）。
-// 2026-10-23 实测的坑：`worktree` 的 `.git` 是工作目录**外面**的一份文件，DSH 的沙箱只许写自己的工作目录，
-// 于是它改不了 .git、提交不了（原话：「等用户：是否切到完全权限以便提交（git 目录在工作区外，沙箱拒绝写入）」）。
-// 真仓库里开发是 `git init`/`clone` 出自己那一份，`.git` 在目录里面。
-git(root, ['clone', origin, dev]);
-git(dev, ['config', 'user.email', 'relay@example.invalid']);
-git(dev, ['config', 'user.name', 'relay']);
-git(dev, ['switch', '-c', 'relay-dev']);
-// 替推的校验要求「这个目录是调度器所在仓库的工作目录」——克隆不算同一个仓库，
-// 所以这里把开发的 cwd 指给它自己的克隆、并在配置里如实写明（见下面 role() 的说明）。
-log('   合成仓库建好：裸 origin + 调度器所在仓库 + 开发的克隆（.git 在目录里面）');
+// L6b 的布局：开发的工作目录根是 <工作目录根>/dsh，里面一份**它自己的克隆** repo（`.git` 在它里面）。
+// 上一轮实测：`git worktree` 的 `.git` 在工作目录外面，DSH 的沙箱写不了、提交不了。
+const devBranch = 'dev/l7-synthetic';
+mkdirSync(devRoot, { recursive: true });
+git(root, ['clone', origin, devRepo]);
+git(devRepo, ['config', 'user.email', 'relay@example.invalid']);
+git(devRepo, ['config', 'user.name', 'relay']);
+git(devRepo, ['switch', '-q', '-c', devBranch]);
+// DSH 的 cwd 是 devRoot，仓库在 devRoot/repo：给它在 cwd 里也放一份「该干什么」的说明，
+// 免得它只在 repo 里翻（合成演练的便利，不是产品行为）。
+writeFileSync(
+  join(devRoot, 'AGENTS.md'),
+  [
+    '# 这一棒在哪干活',
+    '',
+    `你的仓库是 ${devRepo}（在它里面 git add / commit）。规矩见 ${join(devRepo, 'AGENTS.md')}。`,
+    '',
+  ].join('\n'),
+  'utf8',
+);
+log('   合成仓库建好：裸 origin + 调度器所在仓库 + 开发自己的克隆（.git 在 repo 里面）');
 
 // 2) 配置：开发用真 DSH（pushByRelay: true），整合方用替身
 const stub = join(root, 'stub-integ.mjs');
@@ -217,15 +212,15 @@ writeFileSync(
         developer: role(
           [
             process.execPath,
-            launcher,
-            dsh.exe,
-            dsh.cli,
+            // 用真启动器（L4 起就是它）：它找安装目录、设 IXAEON_WORKTREES、追加 GIT_CONFIG_PARAMETERS，
+            // 这一单的契约第 1 条就靠它。
+            join(REPO, 'packages', 'relay', 'bin', 'dsh.mjs'),
             '--profile',
             'headless',
             '--json',
             '读 {prompt_file}，照里面做。',
           ],
-          dev,
+          devRoot,
           true,
         ),
       },
@@ -281,7 +276,28 @@ if (existsSync(turnDir)) {
   log(`   DSH 原样输出（${out.length} 字，遮掉临时目录，截 1200）：`);
   log(`   ${mask(out).slice(0, 1200)}`);
   if (err.trim()) log(`   DSH 错误输出（截 800）：${mask(err).slice(0, 800)}`);
-  log(`   它写了 RELAY-PUSH：${/^RELAY-PUSH\s/m.test(out)}｜RELAY-DONE：${/RELAY-DONE/.test(out)}`);
+  // 它写了 RELAY-PUSH 吗：DSH 的输出是 JSONL，RELAY-PUSH 行在 `final.text` 里（照 parseRoleOutput 的认法）
+  const pushSeen = (() => {
+    for (const raw of `${out}\n${err}`.split('\n')) {
+      const line = raw.trim();
+      if (line.startsWith('{')) {
+        try {
+          const j = JSON.parse(line);
+          const inner =
+            typeof j.result === 'string'
+              ? j.result
+              : j.type === 'final' && typeof j.text === 'string'
+                ? j.text
+                : '';
+          if (/^RELAY-PUSH\s/m.test(inner)) return true;
+        } catch {
+          /* 不是 JSON 就当普通文字 */
+        }
+      } else if (/^RELAY-PUSH\s/m.test(line)) return true;
+    }
+    return false;
+  })();
+  log(`   它写了 RELAY-PUSH：${pushSeen}｜RELAY-DONE：${/RELAY-DONE/.test(out)}`);
   // 额度字样两路都查（契约：出现就停下那一步，如实写）
   const quota = ['usage_limit_reached', 'rate_limit_exceeded', 'session limit'];
   const all = `${out}\n${err}`;
@@ -305,10 +321,10 @@ log(
   `   裸仓库 main：${beforeMain.slice(0, 12)} → ${afterMain.slice(0, 12)}（前进了=${beforeMain !== afterMain}）`,
 );
 log(
-  `   开发工作目录本地分支：${git(dev, ['branch', '--format=%(refname:short)']).split('\n').join('、')}`,
+  `   开发那份克隆的分支：${git(devRepo, ['branch', '--format=%(refname:short)']).split('\n').join('、')}`,
 );
 log(
-  `   开发工作目录里 git status：${git(dev, ['status', '--porcelain=v1', '--branch']).replace(/\n/g, ' | ')}`,
+  `   开发那份克隆里 git status：${git(devRepo, ['status', '--porcelain=v1', '--branch']).replace(/\n/g, ' | ')}`,
 );
 const ledgerPath = join(dataDir, 'ledger.jsonl');
 if (existsSync(ledgerPath)) {
@@ -332,13 +348,7 @@ log(
   `   额度字样：${/usage_limit_reached|rate_limit_exceeded|session_limit/i.test(stdout) ? '出现了' : '没出现'}`,
 );
 
-// 6) 收尾：摘掉建出来的工作目录再删临时目录
-try {
-  spawnSync('git', ['worktree', 'remove', '--force', dev], { cwd: sched, windowsHide: true });
-  spawnSync('git', ['worktree', 'prune'], { cwd: sched, windowsHide: true });
-} catch {
-  /* 收尾失败也不影响结论 */
-}
+// 6) 收尾：删临时目录（开发那份是克隆，不是工作目录，不用摘）
 rmSync(root, { recursive: true, force: true });
 log(`   收尾：已删临时目录（${existsSync(root) ? '没删掉' : '删掉了'}）`);
 process.exitCode = 0;
