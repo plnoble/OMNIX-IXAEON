@@ -43,8 +43,10 @@
 - **开机自己起来**（可选，**你自己建**，调度器不替你建）：Windows 上可以用计划任务，登录后起一次、用普通终端就是我平时那样跑：
 
   ```bat
-  schtasks /create /tn "IXAEON relay" /tr "node <本仓库路径>\packages\relay\bin\relay.mjs run" /sc onlogon /rl limited
+  schtasks /create /tn "IXAEON relay" /tr "cmd /c cd /d <本仓库路径> && node packages\relay\bin\relay.mjs run" /sc onlogon /rl limited
   ```
+
+  要先 `cd` 到仓库里：调度器按当前目录找共用检出目录，计划任务默认的当前目录不在仓库里，会起不来（整合方复审时改的）。
 
   不想要了：`schtasks /delete /tn "IXAEON relay" /f`。
 

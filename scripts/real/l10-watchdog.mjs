@@ -208,7 +208,10 @@ try {
   }
   const ledger = join(dataDir, 'ledger.jsonl');
   const rows = existsSync(ledger)
-    ? readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    ? readFileSync(ledger, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
     : [];
   for (const j of rows) {
     log(`   记账：turn=${j.turn} role=${j.role} 行=${j.taskId} → ${j.statusAfter}`);

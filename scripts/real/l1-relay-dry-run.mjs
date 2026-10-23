@@ -126,7 +126,8 @@ const relay = (dataDir, args) =>
   spawnSync(process.execPath, [CLI, ...args], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, IXAEON_RELAY_DIR: dataDir },
+    // L10：relay run 是看门人；指定代码根，不去本机真的 Worktrees 下建 relay-run、不连 GitHub。
+    env: { ...process.env, IXAEON_RELAY_DIR: dataDir, IXAEON_RELAY_CODE: repo },
     windowsHide: true,
     timeout: 300_000,
   });

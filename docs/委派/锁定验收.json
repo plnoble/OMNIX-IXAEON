@@ -562,7 +562,7 @@
     {
       "id": "L10",
       "title": "一直转：看门人、崩了接着转、开棒前装依赖、{relay_root}、数据目录挪出 AppData",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l10-watchdog.test.ts": "3446a9b29cd397a5db49f816e8a86791b08ab80631d73ff60f19b1fdc8dc24d6",
         "packages/relay/test/acceptance/l10-under.test.ts": "382de11fa2c4e3d827134600941ac81225dab8d1e360727528aca7e5ea897106",
