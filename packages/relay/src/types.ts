@@ -30,6 +30,8 @@ export interface PushRecord {
   local: string;
   remote: string;
   ok: boolean;
+  /** L13：推 main 被拒后先 rebase 到最新 origin/main 再推，rebase 成功的这一条写 true（别的没有这个字段）。 */
+  rebased?: boolean;
 }
 export interface RelayConfig {
   roles: Record<Role, RoleConfig>;

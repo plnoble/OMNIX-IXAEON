@@ -125,6 +125,26 @@ const ownRepoInCwd = (dir: string, roleCwd: string, shared: string): boolean => 
 /** 分支名里不许有 `+` `:` 空格，也不许以 `-` 开头（`+`/`:` 是 refspec 的写法，`-` 会被当成开关）。 */
 const badName = (s: string): boolean => /[+:\s]/.test(s) || s.startsWith('-');
 
+/** `dir` 里当前检出的分支；detached 时 git 给的是 `HEAD`。 */
+const checkedOut = (dir: string): string => git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']).out;
+
+/**
+ * L13：推 `main` 被拒（别人先推过、不是快进）时，在 `dir` 里先 rebase 到最新的 `origin/main`，再推一次。
+ * 只碰 `dir`，不加 `--force`、不带 `+`；rebase 冲突时 `--abort`，不留没做完的 rebase。
+ * 返回 `rebased`：rebase 成没成；`ok`：第二次推上去没有。fetch 失败就不试 rebase（免得拿旧的 FETCH_HEAD）。
+ */
+function rebaseThenPush(dir: string, local: string): { rebased: boolean; ok: boolean } {
+  if (git(dir, ['fetch', 'origin', 'main'], 300_000).code !== 0) {
+    return { rebased: false, ok: false };
+  }
+  if (git(dir, ['rebase', 'FETCH_HEAD'], 300_000).code !== 0) {
+    git(dir, ['rebase', '--abort'], 300_000);
+    return { rebased: false, ok: false };
+  }
+  const again = git(dir, ['push', 'origin', `${local}:refs/heads/main`], 300_000);
+  return { rebased: true, ok: again.code === 0 };
+}
+
 /** 目录这一道：在这个角色的 cwd 里面、是同一个仓库（或它自己的克隆）、不是开关写法。 */
 function dirReason(dir: string, roleCwd: string, shared: string): string | null {
   if (!isInside(dir, roleCwd)) return `${dir} 不在这个角色的 cwd（${roleCwd}）里面`;
@@ -164,8 +184,26 @@ export function relayPushes(
   for (const line of lines) {
     // 不加 --force：main 不是快进时 git 自己会拒；也不带 + 前缀。
     const r = git(line.dir, ['push', 'origin', `${line.local}:refs/heads/${line.remote}`], 300_000);
-    pushes.push({ dir: line.dir, local: line.local, remote: line.remote, ok: r.code === 0 });
-    if (r.code !== 0) {
+    let ok = r.code === 0;
+    let rebased = false;
+    // L13：只对 main 重试，而且 `local` 得就是这个目录里检出的分支（或 HEAD），不能动别人检出的东西。
+    if (
+      !ok &&
+      line.remote === 'main' &&
+      (line.local === 'HEAD' || line.local === checkedOut(line.dir))
+    ) {
+      const retry = rebaseThenPush(line.dir, line.local);
+      ok = retry.ok;
+      rebased = retry.rebased;
+    }
+    pushes.push({
+      dir: line.dir,
+      local: line.local,
+      remote: line.remote,
+      ok,
+      ...(rebased ? { rebased: true } : {}),
+    });
+    if (!ok) {
       return { pushes, stopReason: `第 ${turnNumber} 棒替开发推送失败：${line.remote}` };
     }
   }
