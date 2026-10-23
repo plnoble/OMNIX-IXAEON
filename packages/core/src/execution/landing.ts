@@ -40,8 +40,14 @@ function gitText(cwd: string, args: string[]): Promise<string> {
       { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER },
       (err, out, stderr) => {
         if (err) {
-          const why = (stderr || err.message || '').split('\n')[0]!.trim();
-          fail(new Error(why || `git ${args[0]} 失败`));
+          const raw = `${stderr || (err as Error & { stderr?: string }).stderr || ''}`;
+          // D4c：message 保持 node 的原话（`Command failed: git …`），git 自己的错误输出
+          // 整段挂到 `stderr` 上，由落地那边取「第一条非空行」接在后面。
+          const wrapped = new Error(
+            err.message || raw.split('\n')[0]!.trim() || `git ${args[0]} 失败`,
+          ) as Error & { stderr?: string };
+          wrapped.stderr = raw;
+          fail(wrapped);
         } else ok(out);
       },
     );
@@ -64,6 +70,17 @@ function gitBuf(
     );
   });
 }
+/**
+ * D4c 契约：git 错误输出里第一条非空的行（去掉首尾空白，最多 200 字）。没有错误输出就返回 ''。
+ */
+function firstGitLine(stderr: string | undefined): string {
+  const line = `${stderr ?? ''}`
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  return (line ?? '').slice(0, 200);
+}
+
 /** 探测性 git（文本）：失败返回 null（不是 git 仓库、引用不存在……）。 */
 async function gitTry(cwd: string, args: string[]): Promise<string | null> {
   try {
@@ -269,8 +286,11 @@ export async function landTask(
       : { kind: 'branch', ref: branch, reason: null };
   } catch (err) {
     const why = err instanceof Error ? err.message.split('\n')[0]!.trim() : String(err);
+    // D4c：why 后面接上 git 错误输出里第一条非空的行（去掉首尾空白，最多 200 字）。没有错误输出就照旧。
+    const gitSaid = firstGitLine((err as { stderr?: string }).stderr);
+    const detail = gitSaid ? `${why}：${gitSaid}` : why;
     const residue = await cleanup(true).catch(() => '清理也失败了');
-    const patch = await toPatch(`建分支失败：${why}`, []);
+    const patch = await toPatch(`建分支失败：${detail}`, []);
     return residue ? { ...patch, reason: `${patch.reason}；且${residue}` } : patch;
   }
 }
