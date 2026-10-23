@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import { assertDefaultPortFree } from './ui-port-guard';
+import { electronArgs } from './electron-args';
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -17,7 +18,10 @@ test('WIZ01: finish feedback visible, project optional, default dir completes in
   await assertDefaultPortFree();
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-wiz-'));
   const app = await electron.launch({
-    args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(dir, 'profile')}`],
+    args: electronArgs([
+      resolve('apps/desktop/out/main/index.js'),
+      `--user-data-dir=${join(dir, 'profile')}`,
+    ]),
     env: { ...process.env, IXAEON_DATA_DIR: dir, IXAEON_FAKE_MODEL: '1' },
   });
   try {
@@ -50,7 +54,10 @@ test('WIZ02: custom dir via picker flow shows restart notice in-viewport', async
   // 不用 IXAEON_DATA_DIR（那会禁用目录选择）；用独立 LOCALAPPDATA
   // 让默认数据目录落到临时区，不污染真实用户目录（与 packaged 复核同法）
   const app = await electron.launch({
-    args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(dir, 'profile')}`],
+    args: electronArgs([
+      resolve('apps/desktop/out/main/index.js'),
+      `--user-data-dir=${join(dir, 'profile')}`,
+    ]),
     env: {
       ...process.env,
       LOCALAPPDATA: join(dir, 'localappdata'),
