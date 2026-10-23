@@ -1,4 +1,5 @@
-/** 命令逻辑（契约第 10 条）：`init` / `once` / `run [--exit-when-idle]` / `status` / `resume`。 */
+/** 命令逻辑（契约第 10 条）：`init` / `once [--under <pid>]` / `run [--exit-when-idle]` / `status` / `resume`。 */
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
@@ -6,18 +7,25 @@ import { fileURLToPath } from 'node:url';
 import {
   acquireLock,
   checkConfig,
+  ensureDeps,
   fetchMain,
+  findSharedCheckout,
   git,
   loadState,
   oldRelayDir,
+  pidAlive,
   readLedger,
+  readLock,
   relayDir,
   releaseLock,
   runOnce,
   saveState,
+  updateCodeCheckout,
   worktreesRoot,
   type RelayConfig,
+  type RelayState,
 } from '../src/index.js';
+import { createNotifier, loadFeishuTarget } from '../src/notify/feishu.js';
 
 /** 调度器所在的这份检出（不一定是主检出：从工作目录里跑时就是那个工作目录）。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -96,7 +104,8 @@ const buildConfig = (o: {
   integrator.cwd = o.intCwd;
   developer.argv = [
     'node',
-    join(o.root, 'packages', 'relay', 'bin', 'dsh.mjs'),
+    // L10 契约第 5 条：DSH 启动器也跟着新代码走（看门人那份代码在 <工作目录根>/relay-run）。
+    '{relay_root}/packages/relay/bin/dsh.mjs',
     '--profile',
     'headless',
     '--json',
@@ -164,10 +173,104 @@ const initCommand = async (dir: string): Promise<void> => {
   console.log(`开发的工作目录：${config.roles.developer.cwd}`);
 };
 
+/** L10 契约第 1 条：看门人。每一轮换代码 → 起一个 `relay once --under <自己>` → 等它退出 → 看下一轮。 */
+const childCli = (root: string): string => join(root, 'packages', 'relay', 'bin', 'relay.mjs');
+const firstLine = (text: string): string =>
+  text
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0) ?? '';
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+const watchdog = async (config: RelayConfig, state: RelayState): Promise<void> => {
+  console.log(`看门人 ${process.pid}`);
+  const codeEnv = process.env.IXAEON_RELAY_CODE?.trim();
+  const codeRoot = codeEnv ? resolve(codeEnv) : join(worktreesRoot(), 'relay-run');
+  const repo = findSharedCheckout();
+  const exitWhenIdle = argv.includes('--exit-when-idle');
+  const notifier = createNotifier(loadFeishuTarget(), (state.notify ??= { sent: {} }), {
+    now: () => new Date(),
+  });
+  const idleMs = Math.max(1, config.idleSeconds) * 1000;
+  let crashes = 0;
+  let lastTurns = loadState(dataDir).turns ?? 0;
+
+  for (;;) {
+    // `IXAEON_RELAY_CODE` 有值 → 直接用那个目录，不建、不更新、不装依赖（测试/临时调试用）。
+    if (!codeEnv) {
+      if (repo && (await fetchMain(repo))) {
+        const up = updateCodeCheckout(repo, codeRoot);
+        if (up.note) console.log(`代码没换成最新的：${up.note}`);
+        // 装不上就当这一轮没开（打一行日志，不停下，等下一轮）。
+        if (ensureDeps(codeRoot) === 'failed') {
+          console.log('没开棒：看门人那份代码装不上依赖');
+          await sleep(idleMs);
+          continue;
+        }
+      } else {
+        console.log('拉不下来 origin/main，这一轮先不换代码');
+      }
+    }
+
+    let stderr = '';
+    let childPid = 0;
+    const code = await new Promise<number | null>((done) => {
+      const child = spawn(
+        process.execPath,
+        [childCli(codeRoot), 'once', '--under', String(process.pid)],
+        {
+          cwd: codeRoot,
+          env: process.env,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      );
+      childPid = child.pid ?? 0;
+      child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
+      child.stderr?.on('data', (d: Buffer) => {
+        stderr += d.toString('utf8');
+        process.stderr.write(d);
+      });
+      child.on('error', (e) => {
+        stderr += `${e.message}\n`;
+        done(null);
+      });
+      child.on('close', (c) => done(c));
+    });
+    console.log(`子进程 ${childPid} 退出 ${code ?? '?'}`);
+
+    const after = loadState(dataDir);
+    if (code === 0) {
+      crashes = 0;
+      if (after.stoppedReason) return;
+      if ((after.turns ?? 0) > lastTurns) {
+        lastTurns = after.turns ?? lastTurns;
+        continue; // 跑了棒，马上下一轮
+      }
+      if (exitWhenIdle) return;
+      await sleep(idleMs);
+      continue;
+    }
+
+    // 崩了一次：第 1、2 次各等 idleSeconds × 1、× 5；第 3 次不再等，写原因、发 stopped、退出。
+    crashes += 1;
+    if (crashes >= 3) {
+      const why = firstLine(stderr).slice(0, 200);
+      after.stoppedReason = `调度器连着崩了 3 次：${why}`;
+      after.notify = state.notify;
+      saveState(dataDir, after);
+      await notifier.notify({ kind: 'stopped', reason: after.stoppedReason });
+      saveState(dataDir, after);
+      return;
+    }
+    await sleep(idleMs * (crashes === 1 ? 1 : 5));
+  }
+};
+
 const main = async (): Promise<void> => {
   if (!['init', 'once', 'run', 'status', 'resume'].includes(cmd)) {
     die(
-      `用法：relay init | once | run [--exit-when-idle] | status | resume（数据目录 ${dataDir}）`,
+      `用法：relay init | once [--under <pid>] | run [--exit-when-idle] | status | resume（数据目录 ${dataDir}）`,
     );
   }
   if (cmd === 'init') {
@@ -180,9 +283,17 @@ const main = async (): Promise<void> => {
     console.log(maskHome(JSON.stringify({ dataDir, state }, null, 2)));
     for (const row of readLedger(dataDir).slice(-5)) console.log(maskHome(JSON.stringify(row)));
     // L4 契约第 2 条：旧位置还有文件就多打一行（只打路径，不打内容）；不自动搬。
-    const oldDir = oldRelayDir();
-    if (['config.json', 'state.json', 'feishu.json'].some((f) => existsSync(join(oldDir, f)))) {
-      console.log(maskHome(`旧的数据目录里还有文件：${oldDir}，请挪到 ${dataDir}`));
+    // L10 契约第 6 条：Windows 上再认一处 `<LOCALAPPDATA>/IXAEON/relay`。
+    const olds = [oldRelayDir()];
+    if (process.platform === 'win32') {
+      const local = process.env.LOCALAPPDATA?.trim() || join(homedir(), 'AppData', 'Local');
+      olds.push(join(local, 'IXAEON', 'relay'));
+    }
+    for (const oldDir of olds) {
+      if (['config.json', 'state.json', 'feishu.json'].some((f) => existsSync(join(oldDir, f)))) {
+        console.log(maskHome(`旧的数据目录里还有文件：${oldDir}，请挪到 ${dataDir}`));
+        break;
+      }
     }
     return;
   }
@@ -196,23 +307,27 @@ const main = async (): Promise<void> => {
   const config = loadConfig(dataDir);
   const checked = checkConfig(config);
   if (!checked.ok) die(`配置不过，不启动：${checked.reason}`);
-  const lock = acquireLock(dataDir);
-  if (!lock.ok) die(`不启动：${lock.reason}`);
+
+  // L10 契约第 2 条：`once --under <pid>`——锁里就是那个活着的进程，当作已经拿到锁（不再拿、退出时也不放）。
+  const underAt = argv.indexOf('--under');
+  const under = underAt >= 0 ? Number(argv[underAt + 1]) : Number.NaN;
+  const borrowed = Number.isInteger(under) && readLock(dataDir)?.pid === under && pidAlive(under);
+
+  let acquired = false;
+  if (!borrowed) {
+    const lock = acquireLock(dataDir);
+    if (!lock.ok) die(`不启动：${lock.reason}`);
+    acquired = true;
+  }
   try {
     if (cmd === 'once') {
-      await runOnce(config, state, dataDir, { sendIdle: false });
+      // 带 --under 时没活照 `run` 的样子发 idle。
+      await runOnce(config, state, dataDir, { sendIdle: borrowed });
     } else {
-      // 一直转：有活就跑，没活等 idleSeconds 再看；停住就退出；--exit-when-idle 时第一次没活就退。
-      for (;;) {
-        const outcome = await runOnce(config, state, dataDir, { sendIdle: true });
-        if (outcome === 'stopped') break;
-        if (outcome !== 'idle') continue;
-        if (argv.includes('--exit-when-idle')) break;
-        await new Promise((r) => setTimeout(r, Math.max(1, config.idleSeconds) * 1000));
-      }
+      await watchdog(config, state);
     }
   } finally {
-    releaseLock(dataDir);
+    if (acquired) releaseLock(dataDir);
   }
 };
 

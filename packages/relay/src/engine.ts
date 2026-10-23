@@ -1,5 +1,6 @@
 /** 命令背后的逻辑（第 9 条）：定一棒、跑一棒、核对、记账；越界就停、resume 之后接着；L2b 接飞书。 */
 import { dailyDue, dailyEvent } from './daily.js';
+import { ensureDeps } from './deps.js';
 import { git } from './git.js';
 import { createNotifier, loadFeishuTarget } from './notify/feishu.js';
 import { decideNextTurn, parseMainTable } from './queue.js';
@@ -55,6 +56,13 @@ export async function runOnce(
     return decision.idle === 'stopped' ? 'stopped' : 'idle';
   }
   const turn = state.turns + 1;
+  // L10 契约第 4 条：整合方的棒开之前，给它 cwd 装一次依赖；装不上就当这一轮没开（不建 turns/、不记账、不停下）。
+  if (decision.role === 'integrator') {
+    if (ensureDeps(config.roles.integrator.cwd) === 'failed') {
+      console.log('没开棒：整合方的工作目录装不上依赖');
+      return 'idle';
+    }
+  }
   state.mainShaAtTurnStart = git(config.roles.integrator.cwd, ['rev-parse', 'origin/main']).out;
   const startedAt = new Date().toISOString();
   const result = await runTurn(decision, config, state, { dataDir, turnNumber: turn });

@@ -1,10 +1,14 @@
 /** 跑一棒（第 6、7 条）：照配置调起命令行、输出落盘、超时杀**它自己拉起的那一棵**进程树、用量与额度。 */
 import { spawn, spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseRoleOutput } from './output.js';
 import { writeTurnPrompt } from './prompt.js';
 import type { RelayConfig, RelayState, Turn, Usage } from './types.js';
+
+/** 正在跑的这份代码的仓库根（L10 契约第 5 条：`{relay_root}` 换它）。 */
+const RELAY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 export interface TurnResult {
   promptPath: string;
@@ -60,7 +64,10 @@ export async function runTurn(
     cwd: role.cwd,
   });
   // 整合方改：嵌在参数里的也换（真 Claude 要写成 -p "读 {prompt_file} 照做"）
-  const argv = role.argv.map((a) => a.split('{prompt_file}').join(promptPath));
+  // L10 契约第 5 条：`{relay_root}` 一起换，值是正在跑的这份代码的仓库根。
+  const argv = role.argv.map((a) =>
+    a.split('{prompt_file}').join(promptPath).split('{relay_root}').join(RELAY_ROOT),
+  );
   const child = spawn(argv[0]!, argv.slice(1), {
     cwd: role.cwd,
     windowsHide: true,
