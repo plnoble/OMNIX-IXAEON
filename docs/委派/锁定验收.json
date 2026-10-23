@@ -532,6 +532,14 @@
         "packages/relay/test/acceptance/l6-push.test.ts": "4c138f01ce8ad2904d4d4926a0b278e639f7b18d090f827070a66b1426b715f9",
         "packages/relay/test/acceptance/l6-harness.ts": "20238da9e54b3a6bc3f257c820c10a457eee4a685c55f9ee6eca657a6aebca8d"
       }
+    },
+    {
+      "id": "D4c",
+      "title": "建分支失败时带上 git 的原话",
+      "status": "done",
+      "files": {
+        "packages/core/test/acceptance/d4c-git-stderr.test.ts": "9d3cd2819c60b43902ceb75fd07eb7b8738e1fa3fc1aa4daa157459cad259f3d"
+      }
     }
   ]
 }

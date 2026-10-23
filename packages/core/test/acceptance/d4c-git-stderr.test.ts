@@ -195,5 +195,7 @@ describe('D4c 验收条件：建分支失败带上 git 的原话', () => {
     // node 原话以 commit 的命令行结束（`-m <提交信息>`），末尾不会再跟中文冒号
     expect(error.endsWith('：')).toBe(false);
     expect(afterPrefix).not.toMatch(/：D4C_/); // 没把 stderr 里的东西接上来
+    // 整合方补（2026-10-23，Codex 第三轮的意见）：「照旧」要精确——原因正好停在提交标题上，后面一个字都不多
+    expect(afterPrefix.endsWith('commit -m IXAEON：把说明写清楚')).toBe(true);
   });
 });
