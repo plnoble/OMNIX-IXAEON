@@ -471,7 +471,7 @@
       "status": "done",
       "files": {
         "packages/relay/test/acceptance/l1b-run-turn.test.ts": "01578025871c13b7e4759dfd6cae6d9f1c3474c2b9396b18d2ee28d3de723ce6",
-        "packages/relay/test/acceptance/l1b-commands.test.ts": "d0d0588b62449ccb81d78bbe838ce5fcc7f315003137a884f6ee5054737731aa"
+        "packages/relay/test/acceptance/l1b-commands.test.ts": "ea03cf6ec79c0b7b2aee0aa220c01289e31339d3298e96dcdbe8973135790822"
       }
     },
     {
@@ -499,7 +499,7 @@
       "title": "接力调度器接上飞书、日报、配置样例",
       "status": "done",
       "files": {
-        "packages/relay/test/acceptance/l2b-notify.test.ts": "459b81aa65a227481caf5f56a95a8806703568920b00be3579aaf44546ac9198",
+        "packages/relay/test/acceptance/l2b-notify.test.ts": "1494f43cd63b9b53cbac3036e5b5f34801b35abda71b443b89def23263b209a6",
         "packages/relay/test/acceptance/l2b-daily.test.ts": "dc59e29ed5a0277ed3dfc93102f81b5bfd68b59c03be097ac7f1170fa0392651",
         "packages/relay/test/acceptance/l2b-config.test.ts": "6440d06de07917312f2d2087cc54b3f025be093bac1cd9a6f15ebdbf8f14c87b"
       }
@@ -510,7 +510,7 @@
       "status": "done",
       "files": {
         "packages/relay/test/acceptance/l4-launcher.test.ts": "0cdbe375027e63bc697f2b8d7fb59546fc88df9f03d73c21d0048cc1c442092f",
-        "packages/relay/test/acceptance/l4-datadir.test.ts": "5d5db471960f53777c579b7c54ce52f041bac34cb91ff366d6492f7009e50784",
+        "packages/relay/test/acceptance/l4-datadir.test.ts": "768ab3a79a7de4964da2d64e63299a9354c51ceff5218c388283ffee4313eef3",
         "packages/relay/test/acceptance/l4-config.test.ts": "5f14ee2a658d8647862b475e70444c39e43c3cc51e5f6ce34433e03a1f7b9e7e"
       }
     },
@@ -519,7 +519,7 @@
       "title": "接力第一次真转前：relay init 一条命令生成配置",
       "status": "done",
       "files": {
-        "packages/relay/test/acceptance/l5-init.test.ts": "a4f5e520f079add369a547f84e63ca8465bb5c861e0a65d0f7add4c97200e50e"
+        "packages/relay/test/acceptance/l5-init.test.ts": "9741c7ce30bfb4e404ea1ecccd8791c6aad3616296abbe523613410efc1c0370"
       }
     },
     {
@@ -557,6 +557,20 @@
       "status": "done",
       "files": {
         "packages/relay/test/acceptance/l8-status-mask.test.ts": "f541305e3ca1f68b966b33e2eb218fff4210d988195009ab9d95f28052482b63"
+      }
+    },
+    {
+      "id": "L10",
+      "title": "一直转：看门人、崩了接着转、开棒前装依赖、{relay_root}、数据目录挪出 AppData",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l10-watchdog.test.ts": "3446a9b29cd397a5db49f816e8a86791b08ab80631d73ff60f19b1fdc8dc24d6",
+        "packages/relay/test/acceptance/l10-under.test.ts": "382de11fa2c4e3d827134600941ac81225dab8d1e360727528aca7e5ea897106",
+        "packages/relay/test/acceptance/l10-selfupdate.test.ts": "be8737c2aa363697a8e2dfa6b97053e2b0841767867b10a66b82b7cb10f631b4",
+        "packages/relay/test/acceptance/l10-deps.test.ts": "671858196e6dc9c2f8adeaa3ca9ea6513253f0977a9662a296fb35b679bd8eca",
+        "packages/relay/test/acceptance/l10-relay-root.test.ts": "853020c95047bc5376b98dfe6bde063b8cf2f9eb4dbb6d87f460bdbc9eaae641",
+        "packages/relay/test/acceptance/l10-datadir.test.ts": "f3fb0c19a77bd3c468203e2b0d13b86b9e0e56b7fb107ebddc8210c44035c9d1",
+        "packages/relay/test/acceptance/l10-harness.ts": "dd46170ea2b53b0a5208de1f4dd0128e6afd04e3985ab5021977b9c6d8aa7d69"
       }
     }
   ]
