@@ -155,8 +155,10 @@ describe('条件 5：替推失败（不是快进）', () => {
     const fake = await fakeFeishu();
     const w = world({ feishu: fake });
     // 别人先往裸仓库推一笔：本地 relay-dev 就落在后面了
+    // 整合方改（2026-10-23）：别人改的是开发也要改的同一个文件（内容不同）——L13 之后调度器会先 rebase 再推一次，
+    // 改的是别的文件就推上去了；同一个文件 rebase 会冲突，照样推不上去、停下。L13 前后这条都成立。
     w.git(w.integ, ['fetch', '-q', 'origin']);
-    writeFileSync(`${w.integ}/docs/委派/别人.md`, '别人推的一笔\n', 'utf8');
+    writeFileSync(`${w.integ}/docs/委派/笔记.md`, '别人推的一笔\n', 'utf8');
     w.git(w.integ, ['add', '-A']);
     w.git(w.integ, ['commit', '-q', '-m', '别人：合成的一笔']);
     w.git(w.integ, ['push', '-q', 'origin', 'HEAD:main']);

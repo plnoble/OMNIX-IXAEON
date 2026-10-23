@@ -529,7 +529,7 @@
       "files": {
         "packages/relay/test/acceptance/l6-launcher.test.ts": "2ddfc735c759ad5f83b57927c560549e5cf9cd171fe6149d899576d59e703bc8",
         "packages/relay/test/acceptance/l6-prompt.test.ts": "af6ba66e5ef717be334ace8784bd3d5a271ff6e345d68a0c67dc6e0819108e04",
-        "packages/relay/test/acceptance/l6-push.test.ts": "e4c7b9a40411331bc05012ed222d7cdd38b0fe2b959630b5b5beade79aa23a0c",
+        "packages/relay/test/acceptance/l6-push.test.ts": "c147d3cb2070ee3e569a3fd2463ba79feaeec4cb33cb6c68af69d40731998c7c",
         "packages/relay/test/acceptance/l6-harness.ts": "20238da9e54b3a6bc3f257c820c10a457eee4a685c55f9ee6eca657a6aebca8d"
       }
     },
