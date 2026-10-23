@@ -49,7 +49,8 @@ export function parseRoleOutput(stdout: string): RoleOutput {
     if (line.startsWith('{')) {
       try {
         const j = JSON.parse(line) as { result?: unknown; type?: unknown; text?: unknown };
-        if (typeof j.result === 'string') found.push(...doneLines(j.result));
+        // 整合方改（2026-10-24）：只认 Claude 那一整行（type 是 result）；DSH 的 tool_result 也有 result 字段
+        if (j.type === 'result' && typeof j.result === 'string') found.push(...doneLines(j.result));
         else if (j.type === 'final' && typeof j.text === 'string') found.push(...doneLines(j.text));
         continue;
       } catch {

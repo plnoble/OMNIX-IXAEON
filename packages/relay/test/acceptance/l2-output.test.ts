@@ -10,7 +10,38 @@
  * DSH 是一行一个 JSON。纯函数，不调真模型、不碰文件。
  */
 import { describe, expect, it } from 'vitest';
-import { parseRoleOutput } from '../../src/index.js';
+import { parsePushLines, parseRoleOutput } from '../../src/index.js';
+
+// 整合方补（2026-10-24）：DSH 的 tool_result 事件也有一个字符串的 result 字段（它读到的文件内容）。
+// 第 12 棒 DSH 读了交代文件，里面那句 RELAY-PUSH 格式说明被当成一条推送，调度器停下。
+const dshToolResult = (result: string) =>
+  JSON.stringify({ type: 'tool_result', callId: 'c1', status: 'completed', result });
+
+describe('整合方补：DSH 读到的东西不算它的输出', () => {
+  it('tool_result 里的 RELAY-DONE、RELAY-PUSH 不认，final 里的照认', () => {
+    const stdout = [
+      dshToolResult(
+        'RELAY-DONE 1 读到的假标记\nRELAY-PUSH <工作目录的绝对路径> <本地分支> <远端分支>',
+      ),
+      JSON.stringify({
+        type: 'final',
+        text: '做完了\nRELAY-PUSH D:\\w\\ops HEAD main\nRELAY-DONE 1 真的',
+      }),
+      dshToolResult('RELAY-DONE 1 收尾之后又读到的'),
+    ].join('\n');
+    expect(parseRoleOutput(stdout).doneLine).toBe('RELAY-DONE 1 真的');
+    expect(parsePushLines(stdout)).toEqual([{ dir: 'D:\\w\\ops', local: 'HEAD', remote: 'main' }]);
+  });
+
+  it('Claude 那一整行（type 是 result）照认', () => {
+    const stdout = JSON.stringify({
+      type: 'result',
+      result: 'RELAY-PUSH D:\\w HEAD dev/x\nRELAY-DONE 2 好了',
+    });
+    expect(parseRoleOutput(stdout).doneLine).toBe('RELAY-DONE 2 好了');
+    expect(parsePushLines(stdout)).toEqual([{ dir: 'D:\\w', local: 'HEAD', remote: 'dev/x' }]);
+  });
+});
 
 /** Claude `--output-format json` 的形状（L0 交付说明里的原样字段）。 */
 const claude = (result: string, cost = 0.14) =>

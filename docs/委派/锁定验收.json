@@ -489,7 +489,7 @@
       "title": "接力调度器接上真的命令行：认得真输出、网络抖不漏查、要拍板时找用户",
       "status": "done",
       "files": {
-        "packages/relay/test/acceptance/l2-output.test.ts": "3112e611fc5570b0df7ebeb053c5e6f4942caf5dd00c1492019a1f308488e4f5",
+        "packages/relay/test/acceptance/l2-output.test.ts": "f2e4342dad3acc40ab435f93cc1b83a1455479689cb6edbe8ccfbc891994bb3f",
         "packages/relay/test/acceptance/l2-fetch.test.ts": "2ab27ad7bb532f9b62598b499300ac620e41d2f6c1a7f9bd0dc0fad59bcf649e",
         "packages/relay/test/acceptance/l2-user.test.ts": "fca0003c0d11f9b3fa1f66dca6545332797075185c2aa16f27d36fcb705eb732"
       }
