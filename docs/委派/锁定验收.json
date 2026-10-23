@@ -510,7 +510,7 @@
       "status": "done",
       "files": {
         "packages/relay/test/acceptance/l4-launcher.test.ts": "0cdbe375027e63bc697f2b8d7fb59546fc88df9f03d73c21d0048cc1c442092f",
-        "packages/relay/test/acceptance/l4-datadir.test.ts": "e839fbdf281ab748dc4ad3d5e5b075f191655f34d47f6ef3c43f00e051b1eaf5",
+        "packages/relay/test/acceptance/l4-datadir.test.ts": "5d5db471960f53777c579b7c54ce52f041bac34cb91ff366d6492f7009e50784",
         "packages/relay/test/acceptance/l4-config.test.ts": "5f14ee2a658d8647862b475e70444c39e43c3cc51e5f6ce34433e03a1f7b9e7e"
       }
     },

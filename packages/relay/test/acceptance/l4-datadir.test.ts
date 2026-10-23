@@ -13,7 +13,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadFeishuTarget } from '../../src/notify/feishu.js';
@@ -61,6 +61,15 @@ const dataDirOf = (stdout: string): string => {
 };
 const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
 
+/**
+ * 整合方改（2026-10-23，L8）：L8 起 status 打印时把用户目录换成 `~`。比路径之前先把打印里的
+ * `~` 换回子进程的用户目录（Windows 上是本机的，别的系统是测试给的 `HOME`），换回来之后
+ * 还是要和原来一样逐字相等——条件没放宽，L8 之前原样打印的写法也照样过。
+ */
+const childHome = (home: string) => (process.platform === 'win32' ? homedir() : home);
+const expandHome = (text: string, home: string) =>
+  text.replace(/(^|[\s"：])~(?=[\\/])/g, (_m, pre: string) => `${pre}${childHome(home)}`);
+
 const status = (env: NodeJS.ProcessEnv) =>
   spawnSync(process.execPath, [CLI, 'status'], {
     cwd: REPO,
@@ -77,7 +86,7 @@ describe('条件 2：数据目录的位置', () => {
     const home = mkTmp('ixa-l4-home-');
     const r = status(envFor({ localAppData, worktrees, home }));
     expect(r.status, r.stderr || r.stdout).toBe(0);
-    expect(norm(dataDirOf(r.stdout))).toBe(norm(newDefault(localAppData, home)));
+    expect(norm(expandHome(dataDirOf(r.stdout), home))).toBe(norm(newDefault(localAppData, home)));
   }, 60_000);
 
   it('有 IXAEON_RELAY_DIR 时用它', () => {
@@ -87,7 +96,7 @@ describe('条件 2：数据目录的位置', () => {
     const relayDir = mkTmp('ixa-l4-relay-');
     const r = status(envFor({ relayDir, localAppData, worktrees, home }));
     expect(r.status, r.stderr || r.stdout).toBe(0);
-    expect(norm(dataDirOf(r.stdout))).toBe(norm(relayDir));
+    expect(norm(expandHome(dataDirOf(r.stdout), home))).toBe(norm(relayDir));
   }, 60_000);
 
   it('loadFeishuTarget() 的默认路径跟着新默认走，不读旧的 Worktrees 位置', () => {
@@ -140,7 +149,7 @@ describe('条件 3：旧位置提醒', () => {
     const r = status(envFor({ relayDir, localAppData, worktrees, home }));
     expect(r.status, r.stderr || r.stdout).toBe(0);
     expect(r.stdout).toContain('旧的数据目录里还有文件');
-    expect(norm(r.stdout)).toContain(norm(oldDir));
+    expect(norm(expandHome(r.stdout, home))).toContain(norm(oldDir));
     expect(r.stdout).not.toContain('SENTINEL-不该出现');
   }, 60_000);
 
