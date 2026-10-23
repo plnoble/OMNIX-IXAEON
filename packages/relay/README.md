@@ -40,7 +40,7 @@
 - **怎么停**：`Ctrl+C`；或者 `run` 跑到停点自己退。
 - **同一时间只许一个调度器**：数据目录里的 `lock.json` 记着正在跑的进程号，重复启动会被拒（「已经有调度器在转…」）。那个进程不在了，就能再启动。
 - **换位置**：环境变量 `IXAEON_RELAY_DIR` 有值时，数据目录用它。
-- 启动器认安装目录：`IXAEON_DSH_INSTALL` 有值就只认它，否则依次试 `D:/Agent/DeepSeek Harness/Install`、`%LOCALAPPDATA%/Programs/DeepSeek Harness`。
+- 启动器认安装目录：环境变量 `IXAEON_DSH_INSTALL` 有值就只认它；没有就依次试 DSH 桌面版的默认安装位置（`%LOCALAPPDATA%\Programs\DeepSeek Harness`，以及 DSH 安装器常用的那个目录——具体以 `packages/relay/bin/dsh.mjs` 里写的那两个候选为准）。
 
 ## 它什么时候会停下来找你
 
@@ -76,6 +76,6 @@
 - **给模型的白名单不是围栏**。整合方那串 `PowerShell(git:*) node:* corepack:* gh:*` 挡的是手滑，不是恶意：`node:*`、`corepack:*` 这类等于允许执行任意代码。
 - **DSH 的沙箱关不住写文件**。数据目录挪到 `%LOCALAPPDATA%\IXAEON\relay`、配置检查不许角色的 `cwd` 包着数据目录——这两条防的是手滑，不是围栏（真机检查里实测它写进去了）。
 - **DSH 自己不推送**。它拿不到本机的 git 凭据（调凭据助手要经过 `sh.exe`，在它的受限令牌下起不来）。**正在做**（L6）：DSH 只提交、在输出里写要推什么，由调度器用你的登录态替它推，且只许 `dev/` 开头的分支和不强推的 `main`。
-- **本机 PATH 里没有 `codex`**（真机检查实测）：A 档要的 Codex 审查现在跑不了，要装 `codex` 或把它的路径加进 PATH。
-- 队列和核对都只认 **`origin/main`**：开发在自己工作目录里推的分支，得照 `AGENTS.md` 的流程并进 `main` 才算交接完成。
+- **DSH 那一侧没有 `codex` 命令**（真机检查实测：PATH 里找不到，`where.exe` 也找不到）。A 档要的 Codex 审查是**在沙箱外**跑的（`scripts/codex-review.mjs` 会自己找 Codex 桌面版自带的 `codex.exe`，不依赖 PATH）；DSH 那一棒里调不了它。
+- 队列和核对都只认 **`origin/main`**：开发把自己那一支推上去、把队列里那一行改成「测试待审／待复审」，**并进 `main` 是整合方的活**（A 档才是自己审过再自己并）。调度器看不到还没进 `main` 的东西。
 - 这一版只在**一台机器**上跑：`main`、`Worktrees/IXAEON`、数据目录都是本机的。
