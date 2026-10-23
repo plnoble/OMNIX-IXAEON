@@ -3,13 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-/** 默认位置：Windows 是 `%LOCALAPPDATA%/IXAEON/relay`，别的系统是 `~/.local/share/ixaeon/relay`。 */
+/** 默认位置（L10 契约第 6 条）：所有系统都是 `~/.ixaeon/relay`——**不在 AppData 下面**，桌面版不会转存。 */
 export function defaultRelayDir(): string {
-  if (process.platform === 'win32') {
-    const local = process.env.LOCALAPPDATA?.trim() || join(homedir(), 'AppData', 'Local');
-    return join(local, 'IXAEON', 'relay');
-  }
-  return join(homedir(), '.local', 'share', 'ixaeon', 'relay');
+  return join(homedir(), '.ixaeon', 'relay');
 }
 
 /** 数据目录：`IXAEON_RELAY_DIR` 有值就优先用它，否则用新默认。 */

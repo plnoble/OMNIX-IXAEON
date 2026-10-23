@@ -12,6 +12,8 @@ const alive = (pid: number): boolean => {
     return (e as NodeJS.ErrnoException).code === 'EPERM';
   }
 };
+/** L10 契约第 2 条：`once --under <pid>` 要判断那个进程还在不在（同一个判断照锁文件的用法）。 */
+export const pidAlive = (pid: number): boolean => Number.isInteger(pid) && pid > 0 && alive(pid);
 export interface LockInfo {
   pid: number;
   startedAt: string;
