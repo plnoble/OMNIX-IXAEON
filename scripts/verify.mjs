@@ -4,6 +4,7 @@
  * 直接调用各工具 CLI（不经嵌套 pnpm，避免外层 pnpm shim 干扰）。
  */
 import { spawnSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -28,6 +29,23 @@ function run(label, args, env = {}) {
   }
   process.stdout.write(`\u001b[32m✓ ${label} 通过（${seconds}s）\u001b[0m\n`);
   return { label, seconds };
+}
+
+// L14：接力里的 DSH 给工作区打了低完整性标签，工作区里的 electron.exe 以 Low IL 起，
+// 写不了 %TEMP% / %APPDATA%（单实例锁建不起来，应用自己退出）。DSH 的启动器会设
+// IXAEON_ELECTRON_NO_SANDBOX=1；这时四步真 Electron 界面复审的临时目录和应用数据
+// 改放到工作区的 .logs/ 下（Low IL 写得进）。没设这个变量时和原来一模一样。
+function electronUiEnv() {
+  if (process.env.IXAEON_ELECTRON_NO_SANDBOX !== '1') return {};
+  const base = resolve(root, '.logs', 'electron-ui-env');
+  const dirs = {
+    TEMP: resolve(base, 'temp'),
+    TMP: resolve(base, 'temp'),
+    APPDATA: resolve(base, 'appdata'),
+    LOCALAPPDATA: resolve(base, 'localappdata'),
+  };
+  for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true });
+  return dirs;
 }
 
 const results = [];
@@ -278,46 +296,62 @@ results.push(
 
 // N02 界面验收（LUI01-LUI03：搁置/恢复/纠正退出待处理），依赖 build 产物
 results.push(
-  run('review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron）', [
-    resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
-    'test',
-    '-c',
-    'apps/desktop/test/review/playwright.needs-lifecycle-20260908.config.ts',
-    '--output=apps/desktop/test/review/.needs-lifecycle-ui-verify',
-  ]),
+  run(
+    'review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron）',
+    [
+      resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
+      'test',
+      '-c',
+      'apps/desktop/test/review/playwright.needs-lifecycle-20260908.config.ts',
+      '--output=apps/desktop/test/review/.needs-lifecycle-ui-verify',
+    ],
+    electronUiEnv(),
+  ),
 );
 
 // 理解页连续工作（确认不跳页 + 纠正对话框可见），依赖 build 产物
 results.push(
-  run('review-understanding-ui（理解页 UND01-UND02，真实 Electron）', [
-    resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
-    'test',
-    '-c',
-    'apps/desktop/test/review/playwright.understanding-20260908.config.ts',
-    '--output=apps/desktop/test/review/.understanding-verify',
-  ]),
+  run(
+    'review-understanding-ui（理解页 UND01-UND02，真实 Electron）',
+    [
+      resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
+      'test',
+      '-c',
+      'apps/desktop/test/review/playwright.understanding-20260908.config.ts',
+      '--output=apps/desktop/test/review/.understanding-verify',
+    ],
+    electronUiEnv(),
+  ),
 );
 
 // C3：真实用户反馈的两组界面回归（文件夹导入/重新分析 + 设置向导）接入门禁
 results.push(
-  run('review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron）', [
-    resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
-    'test',
-    '-c',
-    'apps/desktop/test/review/playwright.sources-wizard-20260929.config.ts',
-    '--output=apps/desktop/test/review/.sources-wizard-20260929-out',
-  ]),
+  run(
+    'review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron）',
+    [
+      resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
+      'test',
+      '-c',
+      'apps/desktop/test/review/playwright.sources-wizard-20260929.config.ts',
+      '--output=apps/desktop/test/review/.sources-wizard-20260929-out',
+    ],
+    electronUiEnv(),
+  ),
 );
 
 // RF09：UI01 / BUI01 / BUI02 真实 Electron 界面检查纳入默认验证入口。
 // 依赖 build 产物 out/main/index.js（上面 build 步骤已生成）。
 results.push(
-  run('review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron）', [
-    resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
-    'test',
-    '-c',
-    'apps/desktop/test/review/playwright.recheck-20260907.config.ts',
-  ]),
+  run(
+    'review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron）',
+    [
+      resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
+      'test',
+      '-c',
+      'apps/desktop/test/review/playwright.recheck-20260907.config.ts',
+    ],
+    electronUiEnv(),
+  ),
 );
 
 process.stdout.write(`\n\u001b[32m全部通过（IXAEON v0.2 验证完成）\u001b[0m\n`);

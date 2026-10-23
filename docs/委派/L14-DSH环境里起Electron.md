@@ -22,3 +22,9 @@
 - 新测试 `packages/relay/test/acceptance/l14-electron-args.test.ts`（放这里是因为 `packages/*/test/acceptance/` 才进验收流程）：`electronArgs(['a', 'b'], {})` → `['a', 'b']`；`{ IXAEON_ELECTRON_NO_SANDBOX: '1' }` → `['--no-sandbox', 'a', 'b']`；值是 `'0'`、`'true'` → 原样；不改传进去的数组。再用 `l6-launcher.test.ts` 的假安装目录办法，测 `dsh.mjs` 起的进程环境里 `IXAEON_ELECTRON_NO_SANDBOX` 是 `1`。
 - 真机：在这一棒里跑 `node scripts/verify.mjs`，那四步界面复审过了（输出原样贴进交付说明，遮掉用户目录）。别的步骤因为别的原因红了，照实写。
 - `node scripts/acceptance.mjs lock L14 …` 登记；`node scripts/codex-review.mjs L14`；照 AGENTS.md 合并。
+
+## 整合方复审时的补充（2026-10-23）
+
+开发查出第二层原因：DSH 的沙箱给工作区打了低完整性标签，工作区里的 `electron.exe` 以 Low IL 起，写不了 `%TEMP%`/`%APPDATA%`，单实例锁建不起来、应用自己退出。`--no-sandbox` 只管第一层（`0x80000003`）。
+
+整合方定：不动 DSH 的沙箱（那是用户的系统设置），改门禁这边。原约束「`scripts/verify.mjs` 不动」撤掉这一处：`verify.mjs` 里四步真 Electron 界面复审，在 `IXAEON_ELECTRON_NO_SANDBOX === '1'` 时把子进程的 `TEMP`/`TMP`/`APPDATA`/`LOCALAPPDATA` 指到工作区的 `.logs/electron-ui-env/` 下；没设时和原来一模一样。整合方已改（`electronUiEnv()`）。
