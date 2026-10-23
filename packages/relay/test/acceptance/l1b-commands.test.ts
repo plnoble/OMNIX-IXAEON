@@ -157,7 +157,9 @@ const relay = (dataDir: string, args: string[]) =>
   spawnSync(process.execPath, [CLI, ...args], {
     cwd: REPO,
     encoding: 'utf8',
-    env: { ...process.env, IXAEON_RELAY_DIR: dataDir },
+    // 整合方改（2026-10-23，为 L10）：L10 起 `relay run` 是看门人，不设 IXAEON_RELAY_CODE 会去建、更新
+    // relay-run 并装依赖；指到本仓库就用这份代码跑子进程（L10 之前没有这个变量，设了也不影响）。
+    env: { ...process.env, IXAEON_RELAY_DIR: dataDir, IXAEON_RELAY_CODE: REPO },
     windowsHide: true,
     timeout: 120_000,
   });
