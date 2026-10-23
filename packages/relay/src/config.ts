@@ -49,5 +49,13 @@ export function checkConfig(config: RelayConfig): { ok: true } | { ok: false; re
       };
     }
   }
+  // L9 契约第 2 条：有这个字段就必须是 0 或正整数（0 只是关掉规划，不是配置错误）。
+  const perDay = config.planPerDay;
+  if (
+    perDay !== undefined &&
+    !(typeof perDay === 'number' && Number.isInteger(perDay) && perDay >= 0)
+  ) {
+    return { ok: false, reason: `planPerDay 必须是 0 或正整数：${JSON.stringify(perDay)}` };
+  }
   return { ok: true };
 }

@@ -9,6 +9,8 @@ export type RelayEvent =
   | { kind: 'needs-user'; taskId: string; task: string; status: string }
   | { kind: 'paused'; role: 'integrator' | 'developer'; until: string }
   | { kind: 'idle'; why: 'queue-empty' | 'all-blocked' }
+  /** L9 契约第 7 条：规划棒加了几行（按主表里的先后）。 */
+  | { kind: 'planned'; rows: Array<{ no: string; task: string; status: string }> }
   | { kind: 'daily'; date: string; turns: number; done: string[]; costUsd?: number };
 export interface FeishuTarget {
   webhookUrl: string;
@@ -45,7 +47,10 @@ export function formatEvent(e: RelayEvent): string {
     const who = e.role === 'integrator' ? '统筹' : '开发';
     lines.push(`${who}撞上额度，歇到 ${beijing(e.until)}。`);
   } else if (e.kind === 'idle') lines.push(IDLE[e.why]);
-  else {
+  else if (e.kind === 'planned') {
+    lines.push(`整合方排了 ${e.rows.length} 件新活：`);
+    for (const r of e.rows) lines.push(`- 第 ${r.no} 行 ${r.task}（${r.status}）`);
+  } else {
     const done = e.done.length ? e.done.join('、') : '无';
     lines.push(`${e.date} 日报：跑了 ${e.turns} 棒，完成 ${done}。`);
     if (typeof e.costUsd === 'number') lines.push(`Claude 用量折合约 ${e.costUsd.toFixed(2)} 美元`);
@@ -106,9 +111,9 @@ export async function sendFeishu(
   return { ok: false, error: last };
 }
 
-/** kind 加 taskId / role / why。stopped 没有 taskId 时共用一键；daily 不限。 */
+/** kind 加 taskId / role / why。planned 和 daily 不限频；stopped 没有 taskId 时共用一键。 */
 function rateKey(e: RelayEvent): string | null {
-  if (e.kind === 'daily') return null;
+  if (e.kind === 'daily' || e.kind === 'planned') return null;
   if (e.kind === 'needs-user') return `needs-user ${e.taskId}`;
   if (e.kind === 'paused') return `paused ${e.role}`;
   if (e.kind === 'idle') return `idle ${e.why}`;

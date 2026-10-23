@@ -1,7 +1,7 @@
-/** 核对有没有越界（第 8 条）：只看开发那一棒；`local-user` 任何一棒之后都查。 */
+/** 核对有没有越界（第 8 条）：只看开发那一棒；`local-user` 任何一棒之后都查。L9 加规划棒两条。 */
 import { spawnSync } from 'node:child_process';
 import { fetchMain, git } from './git.js';
-import { tierOfTask } from './queue.js';
+import { parseMainTableFull, tierOfTask, type MainTableRow } from './queue.js';
 import type { RelayConfig, RelayState, Turn, Violation } from './types.js';
 
 const QUEUE = 'docs/委派/队列.md';
@@ -57,6 +57,39 @@ function lockChangedBTier(
   });
 }
 
+const sameCells = (a: string[], b: string[]): boolean =>
+  a.length === b.length && a.every((x, i) => x === b[i]);
+
+export interface PlanQueueDiff {
+  /** 主表里新加的行（照 after 里的先后）。 */
+  added: MainTableRow[];
+  /** 开棒时已有的一行少了、或者任何一格变了。 */
+  changed: boolean;
+}
+
+/**
+ * L9 契约第 6 条：比开棒前后主表的两份原文。
+ * 已有行按「整行六格」配对（只重排不算改）；对不上的算「变了」，多出来的算新加的行。
+ */
+export function diffPlanRows(beforeMd: string, afterMd: string): PlanQueueDiff {
+  const before = parseMainTableFull(beforeMd);
+  const after = parseMainTableFull(afterMd);
+  const left = after.slice();
+  let changed = false;
+  for (const row of before) {
+    const i = left.findIndex((x) => sameCells(x.cells, row.cells));
+    if (i < 0) changed = true;
+    else left.splice(i, 1);
+  }
+  return { added: left, changed };
+}
+
+/** 规划棒新加的行数（拉不下来就不猜：`null`）。 */
+export function planAddedRows(beforeMd: string, afterMd: string | null): number | null {
+  if (afterMd === null) return null;
+  return diffPlanRows(beforeMd, afterMd).added.length;
+}
+
 export async function verifyTurn(
   turn: Turn,
   config: RelayConfig,
@@ -69,9 +102,7 @@ export async function verifyTurn(
   const mainSha = git(cwd, ['rev-parse', 'origin/main']).out || null;
   const since = state.mainShaAtTurnStart ?? null;
   const violations: Violation[] = [];
-  if (turn.role === 'developer' && mainSha && since && mainSha !== since) {
-    const queue = showAt(cwd, mainSha, QUEUE);
-    if (mergedBTier(cwd, queue, since, mainSha)) violations.push('b-tier-merged-by-developer');
+  if (mainSha && since && mainSha !== since) {
     // 整合方改：改名要拆成「删 + 加」才看得见旧名字；路径不转义、按行切（路径里可能有空格和中文）
     const diff = [
       '-c',
@@ -83,8 +114,25 @@ export async function verifyTurn(
       mainSha,
     ];
     const changed = new Set(git(cwd, diff).out.split('\n'));
-    const lockChanged = lockChangedBTier(cwd, queue, since, mainSha, changed);
-    if (lockChanged) violations.push('b-tier-lock-changed-by-developer');
+    if (turn.kind === 'integrator-plan') {
+      // L9 契约第 6 条：规划棒只许改 `docs/` 下面的文件（不是 startsWith('docs')）。
+      if ([...changed].some((f) => f && !f.startsWith('docs/'))) {
+        violations.push('plan-touched-code');
+      }
+      const diffRows = diffPlanRows(showAt(cwd, since, QUEUE), showAt(cwd, mainSha, QUEUE));
+      const badNewStatus = diffRows.added.some(
+        (r) => !r.status.startsWith('待领') && !r.status.startsWith('等用户：'),
+      );
+      if (diffRows.changed || diffRows.added.length > 3 || badNewStatus) {
+        violations.push('plan-changed-rows');
+      }
+    } else if (turn.role === 'developer') {
+      const queue = showAt(cwd, mainSha, QUEUE);
+      if (mergedBTier(cwd, queue, since, mainSha)) violations.push('b-tier-merged-by-developer');
+      if (lockChangedBTier(cwd, queue, since, mainSha, changed)) {
+        violations.push('b-tier-lock-changed-by-developer');
+      }
+    }
   }
   // local-user：任何一棒之后都查（跑在整合方的目录里）
   const [cmd, ...args] = config.localUserCheck ?? ['node', 'scripts/check-local-user.mjs'];

@@ -1,13 +1,14 @@
 /** 命令背后的逻辑（第 9 条）：定一棒、跑一棒、核对、记账；越界就停、resume 之后接着；L2b 接飞书。 */
+import { createHash } from 'node:crypto';
 import { dailyDue, dailyEvent } from './daily.js';
 import { ensureDeps } from './deps.js';
 import { git } from './git.js';
 import { createNotifier, loadFeishuTarget } from './notify/feishu.js';
-import { decideNextTurn, parseMainTable } from './queue.js';
+import { beijingDay, decideNextTurn, parseMainTable } from './queue.js';
 import { parsePushLines, readTurnStdout, relayPushes } from './push.js';
 import { runTurn } from './run-turn.js';
 import { appendLedger, readLedger, readMainQueue, relayNow, saveState } from './store.js';
-import { verifyTurn } from './verify.js';
+import { diffPlanRows, verifyTurn } from './verify.js';
 import type { RelayConfig, RelayState } from './types.js';
 
 export type Outcome = 'ran' | 'idle' | 'stopped';
@@ -46,7 +47,7 @@ export async function runOnce(
     state.lastDailyDate = due;
     saveState(dataDir, state);
   }
-  const decision = decideNextTurn(queueMd, state, now);
+  const decision = decideNextTurn(queueMd, state, now, { planPerDay: config.planPerDay });
   if ('idle' in decision) {
     console.log(`没活：${decision.idle}`);
     if (opts.sendIdle && (decision.idle === 'queue-empty' || decision.idle === 'all-blocked')) {
@@ -64,6 +65,17 @@ export async function runOnce(
     }
   }
   state.mainShaAtTurnStart = git(config.roles.integrator.cwd, ['rev-parse', 'origin/main']).out;
+  // L9 契约第 3、4 条：派了规划棒就先记下这一次（日子、次数、队列全文的 sha256），跑之前存盘。
+  if (decision.kind === 'integrator-plan') {
+    const today = beijingDay(now.getTime());
+    const sameDay = state.plan?.date === today;
+    state.plan = {
+      date: today,
+      count: sameDay ? state.plan!.count + 1 : 1,
+      queueHash: createHash('sha256').update(queueMd, 'utf8').digest('hex'),
+    };
+    saveState(dataDir, state);
+  }
   const startedAt = new Date().toISOString();
   const result = await runTurn(decision, config, state, { dataDir, turnNumber: turn });
   // L6 契约第 4 条：标了 pushByRelay 的角色，替它把这一棒要推的推上去。**先推后端**再核对——
@@ -79,7 +91,15 @@ export async function runOnce(
       : await verifyTurn(decision, config, state);
   // 拉不下来就没法核对：停下，做完后的状态也不猜（规格末尾第 4 条）。
   const after = verdict.mainSha === null ? null : await readMainQueue(config);
-  const statusAfter = after === null ? null : statusOfTask(after, decision.taskId);
+  // L9 契约第 8 条：规划棒的 statusAfter 是「加了 <N> 行」，不是队列里某一行的状态。
+  const planDiff =
+    decision.kind === 'integrator-plan' && after !== null ? diffPlanRows(queueMd, after) : null;
+  const statusAfter =
+    after === null
+      ? null
+      : planDiff
+        ? `加了 ${planDiff.added.length} 行`
+        : statusOfTask(after, decision.taskId);
   appendLedger(dataDir, {
     turn,
     role: decision.role,
@@ -129,6 +149,13 @@ export async function runOnce(
         taskId: decision.taskId,
         task: decision.task,
         status: statusAfter,
+      });
+    }
+    // L9 契约第 7 条：规划棒没越界、加了至少一行才发 planned；一行没加照常空转。
+    if (planDiff && planDiff.added.length > 0) {
+      await notifier.notify({
+        kind: 'planned',
+        rows: planDiff.added.map((r) => ({ no: r.no, task: r.task, status: r.status })),
       });
     }
   }
