@@ -209,6 +209,11 @@ const watchdog = async (config: RelayConfig, state: RelayState): Promise<void> =
         }
       } else {
         console.log('拉不下来 origin/main，这一轮先不换代码');
+        // 整合方改：第一轮就拉不下来时 relay-run 还没建，起子进程必失败，不该算崩。
+        if (!existsSync(childCli(codeRoot))) {
+          await sleep(idleMs);
+          continue;
+        }
       }
     }
 

@@ -184,28 +184,46 @@ try {
 
   // 4) 看：relay-run 建出来了没有、停在哪个提交、依赖装了没有
   const runDir = join(trees, 'relay-run');
+  // 整合方补：哪一条不符就记下，最后退出码非零（不在前面不符时还写「通过」）。
+  const bad = [];
+  if (code !== 0) bad.push(`relay run 退出码 ${code}`);
   log('== 结果');
   log(`   relay-run 建出来了：${existsSync(runDir)}`);
+  if (!existsSync(runDir)) bad.push('relay-run 没建出来');
   if (existsSync(runDir)) {
-    log(`   relay-run 的 HEAD：${tryGit(runDir, ['rev-parse', 'HEAD']).out.slice(0, 12)}`);
-    log(`   origin/main：${git(sched, ['rev-parse', 'origin/main']).slice(0, 12)}`);
-    log(`   在分支上吗：${tryGit(runDir, ['rev-parse', '--abbrev-ref', 'HEAD']).out}`);
+    const head = tryGit(runDir, ['rev-parse', 'HEAD']).out;
+    const om = git(sched, ['rev-parse', 'origin/main']);
+    const branch = tryGit(runDir, ['rev-parse', '--abbrev-ref', 'HEAD']).out;
+    log(`   relay-run 的 HEAD：${head.slice(0, 12)}`);
+    log(`   origin/main：${om.slice(0, 12)}`);
+    log(`   在分支上吗：${branch}`);
+    if (head !== om) bad.push('relay-run 不在 origin/main');
+    if (branch !== 'HEAD') bad.push('relay-run 在分支上');
     const marker = join(runDir, 'node_modules', '.relay-lock-sha256');
     log(
       `   依赖记号文件：${existsSync(marker) ? readFileSync(marker, 'utf8').trim().slice(0, 16) : '没有'}`,
     );
+    if (!existsSync(marker)) bad.push('没有依赖记号文件');
     log(`   node_modules 在：${existsSync(join(runDir, 'node_modules'))}`);
   }
   const ledger = join(dataDir, 'ledger.jsonl');
-  if (existsSync(ledger)) {
-    for (const line of readFileSync(ledger, 'utf8').split('\n').filter(Boolean)) {
-      const j = JSON.parse(line);
-      log(`   记账：turn=${j.turn} role=${j.role} 行=${j.taskId} → ${j.statusAfter}`);
-    }
+  const rows = existsSync(ledger)
+    ? readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    : [];
+  for (const j of rows) {
+    log(`   记账：turn=${j.turn} role=${j.role} 行=${j.taskId} → ${j.statusAfter}`);
   }
-  log(
-    `   state.json 的 stoppedReason：${JSON.parse(readFileSync(join(dataDir, 'state.json'), 'utf8')).stoppedReason}`,
-  );
+  if (rows.length !== 2) bad.push(`记账 ${rows.length} 棒，不是 2 棒`);
+  const exits = [...stdout.matchAll(/子进程 (\d+) 退出 0/g)].map((m) => m[1]);
+  const watcher = /看门人 (\d+)/.exec(stdout)?.[1];
+  if (!watcher) bad.push('没有「看门人 <pid>」');
+  if (exits.length < 2) bad.push('「子进程 … 退出 0」不到两行');
+  if (new Set(exits).size !== exits.length || exits.includes(watcher)) {
+    bad.push('子进程号有重复或等于看门人');
+  }
+  const stopped = JSON.parse(readFileSync(join(dataDir, 'state.json'), 'utf8')).stoppedReason;
+  log(`   state.json 的 stoppedReason：${stopped}`);
+  if (stopped) bad.push('停下了');
   const branches = git(bare, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']).split(
     '\n',
   );
@@ -226,7 +244,8 @@ try {
   log(`   收尾：relay-run ${existsSync(runDir) ? '没摘掉' : '已摘掉'}`);
   rmSync(root, { recursive: true, force: true });
   log(`   收尾：临时目录 ${existsSync(root) ? '没删掉' : '删掉了'}`);
-  process.exitCode = 0;
+  log(bad.length ? `== 结论：不通过（${bad.join('；')}）` : '== 结论：通过');
+  process.exitCode = bad.length ? 1 : 0;
 } catch (e) {
   log(`没跑成：${e instanceof Error ? e.message : String(e)}`);
   process.exitCode = 1;
