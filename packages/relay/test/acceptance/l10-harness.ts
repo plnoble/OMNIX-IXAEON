@@ -135,8 +135,6 @@ export function makeWorld(
   mkdirSync(join(integ, 'docs', '委派'), { recursive: true });
   writeFileSync(join(integ, 'docs', '委派', '队列.md'), queueOf(opts.status ?? '待领'), 'utf8');
   writeFileSync(join(integ, 'docs', '委派', '锁定验收.json'), '{"tasks":[]}\n', 'utf8');
-  // 契约第 4 条要 `pnpm-lock.yaml`：合成一份，免得依赖那一步永远 'skipped'
-  writeFileSync(join(integ, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n', 'utf8');
   must(integ, ['add', '-A']);
   must(integ, ['commit', '-q', '-m', '初始合成仓库']);
   must(integ, ['push', '-q', 'origin', 'HEAD:main']);
@@ -209,11 +207,15 @@ export function makeWorld(
         delete merged.IXAEON_RELAY_DIR;
         delete merged.IXAEON_RELAY_CODE;
         delete merged.IXAEON_RELAY_INSTALL;
+        // 整合方补（2026-10-23）：工作目录根也指到临时目录——实现万一没认 IXAEON_RELAY_CODE，
+        // relay-run 会建在这里，不会建到本机真的 Worktrees 下面（测试也靠它查「没建」）。
         Object.assign(
           merged,
-          { IXAEON_RELAY_DIR: dataDir, IXAEON_RELAY_NOW: MORNING },
-          // 默认把「装依赖」换成空操作：不然合成仓库里会去跑真 pnpm（慢且会失败）
-          { IXAEON_RELAY_INSTALL: JSON.stringify([process.execPath, '-e', 'process.exit(0)']) },
+          {
+            IXAEON_RELAY_DIR: dataDir,
+            IXAEON_RELAY_NOW: MORNING,
+            IXAEON_WORKTREES: join(root, 'trees'),
+          },
           env,
         );
         const p = spawn(process.execPath, [CLI, ...args], {

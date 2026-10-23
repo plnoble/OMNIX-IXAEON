@@ -11,7 +11,15 @@
  *
  * 全在临时目录里跑；替身照 `l2b-notify` 的做法（拉、改队列、提交、推回合成 origin）。不调真模型、不连 GitHub。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -92,22 +100,70 @@ describe('条件 1：看门人跑两棒再转到没活', () => {
 
     expect(w.ledger()).toHaveLength(2);
     expect(w.state().stoppedReason).toBe(null);
+    // 整合方补（2026-10-23）：子进程的输出原样转出来（「第 N 棒 …」是子进程里的 once 打的）
+    expect(r.stdout).toContain('第 1 棒 developer');
+    expect(r.stdout).toContain('第 2 棒 integrator');
+    // IXAEON_RELAY_CODE 有值 → 不建 relay-run
+    expect(existsSync(join(w.root, 'trees', 'relay-run'))).toBe(false);
+    // 看门人退出时放锁
+    expect(existsSync(join(w.dataDir, 'lock.json'))).toBe(false);
   }, 180_000);
 });
 
 describe('条件 2：崩了接着转', () => {
   it('连着崩 3 次 → 停下，「调度器连着崩了 3 次：炸了」，飞书一条 stopped', async () => {
     const fake = await fakeFeishu();
-    const code = fakeCode("console.error('炸了');\nprocess.exit(1);\n");
+    // 整合方改严（2026-10-23）：错误输出有两行，原因只取第一行
+    const code = fakeCode("console.error('炸了');\nconsole.error('第二行');\nprocess.exit(1);\n");
     const w = world({ feishu: fake, idleSeconds: 1 });
+    const t0 = Date.now();
     const r = await w.run(['run', '--exit-when-idle'], { IXAEON_RELAY_CODE: code });
+    const elapsed = Date.now() - t0;
     expect(r.status, r.stderr || r.stdout).toBe(0);
 
     expect(String(w.state().stoppedReason ?? '')).toBe('调度器连着崩了 3 次：炸了');
     // 试了 3 次
     expect(pidsOf(r.stdout, /子进程 \d+ 退出 1/g).length).toBe(3);
     expect(fake.texts.filter((t) => t.includes('停下来了')).length).toBe(1);
+    expect(fake.texts.some((t) => t.includes('调度器连着崩了 3 次：炸了'))).toBe(true);
     expect(w.ledger()).toHaveLength(0);
+    // 整合方补（2026-10-23）：第 1、2 次崩之后各等 idleSeconds × 1、× 5（这里一共至少 6 秒）
+    expect(elapsed).toBeGreaterThanOrEqual(5_500);
+    // 子进程的错误输出也原样转出来
+    expect(r.stderr).toContain('炸了');
+  }, 180_000);
+
+  // 整合方补（2026-10-23）：原因取「最后一次」错误输出的第一行，不超过 200 个字；子进程的命令行、cwd 照契约
+  it('原因取最后一次的第一行、截到 200 个字；子进程是 once --under <看门人>、cwd 是代码根', async () => {
+    const log = join(tmp('ixa-l10-crashlog-'), 'calls.jsonl');
+    const code = fakeCode(
+      [
+        "import { appendFileSync, existsSync, readFileSync } from 'node:fs';",
+        `const log = ${JSON.stringify(log)};`,
+        'const n = existsSync(log) ? readFileSync(log, "utf8").split("\\n").filter(Boolean).length : 0;',
+        'appendFileSync(log, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");',
+        'if (n < 2) console.error("早先的错 " + n);',
+        'else console.error("长".repeat(300) + "\\n第二行");',
+        'process.exit(1);',
+        '',
+      ].join('\n'),
+    );
+    const w = world({ idleSeconds: 1 });
+    const r = await w.run(['run', '--exit-when-idle'], { IXAEON_RELAY_CODE: code });
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    expect(String(w.state().stoppedReason ?? '')).toBe(`调度器连着崩了 3 次：${'长'.repeat(200)}`);
+
+    const keeper = pidsOf(r.stdout, /看门人 (\d+)/g)[0];
+    const calls = readFileSync(log, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as { argv: string[]; cwd: string });
+    expect(calls).toHaveLength(3);
+    const norm = (p: string) => realpathSync(p).toLowerCase();
+    for (const c of calls) {
+      expect(c.argv).toEqual(['once', '--under', keeper]);
+      expect(norm(c.cwd)).toBe(norm(code));
+    }
   }, 180_000);
 
   it('崩一次、下一轮正常、再崩两次 → 不停下（中间清零了），两棒照跑', async () => {

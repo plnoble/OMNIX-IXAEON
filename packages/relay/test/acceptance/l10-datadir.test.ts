@@ -27,32 +27,43 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
+/** `relay status` 第一段 JSON 里的 dataDir（打印时用户目录已遮成 `~`），斜杠统一成 `/`。 */
+const dataDirOf = (stdout: string): string => {
+  const m = /"dataDir":\s*"((?:[^"\\]|\\.)*)"/.exec(stdout);
+  if (!m) throw new Error(`status 输出里没有 dataDir：${stdout}`);
+  return (JSON.parse(`"${m[1]}"`) as string).replaceAll('\\', '/');
+};
+
 describe('条件 7：数据目录默认在 ~/.ixaeon/relay', () => {
-  it('不设 IXAEON_RELAY_DIR、HOME/USERPROFILE 指到临时目录 → status 打的就是那里', async () => {
+  // 整合方改（2026-10-23，审测试）：原来没把 LOCALAPPDATA 指开，本机真的旧数据目录会多打一行提醒、
+  // 让「不含 appdata」在实现写对时也红；改成 LOCALAPPDATA 指到空的临时目录，并逐字比 dataDir。
+  it('不设 IXAEON_RELAY_DIR、HOME/USERPROFILE 指到临时目录 → status 打的就是 ~/.ixaeon/relay', async () => {
     const home = tmp('ixa-l10-home-');
     const w = makeWorld();
     worlds.push(w);
     const r = await w.run(['status'], {
       IXAEON_RELAY_DIR: undefined,
       IXAEON_WORKTREES: tmp('ixa-l10-trees-'),
-      // 旧位置也指到空目录：不然会读到这台机器上真的 IXAEON/relay（提醒行里会带 appdata）
-      LOCALAPPDATA: tmp('ixa-l10-local-empty-'),
       USERPROFILE: home,
       HOME: home,
+      LOCALAPPDATA: tmp('ixa-l10-local-empty-'),
     });
     expect(r.status, r.stderr || r.stdout).toBe(0);
     // dataDir 是 <home>/.ixaeon/relay；打印时 home 遮成 ~
-    expect(r.stdout).toMatch(/\.ixaeon[\\/]+relay/);
-    // 不该再是 LOCALAPPDATA 那一处
+    expect(dataDirOf(r.stdout)).toBe('~/.ixaeon/relay');
+    // 旧位置都是空的 → 不打提醒；也不该再出现 AppData
+    expect(r.stdout).not.toContain('旧的数据目录里还有文件');
     expect(r.stdout.toLowerCase()).not.toContain('appdata');
   }, 120_000);
 
-  it('LOCALAPPDATA/<IXAEON>/relay 里还有 state.json → 多打一行旧位置提醒', async () => {
+  // 整合方改（2026-10-23，审测试）：原来断言「不含 turns」——status 本来就打 state 里的 turns，实现写对也红；
+  // 改成哨兵字样。契约说「Windows 上再查」：别的系统上不该打这一行。
+  it('LOCALAPPDATA/IXAEON/relay 里还有 state.json →（Windows）多打一行旧位置提醒，不带内容', async () => {
     const home = tmp('ixa-l10-home2-');
     const local = tmp('ixa-l10-local-');
     const oldDir = join(local, 'IXAEON', 'relay');
     mkdirSync(oldDir, { recursive: true });
-    writeFileSync(join(oldDir, 'state.json'), '{"turns":0}\n', 'utf8');
+    writeFileSync(join(oldDir, 'state.json'), '{"stoppedReason":"SENTINEL-不该出现"}\n', 'utf8');
 
     const w = makeWorld();
     worlds.push(w);
@@ -64,9 +75,14 @@ describe('条件 7：数据目录默认在 ~/.ixaeon/relay', () => {
       LOCALAPPDATA: local,
     });
     expect(r.status, r.stderr || r.stdout).toBe(0);
-    expect(r.stdout).toContain('旧的数据目录里还有文件');
-    // 提醒里只说路径：那一行里没有旧文件的内容
-    const line = r.stdout.split('\n').find((l) => l.includes('旧的数据目录里还有文件')) ?? '';
-    expect(line).not.toContain('{"turns":0}');
+    expect(dataDirOf(r.stdout)).toBe('~/.ixaeon/relay');
+    const hint = r.stdout.split('\n').filter((l) => l.includes('旧的数据目录里还有文件'));
+    if (process.platform === 'win32') {
+      expect(hint).toHaveLength(1);
+      expect(hint[0]!.toLowerCase()).toContain(oldDir.toLowerCase());
+    } else {
+      expect(hint).toHaveLength(0);
+    }
+    expect(`${r.stdout}${r.stderr}`).not.toContain('SENTINEL');
   }, 120_000);
 });

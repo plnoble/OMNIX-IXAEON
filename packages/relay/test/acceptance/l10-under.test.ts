@@ -7,7 +7,7 @@
  *
  * 锁里写测试进程自己的号（它活着）；不调真模型、不连 GitHub。
  */
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeWorld, type World } from './l10-harness.js';
@@ -44,5 +44,22 @@ describe('条件 3：--under', () => {
     expect(r.status).not.toBe(0);
     expect(`${r.stdout}${r.stderr}`).toContain('不启动');
     expect(w.ledger()).toHaveLength(0);
+  }, 120_000);
+
+  // 整合方补（2026-10-23）：锁里的进程号对得上、但那个进程已经没了 → 不算继承，照原来拿锁、跑完放掉
+  it('锁里的进程号就是 --under 的、但进程已经没了 → 照原来拿锁，跑完锁放掉', async () => {
+    const w = makeWorld();
+    worlds.push(w);
+    const dead = 99999999;
+    const lock = join(w.dataDir, 'lock.json');
+    writeFileSync(
+      lock,
+      `${JSON.stringify({ pid: dead, startedAt: '2026-10-22T02:00:00.000Z' })}\n`,
+      'utf8',
+    );
+    const r = await w.run(['once', '--under', String(dead)]);
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    expect(w.ledger()).toHaveLength(1);
+    expect(existsSync(lock)).toBe(false);
   }, 120_000);
 });

@@ -142,9 +142,12 @@ describe('条件 2：relay init 写配置', () => {
     // 开发：启动器的绝对路径 + --profile headless --json，cwd 就是工作目录根
     const devArgv = config.roles.developer.argv;
     expect(devArgv[0]).toBe('node');
-    expect((devArgv[1] ?? '').replaceAll('\\', '/')).toBe(
+    // 整合方改（2026-10-23，为 L10）：L10 起写成 `{relay_root}/…`，跑的时候换成正在跑的那份代码；两种都认
+    // （L10 自己的测试严格要求 `{relay_root}`）
+    expect([
       join(REPO, 'packages', 'relay', 'bin', 'dsh.mjs').replaceAll('\\', '/'),
-    );
+      '{relay_root}/packages/relay/bin/dsh.mjs',
+    ]).toContain((devArgv[1] ?? '').replaceAll('\\', '/'));
     expect(devArgv).toContain('--profile');
     expect(devArgv).toContain('headless');
     expect(devArgv).toContain('--json');

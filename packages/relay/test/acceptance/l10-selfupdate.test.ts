@@ -9,7 +9,14 @@
  * 用临时 bare origin + 一份克隆当 `repo`。不调真模型、不连 GitHub。
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -70,6 +77,11 @@ describe('条件 4：updateCodeCheckout', () => {
     expect(existsSync(dir)).toBe(true);
     expect(git(dir, ['rev-parse', 'HEAD'])).toBe(first);
     expect(git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe('HEAD'); // 不在任何分支上
+    expect(r1.note).toBe('');
+    // 整合方补（2026-10-23）：是 repo 的工作目录（git worktree add），不是另一份克隆
+    const common = (cwd: string) =>
+      realpathSync(git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).toLowerCase();
+    expect(common(dir)).toBe(common(repo));
 
     // origin 上多一笔（另一个克隆推的），repo 里拉一次
     const pusher = join(root, 'pusher');
@@ -87,12 +99,17 @@ describe('条件 4：updateCodeCheckout', () => {
     expect(git(dir, ['rev-parse', 'HEAD'])).toBe(second);
 
     // dir 里有没提交的改动：不动它
-    writeFileSync(join(dir, 'dirty.txt'), '还没提交\n', 'utf8');
+    // 整合方改严（2026-10-23）：origin 先再多一笔——不然「没动」和「更新了」分不出来；改的是跟踪着的文件
+    commitIn(pusher, 'c.txt', '第三版\n', '再后来的一笔');
+    git(pusher, ['push', '-q', 'origin', 'HEAD:main']);
+    git(repo, ['fetch', '-q', 'origin', 'main']);
+    expect(git(repo, ['rev-parse', 'origin/main'])).not.toBe(second);
+    writeFileSync(join(dir, 'a.txt'), '还没提交\n', 'utf8');
     const r3 = updateCodeCheckout(repo, dir);
     expect(r3.note).not.toBe('');
     expect(r3.sha).toBe(second);
-    expect(existsSync(join(dir, 'dirty.txt'))).toBe(true);
-    expect(readFileSync(join(dir, 'dirty.txt'), 'utf8')).toBe('还没提交\n');
+    expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('还没提交\n');
+    expect(existsSync(join(dir, 'c.txt'))).toBe(false);
     expect(git(dir, ['rev-parse', 'HEAD'])).toBe(second);
   }, 120_000);
 });
