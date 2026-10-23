@@ -2,7 +2,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fetchMain, git } from './git.js';
-import type { RelayConfig, RelayState, Usage } from './types.js';
+import type { PushRecord, RelayConfig, RelayState, Usage } from './types.js';
 
 // 位置的计算搬到 datadir.ts（L4）：`relay status` 和飞书读配置两处都要用同一套，别再各写一份。
 export { defaultRelayDir, oldRelayDir, relayDir, worktreesRoot } from './datadir.js';
@@ -22,6 +22,8 @@ export interface LedgerEntry {
   statusAfter: string | null;
   doneLine: string | null;
   violations: string[];
+  /** L6 契约第 4 条：这一棒调度器替它推了哪些（没标的角色、没有 RELAY-PUSH 行时没有这个字段）。 */
+  pushes?: PushRecord[];
 }
 
 export function loadState(dataDir: string): RelayState {

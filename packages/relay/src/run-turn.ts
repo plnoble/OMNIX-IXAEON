@@ -42,7 +42,11 @@ export async function runTurn(
 ): Promise<TurnResult> {
   const role = config.roles[turn.role];
   const dir = join(opts.dataDir, 'turns', String(opts.turnNumber));
-  const promptPath = writeTurnPrompt(turn, { dataDir: opts.dataDir, turnNumber: opts.turnNumber });
+  const promptPath = writeTurnPrompt(turn, {
+    dataDir: opts.dataDir,
+    turnNumber: opts.turnNumber,
+    pushByRelay: role.pushByRelay === true,
+  });
   // 整合方改：嵌在参数里的也换（真 Claude 要写成 -p "读 {prompt_file} 照做"）
   const argv = role.argv.map((a) => a.split('{prompt_file}').join(promptPath));
   const child = spawn(argv[0]!, argv.slice(1), {
