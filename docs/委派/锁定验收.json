@@ -554,7 +554,7 @@
     {
       "id": "L8",
       "title": "L8 relay status 打印路径时遮掉用户目录",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l8-status-mask.test.ts": "f541305e3ca1f68b966b33e2eb218fff4210d988195009ab9d95f28052482b63"
       }
