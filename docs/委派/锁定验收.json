@@ -550,6 +550,14 @@
         "packages/relay/test/acceptance/l6b-layout.test.ts": "71579b3f56420f686cc9e343e73dbd391108d95c2b419af10c3b7e5df1eb1fed",
         "packages/relay/test/acceptance/l6b-init.test.ts": "473e43ae9baf320f48917c26d679b4285691c5a421f6c1738d614ef2211d719e"
       }
+    },
+    {
+      "id": "L8",
+      "title": "L8 relay status 打印路径时遮掉用户目录",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l8-status-mask.test.ts": "24df44a9419293fd63af727e6ee48de8ced82994506ee8f6e4efd909b863d2f7"
+      }
     }
   ]
 }

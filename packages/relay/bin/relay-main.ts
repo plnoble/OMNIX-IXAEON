@@ -1,5 +1,6 @@
 /** 命令逻辑（契约第 10 条）：`init` / `once` / `run [--exit-when-idle]` / `status` / `resume`。 */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -32,6 +33,21 @@ const die = (msg: string): never => {
 /** 用户本机的配置：只有这个命令行用，所以放在这里。 */
 const loadConfig = (dir: string): RelayConfig =>
   JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as RelayConfig;
+
+/**
+ * L8：打印时把用户目录换成 `~`（仓库是公开的，账户名不能跟着进交付说明）。
+ * 只改打印，不改 `state.json` / `ledger.jsonl` 里存的东西。
+ * JSON 里的反斜杠是转义过的，所以三种写法都换一遍。
+ */
+const maskHome = (text: string): string => {
+  const home = homedir();
+  if (!home) return text;
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const forms = [home, home.replaceAll('\\', '/'), JSON.stringify(home).slice(1, -1)];
+  // Windows 的路径不区分大小写：`IXAEON_RELAY_DIR` 写小写盘符时也要认出来。
+  const flags = process.platform === 'win32' ? 'gi' : 'g';
+  return forms.reduce((s, p) => s.replace(new RegExp(escape(p), flags), '~'), text);
+};
 
 /** Claude Code 的可执行文件：`%APPDATA%/npm/.../claude.exe`，再找 PATH 里的。都没有回 `null`。 */
 const CLAUDE_REL = join('npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
@@ -161,12 +177,12 @@ const main = async (): Promise<void> => {
   const state = loadState(dataDir);
 
   if (cmd === 'status') {
-    console.log(JSON.stringify({ dataDir, state }, null, 2));
-    for (const row of readLedger(dataDir).slice(-5)) console.log(JSON.stringify(row));
+    console.log(maskHome(JSON.stringify({ dataDir, state }, null, 2)));
+    for (const row of readLedger(dataDir).slice(-5)) console.log(maskHome(JSON.stringify(row)));
     // L4 契约第 2 条：旧位置还有文件就多打一行（只打路径，不打内容）；不自动搬。
     const oldDir = oldRelayDir();
     if (['config.json', 'state.json', 'feishu.json'].some((f) => existsSync(join(oldDir, f)))) {
-      console.log(`旧的数据目录里还有文件：${oldDir}，请挪到 ${dataDir}`);
+      console.log(maskHome(`旧的数据目录里还有文件：${oldDir}，请挪到 ${dataDir}`));
     }
     return;
   }
