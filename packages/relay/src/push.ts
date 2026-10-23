@@ -60,7 +60,9 @@ export function parsePushLines(stdout: string): PushLine[] {
     if (line.startsWith('{')) {
       try {
         const j = JSON.parse(line) as { result?: unknown; type?: unknown; text?: unknown };
-        if (typeof j.result === 'string') found.push(...linesIn(j.result));
+        // 整合方改（2026-10-24）：只认 Claude 那一整行（type 是 result）。DSH 的 tool_result 也有 result 字段，
+        // 第 12 棒 DSH 读了交代文件，里面那句格式说明被当成了一条推送，整个调度器停下。
+        if (j.type === 'result' && typeof j.result === 'string') found.push(...linesIn(j.result));
         else if (j.type === 'final' && typeof j.text === 'string') found.push(...linesIn(j.text));
         continue;
       } catch {
