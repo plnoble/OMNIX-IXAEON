@@ -544,7 +544,7 @@
     {
       "id": "L6b",
       "title": "DSH 自己的仓库：开发的工作目录根换成 dsh/，沙箱里提交得了",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l6b-launcher.test.ts": "01c818acb8ffa1b4cb5420af55ad751fd842796ffda98c2428dc0626d21a0994",
         "packages/relay/test/acceptance/l6b-layout.test.ts": "71579b3f56420f686cc9e343e73dbd391108d95c2b419af10c3b7e5df1eb1fed",
