@@ -142,6 +142,16 @@ try {
   log(`   合成 origin/main = ${mainSha.slice(0, 12)}（这一支的代码 + 合成队列）`);
   log(`   数据目录、工作目录根都指到临时目录；relay-run 会建在 <临时目录>/trees/relay-run`);
 
+  // 真机上「调度器所在仓库」是装过依赖的；临时克隆要自己装一次（不然 relay.mjs 找不到 jiti）。
+  log('   先给调度器所在仓库装依赖（真机上这一步早就做过了）…');
+  const installed = spawnSync('corepack pnpm install --frozen-lockfile --prefer-offline', {
+    cwd: sched,
+    stdio: 'inherit',
+    shell: true,
+    windowsHide: true,
+  });
+  log(`   装依赖退出码 ${installed.status}`);
+
   // 3) 真跑：node <sched>/packages/relay/bin/relay.mjs run --exit-when-idle
   const started = Date.now();
   const run = spawn(
@@ -201,12 +211,19 @@ try {
   );
   log(`   合成 origin 的分支：${branches.join('、')}`);
 
-  // 5) 收尾：摘掉 relay-run、删临时目录
-  const removed = tryGit(sched, ['worktree', 'remove', '--force', runDir]);
+  // 5) 收尾：摘掉 relay-run、删临时目录。刚装过依赖，Windows 上文件可能还被占一会儿——重试几次。
+  let removed = tryGit(sched, ['worktree', 'remove', '--force', runDir]);
+  for (let i = 0; i < 5 && removed.code !== 0 && existsSync(runDir); i++) {
+    await new Promise((r) => setTimeout(r, 800));
+    removed = tryGit(sched, ['worktree', 'remove', '--force', runDir]);
+  }
+  if (removed.code !== 0 && existsSync(runDir)) {
+    rmSync(runDir, { recursive: true, force: true });
+    tryGit(sched, ['worktree', 'prune']);
+    log('   收尾：worktree remove 没成功，已直接删目录并 prune（残留的是临时目录，不影响别的）');
+  }
   tryGit(sched, ['worktree', 'prune']);
-  log(
-    `   收尾：relay-run ${removed.code === 0 ? '已摘掉' : `没摘掉（${removed.out.slice(0, 80)}）`}`,
-  );
+  log(`   收尾：relay-run ${existsSync(runDir) ? '没摘掉' : '已摘掉'}`);
   rmSync(root, { recursive: true, force: true });
   log(`   收尾：临时目录 ${existsSync(root) ? '没删掉' : '删掉了'}`);
   process.exitCode = 0;

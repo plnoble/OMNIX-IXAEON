@@ -1,4 +1,4 @@
-# 接力调度器（`packages/relay`）
+﻿# 接力调度器（`packages/relay`）
 
 让几个 AI 命令行在你自己一直开着的电脑上，一棒接一棒地干活。
 
@@ -43,7 +43,7 @@
 - **开机自己起来**（可选，**你自己建**，调度器不替你建）：Windows 上可以用计划任务，登录后起一次、用普通终端就是我平时那样跑：
 
   ```bat
-  schtasks /create /tn "IXAEON relay" /tr "node D:\Agent\Project\OMNIX-IXAEON析衍\packages\relay\bin\relay.mjs run" /sc onlogon /rl limited
+  schtasks /create /tn "IXAEON relay" /tr "node <本仓库路径>\packages\relay\bin\relay.mjs run" /sc onlogon /rl limited
   ```
 
   不想要了：`schtasks /delete /tn "IXAEON relay" /f`。
