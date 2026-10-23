@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import { assertDefaultPortFree } from './ui-port-guard';
+import { electronArgs } from './electron-args';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -9,10 +10,10 @@ test('UI01: successful MCP work-result writeback must actually be visible in the
   const dir = mkdtempSync(join(tmpdir(), 'ixaeon-project-ui-audit-'));
   const env = { ...process.env, IXAEON_DATA_DIR: dir, IXAEON_FAKE_MODEL: '1' };
   const app = await electron.launch({
-    args: [
+    args: electronArgs([
       resolve('apps/desktop/out/main/index.js'),
       `--user-data-dir=${join(dir, 'electron-profile')}`,
-    ],
+    ]),
     env,
   });
   try {

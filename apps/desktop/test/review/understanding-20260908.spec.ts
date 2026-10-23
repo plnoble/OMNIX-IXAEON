@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import { assertDefaultPortFree } from './ui-port-guard';
+import { electronArgs } from './electron-args';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -38,7 +39,10 @@ async function launchWithOneItem() {
     'utf8',
   );
   const app = await electron.launch({
-    args: [resolve('apps/desktop/out/main/index.js'), `--user-data-dir=${join(dir, 'profile')}`],
+    args: electronArgs([
+      resolve('apps/desktop/out/main/index.js'),
+      `--user-data-dir=${join(dir, 'profile')}`,
+    ]),
     env: {
       ...process.env,
       IXAEON_DATA_DIR: dir,

@@ -55,6 +55,9 @@ if (!found) {
   // L6b 契约第 1 条：DSH 自己的仓库根。没有设就设成它自己的当前目录（调度器起开发时的 cwd）——
   // 这样 DSH 里跑的 scripts/worktree.mjs 把工作目录建在它自己的根下面，git 只写自己的目录。
   const trees = process.env.IXAEON_WORKTREES?.trim() || process.cwd();
+  // L14 契约第 3 条：DSH 的受限令牌下 Chromium 沙箱起不来，门禁里四套「真实 Electron」界面复审
+  // 会崩在 0x80000003。只让**测试里起的** Electron 加 --no-sandbox（apps/desktop/test/review/
+  // electron-args.ts 读它），应用本身和用户平时打开的 IXAEON 不读这个变量。
   const r = spawnSync(found.exe, ['--expose-internals', found.cli, ...process.argv.slice(2)], {
     stdio: 'inherit',
     windowsHide: true,
@@ -63,6 +66,7 @@ if (!found) {
       ELECTRON_RUN_AS_NODE: '1',
       GIT_CONFIG_PARAMETERS: parameters,
       IXAEON_WORKTREES: trees,
+      IXAEON_ELECTRON_NO_SANDBOX: '1',
     },
   });
   if (r.error) {
