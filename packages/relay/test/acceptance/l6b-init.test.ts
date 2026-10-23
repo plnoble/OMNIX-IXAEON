@@ -95,7 +95,9 @@ describe('条件 5：relay init 给开发建它自己的仓库', () => {
     // .git 在它自己里面：--git-common-dir 在 repo 下面（不是本仓库的那个）
     const common = git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
     expect(common).not.toBe('');
-    expect(norm(common).startsWith(norm(repo))).toBe(true);
+    // 整合方改（2026-10-23）：CI 上临时目录是 RUNNER~1 短写法、git 给的是长路径，别拿两种写法比开头——
+    // 直接问 git：在 repo 里，--git-common-dir（相对写法）就是它自己的 .git
+    expect(git(repo, ['rev-parse', '--git-common-dir'])).toBe('.git');
     const mine = git(REPO, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
     expect(norm(common)).not.toBe(norm(mine));
     // origin 和本仓库的一样

@@ -6,7 +6,7 @@
  *
  * 只许推 `main` 和 `dev/` 开头的分支，只许从调度器所在仓库的工作目录里推，不加 `--force`、不删远端分支。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { findSharedCheckout, isInside } from './config.js';
 import { git } from './git.js';
@@ -105,7 +105,15 @@ const normUrl = (url: string): string => {
  */
 const ownRepoInCwd = (dir: string, roleCwd: string, shared: string): boolean => {
   const common = git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']).out;
-  if (!common || !isInside(common, roleCwd)) return false;
+  // 整合方改（2026-10-23）：git 给的是长路径，配置里的 cwd 可能是 RUNNER~1 这种短写法——两边都换成真实路径再比
+  const real = (p: string): string => {
+    try {
+      return realpathSync.native(p);
+    } catch {
+      return p;
+    }
+  };
+  if (!common || !isInside(real(common), real(roleCwd))) return false;
   const mine = git(dir, ['remote', 'get-url', 'origin']).out;
   const theirs = git(shared, ['remote', 'get-url', 'origin']).out;
   if (!mine || !theirs) return false;
