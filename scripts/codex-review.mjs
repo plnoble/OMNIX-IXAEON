@@ -15,11 +15,24 @@
  * - **审查要的东西全由脚本喂进去**（委派单、AGENTS.md、交付说明、完整 diff，走标准输入），
  *   不让 Codex 自己跑命令：本机 Codex 的 Windows 沙箱会报 helper_sandbox_lock_failed，
  *   不开沙箱又等于让它能改任何东西（2026-09-19 R1/R2/W1b 三单因此卡住）。
- * - 退出码：0 结论「可以合并」；1「需要修改」；2 结论不明或 Codex 出错；3 Codex 额度用完（分支先等着，稍后重跑）。
+ * - 退出码：0 结论「可以合并」；1「需要修改」；2 结论不明或审查者出错；3 Codex（以及代审的
+ *   Claude）额度用完（分支先等着，稍后重跑）。
+ * - Codex 额度用完时改用 Claude 代审（L17）：Claude 先找环境变量 CLAUDE_BIN，再找调度器配置
+ *   `<数据目录>/config.json` 的 roles.integrator.argv[0]（数据目录 = IXAEON_RELAY_DIR，否则
+ *   ~/.ixaeon/relay）。同一份上下文和 prompt，参数固定、不给工具，结论写同一个文件，开头注明
+ *   是 Claude 代审；两家都没有额度、或者找不到 Claude，才退 3。
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,8 +46,20 @@ if (!id || (baseAt >= 0 && !base)) {
   process.exit(2);
 }
 
+/**
+ * 起一个审查命令行。`CODEX_BIN` / `CLAUDE_BIN` 指向 `.mjs` / `.js` 替身时经
+ * `process.execPath` 起（本机没有对应的可执行文件也能用测试替身）。
+ */
+const runBin = (bin, args, options) => {
+  const script = /\.(?:mjs|js)$/i.test(bin);
+  return spawnSync(script ? process.execPath : bin, script ? [bin, ...args] : args, {
+    windowsHide: true,
+    ...options,
+  });
+};
+
 function version(bin) {
-  const r = spawnSync(bin, ['--version'], { encoding: 'utf8', windowsHide: true });
+  const r = runBin(bin, ['--version'], { encoding: 'utf8' });
   const m = /(\d+)\.(\d+)\.(\d+)/.exec(r.stdout ?? '');
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
@@ -78,6 +103,25 @@ if (!order) {
 }
 const orderPath = relative(root, join(orderDir, order)).replace(/\\/g, '/');
 const codex = findCodex();
+
+// 审查兜底（L17）：Codex 额度用完时用调度器起整合方的 Claude 代审。
+// 数据目录的规矩和 packages/relay/src/datadir.ts 一样：IXAEON_RELAY_DIR，否则 ~/.ixaeon/relay。
+// 配置读不到、不是 JSON、没有这个字段，都当作没有；只取 argv[0] 和 quotaPatterns 两样。
+function readRelayConfig() {
+  const envDir = process.env.IXAEON_RELAY_DIR?.trim();
+  const dataDir = envDir ? resolve(envDir) : join(homedir(), '.ixaeon', 'relay');
+  try {
+    return JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+const integrator = readRelayConfig()?.roles?.integrator;
+const claude =
+  process.env.CLAUDE_BIN || (typeof integrator?.argv?.[0] === 'string' ? integrator.argv[0] : null);
+const quotaPatterns = Array.isArray(integrator?.quotaPatterns)
+  ? integrator.quotaPatterns.filter((p) => typeof p === 'string' && p.length > 0)
+  : ['usage_limit_reached', 'session limit'];
 
 // 审查的上下文：委派单、AGENTS.md、交付说明、完整 diff（审查记录本身不算改动）
 git(['fetch', 'origin', 'main', '--quiet']);
@@ -135,27 +179,71 @@ if (dryRun) {
 const scratch = join(tmpdir(), `ixaeon-codex-review-${id}-${process.pid}`);
 mkdirSync(scratch, { recursive: true });
 const lastMessage = join(scratch, 'last.md');
-const r = spawnSync(codex, ['exec', '-s', 'read-only', '-C', root, '-o', lastMessage, prompt], {
+const r = runBin(codex, ['exec', '-s', 'read-only', '-C', root, '-o', lastMessage, prompt], {
   input: context,
   encoding: 'utf8',
-  windowsHide: true,
   maxBuffer: 256 * 1024 * 1024,
   timeout: 45 * 60 * 1000,
 });
 const log = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
-const review = existsSync(lastMessage) ? readFileSync(lastMessage, 'utf8').trim() : '';
+let review = existsSync(lastMessage) ? readFileSync(lastMessage, 'utf8').trim() : '';
 rmSync(scratch, { recursive: true, force: true });
 
+let viaClaude = false;
+let claudeCost = null;
 if (/usage limit|rate limit/i.test(log) && !review) {
-  console.error('Codex 额度用完：分支先等着，队列状态改「待审（Codex 额度）」，稍后重跑。');
-  console.error(
-    log
-      .split('\n')
-      .filter((l) => /limit|try again/i.test(l))
-      .slice(-2)
-      .join('\n'),
-  );
-  process.exit(3);
+  if (!claude) {
+    console.error('Codex 额度用完：分支先等着，队列状态改「待审（Codex 额度）」，稍后重跑。');
+    console.error(
+      log
+        .split('\n')
+        .filter((l) => /limit|try again/i.test(l))
+        .slice(-2)
+        .join('\n'),
+    );
+    console.error('也没找到可用的 Claude，没法代审');
+    process.exit(3);
+  }
+
+  console.error(`Codex 额度用完，改用 Claude 代审（${claude}）`);
+  const claudeScratch = mkdtempSync(join(tmpdir(), `ixaeon-claude-review-${id}-`));
+  let cr;
+  try {
+    cr = runBin(claude, ['--restricted', '--tools', '', '--output-format', 'json', '-p', prompt], {
+      cwd: claudeScratch,
+      input: context,
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+      timeout: 45 * 60 * 1000,
+    });
+  } finally {
+    rmSync(claudeScratch, { recursive: true, force: true });
+  }
+  const claudeOut = cr.stdout ?? '';
+  const claudeLog = `${claudeOut}\n${cr.stderr ?? ''}`;
+  let parsed = null;
+  try {
+    parsed = JSON.parse(claudeOut.trim());
+  } catch {
+    /* 不是 JSON：下面按「没给出结论」处理 */
+  }
+  const result = typeof parsed?.result === 'string' ? parsed.result.trim() : '';
+  if (!result || parsed?.is_error === true) {
+    if (quotaPatterns.some((p) => claudeLog.toLowerCase().includes(p.toLowerCase()))) {
+      console.error('Claude 也没额度了：分支先等着，队列状态改「待审（Codex 额度）」，稍后重跑。');
+      process.exit(3);
+    }
+    console.error(
+      `Claude 没有给出结论（退出码 ${cr.status ?? cr.error?.message}）。最后几行输出：`,
+    );
+    console.error(claudeLog.split('\n').slice(-15).join('\n'));
+    process.exit(2);
+  }
+  review = result;
+  viaClaude = true;
+  if (parsed.total_cost_usd !== undefined && parsed.total_cost_usd !== null) {
+    claudeCost = parsed.total_cost_usd;
+  }
 }
 if (!review) {
   console.error(`Codex 没有给出结论（退出码 ${r.status ?? r.error?.message}）。最后几行输出：`);
@@ -168,14 +256,24 @@ const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
 const outDir = join(root, 'docs', '委派', '交付');
 mkdirSync(outDir, { recursive: true });
 const outFile = join(outDir, `${id}-Codex审查.md`);
+const meta = viaClaude
+  ? [
+      `- 时间：${new Date().toISOString()}`,
+      `- 分支：${branch}（${head}），对照 ${orderPath}`,
+      `- 审查者：Claude（${(version(claude) ?? ['?']).join('.')}）；上下文由脚本喂入（不让审查者跑命令）${truncated ? '；diff 太长已截断' : ''}`,
+      ...(claudeCost === null ? [] : [`- 花费：${claudeCost} 美元`]),
+    ]
+  : [
+      `- 时间：${new Date().toISOString()}`,
+      `- 分支：${branch}（${head}），对照 ${orderPath}`,
+      `- Codex：${(version(codex) ?? ['?']).join('.')}；上下文由脚本喂入（不让 Codex 跑命令）${truncated ? '；diff 太长已截断' : ''}`,
+    ];
 writeFileSync(
   outFile,
   [
-    `# ${id} Codex 审查`,
+    viaClaude ? `# ${id} 审查（Codex 额度用完，由 Claude 代审）` : `# ${id} Codex 审查`,
     '',
-    `- 时间：${new Date().toISOString()}`,
-    `- 分支：${branch}（${head}），对照 ${orderPath}`,
-    `- Codex：${(version(codex) ?? ['?']).join('.')}；上下文由脚本喂入（不让 Codex 跑命令）${truncated ? '；diff 太长已截断' : ''}`,
+    ...meta,
     '',
     review,
     '',
