@@ -148,7 +148,10 @@ async function pushWithRetry(dir: string, refspec: string): Promise<boolean> {
  * L13b：fetch 改用 `fetchMain`（同样的 2 秒 / 5 秒重试），rebase 加 `--rebase-merges` 保留合并提交，
  * 第二次推也照 `pushWithRetry` 重试 3 次。
  */
-async function rebaseThenPush(dir: string, local: string): Promise<{ rebased: boolean; ok: boolean }> {
+async function rebaseThenPush(
+  dir: string,
+  local: string,
+): Promise<{ rebased: boolean; ok: boolean }> {
   if (!(await fetchMain(dir))) return { rebased: false, ok: false };
   if (git(dir, ['rebase', '--rebase-merges', 'FETCH_HEAD'], 300_000).code !== 0) {
     git(dir, ['rebase', '--abort'], 300_000);
