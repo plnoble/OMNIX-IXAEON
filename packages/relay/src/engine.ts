@@ -82,7 +82,7 @@ export async function runOnce(
   // 替推上去的东西（比如「并入 B 档」）也要被核对到。
   const role = config.roles[decision.role];
   const push = role.pushByRelay
-    ? relayPushes(parsePushLines(readTurnStdout(result.stdoutPath)), role, turn)
+    ? await relayPushes(parsePushLines(readTurnStdout(result.stdoutPath)), role, turn)
     : null;
   // 整合方改（2026-10-23）：只有一条都没推（被拒）才跳过核对；推上去过东西（哪怕后面一条失败了）照样核对
   const verdict =
