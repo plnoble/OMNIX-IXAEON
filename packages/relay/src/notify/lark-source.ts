@@ -11,16 +11,15 @@ export interface EventSource {
   stop(): void;
 }
 
-export async function startEventSource(opts: {
-  appId: string;
-  appSecret: string;
-  onEvent: (event: unknown) => Promise<void> | void;
-}): Promise<EventSource> {
+export async function startEventSource(
+  onEvent: (event: unknown) => Promise<void> | void,
+  opts: { appId: string; appSecret: string },
+): Promise<EventSource> {
   const dispatcher = new lark.EventDispatcher({}).register({
     'im.message.receive_v1': async (data) => {
       const d = data as { header?: unknown };
       // handler 拿到的一般是事件本身（{message, sender}）；包成完整信封再交出去
-      await opts.onEvent({ header: d.header ?? {}, event: data });
+      await onEvent({ header: d.header ?? {}, event: data });
     },
   });
   const ws = new lark.WSClient({

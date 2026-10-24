@@ -35,7 +35,10 @@ const beijingMinute = (iso: string): string => {
 };
 
 const buildInboxPrompt = (messages: Array<{ at: string; text: string }>): string => {
-  const lines = messages.map((m) => `- ${beijingMinute(m.at)}：${m.text}`);
+  // 交代自己按时间先后排（不靠传进来的顺序），北京时间跨日也对
+  const lines = [...messages]
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    .map((m) => `- ${beijingMinute(m.at)}：${m.text}`);
   return `${INBOX}\n\n${lines.join('\n')}\n\n${ASK}\n\n停点：处理完这几条、推上 main 就停。\n\n做完在最后一行输出：RELAY-DONE inbox <一句话说你做了什么>\n`;
 };
 

@@ -26,11 +26,10 @@ import type { EventSource } from './notify/lark-source.js';
 import { pathToFileURL } from 'node:url';
 
 type SourceModule = {
-  startEventSource(opts: {
-    appId: string;
-    appSecret: string;
-    onEvent: (event: unknown) => Promise<void> | void;
-  }): Promise<EventSource>;
+  startEventSource(
+    onEvent: (event: unknown) => Promise<void> | void,
+    opts: { appId: string; appSecret: string },
+  ): Promise<EventSource>;
 };
 
 const BIND_REPLY = '绑好了：以后只听你在这个群里 @ 我说的话。';
@@ -69,42 +68,51 @@ export async function listenCommand(opts: {
 
   let bound = false;
   let stopper: EventSource | null = null;
-  const source = await mod.startEventSource({
-    appId: app.appId,
-    appSecret: app.appSecret,
-    onEvent: async (event) => {
-      const verdict = opts.bind ? acceptMessage(event, {}) : acceptMessage(event, app);
-      if (!verdict.ok) {
-        console.log(`没理：${verdict.why}`);
-        return;
-      }
-      if (opts.bind) {
-        const who = chatAndSender(event);
-        if (!who.chatId || !who.openId) {
-          console.log('没理：这条消息里拿不到群号或者人');
-          return;
-        }
-        const file = join(opts.dataDir, 'feishu-app.json');
-        const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
-        raw.chatId = who.chatId;
-        raw.ownerOpenId = who.openId;
-        writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
-        console.log('绑好了');
-        await send(BIND_REPLY);
-        bound = true;
-        process.exitCode = 0;
-        return;
-      }
-      // 同一个 id 已经有了：不多记、不再回
-      if (!appendInbox(opts.dataDir, { id: verdict.id, text: verdict.text })) return;
-      await send(replyText(verdict.text));
-    },
-  });
-  stopper = source;
-  if (bound) {
-    stopper?.stop();
-    return;
-  }
+  const onEvent = async (event: unknown): Promise<void> => {
+    // --bind：拿「事件自己的群/人」当绑定字段喂给 acceptMessage——群聊、@ 机器人、文字这几道照过，
+    // 是哪个群、哪个人就绑哪个（别的群、别人、没 @ 的到这儿都会被拒，跳过不算）。
+    const verdict = opts.bind
+      ? (() => {
+          const who = chatAndSender(event);
+          return acceptMessage(event, { chatId: who.chatId, ownerOpenId: who.openId });
+        })()
+      : acceptMessage(event, app);
+    if (!verdict.ok) {
+      console.log(`没理：${verdict.why}`);
+      return;
+    }
+    if (opts.bind) {
+      const who = chatAndSender(event);
+      const file = join(opts.dataDir, 'feishu-app.json');
+      const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+      raw.chatId = who.chatId;
+      raw.ownerOpenId = who.openId;
+      writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+      console.log('绑好了');
+      await send(BIND_REPLY);
+      bound = true;
+      process.exitCode = 0;
+      stopper?.stop();
+      return;
+    }
+    // 同一个 id 已经有了：不多记、不再回
+    if (!appendInbox(opts.dataDir, { id: verdict.id, text: verdict.text })) return;
+    await send(replyText(verdict.text));
+  };
+
+  // 起源（不 await：连上之后它自己挂着）；连接层的报错（SDK 的报错可能带凭据）遮掉再打
+  mod
+    .startEventSource(onEvent, { appId: app.appId, appSecret: app.appSecret })
+    .then((s) => {
+      stopper = s;
+      if (bound) stopper?.stop();
+    })
+    .catch((e: unknown) => {
+      console.error(
+        `收听起不来：${redact(e instanceof Error ? e.message : String(e), [app.appSecret])}`,
+      );
+      process.exitCode = 1;
+    });
   console.log('收听中');
   if (opts.under !== null) {
     // 看门人没了就该退：每半分钟查一次，用 exitCode 自然退出

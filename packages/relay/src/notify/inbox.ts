@@ -68,11 +68,18 @@ export function acceptMessage(
     return { ok: false, why: '不是一条带编号的消息' };
   }
   if (message.chat_type !== 'group') return { ok: false, why: '不是群聊消息' };
-  if (typeof app.chatId === 'string' && message.chat_id !== app.chatId) {
+  // 绑定字段缺一个就不认（锁定测试定的语义）；--bind 的路走的是「事件自己的群/人当 app」。
+  if (typeof app.chatId !== 'string' || !app.chatId) {
+    return { ok: false, why: '还没绑定：不知道听哪个群' };
+  }
+  if (message.chat_id !== app.chatId) {
     return { ok: false, why: '不是绑定的那个群' };
   }
+  if (typeof app.ownerOpenId !== 'string' || !app.ownerOpenId) {
+    return { ok: false, why: '还没绑定：不知道听谁说的' };
+  }
   const openId = at(sender ?? {}, 'sender_id.open_id');
-  if (typeof app.ownerOpenId === 'string' && openId !== app.ownerOpenId) {
+  if (openId !== app.ownerOpenId) {
     return { ok: false, why: '不是用户本人发的' };
   }
   if (!Array.isArray(message.mentions) || message.mentions.length === 0) {
@@ -111,14 +118,17 @@ export function appendInbox(dataDir: string, message: { id: string; text: string
   return true;
 }
 
-/** 还没办过的（`id` 不在 done 里），按文件里的先后（就是时间先后）。 */
+/** 还没办过的（`id` 不在 done 里），按文件里的先后（就是时间先后）。只看最后 200 行：太老的不再翻旧账。 */
 export function pendingInbox(dataDir: string, done: string[]): InboxMessage[] {
   const file = join(dataDir, 'inbox.jsonl');
   if (!existsSync(file)) return [];
   const had = new Set(done);
   const out: InboxMessage[] = [];
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
+  const lines = readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim())
+    .slice(-200);
+  for (const line of lines) {
     try {
       const m = JSON.parse(line) as Partial<InboxMessage>;
       if (m.id && !had.has(m.id) && typeof m.text === 'string') {
