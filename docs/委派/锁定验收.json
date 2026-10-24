@@ -634,7 +634,7 @@
     {
       "id": "L11b",
       "title": "替推时 rebase 撞上队列里的行冲突，不是同一行就自己合",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l11b-queue-merge.test.ts": "51b512aadd73b55c8e539063c76b7bfe7d4a6c1e75d6f1a653576c03017195b3"
       }
