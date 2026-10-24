@@ -25,8 +25,15 @@ const buildPlanPrompt = (turnNumber: number): string =>
 
 export function buildTurnPrompt(
   turn: Turn,
-  opts: { turnNumber: number; pushByRelay?: boolean; cwd?: string },
+  opts: {
+    turnNumber: number;
+    pushByRelay?: boolean;
+    cwd?: string;
+    /** L16 契约第 6 条：飞书回复棒交代里要列的原话（按时间先后）；行为在实现阶段补。 */
+    inboxMessages?: Array<{ at: string; text: string }>;
+  },
 ): string {
+  void opts.inboxMessages;
   if (turn.kind === 'integrator-plan') return buildPlanPrompt(opts.turnNumber);
   const integ = turn.role === 'integrator';
   const role = integ
@@ -47,7 +54,13 @@ export function buildTurnPrompt(
 
 export function writeTurnPrompt(
   turn: Turn,
-  opts: { dataDir: string; turnNumber: number; pushByRelay?: boolean; cwd?: string },
+  opts: {
+    dataDir: string;
+    turnNumber: number;
+    pushByRelay?: boolean;
+    cwd?: string;
+    inboxMessages?: Array<{ at: string; text: string }>;
+  },
 ): string {
   const dir = join(opts.dataDir, 'turns', String(opts.turnNumber));
   mkdirSync(dir, { recursive: true });
@@ -58,6 +71,7 @@ export function writeTurnPrompt(
       turnNumber: opts.turnNumber,
       pushByRelay: opts.pushByRelay,
       cwd: opts.cwd,
+      inboxMessages: opts.inboxMessages,
     }),
     'utf8',
   );

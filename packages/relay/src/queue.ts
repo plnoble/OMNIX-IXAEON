@@ -123,7 +123,10 @@ export function decideNextTurn(
   md: string,
   state: RelayState,
   now: Date,
-  opts: { planPerDay?: number } = {},
+  opts: {
+    planPerDay?: number;
+    /** L16 契约第 6 条：inbox.jsonl 里还没办的条数，由 runOnce 算出来。 */ inboxPending?: number;
+  } = {},
 ): Turn | Idle {
   if (state.stoppedReason) return { idle: 'stopped' };
   const rows = parseMainTable(md);
@@ -133,6 +136,8 @@ export function decideNextTurn(
   };
   const iOk = !paused('integrator');
   const dOk = !paused('developer');
+  // L16 契约第 6 条的派活位：inboxPending 由 runOnce 算出来传进来；行为在实现阶段补（先只推测试）。
+  void opts.inboxPending;
   if (iOk) {
     const r = rows.find((x) => kindOf(x.status) === 'integrator-review');
     if (r) return turnOf('integrator', 'integrator-review', r);
