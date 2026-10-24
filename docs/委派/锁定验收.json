@@ -654,6 +654,14 @@
       "files": {
         "packages/relay/test/acceptance/l17-review-fallback.test.ts": "657a99a826ad72c89d6e99235d0ae546dc0782c53ede7fdd259ea30ae189381c"
       }
+    },
+    {
+      "id": "L20",
+      "title": "relay init 生成的开发命令带上 DSH 补丁",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l20-init-patch.test.ts": "2dc5946b4ba90f285f83988d941a2b1e7e42902bec1125d209e7d8f5935bba95"
+      }
     }
   ]
 }
