@@ -12,7 +12,7 @@
  * - 条件 2：替推（照 `l13-rebase-push.test.ts` 的合成仓库做法）——别人先推一笔改第 71 行状态、
  *   开发这一棒改第 72 行 → 推上去了，main 上两处改动都在，记账 `ok: true`、`rebased: true`，没停下；
  *   别人和开发改同一行 → 停下，main 没被强推，开发目录里没有留下没做完的 rebase。
- *   另加：冲突的不只队列一个文件 → 也照原来停下。
+ *   另加：同一笔提交里冲突的不只队列一个文件（队列 + 笔记）→ 也照原来停下。
  * - 条件 3：开发这一棒有两笔提交、两笔都和别人的改动在队列里冲突（不同行）→ 两笔都合上、都推上去。
  *
  * 合成仓库照 `l6-harness.ts`（临时裸仓库当 origin，不连 GitHub）。`l6-harness.ts` 是 L6 锁定的，
@@ -244,26 +244,32 @@ describe('条件 2：替推撞上队列行冲突', () => {
     expect(w.git(w.dev, ['rev-parse', 'relay-dev^']).out).toBe(baseSha);
   }, 120_000);
 
-  it('冲突的不只队列一个文件 → 也照原来停下', async () => {
+  it('冲突的不只队列一个文件（同一笔提交里两个文件都冲突）→ 也照原来停下', async () => {
     const { w, baseSha } = baseWorld();
-    const advanced = othersPush(
-      w,
+    // 别人一笔同时改队列第 71 行和笔记
+    writeFileSync(
+      `${w.integ}/docs/委派/队列.md`,
       queue({ rows: [row('70'), ...three({ '71': '进行中（dev2）' })] }),
+      'utf8',
     );
-    // 别人那一笔还改了另一份文件
     writeFileSync(`${w.integ}/docs/委派/笔记.md`, '别人写的笔记\n', 'utf8');
     w.git(w.integ, ['add', '-A']);
     w.git(w.integ, ['commit', '-q', '-m', '别人：队列和笔记一起改']);
     w.git(w.integ, ['push', '-q', 'origin', 'HEAD:main']);
     const bothFiles = w.originSha('refs/heads/main');
-    expect(bothFiles).not.toBe(advanced);
 
-    // 开发也改队列（第 72 行）和笔记，笔记内容不同 → 两个文件都冲突
+    // 开发也在一笔里同时改队列（第 72 行）和笔记，内容都不同 → 同一笔里两个文件都冲突
+    writeFileSync(
+      `${w.dev}/docs/委派/队列.md`,
+      queue({ rows: [row('70'), ...three({ '72': '进行中（dev）' })] }),
+      'utf8',
+    );
+    writeFileSync(`${w.dev}/docs/委派/笔记.md`, '开发写的笔记\n', 'utf8');
+    w.git(w.dev, ['add', '-A']);
+    w.git(w.dev, ['commit', '-q', '-m', '开发：队列和笔记一起改']);
+
     w.writePlan({
-      commits: [
-        { branch: 'relay-dev', file: 'docs/委派/队列.md', content: queue({ rows: [row('70'), ...three({ '72': '进行中（dev）' })] }), message: '开发：队列第 72 行' },
-        { file: 'docs/委派/笔记.md', content: '开发写的笔记\n', message: '开发：笔记' },
-      ],
+      commits: [],
       pushes: [`RELAY-PUSH ${w.dev} relay-dev main`],
       taskId: '70',
     });
@@ -274,9 +280,8 @@ describe('条件 2：替推撞上队列行冲突', () => {
     const reason = String(w.state().stoppedReason ?? '');
     expect(reason).toContain('第 1 棒替开发推送失败：');
     expect(rebaseInProgress(w)).toBe(false);
-    // abort 干净：开发分支还在原来那两笔上（第二笔的父提交还是开棒那条）
-    expect(w.git(w.dev, ['rev-parse', 'relay-dev']).out).not.toBe(baseSha);
-    expect(w.git(w.dev, ['rev-parse', 'relay-dev^^']).out).toBe(baseSha);
+    // abort 干净：开发分支还在原来那一笔上（父提交还是开棒那条）
+    expect(w.git(w.dev, ['rev-parse', 'relay-dev^']).out).toBe(baseSha);
   }, 120_000);
 });
 
