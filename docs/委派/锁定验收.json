@@ -622,6 +622,14 @@
       "files": {
         "packages/relay/test/acceptance/l13b-push-retry.test.ts": "5d71b6186c02adcb678f86374eb3d506ab598dfab421ab1be2889a02f6ff8dec"
       }
+    },
+    {
+      "id": "L15",
+      "title": "做完一件就告诉用户；没活一天一次；早报",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l15-report.test.ts": "b2f7cde6371d48f718ca45fb5311e038004d5e66beaecc7a69eaa4636f7ac39d"
+      }
     }
   ]
 }
