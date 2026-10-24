@@ -3,9 +3,10 @@
  * 规格「验收」1–5，逐条对应：
  *
  * - 条件 1：开发推 `dev/x`，裸仓库的 `pre-receive` 钩子拒第 1 次 → 推上去了：裸仓库 `dev/x`
- *   指向开发那一笔；记账 `ok: true`、没有 `rebased`；没停下；钩子被调了 2 次；这一棒至少等了 2 秒。
+ *   指向开发那一笔；记账 `ok: true`、没有 `rebased`；没停下；钩子被调了 2 次；钩子两次被调用的
+ *   时间戳间隔至少 2 秒（直接量重试等待，不看整棒耗时）。
  * - 条件 2：开发推 `main`（没人先推过），钩子拒前 2 次 → 推上去了：`ok: true`、没有 `rebased`；
- *   钩子被调了 3 次（第 1 次 + 隔 2 秒 + 隔 5 秒）。
+ *   钩子被调了 3 次（第 1 次 + 隔 2 秒 + 隔 5 秒）；第 1→2 次间隔至少 2 秒、第 2→3 次至少 5 秒。
  * - 条件 3：开发推 `dev/x`，钩子一直拒 → 停下、`stoppedReason` 含「第 1 棒替开发推送失败：dev/x」；
  *   钩子被调了正好 3 次；后面那条 `RELAY-PUSH` 没推（裸仓库上没有那个分支）。
  * - 条件 4：main 先被别人推了一笔别的文件；开发在检出的分支上 `merge --no-ff` 了一支
@@ -41,16 +42,21 @@ const rowOf = (w: World) => {
 
 /**
  * 在裸仓库上装一个 `pre-receive` 钩子：前 `times` 次推送 `exit 1`，之后放行。
- * 每次被调用都往计数文件里加一（`calls()` 读它），用来核对重试次数。
+ * 每次被调用都往计数文件里加一（`calls()` 读它），并把调用时刻（毫秒）追加到时间文件
+ * （`times()` 读它）——重试等待直接量两次钩子调用之间的间隔，不靠整棒耗时。
  */
-function rejectFirst(w: World, times: number): { calls: () => number } {
+function rejectFirst(w: World, times: number): { calls: () => number; times: () => number[] } {
   const hooks = join(w.origin, 'hooks');
   mkdirSync(hooks, { recursive: true });
   const countFile = join(w.root, 'hook-push-count.txt');
+  const timeFile = join(w.root, 'hook-push-times.txt');
   const posix = (p: string) => p.replace(/\\/g, '/');
   const hook = [
     '#!/bin/sh',
     `count_file='${posix(countFile)}'`,
+    `time_file='${posix(timeFile)}'`,
+    // Git for Windows 和 CI 的 sh 都带 GNU date：%s 秒 + %3N 毫秒
+    'printf "%s\\n" "$(date +%s%3N)" >> "$time_file"',
     'n=0',
     'if [ -f "$count_file" ]; then n=$(cat "$count_file"); fi',
     'n=$((n+1))',
@@ -67,6 +73,13 @@ function rejectFirst(w: World, times: number): { calls: () => number } {
   return {
     calls: () =>
       existsSync(countFile) ? Number(readFileSync(countFile, 'utf8').trim() || '0') : 0,
+    times: () =>
+      existsSync(timeFile)
+        ? readFileSync(timeFile, 'utf8')
+            .split('\n')
+            .map((s) => Number(s.trim()))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        : [],
   };
 }
 
@@ -97,9 +110,7 @@ describe('条件 1：推 dev/x 被拒 1 次 → 隔 2 秒重试，第 2 次推�
     });
     const beforeMain = w.originSha('refs/heads/main');
 
-    const started = Date.now();
     const r = await w.run(['once']);
-    const elapsed = Date.now() - started;
     expect(r.status, r.stderr || r.stdout).toBe(0);
 
     expect(hook.calls()).toBe(2);
@@ -111,7 +122,11 @@ describe('条件 1：推 dev/x 被拒 1 次 → 隔 2 秒重试，第 2 次推�
     expect(pushes[0]).toMatchObject({ local: 'dev/x', remote: 'dev/x', ok: true });
     expect('rebased' in pushes[0]!).toBe(false);
     expect(w.state().stoppedReason).toBe(null);
-    expect(elapsed).toBeGreaterThanOrEqual(2_000);
+
+    // 直接看重试间隔：第 1 次被钩子拒到第 2 次钩子调用之间，实现里等的是 2 秒。
+    const times = hook.times();
+    expect(times).toHaveLength(2);
+    expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(2_000);
   }, 120_000);
 });
 
@@ -141,6 +156,12 @@ describe('条件 2：推 main 被拒前 2 次 → 第 3 次推上去（2 秒 + 5
     expect(pushes[0]).toMatchObject({ local: 'relay-dev', remote: 'main', ok: true });
     expect('rebased' in pushes[0]!).toBe(false);
     expect(w.state().stoppedReason).toBe(null);
+
+    // 直接量两段重试等待：第 1→2 次至少 2 秒，第 2→3 次至少 5 秒。
+    const times = hook.times();
+    expect(times).toHaveLength(3);
+    expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(2_000);
+    expect(times[2]! - times[1]!).toBeGreaterThanOrEqual(5_000);
   }, 120_000);
 });
 
