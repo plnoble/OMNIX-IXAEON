@@ -40,6 +40,16 @@ export function checkConfig(config: RelayConfig): { ok: true } | { ok: false; re
     const rc = config.roles[role];
     const bad = FORBIDDEN_SWITCHES.find((sw) => rc.argv.some((a) => a.includes(sw)));
     if (bad) return { ok: false, reason: `${role} 的命令行里有不允许的开关：${bad}` };
+    // L19 契约第 5 条：有这个字段就必须是字符串数组（没有 = 和原来一样）；空数组、空串都是合法值。
+    if (
+      rc.weeklyQuotaPatterns !== undefined &&
+      !(
+        Array.isArray(rc.weeklyQuotaPatterns) &&
+        rc.weeklyQuotaPatterns.every((p) => typeof p === 'string')
+      )
+    ) {
+      return { ok: false, reason: `${role} 的 weeklyQuotaPatterns 必须是字符串数组` };
+    }
     if (!existsSync(rc.cwd)) return { ok: false, reason: `${role}.cwd 不存在：${rc.cwd}` };
     if (isInside(rc.cwd, shared)) return { ok: false, reason: `${role}.cwd 是共用检出：${rc.cwd}` };
     if (isInside(dataDir, rc.cwd)) {
