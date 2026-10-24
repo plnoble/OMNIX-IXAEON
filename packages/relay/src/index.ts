@@ -17,6 +17,7 @@ export {
   type PushResult,
 } from './push.js';
 export { runTurn, type TurnResult } from './run-turn.js';
+export { nextWeeklyReset } from './weekly.js';
 export { ensureDeps } from './deps.js';
 export { updateCodeCheckout } from './selfupdate.js';
 export { runOnce, statusOfTask, type Outcome, type RunOptions } from './engine.js';
