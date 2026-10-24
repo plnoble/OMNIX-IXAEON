@@ -1,5 +1,5 @@
-/** 命令逻辑（契约第 10 条）：`init` / `once [--under <pid>]` / `run [--exit-when-idle]` / `status` / `resume` / `listen [--bind]`。 */
-import { spawn, type ChildProcess } from 'node:child_process';
+/** 命令逻辑（契约第 10 条）：`init` / `once [--under <pid>]` / `run [--exit-when-idle]` / `status` / `resume`。 */
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
@@ -26,8 +26,6 @@ import {
   type RelayState,
 } from '../src/index.js';
 import { createNotifier, loadFeishuTarget } from '../src/notify/feishu.js';
-import { loadFeishuApp } from '../src/notify/inbox.js';
-import { listenCommand } from '../src/listen.js';
 
 /** 调度器所在的这份检出（不一定是主检出：从工作目录里跑时就是那个工作目录）。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -197,152 +195,93 @@ const watchdog = async (config: RelayConfig, state: RelayState): Promise<void> =
   let crashes = 0;
   let lastTurns = loadState(dataDir).turns ?? 0;
 
-  // L16 契约第 5 条：feishu-app.json 四项都配上了 → 顺带管一个收听子进程（和棒的子进程同一份代码）。
-  // 它退出了就隔 idleSeconds 再起；看门人退出（含 --exit-when-idle）前先停掉。
-  const listenApp = loadFeishuApp();
-  const listenReady = !!listenApp && !!listenApp.chatId && !!listenApp.ownerOpenId;
-  let listenChild: ChildProcess | null = null;
-  let listenTimer: NodeJS.Timeout | null = null;
-  let listenStopping = false;
-  const startListen = (): void => {
-    if (!listenReady || listenStopping || listenChild || listenTimer) return;
-    const child = spawn(
-      process.execPath,
-      [childCli(codeRoot), 'listen', '--under', String(process.pid)],
-      {
-        cwd: codeRoot,
-        env: process.env,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    );
-    listenChild = child;
-    child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
-    child.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
-    child.on('close', (c) => {
-      console.log(`收听 ${child.pid} 退出 ${c ?? '?'}`);
-      if (listenChild === child) listenChild = null;
-      if (listenStopping) return; // 看门人正在退：不再重起
-      listenTimer = setTimeout(() => {
-        listenTimer = null;
-        startListen();
-      }, idleMs);
-    });
-  };
-  const stopListen = (): void => {
-    listenStopping = true;
-    if (listenTimer) {
-      clearTimeout(listenTimer);
-      listenTimer = null;
-    }
-    if (listenChild) {
-      listenChild.kill();
-      listenChild = null;
-    }
-  };
-
-  try {
-    for (;;) {
-      // `IXAEON_RELAY_CODE` 有值 → 直接用那个目录，不建、不更新、不装依赖（测试/临时调试用）。
-      if (!codeEnv) {
-        if (repo && (await fetchMain(repo))) {
-          const up = updateCodeCheckout(repo, codeRoot);
-          if (up.note) console.log(`代码没换成最新的：${up.note}`);
-          // 装不上就当这一轮没开（打一行日志，不停下，等下一轮）。
-          if (ensureDeps(codeRoot) === 'failed') {
-            console.log('没开棒：看门人那份代码装不上依赖');
-            await sleep(idleMs);
-            continue;
-          }
-        } else {
-          console.log('拉不下来 origin/main，这一轮先不换代码');
-          // 整合方改：第一轮就拉不下来时 relay-run 还没建，起子进程必失败，不该算崩。
-          if (!existsSync(childCli(codeRoot))) {
-            await sleep(idleMs);
-            continue;
-          }
+  for (;;) {
+    // `IXAEON_RELAY_CODE` 有值 → 直接用那个目录，不建、不更新、不装依赖（测试/临时调试用）。
+    if (!codeEnv) {
+      if (repo && (await fetchMain(repo))) {
+        const up = updateCodeCheckout(repo, codeRoot);
+        if (up.note) console.log(`代码没换成最新的：${up.note}`);
+        // 装不上就当这一轮没开（打一行日志，不停下，等下一轮）。
+        if (ensureDeps(codeRoot) === 'failed') {
+          console.log('没开棒：看门人那份代码装不上依赖');
+          await sleep(idleMs);
+          continue;
+        }
+      } else {
+        console.log('拉不下来 origin/main，这一轮先不换代码');
+        // 整合方改：第一轮就拉不下来时 relay-run 还没建，起子进程必失败，不该算崩。
+        if (!existsSync(childCli(codeRoot))) {
+          await sleep(idleMs);
+          continue;
         }
       }
-      startListen();
+    }
 
-      let stderr = '';
-      let childPid = 0;
-      const code = await new Promise<number | null>((done) => {
-        const child = spawn(
-          process.execPath,
-          [childCli(codeRoot), 'once', '--under', String(process.pid)],
-          {
-            cwd: codeRoot,
-            env: process.env,
-            windowsHide: true,
-            stdio: ['ignore', 'pipe', 'pipe'],
-          },
-        );
-        childPid = child.pid ?? 0;
-        child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
-        child.stderr?.on('data', (d: Buffer) => {
-          stderr += d.toString('utf8');
-          process.stderr.write(d);
-        });
-        child.on('error', (e) => {
-          stderr += `${e.message}\n`;
-          done(null);
-        });
-        child.on('close', (c) => done(c));
+    let stderr = '';
+    let childPid = 0;
+    const code = await new Promise<number | null>((done) => {
+      const child = spawn(
+        process.execPath,
+        [childCli(codeRoot), 'once', '--under', String(process.pid)],
+        {
+          cwd: codeRoot,
+          env: process.env,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      );
+      childPid = child.pid ?? 0;
+      child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
+      child.stderr?.on('data', (d: Buffer) => {
+        stderr += d.toString('utf8');
+        process.stderr.write(d);
       });
-      console.log(`子进程 ${childPid} 退出 ${code ?? '?'}`);
+      child.on('error', (e) => {
+        stderr += `${e.message}\n`;
+        done(null);
+      });
+      child.on('close', (c) => done(c));
+    });
+    console.log(`子进程 ${childPid} 退出 ${code ?? '?'}`);
 
-      const after = loadState(dataDir);
-      if (code === 0) {
-        crashes = 0;
-        if (after.stoppedReason) {
-          console.log(
-            `看门人退出：调度器停下了（${after.stoppedReason}）。处理完跑 relay resume，再起 relay run`,
-          );
-          return;
-        }
-        if ((after.turns ?? 0) > lastTurns) {
-          lastTurns = after.turns ?? lastTurns;
-          continue; // 跑了棒，马上下一轮
-        }
-        if (exitWhenIdle) return;
-        await sleep(idleMs);
-        continue;
-      }
-
-      // 崩了一次：第 1、2 次各等 idleSeconds × 1、× 5；第 3 次不再等，写原因、发 stopped、退出。
-      crashes += 1;
-      if (crashes >= 3) {
-        const why = firstLine(stderr).slice(0, 200);
-        after.stoppedReason = `调度器连着崩了 3 次：${why}`;
-        after.notify = state.notify;
-        saveState(dataDir, after);
-        await notifier.notify({ kind: 'stopped', reason: after.stoppedReason });
-        saveState(dataDir, after);
+    const after = loadState(dataDir);
+    if (code === 0) {
+      crashes = 0;
+      if (after.stoppedReason) {
+        console.log(
+          `看门人退出：调度器停下了（${after.stoppedReason}）。处理完跑 relay resume，再起 relay run`,
+        );
         return;
       }
-      await sleep(idleMs * (crashes === 1 ? 1 : 5));
+      if ((after.turns ?? 0) > lastTurns) {
+        lastTurns = after.turns ?? lastTurns;
+        continue; // 跑了棒，马上下一轮
+      }
+      if (exitWhenIdle) return;
+      await sleep(idleMs);
+      continue;
     }
-  } finally {
-    stopListen();
+
+    // 崩了一次：第 1、2 次各等 idleSeconds × 1、× 5；第 3 次不再等，写原因、发 stopped、退出。
+    crashes += 1;
+    if (crashes >= 3) {
+      const why = firstLine(stderr).slice(0, 200);
+      after.stoppedReason = `调度器连着崩了 3 次：${why}`;
+      after.notify = state.notify;
+      saveState(dataDir, after);
+      await notifier.notify({ kind: 'stopped', reason: after.stoppedReason });
+      saveState(dataDir, after);
+      return;
+    }
+    await sleep(idleMs * (crashes === 1 ? 1 : 5));
   }
 };
 
 const main = async (): Promise<void> => {
-  if (!['init', 'once', 'run', 'status', 'resume', 'listen'].includes(cmd)) {
+  if (!['init', 'once', 'run', 'status', 'resume'].includes(cmd)) {
     die(
-      `用法：relay init | once [--under <pid>] | run [--exit-when-idle] | status | resume | listen [--bind] [--under <pid>]（数据目录 ${dataDir}）`,
+      `用法：relay init | once [--under <pid>] | run [--exit-when-idle] | status | resume（数据目录 ${dataDir}）`,
     );
-  }
-  if (cmd === 'listen') {
-    const underAt = argv.indexOf('--under');
-    const under = underAt >= 0 ? Number(argv[underAt + 1]) : Number.NaN;
-    await listenCommand({
-      dataDir,
-      bind: argv.includes('--bind'),
-      under: Number.isInteger(under) ? under : null,
-    });
-    return;
   }
   if (cmd === 'init') {
     await initCommand(dataDir);

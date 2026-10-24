@@ -126,11 +126,6 @@ export async function verifyTurn(
       if (diffRows.changed || diffRows.added.length > 3 || badNewStatus) {
         violations.push('plan-changed-rows');
       }
-    } else if (turn.kind === 'integrator-inbox') {
-      // L16 契约第 6 条：飞书回复棒也只许改 `docs/` 下面的文件。
-      if ([...changed].some((f) => f && !f.startsWith('docs/'))) {
-        violations.push('inbox-touched-code');
-      }
     } else if (turn.role === 'developer') {
       const queue = showAt(cwd, mainSha, QUEUE);
       if (mergedBTier(cwd, queue, since, mainSha)) violations.push('b-tier-merged-by-developer');
