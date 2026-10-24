@@ -7,8 +7,9 @@
  *   「要你回答的：」和两行；`waiting: []` → 原话后接「没有要你回答的，你不用做什么。」。
  * - 条件 3：合成仓库 + 假飞书：替身把一行改成「已完成（…）」→ 一条 done，`turns`、`hours`、
  *   `costUsd` 照记账算对（事先放一条同一个序号的旧棒）；改成「待复审（整合方）」→ 不发 done。
- * - 条件 4：只剩一行「暂停（…）」和一行「等用户：…」→ `run --exit-when-idle` 跑两次只收到一条
- *   idle，里面列出要回答的那一行；换到第二天再跑 → 又收到一条。
+ * - 条件 4：只剩一行「暂停（…）」和一行「等用户：…」→ `run --exit-when-idle` 同一个北京日跑三次
+ *   （第三次隔 31 分钟、30 分钟限频已过）只收到一条 idle，里面列出要回答的那一行；换到第二天再跑
+ *   → 又收到一条。
  * - 条件 5：`formatEvent` 的 `morning` 几种组合原样比对；合成仓库、`morningReport: true`、
  *   北京时间 9:30 → 早报只算昨晚 21:00 之后开始的棒；同一天第二份不发、8:30 不发、配置没开不发；
  *   `relay init` 生成的配置和 `config.example.json` 里是 `true`。
@@ -352,7 +353,7 @@ describe('条件 4：没活一天只发一次，并列出要回答的', () => {
     { no: '71', task: 'L15 合成的一行', status: '等用户：要不要 X' },
   ];
 
-  it('同一个北京日跑两次只收到一条；第二天再跑又收到一条', async () => {
+  it('同一个北京日跑三次（含隔 31 分钟）只收到一条；第二天再跑又收到一条', async () => {
     const fake = await fakeFeishu();
     const s = setup({ rows: ROWS, mode: 'skip', feishu: fake });
     expect((await relay(s.dataDir, ['run', '--exit-when-idle'], MORNING)).status).toBe(0);
@@ -366,6 +367,13 @@ describe('条件 4：没活一天只发一次，并列出要回答的', () => {
       '要你回答的：',
       '- 第 71 行 L15 合成的一行：要不要 X',
     ]);
+
+    // 同一个北京日、隔了 31 分钟再跑一次：30 分钟限频已经过了，还是只发一条（一天一次靠日子记，
+    // 不是靠限频）——Codex 审查建议补的。
+    expect(
+      (await relay(s.dataDir, ['run', '--exit-when-idle'], '2026-10-23T02:31:00.000Z')).status,
+    ).toBe(0);
+    expect(fake.texts.filter((t) => t.includes('挡着'))).toHaveLength(1);
 
     expect(
       (await relay(s.dataDir, ['run', '--exit-when-idle'], '2026-10-24T02:00:00.000Z')).status,
@@ -423,7 +431,17 @@ describe('条件 5：早报', () => {
     doneLine: 'RELAY-DONE 70 已完成（2026-10-23）',
     violations: [],
   };
-  const BEFORE = { ...DONE_OLD, turn: 2, startedAt: '2026-10-23T12:00:00.000Z' }; // 北京 20:00
+  // 北京时间昨天 20:00 的一条、另一个任务（已完成、花了钱）：它在窗口外，早报不该算它。
+  // Codex 第二轮建议：原来复用 22:00 那一棒的 taskId，窗口过滤写坏了也可能看不出来。
+  const BEFORE = {
+    ...DONE_OLD,
+    turn: 2,
+    taskId: '72',
+    startedAt: '2026-10-23T12:00:00.000Z', // 北京 10月23日 20:00
+    endedAt: '2026-10-23T12:30:00.000Z',
+    usage: { costUsd: 0.75 },
+    doneLine: 'RELAY-DONE 72 已完成（2026-10-23）',
+  };
 
   it('北京时间 9:30 → 早报只算昨晚 9 点之后的棒；同一天再跑不发第二份', async () => {
     const fake = await fakeFeishu();
@@ -431,6 +449,7 @@ describe('条件 5：早报', () => {
       rows: [
         { no: '70', task: 'L7 合成的一行', status: '已完成（2026-10-23）' },
         { no: '71', task: 'L8 合成的一行', status: '进行中（dev）' },
+        { no: '72', task: 'L9 合成的另一行', status: '已完成（2026-10-23）' },
       ],
       mode: 'skip',
       feishu: fake,

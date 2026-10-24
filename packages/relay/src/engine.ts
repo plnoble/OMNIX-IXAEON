@@ -112,7 +112,8 @@ export async function runOnce(
   const morning = morningDue(state, now, config.morningReport);
   if (morning) {
     const sent = await notifier.notify(morningEvent(readLedger(dataDir), queueMd, now));
-    if (sent.ok) {
+    // L15 契约第 5 条：真的发出去了才记下今天——发失败、没配飞书、被限频跳过都留到下一次。
+    if (sent.ok && sent.sent) {
       state.lastMorningDate = morning;
       saveState(dataDir, state);
     }
@@ -136,7 +137,8 @@ export async function runOnce(
           why: decision.idle,
           ...(waiting ? { waiting } : {}),
         });
-        if (sent.ok) state.idleDay = { ...state.idleDay, [decision.idle]: today };
+        // L15 契约第 2 条：真的发出去了才记下今天；被 30 分钟限频跳过时不能占掉这一天的名额。
+        if (sent.ok && sent.sent) state.idleDay = { ...state.idleDay, [decision.idle]: today };
       }
     }
     saveState(dataDir, state);
