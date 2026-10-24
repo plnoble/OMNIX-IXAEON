@@ -601,6 +601,19 @@
       "files": {
         "packages/relay/test/acceptance/l13-rebase-push.test.ts": "80b3c9f48e612d2fbf4ff9ab8f81e0d930137d70958549daaf777c33b48cee8f"
       }
+    },
+    {
+      "id": "L16",
+      "title": "用户在飞书里回复，调度器收得到、交给整合方办",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l16-accept.test.ts": "7c2122059f717b223aa352fb8e552ac9c07684aae3a8e6d922c133b86db7d8ea",
+        "packages/relay/test/acceptance/l16-listen.test.ts": "0d0d24869599ccd8340ddd46c5c13b746fd71d356a1343243fa4de2eafd2a65c",
+        "packages/relay/test/acceptance/l16-dispatch.test.ts": "25846f52f5fb4dd59094b920d6d3ab2df46035ff00dc9d4b70a81d8947479270",
+        "packages/relay/test/acceptance/l16-prompt.test.ts": "7e1fe263dece6ee4fa69d6c3eee835485f7eeff1b5e366ce60d2ecfc63df4794",
+        "packages/relay/test/acceptance/l16-inbox-turn.test.ts": "0e361f79e6cd4a35e5f8b0a4836b6019100faff26098b54ae1c776f7f8676908",
+        "packages/relay/test/acceptance/l16-watchdog.test.ts": "3b4f45dc7b7cdadc4ac0737a943a881c2781acc772c0ca312429b826e3e5e303"
+      }
     }
   ]
 }
