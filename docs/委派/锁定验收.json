@@ -642,7 +642,7 @@
     {
       "id": "L19",
       "title": "撞了 Claude 的周额度就歇到周四凌晨 4 点",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l19-weekly-quota.test.ts": "d189bf3b6d63688d00fdd048a7bec7b0af4a41a2ddfa03070565c27edb9909c3"
       }
