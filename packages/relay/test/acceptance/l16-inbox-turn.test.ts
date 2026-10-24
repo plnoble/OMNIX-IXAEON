@@ -59,7 +59,7 @@ async function fakeFeishu() {
 /** 飞书回复棒的替身：--mode 决定改什么、输出什么。 */
 const STUB = [
   "import { spawnSync } from 'node:child_process';",
-  "import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';",
+  "import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
   'const argv = process.argv.slice(2);',
   'const opt = (n) => argv[argv.indexOf(n) + 1];',
   'const mode = opt("--mode");',
@@ -72,9 +72,11 @@ const STUB = [
   'g("pull", "--ff-only", "-q", "origin", "main");',
   'const q = clone + "/docs/委派/队列.md";',
   'writeFileSync(q, readFileSync(q, "utf8").replace("| 等用户：要不要买新电脑 |", "| 已完成（2026-10-24） |"), "utf8");',
-  'if (mode === "touch-code") writeFileSync(clone + "/packages/合成.txt", "越界了\\n", "utf8");',
+  // 整合方改（2026-10-24）：合成仓库里没有 packages/，原来直接写文件会 ENOENT，替身崩掉、什么都没推，
+  // 「越界」从来没发生过。先建目录。
+  'if (mode === "touch-code") { mkdirSync(clone + "/packages", { recursive: true }); writeFileSync(clone + "/packages/合成.txt", "越界了\\n", "utf8"); }',
   'g("add", "-A");',
-  'g("commit", "-q", "-m", "合成：回复用户");',
+  'g("commit", "-q", "--allow-empty", "-m", "合成：回复用户");', // 第二棒那一行已经改过了
   'g("push", "-q", "origin", "HEAD:main");',
   'if (mode === "ok" || mode === "touch-code") console.log("RELAY-DONE inbox 第 70 行照你说的办了");',
   'else console.log("做完了，没有按格式输出");',
@@ -148,7 +150,21 @@ describe('条件 5：飞书回复棒', () => {
     const prompt = readFileSync(dump, 'utf8');
     expect(prompt).toContain('这一棒是飞书回复棒');
     expect(prompt).toContain('- 10月24日 14:03：76 要');
-  }, 120_000);
+
+    // 整合方补：用户又回了一条 → 再派一棒，交代里只列新的这条；「处理了你的回复」每次都发（不限频）
+    writeFileSync(
+      join(w.dataDir, 'inbox.jsonl'),
+      inboxLine('om_1', '76 要') + inboxLine('om_2', '合成的第二条'),
+      'utf8',
+    );
+    expect((await w.run(['once'])).status).toBe(0);
+    expect(w.ledger()[1]).toMatchObject({ kind: 'integrator-inbox', statusBefore: '1 条' });
+    const prompt2 = readFileSync(dump, 'utf8');
+    expect(prompt2).toContain('：合成的第二条');
+    expect(prompt2).not.toContain('：76 要');
+    expect((w.state() as { inboxDone?: string[] }).inboxDone).toEqual(['om_1', 'om_2']);
+    expect(fake.texts.filter((t) => t.includes('整合方处理了你的回复：'))).toHaveLength(2);
+  }, 180_000);
 
   it('替身改了 packages/ 下的文件 → inbox-touched-code、停下、inboxDone 不记', async () => {
     const fake = await fakeFeishu();
@@ -158,6 +174,12 @@ describe('条件 5：飞书回复棒', () => {
     const st = w.state() as { stoppedReason: string | null; inboxDone?: string[] };
     expect(st.stoppedReason ?? '').toContain('inbox-touched-code');
     expect(st.inboxDone ?? []).toEqual([]);
+    // 整合方补：替身确实推上去了（越界真的发生了），记账里有这条违规；越界了不发「处理了你的回复」
+    expect(w.git(w.integ, ['log', '-1', '--format=%s', 'origin/main']).out).toContain(
+      '合成：回复用户',
+    );
+    expect(w.ledger()[0]!.violations).toContain('inbox-touched-code');
+    expect(fake.texts.some((t) => t.includes('整合方处理了你的回复'))).toBe(false);
   }, 120_000);
 
   it('替身没输出 RELAY-DONE → inboxDone 不记，下一次 once 又派飞书回复棒', async () => {
@@ -165,8 +187,40 @@ describe('条件 5：飞书回复棒', () => {
     const { w } = world('no-done', fake);
     expect((await w.run(['once'])).status).toBe(0);
     expect((w.state() as { inboxDone?: string[] }).inboxDone ?? []).toEqual([]);
+    expect(w.state().stoppedReason).toBe(null); // 整合方补：没 RELAY-DONE 不算越界，不停
     expect((await w.run(['once'])).status).toBe(0);
     const kinds = w.ledger().map((x) => x.kind);
     expect(kinds).toEqual(['integrator-inbox', 'integrator-inbox']);
+    expect(fake.texts.some((t) => t.includes('整合方处理了你的回复'))).toBe(false);
+  }, 180_000);
+
+  it('整合方补：inboxDone 只留最近 200 个；只看 inbox.jsonl 最后 200 行，办过的不会因为挤出去又派', async () => {
+    const fake = await fakeFeishu();
+    const { w, dump } = world('ok', fake);
+    // inbox 里 201 条：om_1..om_200 已经办过（inboxDone 里正好 200 个），om_201 没办
+    const at = (i: number) =>
+      new Date(Date.parse('2026-10-20T00:00:00.000Z') + i * 60_000).toISOString();
+    const lines = Array.from({ length: 201 }, (_, i) =>
+      JSON.stringify({ id: `om_${i + 1}`, at: at(i), text: `合成第 ${i + 1} 条` }),
+    );
+    writeFileSync(join(w.dataDir, 'inbox.jsonl'), `${lines.join('\n')}\n`, 'utf8');
+    const statePath = join(w.dataDir, 'state.json');
+    const st0 = JSON.parse(readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    st0.inboxDone = Array.from({ length: 200 }, (_, i) => `om_${i + 1}`);
+    writeFileSync(statePath, `${JSON.stringify(st0, null, 2)}\n`, 'utf8');
+
+    expect((await w.run(['once'])).status).toBe(0);
+    expect(w.ledger()[0]).toMatchObject({ kind: 'integrator-inbox', statusBefore: '1 条' });
+    const prompt = readFileSync(dump, 'utf8');
+    expect(prompt).toContain('：合成第 201 条');
+    expect(prompt).not.toContain('：合成第 200 条'); // 办过的不再列
+    const done = (w.state() as { inboxDone?: string[] }).inboxDone ?? [];
+    expect(done).toHaveLength(200);
+    expect(done).toContain('om_201');
+    expect(done).not.toContain('om_1');
+
+    // 再来一次：om_1 被挤出了 inboxDone，但它不在最后 200 行里——不能又派一棒
+    expect((await w.run(['once'])).status).toBe(0);
+    expect(w.ledger().map((x) => x.kind)).toEqual(['integrator-inbox']);
   }, 180_000);
 });
