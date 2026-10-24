@@ -66,6 +66,40 @@ describe('条件 1：acceptMessage', () => {
     expect(p2p.ok).toBe(false);
   });
 
+  // 整合方补（2026-10-24）：飞书官方 SDK 的 EventDispatcher 交给回调的是**摊平**的一份
+  // （`message`、`sender` 直接在顶层，没有外面那层 `event`），和 HTTP 推送的原始形状不一样。
+  // 两种都要认，不然测试全过、真连上之后一条都不认。
+  it('SDK 摊平的形状（没有外层 event）也认；换人照样不认', () => {
+    const flat = (sender: string) => {
+      const raw = event({ sender }) as {
+        header: Record<string, unknown>;
+        event: Record<string, unknown>;
+      };
+      return { event_type: 'im.message.receive_v1', ...raw.event };
+    };
+    expect(acceptMessage(flat('ou_owner'), APP)).toMatchObject({
+      ok: true,
+      id: 'om_1',
+      text: '76 要',
+    });
+    expect(acceptMessage(flat('ou_stranger'), APP).ok).toBe(false);
+  });
+
+  it('整合方补：还没绑定（app 里没有 chatId / ownerOpenId）→ 不 ok；不是对象 → 不 ok、不抛错', () => {
+    expect(acceptMessage(event({}), {}).ok).toBe(false);
+    expect(acceptMessage(event({}), { chatId: 'oc_bound' }).ok).toBe(false);
+    expect(acceptMessage(null, APP).ok).toBe(false);
+    expect(acceptMessage('不是事件', APP).ok).toBe(false);
+  });
+
+  it('整合方补：去掉的是 @ 占位，不是别的字；@ 两个人也去干净', () => {
+    const r = acceptMessage(
+      event({ mentions: 2, text: '@_user_1 @_user_2  第 76 行改成待领 ' }),
+      APP,
+    );
+    expect(r).toMatchObject({ ok: true, text: '第 76 行改成待领' });
+  });
+
   it('不认的时候 why 里不带消息内容', () => {
     for (const e of [
       event({ chatId: 'oc_other' }),

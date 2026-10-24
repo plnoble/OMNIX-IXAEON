@@ -19,9 +19,12 @@ const turn: Turn = {
   task: '用户在飞书里说的话',
   status: '2 条',
 };
+// 整合方改（2026-10-24）：故意倒着给——「按时间先后」要由交代自己排，不能靠传进来的顺序。
+// 再加一条跨了北京日子的（UTC 23 日 16:30 = 北京 24 日 00:30），查换算的是北京时间而不是本机时区。
 const messages = [
-  { at: '2026-10-24T06:03:00.000Z', text: '76 要' }, // 北京 14:03
   { at: '2026-10-24T06:05:00.000Z', text: '按 V4 的新沙箱来' }, // 北京 14:05
+  { at: '2026-10-24T06:03:00.000Z', text: '76 要' }, // 北京 14:03
+  { at: '2026-10-23T16:30:00.000Z', text: '合成的半夜一条' }, // 北京 10月24日 00:30
 ];
 
 describe('条件 4：飞书回复棒的交代', () => {
@@ -39,10 +42,29 @@ describe('条件 4：飞书回复棒的交代', () => {
   });
 
   it('原话按时间先后、一行一条，北京时间 月日 时:分', () => {
+    const i0 = prompt.indexOf('- 10月24日 00:30：合成的半夜一条');
     const i1 = prompt.indexOf('- 10月24日 14:03：76 要');
     const i2 = prompt.indexOf('- 10月24日 14:05：按 V4 的新沙箱来');
-    expect(i1).toBeGreaterThanOrEqual(0);
+    expect(i0).toBeGreaterThanOrEqual(0);
+    expect(i1).toBeGreaterThan(i0);
     expect(i2).toBeGreaterThan(i1);
+    // 一条一行：每条原话独占一行
+    const lines = prompt.split('\n');
+    expect(lines).toContain('- 10月24日 14:03：76 要');
+    expect(lines).toContain('- 10月24日 14:05：按 V4 的新沙箱来');
+  });
+
+  it('整合方补：先后是「那段 → 原话 → ASK → 停点 → 最后一行」', () => {
+    const order = [
+      prompt.indexOf('这一棒是飞书回复棒'),
+      prompt.indexOf('- 10月24日 00:30：'),
+      prompt.indexOf('- 10月24日 14:05：'),
+      prompt.indexOf('要用户拍板的事，不要自己定'),
+      prompt.indexOf('停点：处理完这几条、推上 main 就停。'),
+      prompt.indexOf('做完在最后一行输出：RELAY-DONE inbox'),
+    ];
+    expect(order.every((x) => x >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
   it('再接普通棒的 ASK、这一棒的停点、最后一行；最后一行是 RELAY-DONE inbox', () => {

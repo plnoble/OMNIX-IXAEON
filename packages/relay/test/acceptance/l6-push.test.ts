@@ -182,6 +182,8 @@ describe('条件 5：替推失败（不是快进）', () => {
     const reason = String(w.state().stoppedReason ?? '');
     expect(reason).toContain('第 1 棒替开发推送失败：');
     expect(reason).toContain('main');
+    // 整合方补（2026-10-24）：停下的原因要打在那一棒的那一行里（第 24 棒替推失败停了，终端里看不出来）
+    expect(r.stdout).toContain(`｜停下：${reason}`);
     const pushes = (rowOf(w).pushes ?? []) as Array<Record<string, unknown>>;
     expect(pushes).toHaveLength(1);
     expect(pushes[0]).toMatchObject({ remote: 'main', ok: false });
