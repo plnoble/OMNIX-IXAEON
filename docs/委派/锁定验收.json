@@ -601,6 +601,14 @@
       "files": {
         "packages/relay/test/acceptance/l13-rebase-push.test.ts": "80b3c9f48e612d2fbf4ff9ab8f81e0d930137d70958549daaf777c33b48cee8f"
       }
+    },
+    {
+      "id": "L13b",
+      "title": "L13b 替开发推送时网络抖一下不停（推送重试三次），rebase 保留合并提交",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l13b-push-retry.test.ts": "944d10426f02bc44b064992883950680643886a8c286cd88941fb4440ee0b250"
+      }
     }
   ]
 }
