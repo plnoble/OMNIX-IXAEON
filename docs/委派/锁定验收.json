@@ -658,7 +658,7 @@
     {
       "id": "L20",
       "title": "relay init 生成的开发命令带上 DSH 补丁",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l20-init-patch.test.ts": "2dc5946b4ba90f285f83988d941a2b1e7e42902bec1125d209e7d8f5935bba95"
       }
