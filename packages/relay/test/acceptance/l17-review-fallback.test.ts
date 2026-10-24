@@ -26,6 +26,11 @@
  * - 条件 8：不设 `CLAUDE_BIN`、数据目录没有 `config.json` → 退 3，标准错误含 `也没找到可用的 Claude`。
  * - 条件 9：Codex 别的失败（不含额度字样、不写 `-o`）→ 退 2，Claude 替身没被调用。
  *
+ * 整合方审测试时补的（变异检查漏掉的契约条目，2026-10-25）：分支那一行、没有花费不写那行
+ * （契约 6）；`.js` 替身（契约 4）；默认两条额度字样各自单独认、不分大小写、标准错误里也找
+ * （契约 5）；是 JSON 但没有 `result` → 退 2（契约 5）；CLAUDE_BIN 先于配置、配置不是 JSON
+ * 当作没有（契约 3）。
+ *
  * 全程不调真 Codex / 真 Claude、不连 GitHub；临时目录由本文件收尾删掉。
  */
 import { spawnSync } from 'node:child_process';
@@ -82,7 +87,17 @@ interface World {
 }
 
 type CodexMode = 'ok' | 'quota' | 'other';
-type ClaudeMode = 'merge' | 'changes' | 'other' | 'quota' | 'not-json' | 'custom-quota';
+type ClaudeMode =
+  | 'merge'
+  | 'merge-nocost'
+  | 'changes'
+  | 'other'
+  | 'quota'
+  | 'not-json'
+  | 'custom-quota'
+  | 'session-text'
+  | 'usage-stderr'
+  | 'no-result';
 
 /** Codex 替身：`--version` 打版本；其余把参数/标准输入/cwd 记一行，再按模式打输出。 */
 function codexStubSource(logPath: string, mode: CodexMode): string {
@@ -132,7 +147,16 @@ function claudeStubSource(logPath: string, mode: ClaudeMode): string {
     "  console.log(JSON.stringify({ type: 'result', is_error: true, result: \"You've hit your session limit · resets 3:10am (Asia/Shanghai)\", api_error: 'usage_limit_reached' }));",
     '  process.exit(0);',
     '}',
+    "if (MODE === 'merge-nocost') {",
+    "  console.log(JSON.stringify({ type: 'result', is_error: false, result: '没有发现问题\\n结论：可以合并' }));",
+    '  process.exit(0);',
+    '}',
     "if (MODE === 'custom-quota') { console.log('自定义额度字样'); process.exit(0); }",
+    // 默认的两条额度字样各自单独出现、大小写不同；一条在标准输出、一条在标准错误
+    "if (MODE === 'session-text') { console.log('You have hit your Session Limit'); process.exit(1); }",
+    "if (MODE === 'usage-stderr') { console.error('Error: USAGE_LIMIT_REACHED'); process.exit(1); }",
+    // 是 JSON、但没有 result 字段
+    "if (MODE === 'no-result') { console.log(JSON.stringify({ type: 'result', is_error: false, total_cost_usd: 0.01 })); process.exit(0); }",
     "console.log('这不是 JSON 的一段话');",
     'process.exit(1);',
   ].join('\n');
@@ -155,13 +179,18 @@ function makeWorld(opts: {
   claude?: ClaudeMode;
   claudeVia?: 'env' | 'config' | 'none';
   quotaPatterns?: string[];
+  /** 原样写进 `config.json`（不管 `claudeVia`）：测「配置不是 JSON」「两处都有」。 */
+  rawConfig?: string;
+  /** 替身的扩展名（契约第 4 条：`.mjs` / `.js` 都经 `process.execPath` 起）。 */
+  ext?: '.mjs' | '.js';
 }): World {
   const root = mkdtempSync(join(tmpdir(), 'ixa-l17-'));
   const origin = join(root, 'origin.git');
   const repo = join(root, 'repo');
   const dataDir = join(root, 'relay');
-  const codexStub = join(root, 'codex-stub.mjs');
-  const claudeStub = join(root, 'claude-stub.mjs');
+  const ext = opts.ext ?? '.mjs';
+  const codexStub = join(root, `codex-stub${ext}`);
+  const claudeStub = join(root, `claude-stub${ext}`);
   const codexLog = join(root, 'codex-calls.jsonl');
   const claudeLog = join(root, 'claude-calls.jsonl');
   const claudeVia = opts.claudeVia ?? 'env';
@@ -218,6 +247,9 @@ function makeWorld(opts: {
       'utf8',
     );
   }
+  if (opts.rawConfig !== undefined) {
+    writeFileSync(join(dataDir, 'config.json'), opts.rawConfig, 'utf8');
+  }
 
   const calls = (logPath: string): Call[] => {
     if (!existsSync(logPath)) return [];
@@ -239,7 +271,11 @@ function makeWorld(opts: {
     reviewFile,
     git: (args) => mustGit(repo, args),
     run: () => {
-      const env = { ...process.env, CODEX_BIN: codexStub, IXAEON_RELAY_DIR: dataDir };
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        CODEX_BIN: codexStub,
+        IXAEON_RELAY_DIR: dataDir,
+      };
       delete env.CLAUDE_BIN;
       if (claudeVia === 'env') env.CLAUDE_BIN = claudeStub;
       const r = spawnSync(
@@ -287,6 +323,18 @@ describe('条件 2：Codex 额度用完 → 换 Claude 代审，结论可以合�
     expect(r.stderr).toContain('改用 Claude 代审');
     // 记录里不写本机路径（Claude 的路径只打在标准错误）
     expect(text).not.toContain(w.claudeStub);
+    // 契约第 6 条：分支那一行照 Codex 审的写法
+    const head = w.git(['rev-parse', '--short', 'HEAD']);
+    expect(text).toContain(`- 分支：dev/L99（${head}），对照 docs/委派/L99-合成.md`);
+  }, 60_000);
+
+  it('JSON 里没有 total_cost_usd → 不写花费那一行', () => {
+    const w = makeWorld({ codex: 'quota', claude: 'merge-nocost' });
+    const r = w.run();
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    const text = w.review();
+    expect(firstLine(text)).toBe('# L99 审查（Codex 额度用完，由 Claude 代审）');
+    expect(text).not.toContain('花费');
   }, 60_000);
 });
 
@@ -338,11 +386,34 @@ describe('条件 4：Claude 收到的参数、上下文、工作目录照契约'
       expect(claude.argv.some((a) => a.includes(sw))).toBe(false);
     }
   }, 60_000);
+
+  it('`.js` 结尾的 CODEX_BIN / CLAUDE_BIN 也经 node 起（契约第 4 条）', () => {
+    const w = makeWorld({ codex: 'quota', claude: 'merge', ext: '.js' });
+    const r = w.run();
+    expect(r.status, r.stderr || r.stdout).toBe(0);
+    expect(w.codexCalls()).toHaveLength(1);
+    expect(w.claudeCalls()).toHaveLength(1);
+    expect(w.claudeCalls()[0]!.script).toBe(w.claudeStub);
+  }, 60_000);
 });
 
 describe('条件 5：Claude 也没额度 → 退 3、不写记录', () => {
   it('`is_error: true` 的会话额度 JSON；标准错误含「Claude 也没额度了」', () => {
     const w = makeWorld({ codex: 'quota', claude: 'quota' });
+    const r = w.run();
+    expect(r.status, r.stderr || r.stdout).toBe(3);
+    expect(r.stderr).toContain('Claude 也没额度了');
+    expect(w.claudeCalls()).toHaveLength(1);
+    expect(w.review()).toBe('');
+  }, 60_000);
+
+  // 契约第 5 条：配置读不到时用 `usage_limit_reached`、`session limit` 两条，不分大小写，
+  // 在标准输出 + 标准错误里找
+  it.each([
+    ['session-text', '只有 Session Limit（大写、标准输出、不是 JSON）'],
+    ['usage-stderr', '只有 USAGE_LIMIT_REACHED（大写、标准错误）'],
+  ] as const)('默认额度字样各自单独认：%s（%s）', (mode, _what) => {
+    const w = makeWorld({ codex: 'quota', claude: mode });
     const r = w.run();
     expect(r.status, r.stderr || r.stdout).toBe(3);
     expect(r.stderr).toContain('Claude 也没额度了');
@@ -359,6 +430,14 @@ describe('条件 6：Claude 没给出结论 → 退 2', () => {
     expect(r.stderr).toContain('Claude 没有给出结论');
     expect(w.claudeCalls()).toHaveLength(1);
   }, 60_000);
+
+  it('是 JSON 但没有 `result` 字段 → 同样退 2（契约第 5 条）', () => {
+    const w = makeWorld({ codex: 'quota', claude: 'no-result' });
+    const r = w.run();
+    expect(r.status, r.stderr || r.stdout).toBe(2);
+    expect(r.stderr).toContain('Claude 没有给出结论');
+    expect(w.review()).toBe('');
+  }, 60_000);
 });
 
 describe('条件 7：没设 CLAUDE_BIN 时从调度器配置里找', () => {
@@ -367,6 +446,19 @@ describe('条件 7：没设 CLAUDE_BIN 时从调度器配置里找', () => {
     const r = w.run();
     expect(r.status, r.stderr || r.stdout).toBe(0);
     expect(firstLine(w.review())).toBe('# L99 审查（Codex 额度用完，由 Claude 代审）');
+    expect(w.claudeCalls()).toHaveLength(1);
+    expect(w.claudeCalls()[0]!.script).toBe(w.claudeStub);
+  }, 60_000);
+
+  it('CLAUDE_BIN 和配置都有 → 先用 CLAUDE_BIN（契约第 3 条的顺序）', () => {
+    const w = makeWorld({
+      codex: 'quota',
+      claude: 'merge',
+      claudeVia: 'env',
+      rawConfig: JSON.stringify({ roles: { integrator: { argv: ['不存在的-claude.mjs'] } } }),
+    });
+    const r = w.run();
+    expect(r.status, r.stderr || r.stdout).toBe(0);
     expect(w.claudeCalls()).toHaveLength(1);
     expect(w.claudeCalls()[0]!.script).toBe(w.claudeStub);
   }, 60_000);
@@ -392,6 +484,14 @@ describe('条件 8：找不到 Claude → 退 3', () => {
     const r = w.run();
     expect(r.status, r.stderr || r.stdout).toBe(3);
     expect(r.stderr).toContain('Codex 额度用完');
+    expect(r.stderr).toContain('也没找到可用的 Claude');
+    expect(w.review()).toBe('');
+  }, 60_000);
+
+  it('config.json 不是 JSON → 当作没有（契约第 3 条）', () => {
+    const w = makeWorld({ codex: 'quota', claudeVia: 'none', rawConfig: '这不是 JSON {' });
+    const r = w.run();
+    expect(r.status, r.stderr || r.stdout).toBe(3);
     expect(r.stderr).toContain('也没找到可用的 Claude');
     expect(w.review()).toBe('');
   }, 60_000);
