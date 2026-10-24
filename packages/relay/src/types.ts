@@ -5,7 +5,9 @@ export type TurnKind =
   | 'developer-claim'
   | 'developer-continue'
   /** L9 契约第 1 条：没活时派给整合方的规划棒。 */
-  | 'integrator-plan';
+  | 'integrator-plan'
+  /** L16 契约第 6 条：用户在飞书里回了话，先派给整合方的飞书回复棒。 */
+  | 'integrator-inbox';
 export interface Turn {
   role: Role;
   kind: TurnKind;
@@ -57,6 +59,8 @@ export interface RelayState {
   lastDailyDate?: string;
   /** L9 契约第 3 条：最近一次派规划棒的日子、当天次数、那时队列全文的 sha256。 */
   plan?: { date: string; count: number; queueHash: string };
+  /** L16 契约第 6 条：已经交给整合方办过的 inbox 消息 id，只留最近 200 个。 */
+  inboxDone?: string[];
 }
 export type Violation =
   | 'b-tier-merged-by-developer'
@@ -67,4 +71,6 @@ export type Violation =
   /** L9 契约第 6 条：规划棒改了 `docs/` 以外的文件。 */
   | 'plan-touched-code'
   /** L9 契约第 6 条：规划棒动了主表里已有的行、加超 3 行、或新行状态不对。 */
-  | 'plan-changed-rows';
+  | 'plan-changed-rows'
+  /** L16 契约第 6 条：飞书回复棒改了 `docs/` 以外的文件。 */
+  | 'inbox-touched-code';
