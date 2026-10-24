@@ -162,7 +162,8 @@ export async function runOnce(
   saveState(dataDir, state);
   console.log(
     `第 ${turn} 棒 ${decision.role} ${decision.kind} 行 ${decision.taskId} → ${statusAfter ?? '?'}` +
-      (verdict.violations.length ? `｜停下：${verdict.violations.join('、')}` : ''),
+      // 整合方改（2026-10-24）：停下的原因整句打出来（替推失败原来不打，第 24 棒停了终端里看不出来）
+      (stopReason ? `｜停下：${stopReason}` : ''),
   );
   return 'ran';
 }

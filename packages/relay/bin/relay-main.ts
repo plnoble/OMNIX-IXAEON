@@ -247,7 +247,12 @@ const watchdog = async (config: RelayConfig, state: RelayState): Promise<void> =
     const after = loadState(dataDir);
     if (code === 0) {
       crashes = 0;
-      if (after.stoppedReason) return;
+      if (after.stoppedReason) {
+        console.log(
+          `看门人退出：调度器停下了（${after.stoppedReason}）。处理完跑 relay resume，再起 relay run`,
+        );
+        return;
+      }
       if ((after.turns ?? 0) > lastTurns) {
         lastTurns = after.turns ?? lastTurns;
         continue; // 跑了棒，马上下一轮
