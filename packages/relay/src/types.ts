@@ -41,6 +41,8 @@ export interface RelayConfig {
   localUserCheck?: string[];
   /** L9 契约第 2 条：每个北京日最多派几棒规划；没有或 <= 0 就不规划。 */
   planPerDay?: number;
+  /** L15 契约第 5 条：早上 9 点之后发一份早报；没有或 `false` 就不发。 */
+  morningReport?: boolean;
 }
 /** 一棒的用量（L1 第 7 条）：Claude 的 total_cost_usd、Codex 那种 usage 的 token 数。 */
 export interface Usage {
@@ -61,6 +63,10 @@ export interface RelayState {
   plan?: { date: string; count: number; queueHash: string };
   /** L16 契约第 6 条：已经交给整合方办过的 inbox 消息 id，只留最近 200 个。 */
   inboxDone?: string[];
+  /** L15 契约第 2 条：两种「没活」各自最近一次发出去的北京日子（`10月23日`）。 */
+  idleDay?: Partial<Record<'queue-empty' | 'all-blocked', string>>;
+  /** L15 契约第 5 条：最近一次发早报的北京日子。 */
+  lastMorningDate?: string;
 }
 export type Violation =
   | 'b-tier-merged-by-developer'
