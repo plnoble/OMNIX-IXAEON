@@ -638,6 +638,22 @@
       "files": {
         "packages/relay/test/acceptance/l11b-queue-merge.test.ts": "51b512aadd73b55c8e539063c76b7bfe7d4a6c1e75d6f1a653576c03017195b3"
       }
+    },
+    {
+      "id": "L19",
+      "title": "撞了 Claude 的周额度就歇到周四凌晨 4 点",
+      "status": "done",
+      "files": {
+        "packages/relay/test/acceptance/l19-weekly-quota.test.ts": "d189bf3b6d63688d00fdd048a7bec7b0af4a41a2ddfa03070565c27edb9909c3"
+      }
+    },
+    {
+      "id": "L17",
+      "title": "Codex 没额度时换 Claude 审",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l17-review-fallback.test.ts": "657a99a826ad72c89d6e99235d0ae546dc0782c53ede7fdd259ea30ae189381c"
+      }
     }
   ]
 }

@@ -22,6 +22,11 @@ export interface RoleConfig {
   timeoutMinutes: number;
   quotaPatterns: string[];
   quotaPauseMinutes: number;
+  /**
+   * L19 契约第 1 条：周额度的字样。有任意一条对上 → 歇到下一个北京时间周四 04:00
+   * （`nextWeeklyReset`），不再按 `quotaPauseMinutes` 算。没这个字段或空数组 → 和原来一样。
+   */
+  weeklyQuotaPatterns?: string[];
   /** L6 契约第 2 条：这一棒跑完之后，调度器替它推它写出来的那些分支（开发用）。 */
   pushByRelay?: boolean;
 }
