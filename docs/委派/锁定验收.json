@@ -650,7 +650,7 @@
     {
       "id": "L17",
       "title": "Codex 没额度时换 Claude 审",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l17-review-fallback.test.ts": "657a99a826ad72c89d6e99235d0ae546dc0782c53ede7fdd259ea30ae189381c"
       }
