@@ -630,6 +630,14 @@
       "files": {
         "packages/relay/test/acceptance/l15-report.test.ts": "b2f7cde6371d48f718ca45fb5311e038004d5e66beaecc7a69eaa4636f7ac39d"
       }
+    },
+    {
+      "id": "L11b",
+      "title": "替推时 rebase 撞上队列里的行冲突，不是同一行就自己合",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l11b-queue-merge.test.ts": "110fee7a7ea39f649012251a10eb5dda9de41cc9a8b1e439f31572a524f41d18"
+      }
     }
   ]
 }
