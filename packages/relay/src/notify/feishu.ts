@@ -11,6 +11,8 @@ export type RelayEvent =
   | { kind: 'idle'; why: 'queue-empty' | 'all-blocked' }
   /** L9 契约第 7 条：规划棒加了几行（按主表里的先后）。 */
   | { kind: 'planned'; rows: Array<{ no: string; task: string; status: string }> }
+  /** L16 契约第 6 条：整合方办完了用户在飞书里说的那几条。 */
+  | { kind: 'inbox-done'; summary: string }
   | { kind: 'daily'; date: string; turns: number; done: string[]; costUsd?: number };
 export interface FeishuTarget {
   webhookUrl: string;
@@ -50,6 +52,8 @@ export function formatEvent(e: RelayEvent): string {
   else if (e.kind === 'planned') {
     lines.push(`整合方排了 ${e.rows.length} 件新活：`);
     for (const r of e.rows) lines.push(`- 第 ${r.no} 行 ${r.task}（${r.status}）`);
+  } else if (e.kind === 'inbox-done') {
+    lines.push(`整合方处理了你的回复：${e.summary}`);
   } else {
     const done = e.done.length ? e.done.join('、') : '无';
     lines.push(`${e.date} 日报：跑了 ${e.turns} 棒，完成 ${done}。`);
@@ -111,9 +115,9 @@ export async function sendFeishu(
   return { ok: false, error: last };
 }
 
-/** kind 加 taskId / role / why。planned 和 daily 不限频；stopped 没有 taskId 时共用一键。 */
+/** kind 加 taskId / role / why。planned、daily、inbox-done 不限频；stopped 没有 taskId 时共用一键。 */
 function rateKey(e: RelayEvent): string | null {
-  if (e.kind === 'daily' || e.kind === 'planned') return null;
+  if (e.kind === 'daily' || e.kind === 'planned' || e.kind === 'inbox-done') return null;
   if (e.kind === 'needs-user') return `needs-user ${e.taskId}`;
   if (e.kind === 'paused') return `paused ${e.role}`;
   if (e.kind === 'idle') return `idle ${e.why}`;

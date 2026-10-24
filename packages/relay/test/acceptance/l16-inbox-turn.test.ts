@@ -59,7 +59,7 @@ async function fakeFeishu() {
 /** 飞书回复棒的替身：--mode 决定改什么、输出什么。 */
 const STUB = [
   "import { spawnSync } from 'node:child_process';",
-  "import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';",
+  "import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
   'const argv = process.argv.slice(2);',
   'const opt = (n) => argv[argv.indexOf(n) + 1];',
   'const mode = opt("--mode");',
@@ -72,7 +72,10 @@ const STUB = [
   'g("pull", "--ff-only", "-q", "origin", "main");',
   'const q = clone + "/docs/委派/队列.md";',
   'writeFileSync(q, readFileSync(q, "utf8").replace("| 等用户：要不要买新电脑 |", "| 已完成（2026-10-24） |"), "utf8");',
-  'if (mode === "touch-code") writeFileSync(clone + "/packages/合成.txt", "越界了\\n", "utf8");',
+  'if (mode === "touch-code") {',
+  '  mkdirSync(clone + "/packages", { recursive: true });',
+  '  writeFileSync(clone + "/packages/合成.txt", "越界了\\n", "utf8");',
+  '}',
   'g("add", "-A");',
   'g("commit", "-q", "-m", "合成：回复用户");',
   'g("push", "-q", "origin", "HEAD:main");',

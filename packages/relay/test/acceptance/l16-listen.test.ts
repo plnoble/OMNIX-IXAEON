@@ -87,12 +87,12 @@ const fakeSource = (eventsFile: string): string => {
     [
       "import { readFileSync } from 'node:fs';",
       `const events = JSON.parse(readFileSync(${JSON.stringify(eventsFile)}, 'utf8'));`,
-      'export async function startEventSource(onEvent) {',
+      'export async function startEventSource(opts) {',
       '  for (const e of events) {',
-      '    await onEvent(e);',
+      '    await opts.onEvent(e);',
       '    await new Promise((r) => setTimeout(r, 300));',
       '  }',
-      '  await new Promise(() => {}); // 真 SDK 也是一直挂着；测试看完输出会把进程杀掉',
+      '  return { stop() {} };',
       '}',
       '',
     ].join('\n'),
@@ -151,8 +151,10 @@ function listen(dataDir: string, args: string[], eventsFile: string) {
   });
   child.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')));
   child.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf8')));
+  const closed = new Promise<number | null>((done) => child.on('close', done));
   return {
     child,
+    closed,
     stdout: () => stdout,
     stderr: () => stderr,
     /** 等某个字样出现（最多 timeout 毫秒），没出现就杀掉并返回 false。 */
@@ -180,6 +182,20 @@ const inboxLines = (dataDir: string): Array<Record<string, unknown>> => {
     .filter(Boolean)
     .map((l) => JSON.parse(l) as Record<string, unknown>);
 };
+const waitForInbox = (dataDir: string, timeout = 20_000): Promise<boolean> => {
+  const started = Date.now();
+  return new Promise((done) => {
+    const timer = setInterval(() => {
+      if (inboxLines(dataDir).length > 0) {
+        clearInterval(timer);
+        done(true);
+      } else if (Date.now() - started > timeout) {
+        clearInterval(timer);
+        done(false);
+      }
+    }, 100);
+  });
+};
 const eventsFile = (events: unknown[]): string => {
   const f = join(tmp('ixa-l16-ev-'), 'events.json');
   writeFileSync(f, JSON.stringify(events), 'utf8');
@@ -201,8 +217,8 @@ describe('条件 2：relay listen', () => {
       msgEvent({ id: 'om_2', mentions: 0 }), // 不认：没 @
     ]);
     const p = listen(dataDir, ['listen'], ev);
-    const seen = await p.waitFor('收到：76 要', 20_000);
-    p.child.kill();
+    const seen = await waitForInbox(dataDir);
+    await p.closed;
     expect(seen, p.stdout() + p.stderr()).toBe(true);
     const lines = inboxLines(dataDir);
     expect(lines).toHaveLength(1);
@@ -259,9 +275,8 @@ describe('条件 7：隐私', () => {
     );
     const ev = eventsFile([msgEvent({ id: 'om_1' })]);
     const p = listen(dataDir, ['listen'], ev);
-    await p.waitFor('收到：76 要', 20_000);
-    p.child.kill();
-    await new Promise((r) => setTimeout(r, 500));
+    await waitForInbox(dataDir);
+    await p.closed;
     expect(`${p.stdout()}${p.stderr()}`).not.toContain(SECRET);
   }, 60_000);
 

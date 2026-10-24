@@ -41,6 +41,8 @@ const fakeCode = (): string => {
       '  console.log(`收听测试 ${process.pid}`);',
       '  process.exitCode = 0;',
       '} else {',
+      '  // once：睡一会儿再退，给「收听退出 → 隔 idleSeconds 再起」留出时间',
+      '  await new Promise((r) => setTimeout(r, 2500));',
       '  process.exitCode = 0;',
       '}',
       '',

@@ -4,6 +4,7 @@ import { dailyDue, dailyEvent } from './daily.js';
 import { ensureDeps } from './deps.js';
 import { git } from './git.js';
 import { createNotifier, loadFeishuTarget } from './notify/feishu.js';
+import { pendingInbox } from './notify/inbox.js';
 import { beijingDay, decideNextTurn, parseMainTable } from './queue.js';
 import { parsePushLines, readTurnStdout, relayPushes } from './push.js';
 import { runTurn } from './run-turn.js';
@@ -47,7 +48,12 @@ export async function runOnce(
     state.lastDailyDate = due;
     saveState(dataDir, state);
   }
-  const decision = decideNextTurn(queueMd, state, now, { planPerDay: config.planPerDay });
+  // L16 契约第 6 条：inbox.jsonl 里还没办的（id 不在 inboxDone 里），有几条就派飞书回复棒。
+  const pending = pendingInbox(dataDir, state.inboxDone ?? []);
+  const decision = decideNextTurn(queueMd, state, now, {
+    planPerDay: config.planPerDay,
+    inboxPending: pending.length,
+  });
   if ('idle' in decision) {
     console.log(`没活：${decision.idle}`);
     if (opts.sendIdle && (decision.idle === 'queue-empty' || decision.idle === 'all-blocked')) {
@@ -77,7 +83,11 @@ export async function runOnce(
     saveState(dataDir, state);
   }
   const startedAt = new Date().toISOString();
-  const result = await runTurn(decision, config, state, { dataDir, turnNumber: turn });
+  const result = await runTurn(decision, config, state, {
+    dataDir,
+    turnNumber: turn,
+    inboxMessages: decision.kind === 'integrator-inbox' ? pending : undefined,
+  });
   // L6 契约第 4 条：标了 pushByRelay 的角色，替它把这一棒要推的推上去。**先推后端**再核对——
   // 替推上去的东西（比如「并入 B 档」）也要被核对到。
   const role = config.roles[decision.role];
@@ -94,12 +104,17 @@ export async function runOnce(
   // L9 契约第 8 条：规划棒的 statusAfter 是「加了 <N> 行」，不是队列里某一行的状态。
   const planDiff =
     decision.kind === 'integrator-plan' && after !== null ? diffPlanRows(queueMd, after) : null;
+  // L16 契约第 6 条：飞书回复棒的 statusAfter 是 `RELAY-DONE inbox` 后面那句话（summary）。
+  const inboxSummary =
+    decision.kind === 'integrator-inbox' && result.doneLine
+      ? result.doneLine.replace(/^RELAY-DONE\s+\S+\s*/, '').trim() || null
+      : null;
   const statusAfter =
     after === null
       ? null
       : planDiff
         ? `加了 ${planDiff.added.length} 行`
-        : statusOfTask(after, decision.taskId);
+        : (inboxSummary ?? statusOfTask(after, decision.taskId));
   appendLedger(dataDir, {
     turn,
     role: decision.role,
@@ -157,6 +172,12 @@ export async function runOnce(
         kind: 'planned',
         rows: planDiff.added.map((r) => ({ no: r.no, task: r.task, status: r.status })),
       });
+    }
+    // L16 契约第 6 条：飞书回复棒有 RELAY-DONE、没越界 → 那几条 id 记进 inboxDone（只留 200 个），
+    // 往群里发整合方做了什么。没有 RELAY-DONE（崩了、撞额度、超时）→ 不记，下一棒再派。
+    if (decision.kind === 'integrator-inbox' && !stopReason && inboxSummary) {
+      state.inboxDone = [...(state.inboxDone ?? []), ...pending.map((p) => p.id)].slice(-200);
+      await notifier.notify({ kind: 'inbox-done', summary: inboxSummary });
     }
   }
   saveState(dataDir, state);
