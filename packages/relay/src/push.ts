@@ -9,7 +9,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { findSharedCheckout, isInside } from './config.js';
-import { git } from './git.js';
+import { fetchMain, git, waitBeforeRetry } from './git.js';
 import type { PushRecord, RoleConfig } from './types.js';
 
 export interface PushLine {
@@ -128,21 +128,36 @@ const badName = (s: string): boolean => /[+:\s]/.test(s) || s.startsWith('-');
 /** `dir` 里当前检出的分支；detached 时 git 给的是 `HEAD`。 */
 const checkedOut = (dir: string): string => git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']).out;
 
+/** 一条 push 最多试 3 次（L13b 契约第 2 条）：第 1 次失败后等 2 秒、再失败等 5 秒。 */
+const PUSH_ATTEMPTS = 3;
+
+/** 推一条 refspec，失败了照 `fetchMain` 那组等待重试，最多 3 次；3 次都失败回 false。 */
+async function pushWithRetry(dir: string, refspec: string): Promise<boolean> {
+  for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
+    // 不加 --force：main 不是快进时 git 自己会拒；也不带 + 前缀。
+    if (git(dir, ['push', 'origin', refspec], 300_000).code === 0) return true;
+    if (attempt < PUSH_ATTEMPTS) await waitBeforeRetry(attempt);
+  }
+  return false;
+}
+
 /**
  * L13：推 `main` 被拒（别人先推过、不是快进）时，在 `dir` 里先 rebase 到最新的 `origin/main`，再推一次。
  * 只碰 `dir`，不加 `--force`、不带 `+`；rebase 冲突时 `--abort`，不留没做完的 rebase。
  * 返回 `rebased`：rebase 成没成；`ok`：第二次推上去没有。fetch 失败就不试 rebase（免得拿旧的 FETCH_HEAD）。
+ * L13b：fetch 改用 `fetchMain`（同样的 2 秒 / 5 秒重试），rebase 加 `--rebase-merges` 保留合并提交，
+ * 第二次推也照 `pushWithRetry` 重试 3 次。
  */
-function rebaseThenPush(dir: string, local: string): { rebased: boolean; ok: boolean } {
-  if (git(dir, ['fetch', 'origin', 'main'], 300_000).code !== 0) {
-    return { rebased: false, ok: false };
-  }
-  if (git(dir, ['rebase', 'FETCH_HEAD'], 300_000).code !== 0) {
+async function rebaseThenPush(
+  dir: string,
+  local: string,
+): Promise<{ rebased: boolean; ok: boolean }> {
+  if (!(await fetchMain(dir))) return { rebased: false, ok: false };
+  if (git(dir, ['rebase', '--rebase-merges', 'FETCH_HEAD'], 300_000).code !== 0) {
     git(dir, ['rebase', '--abort'], 300_000);
     return { rebased: false, ok: false };
   }
-  const again = git(dir, ['push', 'origin', `${local}:refs/heads/main`], 300_000);
-  return { rebased: true, ok: again.code === 0 };
+  return { rebased: true, ok: await pushWithRetry(dir, `${local}:refs/heads/main`) };
 }
 
 /** 目录这一道：在这个角色的 cwd 里面、是同一个仓库（或它自己的克隆）、不是开关写法。 */
@@ -169,22 +184,22 @@ function lineReason(line: PushLine, roleCwd: string, shared: string): string | n
  * 替这一棒推。`shared` 是调度器所在仓库（照当前目录算的 `findSharedCheckout()`）。
  * 有一条不过 → `pushes` 空、`stopReason` 写「第 N 棒替开发推送被拒：<原因>」；
  * 推的时候有一条失败 → 停下、「第 N 棒替开发推送失败：<远端分支>」，后面的不推。
+ * L13b：每一次推都最多试 3 次（2 秒 / 5 秒），所以这个函数是 async 的。
  */
-export function relayPushes(
+export async function relayPushes(
   lines: PushLine[],
   role: RoleConfig,
   turnNumber: number,
   shared = findSharedCheckout(),
-): PushResult {
+): Promise<PushResult> {
   for (const line of lines) {
     const bad = lineReason(line, role.cwd, shared);
     if (bad) return { pushes: [], stopReason: `第 ${turnNumber} 棒替开发推送被拒：${bad}` };
   }
   const pushes: PushRecord[] = [];
   for (const line of lines) {
-    // 不加 --force：main 不是快进时 git 自己会拒；也不带 + 前缀。
-    const r = git(line.dir, ['push', 'origin', `${line.local}:refs/heads/${line.remote}`], 300_000);
-    let ok = r.code === 0;
+    // L13b：推一条失败后隔 2 秒、再隔 5 秒重推，第 3 次还失败才算失败。
+    let ok = await pushWithRetry(line.dir, `${line.local}:refs/heads/${line.remote}`);
     let rebased = false;
     // L13：只对 main 重试，而且 `local` 得就是这个目录里检出的分支（或 HEAD），不能动别人检出的东西。
     if (
@@ -192,7 +207,7 @@ export function relayPushes(
       line.remote === 'main' &&
       (line.local === 'HEAD' || line.local === checkedOut(line.dir))
     ) {
-      const retry = rebaseThenPush(line.dir, line.local);
+      const retry = await rebaseThenPush(line.dir, line.local);
       ok = retry.ok;
       rebased = retry.rebased;
     }
