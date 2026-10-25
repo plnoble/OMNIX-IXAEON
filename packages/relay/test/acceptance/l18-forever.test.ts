@@ -152,6 +152,9 @@ async function runWatchdog(
     if (opts.forever) env.IXAEON_RELAY_FOREVER = '1';
     delete env.IXAEON_RELAY_CODE;
     delete env.IXAEON_RELAY_NOW;
+    // 复审整改（Codex 第 4 条）：条件 4 要的是「没设 forever」；跑测试的这台机器要是本身就设了
+    // IXAEON_RELAY_FOREVER=1，不删掉的话条件 4 实际还在走 forever 那条路（会错误地退 75）。
+    if (!opts.forever) delete env.IXAEON_RELAY_FOREVER;
     const p = spawn(
       process.execPath,
       [join(shared, 'packages', 'relay', 'bin', 'relay.mjs'), 'run', '--exit-when-idle'],
@@ -183,7 +186,7 @@ describe('条件 2–4：看门人自比代码', () => {
     expect(r.status, r.stdout + r.stderr).toBe(RESTART_EXIT_CODE);
     expect(r.stdout).toContain('看门人自己的代码换了');
     expect(w.ledger()).toEqual([]);
-    expect(existsSync(join(w.dataDir, 'relay.lock'))).toBe(false);
+    expect(existsSync(join(w.dataDir, 'lock.json'))).toBe(false);
   }, 120_000);
 
   it('条件 3：代码一样 → 照常起棒，不以 75 退', async () => {
@@ -193,7 +196,7 @@ describe('条件 2–4：看门人自比代码', () => {
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(r.stdout).not.toContain('看门人自己的代码换了');
     expect(w.ledger().length).toBeGreaterThan(0);
-    expect(existsSync(join(w.dataDir, 'relay.lock'))).toBe(false);
+    expect(existsSync(join(w.dataDir, 'lock.json'))).toBe(false);
   }, 180_000);
 
   it('条件 4：没设 forever → 代码不一样也照常起棒（行为不变）', async () => {
@@ -272,9 +275,7 @@ describe('条件 5–7：relay forever', () => {
     const calls = callsOf(callsFile);
     expect(calls).toHaveLength(3);
     expect(
-      calls.every(
-        (c) => JSON.stringify(c.argv.slice(0, 2)) === JSON.stringify(['run', '--exit-when-idle']),
-      ),
+      calls.every((c) => JSON.stringify(c.argv) === JSON.stringify(['run', '--exit-when-idle'])),
     ).toBe(true);
     expect(calls.every((c) => c.forever === '1')).toBe(true);
     expect(

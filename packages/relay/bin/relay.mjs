@@ -41,6 +41,16 @@ async function forever(rest) {
     const shared = join(worktreesRoot(), 'relay-run', 'packages', 'relay', 'bin', 'relay.mjs');
     return existsSync(shared) ? shared : selfEntry;
   };
+  // 复审整改（Codex 第 1 条）：子进程的 cwd 换到入口所在的仓库根了，相对路径的环境变量
+  // 必须在这里先解析成绝对路径再传，否则子进程会相对新目录再解析一次，用错目录。
+  const envAbs = () => {
+    const env = { ...process.env, IXAEON_RELAY_FOREVER: '1' };
+    for (const key of ['IXAEON_WORKTREES', 'IXAEON_RELAY_CODE']) {
+      const v = env[key]?.trim();
+      if (v) env[key] = resolve(v);
+    }
+    return env;
+  };
   const restarts = [];
   for (;;) {
     const entry = pickEntry();
@@ -49,7 +59,7 @@ async function forever(rest) {
       const child = spawn(process.execPath, [entry, 'run', ...rest], {
         cwd: entryRoot,
         stdio: 'inherit',
-        env: { ...process.env, IXAEON_RELAY_FOREVER: '1' },
+        env: envAbs(),
         windowsHide: true,
       });
       child.on('close', (c) => done(c));

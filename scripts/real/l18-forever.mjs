@@ -64,6 +64,7 @@ try {
       '| 序号 | 任务 | 委派单或规格 | 档位 | 依赖 | 状态 |',
       '| ---- | ---- | ------------ | ---- | ---- | ---- |',
       '| 70 | L7 合成的一行 | [L7](L7.md) | B | 无 | 待领 |',
+      '| 71 | L9 合成的另一行 | [L9](L9.md) | B | 无 | 待领 |',
       '',
     ].join('\n'),
     'utf8',
@@ -109,6 +110,7 @@ try {
       'const q = clone + "/docs/委派/队列.md";',
       'const lines = readFileSync(q, "utf8").split("\\n");',
       'const i = lines.findIndex((l) => l.includes("| 待领 |"));',
+      '// 每轮只做一行：第一轮做 70，第二轮做 71',
       'if (i >= 0) { lines[i] = lines[i].replace("| 待领 |", "| 已完成（2026-10-25） |"); writeFileSync(q, lines.join("\\n"), "utf8"); g("add", "-A"); g("commit", "-q", "-m", "合成：替身把这一行做完"); g("push", "-q", "origin", "HEAD:main"); console.log("RELAY-DONE 70 已完成"); process.exit(0); }',
       'console.log("RELAY-DONE 没活");',
       '',
@@ -165,9 +167,23 @@ try {
   );
   let out = '';
   let pushed = false;
+  /**
+   * 复审整改（Codex 第 2 条）：规格要求「第一轮跑完一棒后」再推，不是看到 pid 就推——
+   * 那样可能在第一棒还没跑的时候就已经重起了，等于没验到「跑完一棒再重起」。
+   * 判据用记账文件：有了一行，才说明第一棒真跑完了。输出里也看到「第 N 棒」再推，双重保险。
+   */
+  const firstTurnDone = () => {
+    try {
+      return (
+        readFileSync(join(dataDir, 'ledger.jsonl'), 'utf8').split('\n').filter(Boolean).length > 0
+      );
+    } catch {
+      return false;
+    }
+  };
   const pushChange = async () => {
     if (pushed) return;
-    // 看门人一报出自己的 pid 就推：这样它第一轮换代码时就能发现「自己」和 relay-run 不一样
+    if (!firstTurnDone()) return;
     if (!/看门人 \d+/.test(out)) return;
     pushed = true;
     try {
@@ -187,16 +203,17 @@ try {
       log(`   推那笔提交失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
+  // 复审整改（Codex 第 3 条）：子进程输出也要过 mask——git、装依赖出错时会带出含账户名的临时路径。
   p.stdout.on('data', (d) => {
     const s = d.toString('utf8');
     out += s;
-    process.stdout.write(s);
+    process.stdout.write(mask(s));
     pushChange();
   });
   p.stderr.on('data', (d) => {
     const s = d.toString('utf8');
     out += s;
-    process.stderr.write(s);
+    process.stderr.write(mask(s));
   });
   const code = await new Promise((done) => {
     const t = setTimeout(() => {
