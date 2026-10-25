@@ -12,11 +12,11 @@ import {
   readLedger,
   readMainQueue,
   relayNow,
-  saveState,
+  updateState,
   type LedgerEntry,
 } from './store.js';
 import { diffPlanRows, verifyTurn } from './verify.js';
-import type { RelayConfig, RelayState } from './types.js';
+import type { RelayConfig, RelayState, Role } from './types.js';
 
 const BJ = 8 * 3_600_000;
 
@@ -76,6 +76,8 @@ export type Outcome = 'ran' | 'idle' | 'stopped';
 export interface RunOptions {
   /** 只有 `run` 发 idle；`once` 不发（规格末尾第 3 条）。 */
   sendIdle?: boolean;
+  /** L11 契约第 4 条：`once --role` 传进来的——只看这个角色的活。 */
+  role?: Role;
 }
 
 /** 做完之后重读 origin/main：这一行现在的状态。 */
@@ -86,6 +88,18 @@ export function statusOfTask(queueMd: string, taskId: string): string | null {
 /** 限频记在 state.json 里，跨命令保留；没配飞书也照常存。 */
 const notifyStore = (state: RelayState): { sent: Record<string, string> } =>
   (state.notify ??= { sent: {} });
+
+/**
+ * L11 契约第 5 条：改状态一律走 `updateState`（加锁、重读、只改 pick 改的、写回），
+ * 不把开棒时读到的整份旧状态写回去——两条道同时跑会互相盖。改完把新值同步回本地的 state。
+ */
+const persist = async (
+  dataDir: string,
+  state: RelayState,
+  pick: (s: RelayState) => void,
+): Promise<void> => {
+  Object.assign(state, await updateState(dataDir, pick));
+};
 
 export async function runOnce(
   config: RelayConfig,
@@ -106,7 +120,9 @@ export async function runOnce(
   if (due) {
     await notifier.notify(dailyEvent(readLedger(dataDir), due, queueMd));
     state.lastDailyDate = due;
-    saveState(dataDir, state);
+    await persist(dataDir, state, (s) => {
+      s.lastDailyDate = due;
+    });
   }
   // L15 契约第 5 条：早报也在定下一棒之前发，和日报同一处。
   const morning = morningDue(state, now, config.morningReport);
@@ -115,13 +131,29 @@ export async function runOnce(
     // L15 契约第 5 条：真的发出去了才记下今天——发失败、没配飞书、被限频跳过都留到下一次。
     if (sent.ok && sent.sent) {
       state.lastMorningDate = morning;
-      saveState(dataDir, state);
+      await persist(dataDir, state, (s) => {
+        s.lastMorningDate = morning;
+      });
     }
   }
-  const decision = decideNextTurn(queueMd, state, now, { planPerDay: config.planPerDay });
+  const decision = decideNextTurn(queueMd, state, now, {
+    planPerDay: config.planPerDay,
+    role: opts.role,
+  });
   if ('idle' in decision) {
     console.log(`没活：${decision.idle}`);
-    if (opts.sendIdle && (decision.idle === 'queue-empty' || decision.idle === 'all-blocked')) {
+    // L11 契约第 4 条：idle 只有整合方那条道发，而且要「不分角色也没活」（开发在干活时别说没活）。
+    const globallyIdle =
+      opts.role === undefined || opts.role === 'integrator'
+        ? decision.idle !== 'stopped' && decision.idle !== 'all-paused'
+          ? 'idle' in decideNextTurn(queueMd, state, now, { planPerDay: config.planPerDay })
+          : true
+        : false;
+    if (
+      globallyIdle &&
+      opts.sendIdle &&
+      (decision.idle === 'queue-empty' || decision.idle === 'all-blocked')
+    ) {
       // L15 契约第 2 条：每种「没活」一个北京日只发一次。queue-empty 不带 waiting（原话不变）；
       // all-blocked 带上主表里「等用户」的行（空数组也带，好让用户知道不用做什么）。
       const today = beijingDay(now.getTime());
@@ -141,10 +173,12 @@ export async function runOnce(
         if (sent.ok && sent.sent) state.idleDay = { ...state.idleDay, [decision.idle]: today };
       }
     }
-    saveState(dataDir, state);
+    await persist(dataDir, state, (s) => {
+      if (state.idleDay) s.idleDay = state.idleDay;
+      Object.assign(notifyStore(s), notifyStore(state));
+    });
     return decision.idle === 'stopped' ? 'stopped' : 'idle';
   }
-  const turn = state.turns + 1;
   // L10 契约第 4 条：整合方的棒开之前，给它 cwd 装一次依赖；装不上就当这一轮没开（不建 turns/、不记账、不停下）。
   if (decision.role === 'integrator') {
     if (ensureDeps(config.roles.integrator.cwd) === 'failed') {
@@ -152,17 +186,27 @@ export async function runOnce(
       return 'idle';
     }
   }
-  state.mainShaAtTurnStart = git(config.roles.integrator.cwd, ['rev-parse', 'origin/main']).out;
+  // L11 契约第 5 条：棒号加锁分配；开棒的 origin/main 起点留在这一棒自己的进程里（字段照旧写）。
+  const startSha = git(config.roles.integrator.cwd, ['rev-parse', 'origin/main']).out;
+  const allocated = await updateState(dataDir, (s) => {
+    s.turns += 1;
+    s.mainShaAtTurnStart = startSha;
+  });
+  const turn = allocated.turns;
+  state.mainShaAtTurnStart = startSha;
   // L9 契约第 3、4 条：派了规划棒就先记下这一次（日子、次数、队列全文的 sha256），跑之前存盘。
   if (decision.kind === 'integrator-plan') {
     const today = beijingDay(now.getTime());
     const sameDay = state.plan?.date === today;
-    state.plan = {
+    const planRec = {
       date: today,
       count: sameDay ? state.plan!.count + 1 : 1,
       queueHash: createHash('sha256').update(queueMd, 'utf8').digest('hex'),
     };
-    saveState(dataDir, state);
+    state.plan = planRec;
+    await persist(dataDir, state, (s) => {
+      s.plan = planRec;
+    });
   }
   const startedAt = new Date().toISOString();
   const result = await runTurn(decision, config, state, { dataDir, turnNumber: turn });
@@ -176,7 +220,7 @@ export async function runOnce(
   const verdict =
     push?.stopReason && push.pushes.length === 0
       ? { violations: [], mainSha: null }
-      : await verifyTurn(decision, config, state);
+      : await verifyTurn(decision, config, state, startSha);
   // 拉不下来就没法核对：停下，做完后的状态也不猜（规格末尾第 4 条）。
   const after = verdict.mainSha === null ? null : await readMainQueue(config);
   // L9 契约第 8 条：规划棒的 statusAfter 是「加了 <N> 行」，不是队列里某一行的状态。
@@ -271,7 +315,17 @@ export async function runOnce(
       });
     }
   }
-  saveState(dataDir, state);
+  // L11 契约第 5 条：收尾也走 updateState，只写这一棒自己改的几项（棒号在分配时就写过了，
+  // 这里兜个底取大；限频新记的逐键并进去，不盖另一条道的）。
+  const pausedUntilMine = state.pausedUntil?.[decision.role];
+  await persist(dataDir, state, (s) => {
+    s.turns = Math.max(s.turns ?? 0, turn);
+    if (stopReason) s.stoppedReason = stopReason;
+    if (pausedUntilMine) s.pausedUntil = { ...s.pausedUntil, [decision.role]: pausedUntilMine };
+    if (state.mainShaAtTurnStart) s.mainShaAtTurnStart = state.mainShaAtTurnStart;
+    Object.assign(notifyStore(s), notifyStore(state));
+    if (state.idleDay) s.idleDay = state.idleDay;
+  });
   console.log(
     `第 ${turn} 棒 ${decision.role} ${decision.kind} 行 ${decision.taskId} → ${statusAfter ?? '?'}` +
       // 整合方改（2026-10-24）：停下的原因整句打出来（替推失败原来不打，第 24 棒停了终端里看不出来）

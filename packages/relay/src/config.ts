@@ -32,6 +32,17 @@ export function findSharedCheckout(): string {
 }
 
 export function checkConfig(config: RelayConfig): { ok: true } | { ok: false; reason: string } {
+  // L11 契约第 1 条：lanes 只能是 1 或 2；两条道要两个角色都配 gitIdentity、name 不能一样。
+  const lanes = (config as { lanes?: unknown }).lanes;
+  if (lanes !== undefined && lanes !== 1 && lanes !== 2) {
+    return { ok: false, reason: 'lanes 只能是 1 或 2' };
+  }
+  if (lanes === 2) {
+    const i = config.roles.integrator.gitIdentity;
+    const d = config.roles.developer.gitIdentity;
+    if (!i || !d) return { ok: false, reason: 'lanes: 2 时整合方和开发都要配 gitIdentity' };
+    if (i.name === d.name) return { ok: false, reason: '两个 gitIdentity 的 name 不能一样' };
+  }
   const shared = findSharedCheckout();
   if (!shared) return { ok: false, reason: '找不到共用检出目录：要在 IXAEON 仓库里启动' };
   // L4 契约第 3 条：模型在自己的 cwd 里能写，所以 cwd 不许把调度器的数据目录包在里面（state/config/feishu 都在那儿）。

@@ -29,6 +29,8 @@ export interface RoleConfig {
   weeklyQuotaPatterns?: string[];
   /** L6 契约第 2 条：这一棒跑完之后，调度器替它推它写出来的那些分支（开发用）。 */
   pushByRelay?: boolean;
+  /** L11 契约第 2 条：这一棒的 git 署名（lanes: 2 时越界按提交者分账用）。 */
+  gitIdentity?: { name: string; email: string };
 }
 
 /** L6 契约第 4 条：一条替推记录（写进记账的 `pushes`）。 */
@@ -48,6 +50,8 @@ export interface RelayConfig {
   planPerDay?: number;
   /** L15 契约第 5 条：早上 9 点之后发一份早报；没有或 `false` 就不发。 */
   morningReport?: boolean;
+  /** L11 契约第 1 条：2 = 看门人同时转两条道（开发一条、整合方一条）。没写或 1 照旧。 */
+  lanes?: 1 | 2;
 }
 /** 一棒的用量（L1 第 7 条）：Claude 的 total_cost_usd、Codex 那种 usage 的 token 数。 */
 export interface Usage {

@@ -126,6 +126,8 @@ export function decideNextTurn(
   opts: {
     planPerDay?: number;
     /** L16 契约第 6 条：inbox.jsonl 里还没办的条数，由 runOnce 算出来。 */ inboxPending?: number;
+    /** L11 契约第 4 条：给了就只看这个角色的活（两条道各跑各的），另一个角色歇没歇不管。 */
+    role?: Role;
   } = {},
 ): Turn | Idle {
   if (state.stoppedReason) return { idle: 'stopped' };
@@ -134,39 +136,61 @@ export function decideNextTurn(
     const u = state.pausedUntil?.[r];
     return !!u && Date.parse(u) > now.getTime();
   };
+  const only = opts.role;
   const iOk = !paused('integrator');
   const dOk = !paused('developer');
   // L16 契约第 6 条的派活位：inboxPending 由 runOnce 算出来传进来；行为在实现阶段补（先只推测试）。
   void opts.inboxPending;
-  if (iOk) {
+  if (iOk && (!only || only === 'integrator')) {
     const r = rows.find((x) => kindOf(x.status) === 'integrator-review');
     if (r) return turnOf('integrator', 'integrator-review', r);
   }
-  if (dOk) {
+  if (dOk && (!only || only === 'developer')) {
     const r =
       rows.find((x) => kindOf(x.status) === 'developer-continue') ??
       rows.find((x) => kindOf(x.status) === 'developer-claim' && depsDone(rows, x.deps));
     if (r) return turnOf('developer', kindOf(r.status)!, r);
   }
+  if (only) {
+    // L11：这一条道自己的「没活」——歇没歇只看自己，整合方那条道还能派规划棒。
+    if (paused(only)) return { idle: 'all-paused' };
+    const idleLane: Idle['idle'] = rows.some((r) => !r.status.startsWith('已完成'))
+      ? 'all-blocked'
+      : 'queue-empty';
+    if (only === 'integrator') {
+      const plan = planTurn(md, state, now, opts, idleLane);
+      if (plan) return plan;
+    }
+    return { idle: idleLane };
+  }
   if (!iOk && !dOk) return { idle: 'all-paused' };
   const idle: Idle['idle'] = rows.some((r) => !r.status.startsWith('已完成'))
     ? 'all-blocked'
     : 'queue-empty';
+  const plan = iOk ? planTurn(md, state, now, opts, idle) : null;
+  return plan ?? { idle };
+}
+
+/** L9 契约第 4 条：要回 queue-empty / all-blocked 时，三条都成立就派规划棒。 */
+function planTurn(
+  md: string,
+  state: RelayState,
+  now: Date,
+  opts: { planPerDay?: number },
+  idle: Idle['idle'],
+): Turn | null {
   const perDay = opts.planPerDay;
-  if (iOk && typeof perDay === 'number' && perDay > 0) {
-    const plan = state.plan;
-    const today = beijingDay(now.getTime());
-    const queueHash = createHash('sha256').update(md, 'utf8').digest('hex');
-    const mayPlan = !plan || plan.date !== today || plan.count < perDay;
-    if (mayPlan && plan?.queueHash !== queueHash) {
-      return {
-        role: 'integrator',
-        kind: 'integrator-plan',
-        taskId: 'plan',
-        task: '找下一批活',
-        status: idle,
-      };
-    }
-  }
-  return { idle };
+  if (typeof perDay !== 'number' || perDay <= 0) return null;
+  const plan = state.plan;
+  const today = beijingDay(now.getTime());
+  const queueHash = createHash('sha256').update(md, 'utf8').digest('hex');
+  const mayPlan = !plan || plan.date !== today || plan.count < perDay;
+  if (!(mayPlan && plan?.queueHash !== queueHash)) return null;
+  return {
+    role: 'integrator',
+    kind: 'integrator-plan',
+    taskId: 'plan',
+    task: '找下一批活',
+    status: idle,
+  };
 }

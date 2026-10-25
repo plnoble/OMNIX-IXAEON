@@ -1,5 +1,15 @@
 /** 数据目录（第 2 条）、状态、记账，以及从 origin/main 读队列（不读工作区）。 */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { fetchMain, git } from './git.js';
 import type { PushRecord, RelayConfig, RelayState, Usage } from './types.js';
@@ -33,6 +43,40 @@ export function loadState(dataDir: string): RelayState {
   return { ...base, ...(JSON.parse(readFileSync(p, 'utf8')) as Partial<RelayState>) };
 }
 
+/**
+ * L11 契约第 5 条：加锁地改状态——两条道是两个进程，不能把开棒时读到的整份旧状态写回去。
+ */
+export async function updateState(
+  dataDir: string,
+  change: (s: RelayState) => void,
+): Promise<RelayState> {
+  const lockPath = join(dataDir, 'state.lock');
+  mkdirSync(dataDir, { recursive: true });
+  const deadline = Date.now() + 10_000;
+  let fd: number | null = null;
+  for (;;) {
+    try {
+      fd = openSync(lockPath, 'wx');
+      break;
+    } catch {
+      try {
+        const age = Date.now() - statSync(lockPath).mtimeMs;
+        if (age > 30_000) rmSync(lockPath, { force: true });
+      } catch {}
+      if (Date.now() > deadline) throw new Error('等 state.lock 等了 10 秒还没等到');
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  try {
+    const s = loadState(dataDir);
+    change(s);
+    saveState(dataDir, s);
+    return s;
+  } finally {
+    closeSync(fd);
+    rmSync(lockPath, { force: true });
+  }
+}
 export function saveState(dataDir: string, state: RelayState): void {
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(join(dataDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`, 'utf8');

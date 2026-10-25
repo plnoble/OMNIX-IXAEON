@@ -19,8 +19,15 @@
       ],
       "cwd": "<整合方工作目录>",
       "timeoutMinutes": 90,
-      "quotaPatterns": ["usage_limit_reached", "session limit"],
-      "quotaPauseMinutes": 120
+      "quotaPatterns": [
+        "usage_limit_reached",
+        "session limit"
+      ],
+      "quotaPauseMinutes": 120,
+      "gitIdentity": {
+        "name": "relay-integrator",
+        "email": "integrator@ixaeon.local"
+      }
     },
     "developer": {
       "argv": [
@@ -33,20 +40,32 @@
       ],
       "cwd": "<Worktrees>/IXAEON",
       "timeoutMinutes": 180,
-      "quotaPatterns": ["usage_limit_reached", "rate_limit_exceeded", "session limit"],
+      "quotaPatterns": [
+        "usage_limit_reached",
+        "rate_limit_exceeded",
+        "session limit"
+      ],
       "quotaPauseMinutes": 200,
-      "pushByRelay": true
+      "pushByRelay": true,
+      "gitIdentity": {
+        "name": "dev",
+        "email": "dev@ixaeon.local"
+      }
     }
   },
   "idleSeconds": 60,
   "planPerDay": 2,
   "morningReport": true,
-  "localUserCheck": ["node", "scripts/check-local-user.mjs"],
+  "localUserCheck": [
+    "node",
+    "scripts/check-local-user.mjs"
+  ],
   "_开发说明_dsh": {
     "启动器": "packages/relay/bin/dsh.mjs 直接起 DeepSeek Harness.exe（dsh.cmd 是批处理，Node 不经 shell 起不了）。找不到安装目录时退出码 2；IXAEON_DSH_INSTALL 有值就只认它。",
     "交代文件读得到吗": "L4 真机检查甲实测：读得到。数据目录在开发的工作目录外面，DSH 也用读工具直接读了 <数据目录>/turns/<第几棒>/prompt.md，不需要 --add-dir 一类的参数。",
     "cwd 为什么是 <Worktrees>/IXAEON": "开发要照 AGENTS.md 在 <Worktrees>/IXAEON/<任务号> 建工作目录（git worktree add），而 DSH 的沙箱只许写自己的工作目录，所以工作目录得是这一层。数据目录是 ~/.ixaeon/relay（L10 契约第 6 条：挪出 AppData，桌面版不会转存）。",
     "quotaPatterns 为什么多一条": "L4 真机检查丙：DSH 自己把模型接口回的 usage_limit_reached / rate_limit_exceeded / HTTP 429 当额度。用错误码，不要加裸的 429 或「usage limit」（人话里会出现，会误伤）。",
     "推 GitHub": "L6：DSH 只提交、在输出里写 RELAY-PUSH，调度器用本机的登录态替它推（只推 main 和 dev/ 开头的分支、不加 --force）。"
-  }
+  },
+  "lanes": 1
 }

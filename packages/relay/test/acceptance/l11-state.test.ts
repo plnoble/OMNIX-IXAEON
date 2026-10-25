@@ -61,20 +61,22 @@ describe('条件 4：状态锁 updateState', () => {
       [
         `import { updateState } from '${join(REPO, 'packages', 'relay', 'src', 'store.js').replaceAll('\\', '/')}';`,
         `const dataDir = process.argv[2];`,
-        `for (let i = 0; i < 50; i++) updateState(dataDir, (s) => { s.turns += 1; });`,
+        `for (let i = 0; i < 50; i++) await updateState(dataDir, (s) => { s.turns += 1; });`,
         `console.log('done');`,
         '',
       ].join('\n'),
       'utf8',
     );
-    const run = () =>
-      spawnSync(process.execPath, [jiti, scratch, dataDir], {
-        encoding: 'utf8',
-        windowsHide: true,
-        timeout: 60_000,
+    // 真并发：两个子进程同时起、各自加 50 次（不是一前一后）
+    const { spawn } = await import('node:child_process');
+    const runAsync = () =>
+      new Promise<{ status: number | null; stderr: string }>((done) => {
+        const child = spawn(process.execPath, [jiti, scratch, dataDir], { windowsHide: true });
+        let err = '';
+        child.stderr.on('data', (d: Buffer) => (err += d.toString('utf8')));
+        child.on('close', (status) => done({ status, stderr: err }));
       });
-    const first = run();
-    const second = run();
+    const [first, second] = await Promise.all([runAsync(), runAsync()]);
     // 两个都要成功（有谁拿不到锁抛错了，这里就会非 0）
     expect(first.status, first.stderr).toBe(0);
     expect(second.status, second.stderr).toBe(0);

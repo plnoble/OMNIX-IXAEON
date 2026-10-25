@@ -8,7 +8,7 @@
  * 先测试后实现（B 档）：`lanes`/`gitIdentity` 的校验还没写，相关条目现在是红的。
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,11 +31,23 @@ function config(over: {
   devIdentity?: { name: string; email: string };
   integIdentity?: { name: string; email: string };
 }): RelayConfig {
+  // cwd 要真实存在（checkConfig 会查）：用临时目录
+  const intCwd = join(
+    tmpdir(),
+    `ixa-l11-cfg-i-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  );
+  const devCwd = join(
+    tmpdir(),
+    `ixa-l11-cfg-d-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  );
+  mkdirSync(intCwd, { recursive: true });
+  mkdirSync(devCwd, { recursive: true });
+  dirs.push(intCwd, devCwd);
   return {
     roles: {
       integrator: {
         argv: ['node', '-e', ''],
-        cwd: 'D:/synthetic/integ',
+        cwd: intCwd,
         timeoutMinutes: 5,
         quotaPatterns: [],
         quotaPauseMinutes: 30,
@@ -43,7 +55,7 @@ function config(over: {
       },
       developer: {
         argv: ['node', '-e', ''],
-        cwd: 'D:/synthetic/dev',
+        cwd: devCwd,
         timeoutMinutes: 5,
         quotaPatterns: [],
         quotaPauseMinutes: 30,

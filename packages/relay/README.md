@@ -41,6 +41,7 @@
 
 - **怎么停**：`Ctrl+C`；或者 `run` 跑到停点自己退。
 - **不用重启就吃到新代码**：`relay run` 每一轮都从 `origin/main` 换 `<工作目录根>/relay-run`，并进 `main` 的改进下一棒就生效。看门人自己的那轮**不建 Windows 计划任务、不改系统设置**。
+- **两条道同时跑（L11，可选）**：配置里写 `lanes: 2`，并给整合方、开发各配一个不一样的 `gitIdentity`（`relay init` 生成的配置已带 `lanes: 1` 和两个署名，改成 2 即可）。开了之后看门人同时转两条道——一条只跑开发的棒、一条只跑整合方的（复审、规划），各用一份代码目录（`relay-run-developer`、`relay-run-integrator`），互相等着不耽误；越界按提交者分账（开发署名的提交算开发的，整合方署名的算整合方的），状态加锁改不会互相盖。**看门人自己那一层不会自己换新**：改完配置要把终端里的 `relay run` 停掉重起一次。没写 `lanes` 或写 `1`，一切照旧。
 - **开机自己起来**（可选，**你自己建**，调度器不替你建）：Windows 上可以用计划任务，登录后起一次、用普通终端就是我平时那样跑：
 
   ```bat
@@ -92,13 +93,13 @@
 
 ## 数据目录里有什么
 
-| 文件              | 是什么                                                                                                                                 | 能不能动                                        |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `config.json`     | 两个角色的命令行与 `cwd`、`idleSeconds`、`localUserCheck`                                                                              | 手改要看懂再改（改坏了配置检查会拒绝启动）      |
-| `state.json`      | `turns`（跑了几棒）、`stoppedReason`、`pausedUntil`、`notify.sent`（飞书限频）、`lastDailyDate`、`idleDay`（没活发到哪天）、`lastMorningDate`                                        | **别手改**；`relay resume` 会动 `stoppedReason` |
-| `ledger.jsonl`    | 一棒一行：`role`、`kind`、`taskId`、起止时间、退出码、`usage`（Claude 那一棒花了多少）、`statusBefore/After`、`doneLine`、`violations` | 看完想留档就先拷走，删了不影响运行              |
-| `turns/<第几棒>/` | `prompt.md`（这一棒的交代）、`stdout.txt`、`stderr.txt`（角色的原样输出）                                                              | 旧目录可以删（排查问题时就靠它）                |
-| `lock.json`       | 正在跑的那个进程                                                                                                                       | **别手删**，正常退出会自己清                    |
+| 文件              | 是什么                                                                                                                                        | 能不能动                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `config.json`     | 两个角色的命令行与 `cwd`、`idleSeconds`、`localUserCheck`                                                                                     | 手改要看懂再改（改坏了配置检查会拒绝启动）      |
+| `state.json`      | `turns`（跑了几棒）、`stoppedReason`、`pausedUntil`、`notify.sent`（飞书限频）、`lastDailyDate`、`idleDay`（没活发到哪天）、`lastMorningDate` | **别手改**；`relay resume` 会动 `stoppedReason` |
+| `ledger.jsonl`    | 一棒一行：`role`、`kind`、`taskId`、起止时间、退出码、`usage`（Claude 那一棒花了多少）、`statusBefore/After`、`doneLine`、`violations`        | 看完想留档就先拷走，删了不影响运行              |
+| `turns/<第几棒>/` | `prompt.md`（这一棒的交代）、`stdout.txt`、`stderr.txt`（角色的原样输出）                                                                     | 旧目录可以删（排查问题时就靠它）                |
+| `lock.json`       | 正在跑的那个进程                                                                                                                              | **别手删**，正常退出会自己清                    |
 
 ## 已知的限制
 

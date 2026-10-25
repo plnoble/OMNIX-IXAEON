@@ -20,6 +20,7 @@ import {
   releaseLock,
   runOnce,
   saveState,
+  updateState,
   updateCodeCheckout,
   worktreesRoot,
   type RelayConfig,
@@ -297,6 +298,119 @@ const watchdog = async (config: RelayConfig, state: RelayState): Promise<void> =
   }
 };
 
+/**
+ * L11 契约第 3 条：`lanes: 2`——两条道各是一个循环、同时转，各用一份代码目录
+ * （`relay-run-developer` / `relay-run-integrator`，`IXAEON_RELAY_CODE` 有值时两条道都用它）。
+ * 每条道自己数崩、自己歇；任何一条连崩 3 次照 L10 写 stoppedReason；两条道都停了看门人退出。
+ */
+const watchdogLanes = async (config: RelayConfig, state: RelayState): Promise<void> => {
+  console.log(`看门人 ${process.pid}（两条道）`);
+  const codeEnv = process.env.IXAEON_RELAY_CODE?.trim();
+  const repo = findSharedCheckout();
+  const exitWhenIdle = argv.includes('--exit-when-idle');
+  const notifier = createNotifier(loadFeishuTarget(), (state.notify ??= { sent: {} }), {
+    now: () => new Date(),
+  });
+  const idleMs = Math.max(1, config.idleSeconds) * 1000;
+  // 两条道都在同一个进程里转，这几个共享变量不用加锁
+  const shared = { stopped: false, lastTurns: loadState(dataDir).turns ?? 0, idleRounds: 0 };
+
+  const lane = async (role: 'developer' | 'integrator'): Promise<void> => {
+    const codeRoot = codeEnv ? resolve(codeEnv) : join(worktreesRoot(), `relay-run-${role}`);
+    let crashes = 0;
+    for (;;) {
+      if (shared.stopped) return;
+      if (!codeEnv) {
+        if (repo && (await fetchMain(repo))) {
+          const up = updateCodeCheckout(repo, codeRoot);
+          if (up.note) console.log(`代码没换成最新的：${up.note}`);
+          if (ensureDeps(codeRoot) === 'failed') {
+            console.log(`没开棒（${role}）：那份代码装不上依赖`);
+            await sleep(idleMs);
+            continue;
+          }
+        } else {
+          console.log('拉不下来 origin/main，这一轮先不换代码');
+          if (!existsSync(childCli(codeRoot))) {
+            await sleep(idleMs);
+            continue;
+          }
+        }
+      }
+      let stderr = '';
+      let childPid = 0;
+      const code = await new Promise<number | null>((done) => {
+        const child = spawn(
+          process.execPath,
+          [childCli(codeRoot), 'once', '--under', String(process.pid), '--role', role],
+          {
+            cwd: codeRoot,
+            env: process.env,
+            windowsHide: true,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          },
+        );
+        childPid = child.pid ?? 0;
+        child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
+        child.stderr?.on('data', (d: Buffer) => {
+          stderr += d.toString('utf8');
+          process.stderr.write(d);
+        });
+        child.on('error', (e) => {
+          stderr += `${e.message}\n`;
+          done(null);
+        });
+        child.on('close', (c) => done(c));
+      });
+      console.log(`子进程 ${childPid} 退出 ${code ?? '?'}（${role}）`);
+      const after = loadState(dataDir);
+      if (code === 0) {
+        crashes = 0;
+        if (after.stoppedReason) {
+          shared.stopped = true;
+          return;
+        }
+        if ((after.turns ?? 0) > shared.lastTurns) {
+          shared.lastTurns = after.turns ?? shared.lastTurns;
+          shared.idleRounds = 0;
+        } else {
+          shared.idleRounds += 1;
+          // --exit-when-idle：连续两轮谁的棒号都没涨（两条道都没跑棒）才退出
+          if (exitWhenIdle && shared.idleRounds >= 2) {
+            shared.stopped = true;
+            return;
+          }
+        }
+        await sleep(idleMs);
+        continue;
+      }
+      // 崩了：这条道自己数、自己歇（第 1、2 次各等 × 1、× 5）；第 3 次写原因、发 stopped。
+      crashes += 1;
+      if (crashes >= 3) {
+        const why = firstLine(stderr).slice(0, 200);
+        await updateState(dataDir, (s) => {
+          if (!s.stoppedReason) s.stoppedReason = `调度器连着崩了 3 次：${why}`;
+        });
+        await notifier.notify({
+          kind: 'stopped',
+          reason: loadState(dataDir).stoppedReason ?? '',
+        });
+        shared.stopped = true;
+        return;
+      }
+      await sleep(idleMs * (crashes === 1 ? 1 : 5));
+    }
+  };
+
+  await Promise.all([lane('developer'), lane('integrator')]);
+  const finalState = loadState(dataDir);
+  if (finalState.stoppedReason) {
+    console.log(
+      `看门人退出：调度器停下了（${finalState.stoppedReason}）。处理完跑 relay resume，再起 relay run`,
+    );
+  }
+};
+
 const main = async (): Promise<void> => {
   if (!['init', 'once', 'run', 'status', 'resume'].includes(cmd)) {
     die(
@@ -351,8 +465,14 @@ const main = async (): Promise<void> => {
   }
   try {
     if (cmd === 'once') {
-      // 带 --under 时没活照 `run` 的样子发 idle。
-      await runOnce(config, state, dataDir, { sendIdle: borrowed });
+      // 带 --under 时没活照 `run` 的样子发 idle。L11 契约第 4 条：--role 只看这个角色的活。
+      const roleAt = argv.indexOf('--role');
+      const roleArg = roleAt >= 0 ? argv[roleAt + 1] : undefined;
+      const role = roleArg === 'developer' || roleArg === 'integrator' ? roleArg : undefined;
+      await runOnce(config, state, dataDir, { sendIdle: borrowed, role });
+    } else if (config.lanes === 2) {
+      // L11 契约第 3 条：两条道同时转。lanes 没写或 1 走 L10 那套，一个字都不变。
+      await watchdogLanes(config, state);
     } else {
       await watchdog(config, state);
     }

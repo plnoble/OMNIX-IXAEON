@@ -74,6 +74,19 @@ export async function runTurn(
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
+    // L11 契约第 2 条：配了 gitIdentity 就给这一棒设 git 署名（越界按提交者分账用）；
+    // 没配就不设（外面原来是什么就是什么）。
+    ...(role.gitIdentity
+      ? {
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: role.gitIdentity.name,
+            GIT_AUTHOR_EMAIL: role.gitIdentity.email,
+            GIT_COMMITTER_NAME: role.gitIdentity.name,
+            GIT_COMMITTER_EMAIL: role.gitIdentity.email,
+          },
+        }
+      : {}),
   });
   let out = '';
   let err = '';

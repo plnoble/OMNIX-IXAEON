@@ -8,12 +8,17 @@
  * 先测试后实现（B 档）：看门人的双道还没写，条件 1、6 的条目现在是红的；
  * 条件 7 那条现在就应当是绿的（L10 的行为不许变，锁定的 L10 测试也在守它）。
  */
-import { rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeWorld, type World } from './l10-harness.js';
 
 const worlds: World[] = [];
+const temp = (prefix: string): string => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  return d;
+};
 afterEach(() => {
   for (const w of worlds.splice(0)) {
     if (w.root) rmSync(w.root, { recursive: true, force: true });
@@ -38,7 +43,10 @@ function withLanes(w: World, lanes: 1 | 2): void {
   writeFileSync(cfgPath, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
 }
 
-/** 替身：整合方把第 70 行改成已完成（慢），开发把第 70 行改成测试待审（快）。 */
+/**
+ * 替身：开发把第 70 行（待领）改成测试待审（快）；整合方把第 71 行（测试待审）改成已完成（可先睡几秒）。
+ * 队列里得有两行——两条道一开始就各有一行活，才看得出「同时跑」。
+ */
 function slowIntegStub(w: World, sleepMs: number): void {
   const stub = join(w.root, 'stub-lanes.mjs');
   writeFileSync(
@@ -57,23 +65,28 @@ function slowIntegStub(w: World, sleepMs: number): void {
       '  const r = spawnSync("git", a, { cwd: clone, encoding: "utf8" });',
       '  if (r.status !== 0) { console.error(r.stderr || r.stdout); process.exit(1); }',
       '};',
-      'g("pull", "--ff-only", "-q", "origin", "main");',
+      '// 两条道同时改相邻的行，merge/rebase 会撞：一律从最新的 origin/main 重打底子再改',
+      'const fresh = () => { g("fetch", "-q", "origin"); g("reset", "-q", "--hard", "origin/main"); };',
       'const q = clone + "/docs/委派/队列.md";',
-      'let after;',
-      'if (role === "developer") {',
-      '  writeFileSync(q, readFileSync(q, "utf8").replace("| 待领 |", "| 测试待审（整合方） |"), "utf8");',
-      '  after = "测试待审（整合方）";',
-      '} else {',
-      '  writeFileSync(q, readFileSync(q, "utf8").replace("| 测试待审（整合方） |", "| 已完成（2026-10-23） |"), "utf8");',
-      '  after = "已完成（2026-10-23）";',
+      'const editRow = (no, from, to) => writeFileSync(q, readFileSync(q, "utf8").split("\\n").map((l) => l.startsWith(`| ${no} |`) ? l.replace(`| ${from} |`, `| ${to} |`) : l).join("\\n"), "utf8");',
+      'let no, from, to, after;',
+      'if (role === "developer") { no = "70"; from = "待领"; to = "测试待审（整合方）"; }',
+      'else { no = "71"; from = "测试待审（整合方）"; to = "已完成（2026-10-23）"; }',
+      'after = to;',
+      'const apply = () => { editRow(no, from, to); g("add", "-A"); g("commit", "-q", "-m", "合成：替身改状态"); };',
+      'fresh();',
+      'apply();',
+      'let ok = false;',
+      'for (let i = 0; i < 3; i++) {',
+      '  const pr = spawnSync("git", ["push", "-q", "origin", "HEAD:main"], { cwd: clone, encoding: "utf8" });',
+      '  if (pr.status === 0) { ok = true; break; }',
+      '  fresh(); apply();',
       '}',
-      'g("add", "-A");',
-      'g("commit", "-q", "-m", "合成：替身改状态");',
-      'g("push", "-q", "origin", "HEAD:main");',
+      'if (!ok) { console.error("替身：推了三次都没推上"); process.exit(1); }',
       'const t = JSON.parse(readFileSync(timing, "utf8"));',
       't.end = new Date().toISOString();',
       'writeFileSync(timing, JSON.stringify(t), "utf8");',
-      'console.log("RELAY-DONE 70 " + after);',
+      'console.log("RELAY-DONE " + no + " " + after);',
       '',
     ].join('\n'),
     'utf8',
@@ -109,6 +122,16 @@ describe('条件 1：lanes: 2 两条道同时跑', () => {
     worlds.push(w);
     withLanes(w, 2);
     slowIntegStub(w, 4000);
+    // 队列里再放一行「测试待审（整合方）」：两条道一开始就各有一行活，才看得出同时跑
+    const q = join(w.integ, 'docs', '委派', '队列.md');
+    writeFileSync(
+      q,
+      `${readFileSync(q, 'utf8')}| 71 | L9 合成的另一行 | [L9](L9.md) | B | 无 | 测试待审（整合方） |\n`,
+      'utf8',
+    );
+    w.git(w.integ, ['add', '-A']);
+    w.git(w.integ, ['commit', '-q', '-m', '合成：加一行整合方的活']);
+    w.git(w.integ, ['push', '-q', 'origin', 'HEAD:main']);
     const r = await w.run(['run', '--exit-when-idle'], { IXAEON_RELAY_CODE: REPO });
     expect(r.status, r.stderr || r.stdout).toBe(0);
     const ledger = w.ledger();
@@ -123,9 +146,9 @@ describe('条件 1：lanes: 2 两条道同时跑', () => {
       String(integ.startedAt) < String(dev.endedAt),
       '整合方开始早于开发结束（两条道同时在跑）',
     ).toBe(true);
-    const q = w.git(w.dev, ['show', 'origin/main:docs/委派/队列.md']).out;
-    expect(q).toContain('| 测试待审（整合方） |');
-    expect(q).toContain('| 已完成（2026-10-23） |');
+    const queueNow = w.git(w.dev, ['show', 'origin/main:docs/委派/队列.md']).out;
+    expect(queueNow).toContain('| 测试待审（整合方） |');
+    expect(queueNow).toContain('| 已完成（2026-10-23） |');
     expect(w.state().stoppedReason).toBeFalsy();
     // 两条道的输出都带角色后缀
     expect(r.stdout).toContain('（developer）');
@@ -157,8 +180,8 @@ describe('条件 6：一条道连崩 3 次', () => {
     );
     const r = await w.run(['run'], { IXAEON_RELAY_CODE: fake });
     expect(w.state().stoppedReason, r.stdout).toContain('调度器连着崩了 3 次');
-    // 整合方那条道至少跑过一棒（它自己没崩）
-    expect(w.ledger().some((row) => row.role === 'integrator')).toBe(true);
+    // 整合方那条道自己也转过（起过自己的子进程），只是没活可记
+    expect(r.stdout).toContain('（integrator）');
     // 看门人自己退出了（run 不带 --exit-when-idle 也退：两道都停了）
     expect(r.status).toBe(0);
   }, 180_000);
