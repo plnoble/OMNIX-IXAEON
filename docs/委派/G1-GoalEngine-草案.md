@@ -60,7 +60,7 @@
 
 ## 3. 数据结构（契约）
 
-### 3.1 `goals`
+### 3.1 `goals`（**属于 G1a**）
 
 ```sql
 CREATE TABLE goals (
@@ -86,6 +86,9 @@ CREATE TABLE goals (
   next_review_at TEXT,
   confidence INTEGER CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
   parent_goal_id TEXT REFERENCES goals(id) ON DELETE CASCADE,
+  -- 父子关系的权重属性（不是 goal_links 的活）：根目标可为 NULL，子目标默认 1，非 NULL 时必须 > 0。
+  -- G1b 算父目标 weighted 进度时，直接子目标「完成」按它计一次；子目标内部的任务不重复计入父目标。
+  parent_weight INTEGER CHECK (parent_weight IS NULL OR parent_weight > 0) DEFAULT 1,
   progress INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
   progress_mode TEXT NOT NULL DEFAULT 'manual' CHECK (progress_mode IN ('manual', 'weighted')),
   blocked_reason TEXT,
@@ -100,7 +103,7 @@ CREATE INDEX idx_goals_parent ON goals(parent_goal_id);
 CREATE INDEX idx_goals_review ON goals(next_review_at) WHERE next_review_at IS NOT NULL;
 ```
 
-### 3.2 `goal_links`（**只管「目标 ↔ 已有任务」**）
+### 3.2 `goal_links`（**只管「目标 ↔ 已有任务」**；**属于 G1b**）
 
 ```sql
 -- 不表达子目标（子目标只靠 goals.parent_goal_id）。一个任务可以同时服务两个目标。
@@ -116,7 +119,7 @@ CREATE TABLE goal_links (
 CREATE INDEX idx_goal_links_ref ON goal_links(kind, ref_id);
 ```
 
-### 3.3 `goal_plans` + `goal_steps` + `goal_step_deps`
+### 3.3 `goal_plans` + `goal_steps` + `goal_step_deps`（**属于 G1c**）
 
 ```sql
 CREATE TABLE goal_plans (
@@ -164,7 +167,7 @@ CREATE TABLE goal_step_deps (
 
 **契约**：`goal_steps` 是步骤的**权威结构**，`goal_plans` 不再有 `steps_json`。
 
-### 3.4 `goal_events`（审计：凭什么改的）
+### 3.4 `goal_events`（审计：凭什么改的；**属于 G1a**）
 
 ```sql
 CREATE TABLE goal_events (
@@ -204,7 +207,7 @@ paused / blocked ──> active / abandoned
 4. `completed` 只能从 `active` / `blocked` / `paused` 进；进入时 `progress = 100`。
 5. `abandoned` 是终态：不许回 `active`（要重开就新建，`description` 写清为什么）。
 
-### 3.6 Progress
+### 3.6 Progress（**manual 属于 G1a；weighted 整块属于 G1b**）
 
 - `manual`：`progress` 就是人给的值；任务完成/失败都**不改**它（只记事件）。
 - `weighted`：分母 = 挂在该目标上的任务权重之和；分子 = 已完成任务的权重之和；
@@ -238,54 +241,74 @@ paused / blocked ──> active / abandoned
 方案历史（能看旧版本，只读）、关联任务（能跳过去）、事件时间线。
 **不做**甘特图、拖拽排序、依赖图。
 
-## 5. 验收条件（写成锁定测试）
+## 5. 验收条件（按单切分，各单可独立锁定、独立实现）
 
-`packages/core/test/acceptance/g1a-goal-store.test.ts`、`g1b-goal-links.test.ts`、`g1c-goal-plans.test.ts`、
-`g1d-goal-detect.test.ts`、`g1e-goals-page.test.ts`
+**切分原则（用户 2026-10-25 定）**：不允许「名义拆单但 G1a 已经把 G1b/G1c 的接口和表一起钉死」。
+每一单的测试只能引用**本单自己引入的表和接口**；跨单的东西用「测试内部用真实 Store 造数据」，
+不得为了测试给生产接口开后门。
 
-### G1a（存储、状态机、进度）
+| 单  | 测试文件                  | 只允许引用的表                                          | 只允许引用的接口                                                         |
+| --- | ------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| G1a | `g1a-goal-store.test.ts`  | `goals`、`goal_events`                                  | `GoalStore`（create/get/childrenOf/confirm/transition/setProgress/list） |
+| G1b | `g1b-goal-links.test.ts`  | G1a 的两张 + `goal_links`                               | G1a 的 + `link/unlink/recomputeProgress`                                 |
+| G1c | `g1c-goal-plans.test.ts`  | G1a 的两张 + `goal_plans`/`goal_steps`/`goal_step_deps` | G1a 的 + `PlanStore`                                                     |
+| G1d | `g1d-goal-detect.test.ts` | G1a 的两张                                              | G1a 的 + 识别器                                                          |
+| G1e | `g1e-goals-page.test.ts`  | 读，不写结构                                            | 界面                                                                     |
 
-1. 用户点「新建目标」→ `origin='user'`、`confirmation='ui'`、`status='active'`，有一条 `created` 事件。
-2. **聊天说愿望 → proposed**：喂「我希望 IXAEON 能 24×7 自己工作」→ `origin='agent'`、`confirmation='pending'`、
-   `status='proposed'`——**哪怕听起来很确定**。
-3. **AI 任何路径都改不成 active**：直接调 store 改 → 抛错；重规划、进度重算、自动跟踪跑完再查 → 仍是 proposed。
-4. **确认两条路**：聊天确认 → `confirmation='chat'` + 消息号有值 + `active`；
-   UI 确认 → `confirmation='ui'` + 消息号 NULL。两条都记 `confirmed` 事件。
-5. **状态机越界被拒**：`proposed→completed` 拒、`abandoned→active` 拒、blocked 无理由拒、
-   blocked 事件 `decided_by='system'` 拒。
-6. **progress**：manual 下完成任务不改 progress；weighted 下 3 个等权任务完成 1 个 → 33；分母 0 → 原值不变。
-7. **子目标不重复计**：子目标完成任务改子目标进度；子目标完成时父目标按权重计一次。
+### G1a：Goal 核心（`goals` + `goal_events` + `GoalStore`）
 
-### G1b（关联与跟踪）
+1. **迁移只加两张表**：`goals`、`goal_events` 在；**`goal_links` / `goal_plans` / `goal_steps` / `goal_step_deps` 一张都不许有**（这条要单独断言，防止 G1a 偷偷把后面几单的表也建了）。
+2. `goals` 的列：`id/title/description/origin/confirmation/confirmed_by_message_id/confirmed_at/status/priority/created_at/updated_at/target_date/next_review_at/confidence/parent_goal_id/parent_weight/progress/progress_mode/blocked_reason/watch/watch_reason`；
+   **没有** evidence / blocking / milestone 相关列。
+3. **`coding_tasks` / `todos` / `research_topics` 结构完全不改**（`PRAGMA table_info` 逐列比对；`coding_tasks.goal` 仍是文本）。
+4. **origin × confirmation 正交**：
+   - UI 创建 → `origin='user'`、`confirmation='ui'`、`status='active'`；
+   - API 创建 → `user`/`api`/`active`；
+   - 聊天表达想法 → `agent`/`pending`/`proposed`（**哪怕听起来很确定**）；
+   - `origin=agent` 能被 `ui` 确认（来源不变、确认方式变）；`origin=user` 也能走 `chat` 确认（记消息号）。
+   - 数据库层：手写 SQL 造 `active + pending` 被 CHECK 拒。
+5. **proposed 不能被 AI 激活**（分层不变量的 G1a 那一层）：`transition(proposed → active, decidedBy='agent')` 必须拒。
+6. **状态机**：`proposed→completed` 拒；`abandoned→active` 拒；`blocked` 没有 `blocked_reason` 拒；
+   `blocked` 的事件 `decided_by` 只能是 `agent`/`user`；`blocked→active` 清空理由并记事件；`completed` 时 `progress=100`。
+7. **非法迁移事务回滚不残留 `goal_event`**：连续几次非法迁移全抛错后，`goal_events` 一行都没多。
+8. **manual progress**：`setProgress` 存进去就是那个值；**G1a 不计算任何进度**（没有 `recomputeProgress`）。
+9. **`progress_mode='weighted'` 允许保存**，但 G1a 不算它——存进去读出来还是那个模式、`progress` 保持原值。
+10. **父子**：`parent_goal_id` 建树、`childrenOf` 能取到；根目标 `parent_weight` 可为 NULL、子目标默认 1、传 0 或负数被拒。
+11. **重启后仍在**；**不同 Goal 不串状态**（一个 blocked 不影响另一个）。
 
-8. **挂真实任务**：1 coding task + 1 todo → `goal_links` 2 行；`PRAGMA table_info` 断言
-   `coding_tasks` / `todos` 的列**一点没变**（防止偷偷加列）。
-9. **一个任务挂两个目标**：两行；A 完成它不影响 B 的进度。
-10. **失败不自动 blocked**：同一目标 2 个任务失败 → `status` **仍是 active**，但 `watch=1`、
-    `watch_reason` 写了是哪两个任务、`next_review_at` 提前、`goal_events` 有 2 条 `task_failed`。
-11. **blocked 要判断**：复核给出结论后写 blocked → 成功（`decided_by='agent'`）；`system` 直接写 → 抛错。
-12. **重启后还在**：关连接、重开、重读 → 目标、子目标、关联、事件全在。
+### G1b：关联与 weighted 进度（`goal_links` + 任务状态读取）
 
-### G1c（方案与步骤）
+12. **迁移只加 `goal_links`**；`kind` 只能是 `todo`/`coding_task`/`research_topic`（**不许出现 `subgoal`**、不许用 `refId='goal:xxx'` 绕）。
+13. **挂真实任务**：用**真实的** `TodoStore` / `CodingTaskStore` 建任务再挂——**测试内部用真 Store，不靠 `setRefDone` 这种后门**；`goal_links` 有行、任务表列不变。
+14. **一个任务挂两个目标**：两行；A 完成它不影响 B 的进度。
+15. **weighted 计算**：3 个等权任务完成 1 个 → 33、完成 2 个 → 67；分母 0 → 保持原值。
+16. **子目标按 `parent_weight` 计一次**：子目标完成后父目标按 `parent_weight` 计；**子目标内部的任务不重复计入父目标**。
+17. **失败产生信号但不改状态**：2 个任务失败 → `status` **仍 active**，但 `watch=1`、`watch_reason` 写明是哪两个、`next_review_at` 提前、`goal_events` 有 2 条 `task_failed`。
+18. **blocked 要判断**：复核给出结论后写 blocked 成功（`decided_by='agent'`）；`system` 直接写 → 抛错。
+19. **proposed 不能被激活**（分层不变量 G1b 那一层）：自动跟踪、进度重算跑完，proposed 仍是 proposed。
 
-13. **多版本**：重规划一次 → 2 行；第 1 版 `superseded` + `superseded_by=2`；第 1 版 `goal_steps` **逐行仍在**。
-14. **Step 可操作**：4 步各有 `seq`/`status`/可选关联任务；改某步 `status='doing'` 只动这一行、`updated_at` 变；
-    重排 → `seq` 变、`id` 不变。
-15. **步骤依赖**：A 依赖 B → B 未完成时 A 不能进 `doing`；成环写入被拒。
-16. **Heartbeat 能推进**：依赖已满足的 pending 步骤，`advanceStep` 推到 `doing` 并写 `started_at`（给 Heartbeat 的接口保证）。
+### G1c：方案与步骤（`goal_plans` + `goal_steps` + `goal_step_deps` + `PlanStore`）
 
-### G1e（界面，只依赖 G1a）
+20. **迁移只加三张方案表**；`goal_plans` **没有 `steps_json` 列**（Step 是权威结构）。
+21. **多版本**：重规划一次 → 2 行；第 1 版 `superseded` + `superseded_by=2`；第 1 版 `goal_steps` **逐行仍在**。
+22. **Step 可操作**：4 步各有 `seq`/`status`/可选关联任务；改某步 `status='doing'` 只动这一行。
+23. **两阶段重排**：重排后 **ID 集合不变、依赖不变、任务绑定不变、行数不变**（证明不是删了重建），只有 `seq` 变；
+    传重复 id → 整体失败、`seq` 保持原样（单事务）；重排不重置状态。
+24. **依赖**：A 依赖 B → B 未完成时 A 不能进 `doing`；成环写入被拒。
+25. **`advanceStep` 给 Heartbeat 用**：依赖已满足的 pending → `doing` 并写 `started_at`。
+26. **proposed 不能被激活**（分层不变量 G1c 那一层）：`replan` / `advanceStep` 跑完，proposed 仍是 proposed。
 
-17. 列表显示 active 目标的标题、状态、进度、下次复核；过期复核标黄。
-18. blocked 卡片直接显示 `blocked_reason`；有 `watch` 的单独标出并显示 `watch_reason`。
-19. `proposed` 在顶部单独一块，点「确认」→ 变 active 并消失；点「不是这个」→ 不再出现。
-20. 详情页能看当前方案步骤与状态；方案历史能看旧版本（只读）。
+### G1d：从对话识别（只产出 proposed）
 
-### G1d（对话识别）
+27. 只产出 `origin='agent'`/`confirmation='pending'`/`status='proposed'`（**分层不变量 G1d 那一层**）。
+28. 去重：同一个目标再识别一次不重复建；`abandoned` 过的同样的事不再提。
+29. **不外发别的**：发给模型的 user 文本里只有对话内容，不夹带记忆、项目文件（用替身模型断言）。
 
-21. 只产出 proposed（走真提示词路径）。
-22. 去重：同一个目标再识别一次不重复建；`abandoned` 过的同样的事不再提。
-23. **不外发别的**：发给模型的 user 文本里只有对话内容，不夹带记忆、项目文件（用替身模型断言）。
+### G1e：界面（A 档；**等 G1a 锁定后再做，现在不提前钉 UI 数据接口**）
+
+30. 列表显示 active 目标的标题、状态、进度、下次复核；过期复核标黄。
+31. blocked 卡片直接显示 `blocked_reason`；有 `watch` 的单独标出并显示 `watch_reason`。
+32. `proposed` 在顶部单独一块，点「确认」→ 变 active 并消失；点「不是这个」→ 不再出现。
 
 ## 6. 约束
 
@@ -296,17 +319,21 @@ paused / blocked ──> active / abandoned
 - 界面不做甘特图 / 拖拽 / 依赖图；
 - G1d 的提示词是新的外发，单独评档位。
 
-## 7. 拆分与依赖（按用户第 5 条）
+## 7. 拆分、档位与依赖（用户 2026-10-25 定）
 
-| 单      | 内容                                                                              | 预估行数 | 依赖                |
-| ------- | --------------------------------------------------------------------------------- | -------- | ------------------- |
-| **G1a** | 迁移（goals / goal_events）+ `GoalStore`（状态机、确认、manual/weighted 进度）    | 约 280   | 无                  |
-| **G1b** | `goal_links` + 自动跟踪（完成/失败 → 事件/watch/进度；**不机械 blocked**）        | 约 180   | G1a                 |
-| **G1c** | `goal_plans` + `goal_steps` + `goal_step_deps` + Replan + `advanceStep`           | 约 290   | G1a                 |
-| **G1d** | 从对话识别目标（提示词 + 解析 + 去重；**新外发**）                                | 约 180   | G1a                 |
-| **G1e** | Goals 列表页 + 详情页（**只依赖 G1a**；关联任务/方案历史两块等 G1b/G1c 落地再补） | 约 300   | G1a（部分 G1b/G1c） |
+| 单      | 档位  | 内容                                                                                                      | 预估行数 | 依赖                           |
+| ------- | ----- | --------------------------------------------------------------------------------------------------------- | -------- | ------------------------------ |
+| **G1a** | **B** | 迁移 `goals` + `goal_events`；`GoalStore`：create/confirm/transition/setProgress/childrenOf/list          | 约 250   | 无                             |
+| **G1b** | **B** | 迁移 `goal_links`；任务真实状态读取；weighted 进度；`task_done`/`task_failed` 事件；watch；next_review_at | 约 230   | G1a                            |
+| **G1c** | **B** | 迁移 `goal_plans`/`goal_steps`/`goal_step_deps`；`PlanStore`；Replan；`advanceStep`；两阶段重排           | 约 290   | G1a                            |
+| **G1d** | **B** | 从对话识别目标（新外发）                                                                                  | 约 180   | G1a                            |
+| **G1e** | **A** | Goals 列表页 + 详情页（**等 G1a 锁定后再做**）                                                            | 约 300   | G1a（读 G1b/G1c 的数据时再加） |
 
-**合计约 1230 行**，每单都在 300 行以内。
+**档位理由**：G1a/G1b/G1c 都**涉及数据库迁移**，按规矩是 B 档；G1d 是**新的外发**，B 档；只有 G1e 是纯界面，A 档。
+五单合计约 1250 行，每单都在 300 行以内。
+
+**每单必须能独立锁定、独立实现**：G1a 的测试只碰 `goals`/`goal_events`/`GoalStore`；
+G1b 才引入 `goal_links`；G1c 才引入三张方案表。**任何一单的测试不许引用别的单还没引入的表和接口。**
 
 ## 8. 真机检查
 
@@ -314,8 +341,14 @@ paused / blocked ──> active / abandoned
 「建目标 → 分解 → 挂两个任务 → 完成一个（进度变）→ 失败两个（watch 亮、不 blocked）→ 复核判 blocked →
 重规划（旧版保留）→ 推进一个步骤 → 关应用重开还在」，输出贴进交付说明。
 
-## 9. 还给整合方定的事
+## 9. 已定案（不再待定）
 
-1. **G1d 的档位**（从对话识别目标 = 新的外发）：我倾向 **B 档**，要整合方在队列里定。其余四单按 A 档。
-2. **`goal_steps.seq` 重排**：我按「`seq` 可重排、`id` 不变，重排在一个事务里整体重写」设计。
-   另一种是「只允许追加、不重排」（简单但没法插步骤到中间）。**这条等你或整合方定。**
+1. **`goal_steps.seq` 采用可重排方案**（用户 2026-10-25 定）：
+   - Step **ID 永久稳定**（重排不动 id）；
+   - 重排**在单个事务里**做；
+   - **使用两阶段临时序号**（先把本版方案的 `seq` 整体挪到临时区，再回填最终序号），避免撞 `UNIQUE(goal_id, plan_version, seq)`；
+   - **不允许删除重建 Step**（依赖、任务绑定、状态都挂在 Step 上，删了就丢）。
+2. 档位见第 7 节：G1a/G1b/G1c/**G1d** = B，G1e = A。
+3. 子目标与父目标的权重用 `goals.parent_weight`（不是 `goal_links`，也不是 `refId='goal:xxx'`）。
+4. 任务完成/失败的真值来源永远是 `TodoStore` / `CodingTaskStore` / `ResearchTopicStore` 自己；
+   **不许为了测试在 `GoalStore` 上开「标记完成」这类产品接口**。
