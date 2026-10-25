@@ -42,7 +42,10 @@ beforeAll(() => {
     description: null,
   });
   const doc = fixturePath('files', 'project-notes.md');
-  const result = imports.importFile(doc, { projectId: project.id, permissionId: permissions.grantFile(doc).id });
+  const result = imports.importFile(doc, {
+    projectId: project.id,
+    permissionId: permissions.grantFile(doc).id,
+  });
   const fake = new FakeProvider('fake-m3');
   fake.enqueueStructured({
     items: [

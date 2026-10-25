@@ -49,7 +49,12 @@ describe('M5 性能（50,000 条消息）', () => {
     // 生成 50k 消息的 ChatGPT 导出（mapping 树：root → m0 → m1 → …）
     const mapping: Record<
       string,
-      { id: string; message: Record<string, unknown> | null; parent: string | null; children: string[] }
+      {
+        id: string;
+        message: Record<string, unknown> | null;
+        parent: string | null;
+        children: string[];
+      }
     > = {
       root: { id: 'root', message: null, parent: null, children: [] },
     };
@@ -104,9 +109,7 @@ describe('M5 性能（50,000 条消息）', () => {
   });
 
   it('导入后消息数 = 50,000', () => {
-    const n = (
-      db.prepare('SELECT COUNT(*) AS n FROM segments').get() as { n: number }
-    ).n;
+    const n = (db.prepare('SELECT COUNT(*) AS n FROM segments').get() as { n: number }).n;
     console.log(`segments count: ${n}`);
     expect(n).toBe(MESSAGE_COUNT);
   });

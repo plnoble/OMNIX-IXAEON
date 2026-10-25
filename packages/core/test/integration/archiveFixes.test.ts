@@ -78,9 +78,9 @@ beforeAll(async () => {
     ],
   });
   await new Extractor(db, fake).extractSource(sourceId);
-  const aiItem = db
-    .prepare("SELECT id FROM items WHERE statement = '归档种子结论'")
-    .get() as { id: string };
+  const aiItem = db.prepare("SELECT id FROM items WHERE statement = '归档种子结论'").get() as {
+    id: string;
+  };
   items.correct({ itemId: aiItem.id, userText: '归档纠正后的结论' });
   db.prepare(
     `INSERT INTO work_runs (id, project_id, agent_name, task, outcome, summary, finished_at)
@@ -109,9 +109,7 @@ function snapshotState(database: CoreDatabase): string {
   ];
   const out: Record<string, unknown> = {};
   for (const t of tables) {
-    const rows = database
-      .prepare(`SELECT * FROM ${t}`)
-      .all() as Array<Record<string, unknown>>;
+    const rows = database.prepare(`SELECT * FROM ${t}`).all() as Array<Record<string, unknown>>;
     // raw_path 跨平台形态差异不影响语义：统一正斜杠比较
     out[t] = rows.map((r) =>
       'raw_path' in r ? { ...r, raw_path: String(r.raw_path).replace(/\\/g, '/') } : r,
@@ -122,9 +120,7 @@ function snapshotState(database: CoreDatabase): string {
 
 describe('P1-7 恢复凭证（先预览、再确认）', () => {
   it('伪造 previewToken：恢复被拒绝', async () => {
-    await expect(archive.restoreDataWithToken('forged-token')).rejects.toThrowError(
-      /恢复凭证无效/,
-    );
+    await expect(archive.restoreDataWithToken('forged-token')).rejects.toThrowError(/恢复凭证无效/);
   });
 
   it('R1 契约：凭证进程级有效 —— 跨实例核销成功，第二次使用失败（一次性）', async () => {
@@ -180,7 +176,9 @@ describe('P1-7 恶意恢复包（替换前拒绝）', () => {
       writeFileSync(evilDbPath, dbBuf);
       const evilDb = openDatabase(evilDbPath);
       evilDb
-        .prepare("UPDATE sources SET raw_path = 'sha256/ab/..%2f..%2fescape' WHERE id = (SELECT id FROM sources LIMIT 1)")
+        .prepare(
+          "UPDATE sources SET raw_path = 'sha256/ab/..%2f..%2fescape' WHERE id = (SELECT id FROM sources LIMIT 1)",
+        )
         .run();
       evilDb.close();
       zip.file('db.sqlite', readFileSync(evilDbPath));
@@ -248,9 +246,9 @@ describe('P1-7 导出→恢复→数据等价 + 失败回滚', () => {
     const zipPath = join(dir, 'roundtrip.zip');
     await archive.exportData(zipPath);
     const before = snapshotState(db);
-    const beforeRaw = db
-      .prepare('SELECT raw_path FROM sources LIMIT 1')
-      .get() as { raw_path: string };
+    const beforeRaw = db.prepare('SELECT raw_path FROM sources LIMIT 1').get() as {
+      raw_path: string;
+    };
     const beforeRawContent = readFileSync(vault.absolutePath(beforeRaw.raw_path)).toString('utf8');
 
     // 关闭当前库，真实替换
@@ -274,9 +272,9 @@ describe('P1-7 导出→恢复→数据等价 + 失败回滚', () => {
     const after = snapshotState(reopened);
     expect(after).toBe(before);
     // 原文 vault 文件仍在且内容一致
-    const afterRaw = reopened
-      .prepare('SELECT raw_path FROM sources LIMIT 1')
-      .get() as { raw_path: string };
+    const afterRaw = reopened.prepare('SELECT raw_path FROM sources LIMIT 1').get() as {
+      raw_path: string;
+    };
     const afterRawContent = readFileSync(
       new Vault(join(dir, 'vault')).absolutePath(afterRaw.raw_path),
     ).toString('utf8');
