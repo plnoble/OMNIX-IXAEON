@@ -106,14 +106,8 @@ describe('条件 1：表结构与「Step 是权威结构」', () => {
     expect(columnsOf('goal_step_deps')).toContain('depends_on_step_id');
   });
 
-  it('G1c 不建 goal_links（那是 G1b 的表）', () => {
-    const tables = (
-      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
-        name: string;
-      }>
-    ).map((t) => t.name);
-    expect(tables).not.toContain('goal_links');
-  });
+  // 注意：这里**故意不断言** G1c 的库里没有 goal_links。
+  // G1b 合并之后 goal_links 本来就该在；锁一条「永远别存在」会挡住正常演进。
 });
 
 describe('条件 2：多版本（旧版一律保留）', () => {
