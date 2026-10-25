@@ -78,9 +78,17 @@ describe('条件 1：relayCodeHash', () => {
     // README 不算
     writeFileSync(join(base, 'packages', 'relay', 'README.md'), '变了\n', 'utf8');
     expect(relayCodeHash(base)).toBe(h1);
-    // 改 src/ 下一个字 → 变
+    // 改 src/ 下一个字 → 变。
+    // 复审整改（Codex 第 1 轮第 1 条）：这里必须是**等长的**字节改动——原来写的是追加一行注释，
+    // 文件长度变了，一个只看「路径 + 大小」的错误实现也能通过；条件 1 要的是「改一个字」。
     const srcFile = join(base, 'packages', 'relay', 'src', 'selfupdate.ts');
-    writeFileSync(srcFile, `${readFileSync(srcFile, 'utf8')}\n// 一点不同\n`, 'utf8');
+    const original = readFileSync(srcFile, 'utf8');
+    // 找一个 ASCII 字母换掉，保证字节数一模一样
+    const at = original.search(/[a-zA-Z]/);
+    expect(at).toBeGreaterThanOrEqual(0);
+    const swapped = `${original.slice(0, at)}${original[at] === 'a' ? 'b' : 'a'}${original.slice(at + 1)}`;
+    expect(Buffer.byteLength(swapped, 'utf8')).toBe(Buffer.byteLength(original, 'utf8'));
+    writeFileSync(srcFile, swapped, 'utf8');
     const h2 = relayCodeHash(base);
     expect(h2).not.toBe(h1);
     // bin/ 下加一个文件 → 变

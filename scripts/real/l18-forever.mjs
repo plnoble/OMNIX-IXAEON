@@ -26,7 +26,24 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const work = mkdtempSync(join(tmpdir(), 'ixa-l18-real-'));
-const mask = (s) => String(s).split(work).join('<临时>').split(homedir()).join('<本机>');
+/**
+ * 遮掉临时目录与账户名。复审整改（Codex 第 2 轮第 3 条）：只遮反斜杠那种形式不够——
+ * Node 的错误栈里是 `file:///C:/Users/<账户名>/…`（正斜杠 + file URL），子进程输出原样转发时
+ * 会把账户名带出来。所以每个路径都按「反斜杠 / 正斜杠 / file URL」三种写法各遮一遍。
+ */
+function variantsOf(p) {
+  const fwd = p.replaceAll('\\', '/');
+  const withSlash = fwd.startsWith('/') ? fwd : `/${fwd}`;
+  return [p, fwd, `file://${withSlash}`];
+}
+const masks = [...new Set([...variantsOf(work), ...variantsOf(homedir())].filter(Boolean))].sort(
+  (a, b) => b.length - a.length,
+);
+const mask = (s) => {
+  let text = String(s);
+  for (const m of masks) text = text.split(m).join('<本机>');
+  return text;
+};
 const log = (...a) => console.log(...a.map(mask));
 
 let passed = false;
@@ -161,6 +178,9 @@ try {
         ...process.env,
         IXAEON_RELAY_DIR: dataDir,
         IXAEON_WORKTREES: trees,
+        // 复审整改（Codex 第 2 轮第 2 条）：这台机器要是有 IXAEON_RELAY_CODE，forever 会去起它
+        // 指的那份入口、还禁用了自检，合成世界就被绕过去了。真机检查必须清掉它。
+        IXAEON_RELAY_CODE: '',
       },
       windowsHide: true,
     },
