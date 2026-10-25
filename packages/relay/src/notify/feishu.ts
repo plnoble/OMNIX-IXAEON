@@ -2,17 +2,28 @@
 import { createHmac } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { beijingDay } from '../queue.js';
+import { relayNow } from '../store.js';
 import { relayDir } from '../datadir.js';
 
 export type RelayEvent =
   | { kind: 'stopped'; reason: string; taskId?: string; task?: string }
   | { kind: 'needs-user'; taskId: string; task: string; status: string }
   | { kind: 'paused'; role: 'integrator' | 'developer'; until: string }
-  | { kind: 'idle'; why: 'queue-empty' | 'all-blocked' }
+  /** L15 契约第 3 条：`waiting` 有值时列出「等用户」的行；空数组表示没有要回答的。 */
+  | {
+      kind: 'idle';
+      why: 'queue-empty' | 'all-blocked';
+      waiting?: Array<{ no: string; task: string; status: string }>;
+    }
   /** L9 契约第 7 条：规划棒加了几行（按主表里的先后）。 */
   | { kind: 'planned'; rows: Array<{ no: string; task: string; status: string }> }
   /** L16 契约第 6 条：整合方办完了用户在飞书里说的那几条。 */
   | { kind: 'inbox-done'; summary: string }
+  /** L15 契约第 1 条：队列里一行从「没完成」变成「已完成」。 */
+  | { kind: 'done'; taskId: string; task: string; turns: number; hours: number; costUsd: number }
+  /** L15 契约第 5 条：早报（北京时间 9 点之后发一次）。 */
+  | { kind: 'morning'; turns: number; done: string[]; costUsd?: number; doing: string[] }
   | { kind: 'daily'; date: string; turns: number; done: string[]; costUsd?: number };
 export interface FeishuTarget {
   webhookUrl: string;
@@ -37,6 +48,14 @@ const beijing = (iso: string): string => {
   return `${t.getUTCMonth() + 1}月${t.getUTCDate()}日 ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}`;
 };
 
+/** 状态去掉开头的「等用户：」或「等用户」。 */
+const withoutWaitingPrefix = (status: string): string =>
+  status.startsWith('等用户：')
+    ? status.slice('等用户：'.length)
+    : status.startsWith('等用户')
+      ? status.slice('等用户'.length)
+      : status;
+
 /** 第一行固定「【IXAEON 接力】」，只用事件自己的字段。 */
 export function formatEvent(e: RelayEvent): string {
   const lines = [HEAD];
@@ -48,12 +67,35 @@ export function formatEvent(e: RelayEvent): string {
   } else if (e.kind === 'paused') {
     const who = e.role === 'integrator' ? '统筹' : '开发';
     lines.push(`${who}撞上额度，歇到 ${beijing(e.until)}。`);
-  } else if (e.kind === 'idle') lines.push(IDLE[e.why]);
-  else if (e.kind === 'planned') {
+  } else if (e.kind === 'idle') {
+    lines.push(IDLE[e.why]);
+    // L15 契约第 3 条：没有 waiting 字段时和原来一字不差；有的话在原来那句后面接。
+    if (e.waiting !== undefined) {
+      if (e.waiting.length === 0) {
+        lines.push('没有要你回答的，你不用做什么。');
+      } else {
+        lines.push('要你回答的：');
+        for (const r of e.waiting) {
+          lines.push(`- 第 ${r.no} 行 ${r.task}：${withoutWaitingPrefix(r.status)}`);
+        }
+      }
+    }
+  } else if (e.kind === 'planned') {
     lines.push(`整合方排了 ${e.rows.length} 件新活：`);
     for (const r of e.rows) lines.push(`- 第 ${r.no} 行 ${r.task}（${r.status}）`);
   } else if (e.kind === 'inbox-done') {
     lines.push(`整合方处理了你的回复：${e.summary}`);
+  } else if (e.kind === 'done') {
+    lines.push(`第 ${e.taskId} 行做完了：${e.task}`);
+    const cost = e.costUsd > 0 ? `，整合方花了 ${e.costUsd.toFixed(2)} 美元` : '';
+    lines.push(`一共 ${e.turns} 棒、${e.hours.toFixed(1)} 小时${cost}`);
+  } else if (e.kind === 'morning') {
+    const cost = typeof e.costUsd === 'number' ? `，整合方花了 ${e.costUsd.toFixed(2)} 美元` : '';
+    lines.push(
+      `早报 ${beijingDay(relayNow().getTime())}：昨晚 9 点到现在跑了 ${e.turns} 棒${cost}`,
+    );
+    lines.push(e.done.length ? `做完了：${e.done.join('、')}` : '这段时间没做完新的');
+    if (e.doing.length) lines.push(`在做：${e.doing.join('、')}`);
   } else {
     const done = e.done.length ? e.done.join('、') : '无';
     lines.push(`${e.date} 日报：跑了 ${e.turns} 棒，完成 ${done}。`);
@@ -115,9 +157,17 @@ export async function sendFeishu(
   return { ok: false, error: last };
 }
 
-/** kind 加 taskId / role / why。planned、daily、inbox-done 不限频；stopped 没有 taskId 时共用一键。 */
+/** kind 加 taskId / role / why。planned、daily、done、morning 不限频；stopped 没有 taskId 时共用一键。 */
 function rateKey(e: RelayEvent): string | null {
-  if (e.kind === 'daily' || e.kind === 'planned' || e.kind === 'inbox-done') return null;
+  if (
+    e.kind === 'daily' ||
+    e.kind === 'planned' ||
+    e.kind === 'inbox-done' ||
+    e.kind === 'done' ||
+    e.kind === 'morning'
+  ) {
+    return null;
+  }
   if (e.kind === 'needs-user') return `needs-user ${e.taskId}`;
   if (e.kind === 'paused') return `paused ${e.role}`;
   if (e.kind === 'idle') return `idle ${e.why}`;

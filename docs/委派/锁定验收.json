@@ -614,6 +614,54 @@
         "packages/relay/test/acceptance/l16-inbox-turn.test.ts": "0e361f79e6cd4a35e5f8b0a4836b6019100faff26098b54ae1c776f7f8676908",
         "packages/relay/test/acceptance/l16-watchdog.test.ts": "3b4f45dc7b7cdadc4ac0737a943a881c2781acc772c0ca312429b826e3e5e303"
       }
+    },
+    {
+      "id": "L13b",
+      "title": "L13b 替开发推送时网络抖一下不停（推送重试三次），rebase 保留合并提交",
+      "status": "done",
+      "files": {
+        "packages/relay/test/acceptance/l13b-push-retry.test.ts": "5d71b6186c02adcb678f86374eb3d506ab598dfab421ab1be2889a02f6ff8dec"
+      }
+    },
+    {
+      "id": "L15",
+      "title": "做完一件就告诉用户；没活一天一次；早报",
+      "status": "done",
+      "files": {
+        "packages/relay/test/acceptance/l15-report.test.ts": "b2f7cde6371d48f718ca45fb5311e038004d5e66beaecc7a69eaa4636f7ac39d"
+      }
+    },
+    {
+      "id": "L11b",
+      "title": "替推时 rebase 撞上队列里的行冲突，不是同一行就自己合",
+      "status": "done",
+      "files": {
+        "packages/relay/test/acceptance/l11b-queue-merge.test.ts": "51b512aadd73b55c8e539063c76b7bfe7d4a6c1e75d6f1a653576c03017195b3"
+      }
+    },
+    {
+      "id": "L19",
+      "title": "撞了 Claude 的周额度就歇到周四凌晨 4 点",
+      "status": "done",
+      "files": {
+        "packages/relay/test/acceptance/l19-weekly-quota.test.ts": "d189bf3b6d63688d00fdd048a7bec7b0af4a41a2ddfa03070565c27edb9909c3"
+      }
+    },
+    {
+      "id": "L17",
+      "title": "Codex 没额度时换 Claude 审",
+      "status": "done",
+      "files": {
+        "packages/relay/test/acceptance/l17-review-fallback.test.ts": "657a99a826ad72c89d6e99235d0ae546dc0782c53ede7fdd259ea30ae189381c"
+      }
+    },
+    {
+      "id": "L20",
+      "title": "relay init 生成的开发命令带上 DSH 补丁",
+      "status": "done",
+      "files": {
+        "packages/relay/test/acceptance/l20-init-patch.test.ts": "2dc5946b4ba90f285f83988d941a2b1e7e42902bec1125d209e7d8f5935bba95"
+      }
     }
   ]
 }
