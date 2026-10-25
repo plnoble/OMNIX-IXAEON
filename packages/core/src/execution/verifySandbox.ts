@@ -200,10 +200,7 @@ export async function checkSandboxAuth(
     const recordPath = join(home, SANDBOX_AUTH_RECORD);
     if (!existsSync(recordPath)) return { ok: false, reason: 'unauthorized' };
     const record = JSON.parse(readFileSync(recordPath, 'utf8')) as { codexVersion?: unknown };
-    if (
-      typeof record.codexVersion !== 'string' ||
-      record.codexVersion !== found.version
-    ) {
+    if (typeof record.codexVersion !== 'string' || record.codexVersion !== found.version) {
       return { ok: false, reason: 'unauthorized' };
     }
     if (!existsSync(join(home, '.sandbox', 'setup_marker.json'))) {
