@@ -1,73 +1,101 @@
-# G1a 交付：Goal Engine 核心存储（**只推测试**，等整合方锁定）
+# G1a 交付：Goal 核心（`goals` + `goal_events` + `GoalStore`）—— **本轮仅整理验收边界，无实现**
 
-- 分支：`dev2/G1a`，基于 main `2dcfa45`；档位 **B**（涉及数据库迁移——用户 2026-10-25 定）
+- 分支：`dev2/G1a`，基于 main `0f9deda`；档位 **B**（涉及数据库迁移）
 - 执行方：dev2
-- 状态：**只有测试，没有实现**。按 B 档规矩，测试推上去等整合方看过、在 main 上 `lock` 之后再写实现。
-  **我没有 `acceptance.mjs lock`**（那是整合方的关卡）。
+- **本轮只做三件**：按用户 2026-10-25 的要求把 G1 的验收边界重新切开、把 G1a 砍到只剩 Goal 核心、
+  把 Plan 那组测试整体迁到 G1c。**没有写任何实现**，也**没有 `acceptance.mjs lock`**。
 
-## 规格
+## 这一轮改了什么（按用户九条）
 
-`docs/委派/G1-GoalEngine-草案.md`（v2，**仍是草案**，等整合方定稿）。用户 2026-10-25 已拍板的设计：
-表名 `goals`、不给 `coding_tasks` 加列、`confirmation` 独立于 `origin`、只做 manual+weighted、
-`goal_links` 不表子目标、失败不机械判 blocked、Plan Step 独立成表、**G1a/G1b/G1c 都是 B 档，G1e 是 A 档**。
+### 1. G1a 砍到只剩 Goal 核心
 
-## 这一支交了什么
+`packages/core/test/acceptance/g1a-goal-store.test.ts`（重写，约 380 行、19 个 `it`）。只碰：
 
-`packages/core/test/acceptance/g1a-goal-store.test.ts`（约 480 行、22 个 `it`），源码改动 **0 行**。
+- 表：`goals`、`goal_events`——**并断言 `goal_links` / `goal_plans` / `goal_steps` / `goal_step_deps` 一张都不许有**
+  （防止 G1a 把后面几单的表一起建了）；
+- 接口：`GoalStore` 的 `create` / `get` / `childrenOf` / `confirm` / `transition` / `setProgress` / `list`。
 
-钉住的接缝（实现要照这个写，改名就等于改契约）：
+保留了用户点名要的：origin × confirmation 正交、UI/API 创建可 active、proposed 不能被 AI 激活、
+chat/ui/api 三种确认、状态机、`blocked_reason`/`decided_by`、**非法迁移事务回滚不残留 `goal_event`**、
+manual progress、`progress_mode=weighted` 允许保存但 G1a 不算、parent/child（含 `parent_weight`）、
+重启后仍在、不同 Goal 不串、`coding_tasks`/`todos` 结构完全不改。
 
-```ts
-migrate(db)                    // goals / goal_events / goal_plans / goal_steps / goal_step_deps
-new GoalStore(db)
-  .create(input) .get(id) .childrenOf(id)
-  .confirm(id, { how, messageId }) .transition(id, to, { decidedBy, reason })
-  .setProgress(id, v) .recomputeProgress(id)
-  .link(goalId, { kind, refId, weight }) .setRefDone(goalId, { kind, refId }, done)
-new PlanStore(db)
-  .addVersion(goalId, { reason, assumptions, steps }) .stepsOf(goalId, version)
-  .bindStep(...) .setDeps(...) .depsOf(stepId)
-  .reorderSteps(goalId, version, idsInOrder)
-  .advanceStep(stepId) .finishStep(stepId)
+新增一条：`GoalStore` 上**不许有 `recomputeProgress`**（那是 G1b 的活）——用 `undefined` 断言钉住。
+
+### 2. 删掉 `setRefDone` 这个产品接口
+
+G1a 的测试里**不再有任何「标记任务完成」的后门**。G1b 的测试改成**用真实的 `TodoStore`**：真的 `add` → `accept`
+→ `complete`，再去算进度。任务状态的真值来源永远是 `TodoStore` / `CodingTaskStore` / `ResearchTopicStore` 自己。
+
+### 3. weighted progress 全部移到 G1b
+
+`packages/core/test/acceptance/g1b-goal-links.test.ts`（新，约 300 行、13 个 `it`）：`goal_links`、
+读真实任务状态、`task_done`/`task_failed` 事件、weighted 进度、`watch`/`watch_reason`、`next_review_at`。
+G1a 不再要求「3 个任务完成 1 个 = 33%」。
+
+### 4. 子目标权重改用 `goals.parent_weight`
+
+草案里 `goals` 加了列：
+
+```sql
+parent_weight INTEGER CHECK (parent_weight IS NULL OR parent_weight > 0) DEFAULT 1
 ```
 
-## 覆盖的 8 组条件
+根目标可为 NULL、子目标默认 1、非 NULL 时必须 > 0（测试里断言传 0 / 负数被拒）。
+**不再用 `refId='goal:xxx'` 这种绕法**——G1b 的测试里明确断言 `kind='subgoal'` 和 `refId='goal:abc'` 都会被拒。
 
-1. **迁移与表结构**：五张表都在；`goals` 有第一版要的列；**断言没有 evidence/blocking 相关列**（用户定「连字段都不造」）；
-   断言 `coding_tasks` / `todos` **没有 goal_id / subgoal_id** 列，且 `coding_tasks.goal`（文本）仍是文本。
-2. **origin × confirmation 正交**（用户补充要求）：UI 创建 → `user`/`ui`/`active`；API → `user`/`api`/`active`；
-   聊天表达想法 → `agent`/`pending`/`proposed`；**`origin=agent` 能被 `ui` 确认、`origin=user` 也能走 `chat` 确认**；
-   再加一条数据库层：手写 SQL 造 `active + pending` 会被 CHECK 拒。
-3. **AI 任何路径都改不成 active**：直接 `transition` 抛错且不留事件；重算进度、加重规划跑完仍是 proposed。
-4. **状态机与事务回滚**（用户补充要求）：`proposed→completed` 拒、`abandoned→active` 拒、blocked 无理由拒；
-   **连续几次非法迁移之后 `goal_events` 一行都没多**；`blocked` 的事件 `decided_by` 只能是 agent/user；
-   `blocked→active` 清空理由并记事件。
-5. **progress**：manual 下完成任务不改值；weighted 3 等权完成 1 → 33、完成 2 → 67；
-   分母 0 保持原值；子目标的任务只算子目标，子目标完成后父按权重只计一次。
-6. **Plan Step 稳定 ID 与两阶段重排**（用户补充要求）：
-   重排后 **ID 不变、依赖不变、绑定的任务不变**，只有 `seq` 变；行数不变（证明不是删了重建）；
-   传重复 id 时整体失败、`seq` 保持原样（事务）；重排不重置状态（doing 跟着走）；
-   `goal_plans` **没有 `steps_json` 列**；`advanceStep` 依赖没满足时抛错、满足后进 doing 并写 `started_at`；
-   依赖成环被拒。
-7. **重启后仍在**：关连接、重开、重读目标/子目标/方案/步骤/依赖/事件全在。
-8. **不同目标不串状态**：各自挂任务各自完成互不影响；一个 blocked 不影响另一个。
+G1b 计算父目标 weighted 进度的规则（测试里钉住）：
+直接任务按 `goal_links.weight`；直接子目标「完成」后按 `parent_weight` 计一次；
+**子目标内部的任务不直接重复计入父目标**（有专门一条测试：子的任务完成时父目标进度仍是 0）。
+
+### 5. Plan / Step 整体迁到 G1c
+
+`packages/core/test/acceptance/g1c-goal-plans.test.ts`（新，约 330 行、11 个 `it`）：
+`goal_plans` / `goal_steps` / `goal_step_deps` / `PlanStore` / `reorderSteps` / `advanceStep` / 依赖 / 成环拒绝 /
+Step ID 稳定 / **两阶段 seq 重排**——原来 G1a 里那几条**一条没删，整组搬过去**。
+
+用户补充的重排要求全在：重排后 **ID 集合、依赖、任务绑定、行数都不变**（证明不是删了重建），只有 `seq` 变；
+传重复 id → 整体失败、`seq` 保持原样（单事务）；重排不重置状态。
+
+**G1a 的测试里已经没有任何方案表或 `PlanStore` 的引用。**
+
+### 6. 「AI 不能激活 proposed」分层测试
+
+| 层  | 怎么测                                                                   |
+| --- | ------------------------------------------------------------------------ |
+| G1a | 直接 `transition(proposed → active, decidedBy='agent')` 必须拒且不留事件 |
+| G1b | 自动跟踪 / 进度重算 / `noteTaskFailed` 跑完，proposed 仍是 proposed      |
+| G1c | `replan` / `advanceStep` 跑完，proposed 仍是 proposed                    |
+| G1d | 模型识别只能创建 proposed（那一单的测试，本轮没写）                      |
+
+### 7. G1e 没写
+
+按用户要求，等 G1a 的测试经整合方复审并锁定之后，再按 A 档做 G1e 的测试 + 实现。**现在没有提前钉 UI 数据接口。**
+
+### 8. 文档修正（`docs/委派/G1-GoalEngine-草案.md`）
+
+- 第 5 节重写：**按单切分**，每单一张表说明「只允许引用的表 / 接口」；验收条件共 32 条按单编号。
+- 第 7 节：档位改成 **G1a=B、G1b=B、G1c=B、G1d=B、G1e=A**（用户定）；加了「每单必须能独立锁定、独立实现」。
+- 第 9 节：从「还给整合方定的事」改成「**已定案**」——`seq` 可重排、Step ID 永久不变、单事务、
+  两阶段临时序号避免 UNIQUE 冲突、**不允许删除重建 Step**；子目标权重用 `parent_weight`；
+  任务真值来源永远是任务自己的 Store。
 
 ## 自动化通过
 
-- 这一支是**红的**（`Cannot find module '../../src/goals/index.js'`）——实现还不存在，符合 B 档「先推测试」。
-- `node scripts/verify.mjs`：全过（未锁定的测试不进 `run-done` 那一步，见下面输出）。
+- `g1a` / `g1b` / `g1c` 三个文件**都是红的，错因都是 `Cannot find module '../../src/goals/index.js'`**
+  ——实现还不存在，符合 B 档「先推测试」。
+- `node scripts/verify.mjs`：**见下**（未锁定的测试不进 `run-done`，既有的门禁不受影响）。
 
 ## 真机通过
 
-没跑。这一支只有测试，真机检查（`scripts/real/g1-goal-engine.mjs`）跟实现那一支一起交。
+没跑。这一支只有测试；真机检查跟实现那一支一起交。
 
-## 需要整合方在锁定前确认的三件事
+## 已知缺口 / 留给整合方锁定时拍板
 
-1. **`goal_steps.seq` 重排的实现方式**：我要求「两阶段临时序号 + 单事务、不删不重建」（用户定的）。
-   测试用「重排后 ID/依赖/绑定不变 + 行数不变」来钉；如果整合方认可，锁定时就照这个。
-2. **`setRefDone` 这个测试接缝**：为了在核心层测「任务完成 → 进度变」而不真去建 coding_task，
-   我加了一个「把某个引用标成完成」的口子。它只是测试用的状态记录，**不代表真任务的真值来源**——
-   真实现里应该以 `todos` / `coding_tasks` 的真实状态为准（G1b 再接线）。这条请整合方审。
-3. **`goal_links` 里 `refId: 'goal:<id>'` 表达「子目标在父目标里的权重」**：草案里没写细，
-   我用这个约定在测试里算了「子目标完成 → 父按权重计一次」。如果整合方要改成单独一列 `kind='subgoal'`
-   （用户说过「goal_links 不要表子目标」，所以不能用 kind），那就得再想；**这条要拍板**。
+1. **测试接缝的命名**：`GoalStore.link` / `noteTaskFailed` / `PlanStore.addVersion` / `reorderSteps` /
+   `advanceStep` / `setStepStatus` / `bindStep` / `setDeps` / `finishStep` 这些名字是测试钉死的，
+   实现必须照写；如果整合方觉得哪个名字不合适，锁定时改测试（**这是 B 档整合方的权力，我不改**）。
+2. **`noteTaskFailed` 的定位**：它是「把某个任务失败的事实告诉目标」的入口，不负责判断（不做 blocked）。
+   谁在什么时机调它（自动跟踪接线）属于 G1b 实现细节。
+3. **`g1b` 里 `noteTaskFailed` 传了 `reason`**：测试里用来验证 `watch_reason` 会带上任务号；
+   如果实现想让 `watch_reason` 只列任务号、理由另存，锁定时一起定。
