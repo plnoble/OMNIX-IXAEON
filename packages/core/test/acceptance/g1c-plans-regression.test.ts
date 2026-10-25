@@ -70,6 +70,7 @@ describe('多版本与历史只读', () => {
     const goal = goals.create({ title: '目标', via: 'ui' });
     const v1 = plan(goal.id);
     plans.addVersion(goal.id, { reason: '第二版', assumptions: [], steps: [{ title: 'x' }] });
+    expect(v1.version).toBe(1); // 历史版本就是这一版
     const old = plans.stepsOf(goal.id, 1);
     const snapshot = { steps: plans.stepsOf(goal.id, 1), plans: plans.plansOf(goal.id) };
     for (const attempt of [
