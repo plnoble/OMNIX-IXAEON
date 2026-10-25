@@ -194,6 +194,8 @@ export {
   resolveCodexLocator,
   DEFAULT_NOTE_VERIFY,
   isPlaceholderVerifyCommand,
+  codexLocatorFrom,
+  type CodexLocator,
   runControlledVerifyCommand,
   defaultCheck,
   electronRunAsNodeEnv,

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * V4 验收（规格 docs/委派/V4-依赖档验证的授权入口-新版沙箱.md，条件 6 的回报那一行、7、8、9、10）。
  * 先测试后实现：这些测试在实现写出来之前是红的。
  *
@@ -154,21 +154,14 @@ function machine(version = '9.9.9', opts: { authorized?: boolean } = {}) {
   const dataDir = temp('ixa-v4-data-');
   const home = join(dataDir, 'codex-sandbox-home');
   if (opts.authorized !== false) {
-    mkdirSync(join(home, '.sandbox-bin'), { recursive: true });
-    mkdirSync(join(home, '.sandbox'), { recursive: true });
+    // 新口径（V4 新版沙箱）：授权记录 + 版本一致 + setup 标记
+    mkdirSync(home, { recursive: true });
     writeFileSync(
-      join(home, 'cap_sid'),
-      JSON.stringify({ workspace: 'S-1', readonly: 'S-2', workspace_by_cwd: { 'D:/x': 'S-3' } }),
+      join(home, 'ixaeon-sandbox-auth.json'),
+      JSON.stringify({ codexVersion: version }),
     );
-    writeFileSync(join(home, '.sandbox-bin', `codex-command-runner-${version}.exe`), '');
+    mkdirSync(join(home, '.sandbox'), { recursive: true });
     writeFileSync(join(home, '.sandbox', 'setup_marker.json'), '{}');
-    for (const sc of ['sc', 'sc.exe']) {
-      child.scripts.set(child.key(sc, ['query', 'CodexSandboxService.OpenAI.Codex']), {
-        code: 0,
-        stdout: 'STATE              : 4  RUNNING\n',
-        stderr: '',
-      });
-    }
   }
   return { dataDir, home, exe };
 }

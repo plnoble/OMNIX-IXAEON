@@ -15,7 +15,10 @@ import {
   CodingOrchestrator,
   FakeCodingExecutor,
   CodexCliExecutor,
-  resolveCodexLocator,
+  codexLocatorFrom,
+  checkSandboxAuth,
+  requestSandboxAuth,
+  findLatestCodex,
   HermesRuntimeAdapter,
   AgentSession,
   ConversationStore,
@@ -75,6 +78,7 @@ import {
   type AgentSessionPreview,
   type AskResult,
   type CoreDatabase,
+  type CodexLocator,
   type ModelProvider,
   type WebSearchExecutor,
 } from '@ixaeon/core';
@@ -102,6 +106,7 @@ import {
   type UnbindProjectFolderPreview,
   type UnbindProjectFolderResult,
   type RevokeSourceReadingPreview,
+  type VerifySandboxView,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
@@ -184,7 +189,11 @@ export class AppRuntime {
   private get codingDispatch(): CodingDispatch {
     return (this.codingDispatchRef ??= new CodingDispatch(this));
   }
-  codexLocator: (() => ReturnType<typeof resolveCodexLocator>) | null = resolveCodexLocator;
+  /**
+   * V4（契约 3.1）：Codex 由 `create()` 在应用启动时找一次（取本机最新版），结果记在这里；
+   * `createCodingExecutor` 与 `codingDispatch` 判断有没有 Codex 都用记下的，不再重新问版本。
+   */
+  codexLocator: (() => CodexLocator | null) | null = null;
   /** S3a：列出后的内存清单（编号 → 路径、授权），30 分钟过期。 */
   private agentSessionLists: Map<
     string,
@@ -271,10 +280,13 @@ export class AppRuntime {
       () => runtimeRef.current?.getWebSearchExecutor() ?? undefined,
       () => runtimeRef.current?.getProvider() ?? null,
     );
+    // V4（契约 3.1）：应用启动时找一次 Codex（取本机最新版，问版本要起子进程），
+    // 结果记下来给执行器和 codingDispatch 共用——之后判断有没有 Codex 不再问版本。
+    const locatedCodex = codexLocatorFrom(await findLatestCodex());
     const coding = new CodingOrchestrator(
       db,
       // D7b：包一层按设置选执行器——plan 每次现读 runtimeRef 当前设置
-      new ConfiguredCodingExecutor(createCodingExecutor(), () =>
+      new ConfiguredCodingExecutor(createCodingExecutor(locatedCodex), () =>
         runtimeRef.current ? runtimeRef.current.executorPlan() : { use: 'codex' as const },
       ),
       resolved.dataDir,
@@ -367,6 +379,8 @@ export class AppRuntime {
       localServer,
     });
     runtimeRef.current = runtime;
+    // V4：执行器与 codingDispatch 都用启动时记下的这个结果，不再重新问版本。
+    runtime.codexLocator = () => locatedCodex;
     runtime.registerJobHandlers();
     // RF08：旧版落盘的 plain:（Base64 可逆编码）密钥迁移 ——
     // 系统加密可用 → 原地升级为 safeStorage 密文；不可用 → 清除旧值
@@ -2314,6 +2328,26 @@ export class AppRuntime {
     };
   }
 
+  /**
+   * V4（契约 2，条件 6）：只查依赖档沙箱授权——不弹窗、不写任何文件、不记审计。
+   * 版本号用和授权检查同一套找法（findLatestCodex）拿到的那个。
+   */
+  async getVerifySandbox(): Promise<VerifySandboxView> {
+    const [auth, found] = await Promise.all([checkSandboxAuth(this.dataDir), findLatestCodex()]);
+    return { status: auth.ok ? 'ok' : auth.reason, codexVersion: found?.version ?? null };
+  }
+
+  /**
+   * V4（契约 2，条件 7）：发起一次授权（只有设置页那个按钮会走到这里），
+   * 不管发起说成没成，接着查一遍，返回查到的结果，并记一条审计。
+   */
+  async authorizeVerifySandbox(): Promise<VerifySandboxView> {
+    await requestSandboxAuth(this.dataDir);
+    const view = await this.getVerifySandbox();
+    recordAudit(this.db, 'verify_sandbox.authorize', { status: view.status });
+    return view;
+  }
+
   async rebuildSemanticIndex(): Promise<{ embedded: number; remaining: number }> {
     const index = this.semanticIndex;
     if (!index) return { embedded: 0, remaining: 0 };
@@ -2590,7 +2624,9 @@ export class AppRuntime {
     );
     const coding = new CodingOrchestrator(
       db,
-      new ConfiguredCodingExecutor(createCodingExecutor(), () => this.executorPlan()),
+      new ConfiguredCodingExecutor(createCodingExecutor(this.codexLocator?.() ?? null), () =>
+        this.executorPlan(),
+      ),
       this.dataDir,
     );
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
@@ -3022,9 +3058,8 @@ function backupThenMigrate(
   migrate(db);
 }
 
-/** 用户已确认隔离默认值：有 Codex 就真机派发，否则 Fake。 */
-function createCodingExecutor(): FakeCodingExecutor | CodexCliExecutor {
-  const locator = resolveCodexLocator();
+/** 用户已确认隔离默认值：有 Codex 就真机派发，否则 Fake。V4：用启动时找一次的结果。 */
+function createCodingExecutor(locator: CodexLocator | null): FakeCodingExecutor | CodexCliExecutor {
   if (locator) return new CodexCliExecutor(locator);
   return new FakeCodingExecutor();
 }

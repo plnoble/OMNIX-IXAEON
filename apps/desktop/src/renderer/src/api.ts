@@ -18,6 +18,7 @@ import type {
   Source,
   SourceListItem,
   UpdateStatusView,
+  VerifySandboxView,
   WorkRun,
 } from '@ixaeon/contracts';
 
@@ -57,5 +58,6 @@ export type {
   Source,
   SourceListItem,
   UpdateStatusView,
+  VerifySandboxView,
   WorkRun,
 };

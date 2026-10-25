@@ -715,3 +715,15 @@ export type TodoView = Todo & {
   /** 底下编码任务的实时状态（coding_tasks.status）；没有关联为 null */
   linkedStatus: string | null;
 };
+
+// ---------------------------------------------------------------------------
+// V4：依赖档验证的 Codex 沙箱授权（设置页那一块用）
+// ---------------------------------------------------------------------------
+
+/** V4：依赖档验证用的 Codex 沙箱，这台机器授权了没有。 */
+export interface VerifySandboxView {
+  /** ok = 授权了，依赖档验证跑得了；其余三种跑不了。 */
+  status: 'ok' | 'unauthorized' | 'codex_missing' | 'unsupported_platform';
+  /** 用的是哪个版本的 Codex 命令行（`codex --version` 里的版本号，比如 0.130.0-alpha.5）；没找到 Codex 是 null。 */
+  codexVersion: string | null;
+}

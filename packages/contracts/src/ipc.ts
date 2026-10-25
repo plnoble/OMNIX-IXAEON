@@ -23,6 +23,7 @@ import type {
   RevokeSourceReadingPreview,
   WorkRun,
   SkillCandidate,
+  VerifySandboxView,
 } from './entities.js';
 import { z } from 'zod';
 import { itemTypeSchema } from './entities.js';
@@ -822,6 +823,10 @@ export interface IxaIpcApi {
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置
   getSettings(): Promise<SettingsView>;
+  /** V4：依赖档验证的 Codex 沙箱授权状态。只查：不弹窗、不写任何文件、不记审计。 */
+  getVerifySandbox(): Promise<VerifySandboxView>;
+  /** V4：发起一次授权（Windows 会弹一次管理员确认），等它结束再查一遍，返回查到的。 */
+  authorizeVerifySandbox(): Promise<VerifySandboxView>;
   getSemanticIndexStatus(): Promise<{
     enabled: boolean;
     model: string | null;

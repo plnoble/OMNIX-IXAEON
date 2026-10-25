@@ -627,6 +627,9 @@ export function registerIpc(runtime: AppRuntime): void {
 
     // --- 设置 ---
     getSemanticIndexStatus: async () => runtime.getSemanticIndexStatus(),
+    // V4：依赖档验证的沙箱授权状态（只查）与发起授权（会弹一次管理员确认）
+    getVerifySandbox: async () => runtime.getVerifySandbox(),
+    authorizeVerifySandbox: async () => runtime.authorizeVerifySandbox(),
     prewarmChat: async (input) => runtime.prewarmChat(input?.projectId ?? null),
     rebuildSemanticIndex: async () => runtime.rebuildSemanticIndex(),
     getSettings: async () => {
