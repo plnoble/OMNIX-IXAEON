@@ -210,9 +210,11 @@ paused / blocked ──> active / abandoned
 ### 3.6 Progress（**manual 属于 G1a；weighted 整块属于 G1b**）
 
 - `manual`：`progress` 就是人给的值；任务完成/失败都**不改**它（只记事件）。
-- `weighted`：分母 = 挂在该目标上的任务权重之和；分子 = 已完成任务的权重之和；
+- `weighted`：分母 = 直接挂在该目标上的任务权重（`goal_links.weight`）之和
+  **+ 直接子目标的 `parent_weight` 之和**；分子 = 已完成任务与已完成子目标的对应权重之和；
   `progress = round(100 × 分子 / 分母)`；**分母为 0 → 保持原值**（不瞎算成 0）；
-  子目标自己的任务算子目标的，子目标 `completed` 时按它在父目标 `goal_links` 里的权重计一次（**不重复计**）。
+  **直接子目标完成后按子目标自身的 `parent_weight` 计入直接父目标一次**；
+  子目标内部的任务不重复计入父目标（它们只算子目标自己的进度）。
 
 ### 3.7 从对话识别目标
 
