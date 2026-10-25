@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
+import { linkTask, unlinkTask, noteTaskFailure, recompute, type GoalTaskRef } from './links.js';
 import type {
   CreateGoalInput,
   Goal,
@@ -154,7 +155,7 @@ export class GoalStore {
     })();
   }
 
-  /** 手工存值，不计算 weighted；G1b 另读真实任务状态。 */
+  /** 手工存值，不计算 weighted；任务关联、真实状态读取与进度计算在 links.ts。 */
   setProgress(id: string, value: number): Goal {
     return this.db.transaction(() => {
       this.requireGoal(id);
@@ -166,6 +167,25 @@ export class GoalStore {
       this.event(id, 'progress', 'user', { value });
       return this.requireGoal(id);
     })();
+  }
+
+  /** 把已有任务关联到目标；任务状态的真值来源永远是任务自己的 Store。 */
+  link(goalId: string, ref: GoalTaskRef & { weight?: number }): void {
+    linkTask(this.db, goalId, ref);
+  }
+
+  unlink(goalId: string, ref: GoalTaskRef): void {
+    unlinkTask(this.db, goalId, ref);
+  }
+
+  /** 只记录真实失败的观察结果（watch + 事件），不判 blocked；任务状态不是 failed 时抛错。 */
+  noteTaskFailed(goalId: string, ref: GoalTaskRef): void {
+    noteTaskFailure(this.db, goalId, ref);
+  }
+
+  /** 读真实任务/子目标状态算 weighted；manual 只观察事件不改值。 */
+  recomputeProgress(goalId: string): Goal {
+    return recompute(this.db, goalId);
   }
 
   private event(
