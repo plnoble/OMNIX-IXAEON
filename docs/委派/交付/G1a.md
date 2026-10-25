@@ -99,3 +99,60 @@ Step ID 稳定 / **两阶段 seq 重排**——原来 G1a 里那几条**一条�
    谁在什么时机调它（自动跟踪接线）属于 G1b 实现细节。
 3. **`g1b` 里 `noteTaskFailed` 传了 `reason`**：测试里用来验证 `watch_reason` 会带上任务号；
    如果实现想让 `watch_reason` 只列任务号、理由另存，锁定时一起定。
+
+---
+
+# 第二轮整理（dev2，2026-10-25 晚，仍只改测试与草案，无实现）
+
+用户指出：第一轮里 G1a 钉了几条「当前阶段还没有」的否定断言，会把 G1b/G1c 的正常演进锁死。
+本轮按用户六条要求把「当前还没做」与「永久不许做」分开，只锁后者。
+
+## 删掉的三条（属于「当前还没有」，未来必须允许出现）
+
+1. **G1a**：`goal_links` / `goal_plans` / `goal_steps` / `goal_step_deps`「一张都不许有」的断言 —— **删**。
+   G1b/G1c 合并后这些表本来就该存在。改成只正向断言 G1a 自己的两张表在、能读能写。
+2. **G1a**：`GoalStore.recomputeProgress` 必须 `undefined` —— **删**。G1a 自己不调用它即可，
+   G1b 可以合法地在这个类上加能力。
+3. **G1c**：`goal_links` 不许存在 —— **删**（同样是「当前还没有」）。
+
+三处都留了注释写明「故意不断言，锁死会挡演进」。
+
+## 保留的永久约束（第 3 条要求，全部核实仍在）
+
+- `coding_tasks` / `todos` **不加** `goal_id` / `subgoal_id` / `plan_version`（g1a、g1b 各一处）；
+- `coding_tasks.goal` 仍是「目标描述文本」，不能被占用成外键；
+- `goal_links.kind` 不许 `subgoal`、不许 `refId='goal:xxx'` 偷渡子目标（g1b）；
+- `goal_plans` 没有 `steps_json` 列，Step 是权威结构（g1c）；
+- 重排后 Step **ID 集合、依赖、任务绑定、行数都不变**（g1c，用户定的两阶段重排）。
+
+## 第 4 条：三份测试的否定断言逐条过了一遍
+
+| 文件 | 行       | 断言                                                                | 判定                   |
+| ---- | -------- | ------------------------------------------------------------------- | ---------------------- |
+| g1a  | L116-118 | `coding_tasks`/`todos` 无 `goal_id`/`subgoal_id`/`plan_version`     | **永久约束，留**       |
+| g1a  | 若干     | `blocked_reason`/`confirmed_by_message_id`/`parent_goal_id` 为 NULL | 状态机行为，留         |
+| g1b  | L103-104 | `todos` 无 `goal_id`/`plan_version`                                 | **永久约束，留**       |
+| g1b  | —        | `kind='subgoal'`、`refId='goal:abc'` 被拒                           | **永久约束，留**       |
+| g1c  | L88      | `goal_plans` 无 `steps_json`                                        | **永久约束，留**       |
+| g1a  | 原       | 「四张 G1b/G1c 表不许有」                                           | 当前阶段限制，**已删** |
+| g1a  | 原       | `recomputeProgress` 必须 undefined                                  | 当前阶段限制，**已删** |
+| g1c  | 原       | `goal_links` 不许有                                                 | 当前阶段限制，**已删** |
+
+## 第 5 条：草案 3.6 的旧描述已改
+
+原文「子目标 `completed` 时按它在父目标 `goal_links` 里的权重计一次」是 v1 遗留。
+改成：**直接子目标完成后按子目标自身的 `parent_weight` 计入直接父目标一次；子目标内部的任务不重复计入父目标**；
+并写明分母 = 直接任务权重（`goal_links.weight`）+ 直接子目标的 `parent_weight`。
+
+## 测试计数（prettier 重排后按 `it(` 数）
+
+- `g1a-goal-store.test.ts`：**22 个 it**
+- `g1b-goal-links.test.ts`：**14 个 it**
+- `g1c-goal-plans.test.ts`：**12 个 it**
+
+三个文件仍是红的，错因都是 `Cannot find module '../../src/goals/index.js'`（实现还不存在）。
+`node scripts/verify.mjs`：全过（未锁定测试不进 `run-done`）。
+
+## 本轮没做的
+
+没写实现、没 `acceptance.mjs lock`、没 `done`、没做 G1e。

@@ -6,7 +6,7 @@
  * 不碰 `goal_links`（G1b）、不碰方案与步骤（G1c）、不算 weighted 进度（G1b）、不碰界面（G1e）。
  *
  * 钉死的接缝（实现必须照这个写，改名就等于改契约）：
- * - `migrate(db)` 之后有 `goals` / `goal_events`；**别的 G1 表一张都不许有**；
+ * - `migrate(db)` 之后有 `goals` / `goal_events`（G1b/G1c 的表由那两单自己加，本单不管）；
  * - `new GoalStore(db)`；`create` / `get` / `childrenOf` / `confirm` / `transition` / `setProgress` / `list`；
  * - 所有改状态的入口在同一个事务里；被拒时抛错且**不留 goal_event**。
  */
@@ -64,14 +64,16 @@ const tablesNow = (): string[] =>
     }>
   ).map((t) => t.name);
 
-describe('条件 1：迁移只加 goals 和 goal_events', () => {
-  it('这两张在；G1b/G1c 的表一张都不许有（防止 G1a 把后面几单的表也建了）', () => {
+describe('条件 1：迁移加了 goals 和 goal_events', () => {
+  it('这两张表在、能按 G1a 的接口读写（G1b/G1c 的表由那两单自己加，这里不管）', () => {
     const tables = tablesNow();
     expect(tables).toContain('goals');
     expect(tables).toContain('goal_events');
-    for (const t of ['goal_links', 'goal_plans', 'goal_steps', 'goal_step_deps']) {
-      expect(tables, `${t} 属于别的单，G1a 不该建它`).not.toContain(t);
-    }
+    // 注意：这里**故意不断言** goal_links / goal_plans / goal_steps / goal_step_deps 不存在。
+    // 它们是 G1b/G1c 的表，那两单合并之后本来就该有；锁一条「永远别存在」会挡住正常演进。
+    const g = goals.create({ title: '能读能写', via: 'ui' });
+    expect(goals.get(g.id)!.title).toBe('能读能写');
+    expect(countEvents(g.id)).toBeGreaterThan(0);
   });
 
   it('goals 的列齐，且没有 evidence / blocking / milestone 的痕迹', () => {
@@ -279,12 +281,8 @@ describe('条件 5：progress —— G1a 只有 manual，不算 weighted', () =>
     expect(row.progress_mode).toBe('weighted');
     expect(row.progress, 'G1a 不算 weighted，值保持原样').toBe(15);
   });
-
-  it('GoalStore 上没有「按任务算进度」的接口（那是 G1b 的活）', () => {
-    const g = goals.create({ title: 'x', via: 'ui' });
-    expect((goals as unknown as { recomputeProgress?: unknown }).recomputeProgress).toBeUndefined();
-    void g;
-  });
+  // 注意：这里**故意不断言** GoalStore 上没有 recomputeProgress。
+  // G1a 自己不调用它就行；G1b 完全可以合法地在这个类上加「按任务算进度」的能力。
 });
 
 describe('条件 6：父子关系', () => {
