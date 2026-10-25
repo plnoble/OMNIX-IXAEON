@@ -202,6 +202,18 @@ export {
   type ExecutorRunOptions,
   type IndependentCheck,
 } from './execution/executor.js';
+export {
+  checkSandboxAuth,
+  requestSandboxAuth,
+  findLatestCodex,
+  findLatestCodexSync,
+  parseCodexVersion,
+  sandboxHomeDir,
+  type CodexFound,
+  type SandboxAuthEnv,
+  type SandboxAuthError,
+  type SandboxAuthResult,
+} from './execution/verifySandbox.js';
 export { landTask, landingText, type LandingOutcome } from './execution/landing.js';
 export {
   locateHermes,

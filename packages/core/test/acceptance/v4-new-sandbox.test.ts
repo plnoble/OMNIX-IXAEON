@@ -28,6 +28,8 @@ const child = vi.hoisted(() => ({
   scripts: new Map<string, { code: number; stdout: string; stderr: string }>(),
   calls: [] as Array<{ key: string; env: NodeJS.ProcessEnv | undefined }>,
   sync: [] as string[],
+  /** 条件 2 的开关：打开后同步子进程一调就抛（检查与授权里不许有）。 */
+  forbidSync: false,
   key: (exe: unknown, args: unknown) =>
     `${String(exe)}|${(Array.isArray(args) ? args : []).map(String).join('\0')}`,
 }));
@@ -83,20 +85,35 @@ vi.mock('node:child_process', async (importOriginal) => {
   const forbid = (name: string) => () => {
     throw new Error(`V4 条件 2：${name} 不许在检查和授权里用`);
   };
+  // spawnSync 默认按脚本表应答（执行器「启动时找一次」那条合法的同步路径要用的），
+  // forbidSync 打开时一调就抛（条件 2：检查与授权里不许有同步子进程）。
+  const spawnSync = (exe: unknown, args?: unknown) => {
+    if (child.forbidSync) forbid('spawnSync')();
+    const list = Array.isArray(args) ? args : [];
+    child.sync.push(child.key(exe, list));
+    const a = answer(exe, list);
+    return { status: a.code, stdout: a.stdout, stderr: a.stderr };
+  };
   const patched = {
     ...actual,
     spawn,
     execFile,
-    spawnSync: forbid('spawnSync'),
-    execFileSync: forbid('execFileSync'),
-    execSync: forbid('execSync'),
+    spawnSync,
+    execFileSync: () => {
+      if (child.forbidSync) forbid('execFileSync')();
+      throw new Error('V4 替身：execFileSync 没接');
+    },
+    execSync: () => {
+      if (child.forbidSync) forbid('execSync')();
+      throw new Error('V4 替身：execSync 没接');
+    },
   };
   return { ...patched, default: patched };
 });
 
 const { findLatestCodex, checkSandboxAuth, requestSandboxAuth } =
   await import('../../src/execution/verifySandbox.js');
-const { resolveCodexLocator } = await import('../../src/execution/executor.js');
+const { resolveCodexLocator, defaultCheck } = await import('../../src/execution/executor.js');
 
 const dirs: string[] = [];
 const saved = {
@@ -108,6 +125,7 @@ beforeEach(() => {
   child.scripts.clear();
   child.calls.length = 0;
   child.sync.length = 0;
+  child.forbidSync = false;
   delete process.env.IXAEON_CODEX_EXE;
 });
 
@@ -146,6 +164,7 @@ function authorizedNew(version = '9.9.9'): { dataDir: string; exe: string; home:
   const exe = fakeCodex(join(local, 'OpenAI', 'Codex', 'bin', 'hash-new'), version);
   const dataDir = temp('ixa-v4n-data-');
   const home = join(dataDir, 'codex-sandbox-home');
+  mkdirSync(home, { recursive: true });
   writeFileSync(join(home, 'ixaeon-sandbox-auth.json'), JSON.stringify({ codexVersion: version }));
   mkdirSync(join(home, '.sandbox'), { recursive: true });
   writeFileSync(join(home, '.sandbox', 'setup_marker.json'), '{}');
@@ -280,6 +299,9 @@ describe('条件 1：找 Codex 只有一套，取最新版', () => {
 });
 
 describe('条件 2：检查与授权不卡窗口（同步子进程一调就抛）', () => {
+  beforeEach(() => {
+    child.forbidSync = true;
+  });
   it('checkSandboxAuth 与 requestSandboxAuth 全程没有 spawnSync/execFileSync/execSync', async () => {
     const { dataDir } = authorizedNew();
     await checkSandboxAuth(dataDir);
@@ -414,7 +436,11 @@ describe('条件 4：发起授权（setup → 试跑 → 写记录）', () => {
   });
 
   it('setup 退出非 0：unauthorized、没起试跑、没写记录', async () => {
-    const { dataDir, exe, home } = authorizedNew();
+    const local = temp('ixa-v4n-local-');
+    process.env.LOCALAPPDATA = local;
+    const exe = fakeCodex(join(local, 'OpenAI', 'Codex', 'bin', 'hash-new'), '9.9.9');
+    const dataDir = temp('ixa-v4n-data-');
+    const home = join(dataDir, 'codex-sandbox-home');
     child.scripts.set(
       child.key(exe, ['sandbox', 'setup', '--elevated', '--current-user', '--codex-home', home]),
       {
@@ -433,7 +459,11 @@ describe('条件 4：发起授权（setup → 试跑 → 写记录）', () => {
       ['退出非 0', { code: 1, stdout: '', stderr: '替身：试跑失败\n' }],
       ['输出没有标记', { code: 0, stdout: '别的输出\n', stderr: '' }],
     ] as const) {
-      const { dataDir, exe, home } = authorizedNew();
+      const local = temp('ixa-v4n-local-');
+      process.env.LOCALAPPDATA = local;
+      const exe = fakeCodex(join(local, 'OpenAI', 'Codex', 'bin', 'hash-new'), '9.9.9');
+      const dataDir = temp('ixa-v4n-data-');
+      const home = join(dataDir, 'codex-sandbox-home');
       child.scripts.set(
         child.key(exe, ['sandbox', 'setup', '--elevated', '--current-user', '--codex-home', home]),
         {
@@ -555,7 +585,7 @@ describe('条件 5：依赖档派生（新版 argv 与 config.toml）', () => {
     expect(toml).toContain(`"${copy.replaceAll('\\', '/')}" = true`);
     expect(toml).toContain('[permissions.ixaeon.filesystem]');
     expect(toml).toContain('":root" = "read"');
-    expect(toml).toContain(`"${copy.replaceAll('\\', '/')}//**" = "write"`);
+    expect(toml).toContain(`"${copy.replaceAll('\\', '/').replace(/\/$/, '')}/**" = "write"`);
     // 依赖只读：realDeps 是项目根里的 node_modules（prepareDependencyCopy 记的）
     expect(toml).toContain(`"${root.replaceAll('\\', '/')}/node_modules/**" = "read"`);
     expect(toml).toContain('[permissions.ixaeon.network]');
@@ -567,7 +597,7 @@ describe('条件 5：依赖档派生（新版 argv 与 config.toml）', () => {
     expect(toml).not.toContain('default_permissions');
     // 写权限只有副本一条
     const writeLines = toml.split('\n').filter((l) => l.includes(' = "write"'));
-    expect(writeLines).toEqual([`"${copy.replaceAll('\\', '/')}//**" = "write"`]);
+    expect(writeLines).toEqual([`"${copy.replaceAll('\\', '/').replace(/\/$/, '')}/**" = "write"`]);
   });
 
   it('派生之前 Codex 找不到了：不派生，照 codex_missing 那句回、ran=false', async () => {
