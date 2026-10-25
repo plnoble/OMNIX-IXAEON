@@ -86,6 +86,8 @@ const buildConfig = (o: {
   trees: string;
   intCwd: string;
   claude: string;
+  /** L20 契约第 2、3 条：有补丁文件就是它的绝对路径，没有就是 null。 */
+  patch: string | null;
 }): RelayConfig => {
   const example = JSON.parse(
     readFileSync(join(o.root, 'packages', 'relay', 'config.example.json'), 'utf8'),
@@ -108,6 +110,8 @@ const buildConfig = (o: {
     '{relay_root}/packages/relay/bin/dsh.mjs',
     '--profile',
     'headless',
+    // L20 契约第 2 条：补丁文件紧跟在 headless 后面；没有就一项都不加（契约第 3 条）。
+    ...(o.patch ? ['--patch', o.patch] : []),
     '--json',
     '读 {prompt_file}，照里面做。',
   ];
@@ -158,7 +162,17 @@ const initCommand = async (dir: string): Promise<void> => {
   }
   const claude = findClaudeExe();
   if (!claude) console.log('没找到 Claude Code 的可执行文件，配置里先写 claude，要手动改');
-  const config = buildConfig({ dir, root, trees, intCwd, claude: claude ?? 'claude' });
+  // L20 契约第 1 条：用户本机的 DSH 补丁（完全权限、plan）。存在就带上，不存在就不带。
+  const patch = join(homedir(), '.dsh', 'ixaeon-relay.patch.yml');
+  const hasPatch = existsSync(patch);
+  const config = buildConfig({
+    dir,
+    root,
+    trees,
+    intCwd,
+    claude: claude ?? 'claude',
+    patch: hasPatch ? patch : null,
+  });
   mkdirSync(join(dir, 'turns'), { recursive: true });
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   const checked = checkConfig(config);
@@ -169,6 +183,12 @@ const initCommand = async (dir: string): Promise<void> => {
     return;
   }
   console.log(`写好了：${file}`);
+  // L20 契约第 4 条：路径照原样写 `~/`，不打印展开后的用户目录（仓库是公开的）。
+  console.log(
+    hasPatch
+      ? '开发的命令带上了 DSH 补丁：~/.dsh/ixaeon-relay.patch.yml'
+      : '没找到 ~/.dsh/ixaeon-relay.patch.yml，开发的命令没带 --patch（DSH 会用 headless 默认的设置：DeepSeek 官方 API、关在沙箱里）',
+  );
   console.log(`整合方的工作目录：${config.roles.integrator.cwd}`);
   console.log(`开发的工作目录：${config.roles.developer.cwd}`);
 };

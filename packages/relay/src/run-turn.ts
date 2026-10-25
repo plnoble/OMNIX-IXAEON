@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseRoleOutput } from './output.js';
 import { writeTurnPrompt } from './prompt.js';
+import { nextWeeklyReset } from './weekly.js';
 import type { RelayConfig, RelayState, Turn, Usage } from './types.js';
 
 /** 正在跑的这份代码的仓库根（L10 契约第 5 条：`{relay_root}` 换它）。 */
@@ -102,9 +103,16 @@ export async function runTurn(
   const hay = [...out.split('\n').filter((l) => !agentNoise(l.trim())), err]
     .join('\n')
     .toLowerCase();
-  const quotaHit = role.quotaPatterns.some((p) => p.trim() && hay.includes(p.trim().toLowerCase()));
+  const patterns = (list: string[] | undefined): boolean =>
+    (list ?? []).some((p) => p.trim() && hay.includes(p.trim().toLowerCase()));
+  // L19 契约第 3 条：周额度优先——同一份 hay 里对上周额度就歇到下一个北京时间周四 04:00，
+  // 不再加 quotaPauseMinutes；只有会话额度对上时照旧。
+  const weeklyHit = patterns(role.weeklyQuotaPatterns);
+  const quotaHit = weeklyHit || patterns(role.quotaPatterns);
   if (quotaHit) {
-    const until = Date.now() + role.quotaPauseMinutes * 60_000;
+    const until = weeklyHit
+      ? nextWeeklyReset(new Date()).getTime()
+      : Date.now() + role.quotaPauseMinutes * 60_000;
     state.pausedUntil[turn.role] = new Date(until).toISOString();
   }
   // L2：真 Claude 的 RELAY-DONE 在 result 里、DSH 在 final.text 里，按行找不到

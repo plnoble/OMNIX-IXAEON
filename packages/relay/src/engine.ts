@@ -3,13 +3,74 @@ import { createHash } from 'node:crypto';
 import { dailyDue, dailyEvent } from './daily.js';
 import { ensureDeps } from './deps.js';
 import { git } from './git.js';
-import { createNotifier, loadFeishuTarget } from './notify/feishu.js';
+import { createNotifier, loadFeishuTarget, type RelayEvent } from './notify/feishu.js';
 import { beijingDay, decideNextTurn, parseMainTable } from './queue.js';
 import { parsePushLines, readTurnStdout, relayPushes } from './push.js';
 import { runTurn } from './run-turn.js';
-import { appendLedger, readLedger, readMainQueue, relayNow, saveState } from './store.js';
+import {
+  appendLedger,
+  readLedger,
+  readMainQueue,
+  relayNow,
+  saveState,
+  type LedgerEntry,
+} from './store.js';
 import { diffPlanRows, verifyTurn } from './verify.js';
 import type { RelayConfig, RelayState } from './types.js';
+
+const BJ = 8 * 3_600_000;
+
+/** L15 契约第 5 条：北京时间 9:00 之后、今天还没发过、配置开着 → 今天的日期写法；否则 `null`。 */
+export function morningDue(
+  state: RelayState,
+  now: Date,
+  enabled: boolean | undefined,
+): string | null {
+  if (!enabled) return null;
+  const d = new Date(now.getTime() + BJ);
+  if (d.getUTCHours() < 9) return null;
+  const today = beijingDay(now.getTime());
+  return state.lastMorningDate === today ? null : today;
+}
+
+/**
+ * L15 契约第 5 条：早报。`turns`、`done`、`costUsd` 照日报的算法，只算「北京时间昨天 21:00 到现在」
+ * 开始的棒；`doing` 是主表里状态以「进行中」「测试待审」「待复审」开头的行的任务那一栏。
+ */
+export function morningEvent(ledger: LedgerEntry[], queueMd: string, now: Date): RelayEvent {
+  const rows = parseMainTable(queueMd);
+  // 北京时间「今天 00:00」再往回 3 小时 = 昨天 21:00（北京）。
+  const dayStart = Math.floor((now.getTime() + BJ) / 86_400_000) * 86_400_000 - BJ;
+  const from = dayStart - 3 * 3_600_000;
+  const mine = ledger.filter((e) => {
+    const t = Date.parse(e.startedAt);
+    return t >= from && t <= now.getTime();
+  });
+  const done: string[] = [];
+  const seen = new Set<string>();
+  let costUsd = 0;
+  let hasCost = false;
+  for (const e of mine) {
+    if (typeof e.usage?.costUsd === 'number') {
+      costUsd += e.usage.costUsd;
+      hasCost = true;
+    }
+    if (e.statusAfter?.startsWith('已完成') && !seen.has(e.taskId)) {
+      seen.add(e.taskId);
+      done.push(rows.find((r) => r.no === e.taskId)?.task ?? `第 ${e.taskId} 行`);
+    }
+  }
+  const doing = rows
+    .filter(
+      (r) =>
+        r.status.startsWith('进行中') ||
+        r.status.startsWith('测试待审') ||
+        r.status.startsWith('待复审'),
+    )
+    .map((r) => r.task);
+  const event: RelayEvent = { kind: 'morning', turns: mine.length, done, doing };
+  return hasCost ? { ...event, costUsd } : event;
+}
 
 export type Outcome = 'ran' | 'idle' | 'stopped';
 export interface RunOptions {
@@ -47,11 +108,38 @@ export async function runOnce(
     state.lastDailyDate = due;
     saveState(dataDir, state);
   }
+  // L15 契约第 5 条：早报也在定下一棒之前发，和日报同一处。
+  const morning = morningDue(state, now, config.morningReport);
+  if (morning) {
+    const sent = await notifier.notify(morningEvent(readLedger(dataDir), queueMd, now));
+    // L15 契约第 5 条：真的发出去了才记下今天——发失败、没配飞书、被限频跳过都留到下一次。
+    if (sent.ok && sent.sent) {
+      state.lastMorningDate = morning;
+      saveState(dataDir, state);
+    }
+  }
   const decision = decideNextTurn(queueMd, state, now, { planPerDay: config.planPerDay });
   if ('idle' in decision) {
     console.log(`没活：${decision.idle}`);
     if (opts.sendIdle && (decision.idle === 'queue-empty' || decision.idle === 'all-blocked')) {
-      await notifier.notify({ kind: 'idle', why: decision.idle });
+      // L15 契约第 2 条：每种「没活」一个北京日只发一次。queue-empty 不带 waiting（原话不变）；
+      // all-blocked 带上主表里「等用户」的行（空数组也带，好让用户知道不用做什么）。
+      const today = beijingDay(now.getTime());
+      if (state.idleDay?.[decision.idle] !== today) {
+        const waiting =
+          decision.idle === 'all-blocked'
+            ? parseMainTable(queueMd)
+                .filter((r) => r.status.startsWith('等用户'))
+                .map((r) => ({ no: r.no, task: r.task, status: r.status }))
+            : undefined;
+        const sent = await notifier.notify({
+          kind: 'idle',
+          why: decision.idle,
+          ...(waiting ? { waiting } : {}),
+        });
+        // L15 契约第 2 条：真的发出去了才记下今天；被 30 分钟限频跳过时不能占掉这一天的名额。
+        if (sent.ok && sent.sent) state.idleDay = { ...state.idleDay, [decision.idle]: today };
+      }
     }
     saveState(dataDir, state);
     return decision.idle === 'stopped' ? 'stopped' : 'idle';
@@ -82,7 +170,7 @@ export async function runOnce(
   // 替推上去的东西（比如「并入 B 档」）也要被核对到。
   const role = config.roles[decision.role];
   const push = role.pushByRelay
-    ? relayPushes(parsePushLines(readTurnStdout(result.stdoutPath)), role, turn)
+    ? await relayPushes(parsePushLines(readTurnStdout(result.stdoutPath)), role, turn)
     : null;
   // 整合方改（2026-10-23）：只有一条都没推（被拒）才跳过核对；推上去过东西（哪怕后面一条失败了）照样核对
   const verdict =
@@ -135,6 +223,30 @@ export async function runOnce(
       task: decision.task,
     });
   } else {
+    // L15 契约第 1 条：这一棒把一行做完了（开棒时还没完成）就发一条 done；规划棒不发。
+    if (
+      statusAfter?.startsWith('已完成') &&
+      !decision.status.startsWith('已完成') &&
+      decision.taskId !== 'plan'
+    ) {
+      const mine = readLedger(dataDir).filter((e) => e.taskId === decision.taskId);
+      const totalMs = mine.reduce(
+        (sum, e) => sum + (Date.parse(e.endedAt) - Date.parse(e.startedAt)),
+        0,
+      );
+      const costUsd = mine.reduce(
+        (sum, e) => sum + (typeof e.usage?.costUsd === 'number' ? e.usage.costUsd : 0),
+        0,
+      );
+      await notifier.notify({
+        kind: 'done',
+        taskId: decision.taskId,
+        task: decision.task,
+        turns: mine.length,
+        hours: Number((totalMs / 3_600_000).toFixed(1)),
+        costUsd,
+      });
+    }
     if (result.quotaHit && state.pausedUntil[decision.role]) {
       await notifier.notify({
         kind: 'paused',
