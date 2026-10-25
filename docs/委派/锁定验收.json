@@ -662,6 +662,14 @@
       "files": {
         "packages/relay/test/acceptance/l20-init-patch.test.ts": "2dc5946b4ba90f285f83988d941a2b1e7e42902bec1125d209e7d8f5935bba95"
       }
+    },
+    {
+      "id": "L18",
+      "title": "看门人换了代码自己重起（relay forever）",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l18-forever.test.ts": "da6d5d2dfb93914922d8fbb11aeb31881be462176d18d2f69343509eefd282b0"
+      }
     }
   ]
 }
