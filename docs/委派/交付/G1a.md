@@ -156,3 +156,57 @@ Step ID 稳定 / **两阶段 seq 重排**——原来 G1a 里那几条**一条�
 ## 本轮没做的
 
 没写实现、没 `acceptance.mjs lock`、没 `done`、没做 G1e。
+
+---
+
+# 开发首批：G1a 内部 GoalStore（用户授权开始开发之后）
+
+> 本节为最新状态；上面的纯测试整理记录保留为历史。**已写核心实现，但不是整单完成、不是已接受。**
+
+## 已实现
+
+- [goalStore.ts](../../../packages/core/src/goals/goalStore.ts)：创建、读取、列表、父子关系、明确用户确认、状态迁移、manual 进度；写入与事件在同一事务内。origin 与 confirmation 独立，用户明确 UI/API 操作可确认 agent 来源的目标；AI 来源本身既不是授权、也不是拒绝用户授权的理由。
+- [types.ts](../../../packages/core/src/goals/types.ts) 和 [模块入口](../../../packages/core/src/goals/index.ts)：仅供内部存储使用。不接 UI/API/模型调用，不增加 Goal 任务完成后门，不计算 weighted。watch、watch_reason、next_review_at 未提前进入本单公开类型。
+- **没有发布迁移**：[迁移注册](../../../packages/core/src/db/migrations.ts) 与开发前完全一致。本轮早先曾在未提交工作区试加 migration 39，已撤下；编号与正式迁移仍由整合方处理。没有在构造函数里偷偷建表。
+- 未改三份原 G1 验收测试、未 lock/done/合并；未改已有任务表、TodoStore、CodingTaskStore；未做 G1d/G1e。
+
+## 自动化验证及适用范围
+
+新增 [开发回归](../../../packages/core/test/acceptance/g1a-core-regression.test.ts) 与 [临时库夹具](../../../packages/core/test/helpers/goalDraft.ts)：夹具先跑既有 migrate，再从已定草案加载 goals/goal_events SQL 到一次性数据库。**不是正式迁移，也不替代原 B 档验收**。
+
+2026-10-25 本机结果（UTF-8 日志留在工作目录 .logs）：
+
+```text
+node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
+exit 0
+
+node node_modules/vitest/vitest.mjs run --project acceptance packages/core/test/acceptance/g1a-core-regression.test.ts
+Test Files  1 passed (1)
+Tests       10 passed (10)
+```
+
+回归含真实 ConversationStore 的用户消息、拒绝不存在/assistant 消息、origin×confirmation、两目标隔离、状态机、父子权重存值、重启持久化；用 TEMP TRIGGER 在插入 goal_event 时抛错，验证已执行的 Goal 更新也被回滚（不是仅检验输入拒绝）。不会访问真实用户数据库。
+
+**原验收尚未全过**：原 [G1a 验收](../../../packages/core/test/acceptance/g1a-goal-store.test.ts) 两处聊天确认使用 m-1/m-9，但没有建消息。初次临时迁移试跑为 20/22，另外两条触发 FOREIGN KEY constraint failed。这是夹具问题，不关闭外键、不自动伪造消息、不拿 null 代替确认消息。撤下正式迁移注册后，原验收会因缺 goals 表而失败；须整合方先落迁移并修正夹具，再正式验收。
+
+`node scripts/verify.mjs` 本机完整执行 exit 0（`.logs/g1a-implementation-verify.txt`）。随后去掉新增的同对话确认/已完成后手动进度限制，并补回 proposed 否决需用户的已定规则；末次 typecheck 与开发回归 10/10 通过。源码新增合计 289 行（goals 三个文件），正式迁移注册、根模块导出和旧验收文件均未改。完整门禁在最终提交后再复核，分支 CI 结果另记，不能把其中任一项冒充正式 G1a 验收通过。
+
+## 权限边界与待复审
+
+- GoalStore 是内部可信调用边界。via=ui/api、confirm() 的调用必须由未来已鉴权的用户动作提供，不能把模型自报的字符串当授权。这里验证消息存在且 role=user/status=complete，**不声称已验证聊天正文的批准意图或端到端鉴权**。
+- 原 G1a 测试依然要求 watch/next_review_at 列，而用户后来把它们归 G1b；草案 SQL 也尚有旧列。开发夹具原样读取现有草案，不自行改写规格。正式迁移分层由整合方按用户最终要求处理。
+- 正式迁移、原验收夹具修订、测试锁定、B 档复审/合并仍未做。核心代码没有被应用调用，所以不是“打开应用即可使用 Goals”。
+
+## 真机通过 / 用户接受
+
+- 真实应用端到端场景：**未跑**（UI与迁移接线未生效）。
+- 用户接受：**未取得**。开发授权不等于验收接受。
+
+## G1b / G1c 实现前核出的契约缺口（不靠改产品过测）
+
+1. [G1b 夹具](../../../packages/core/test/acceptance/g1b-goal-links.test.ts) add→accept 错误：[TodoStore.add](../../../packages/core/src/storage/todoStore.ts#L57-L73) 已返回 accepted，第二次 accept 必抛错。另一个 child 默认 manual 却期望任务完成后进度100，须夹具显式 weighted。
+2. G1b 对 Todo 调 noteTaskFailed，甚至对 done Todo“假装失败”；Todo 无 failed 状态。这与用户要求真实任务 Store 为权威相矛盾，不新增无校验失败后门。
+3. [ResearchStore](../../../packages/core/src/research/researchStore.ts) 的 Topic 没有完成态；Run 成功后还会排下一轮。不得把单轮成功、disabled 或 paused 猜成 Topic 完成；研究关联的 weighted 完成口径需整合方明确。
+4. [G1c 验收](../../../packages/core/test/acceptance/g1c-goal-plans.test.ts) 在创建 v2 后推进 v1，和历史方案只读冲突。当前版不激活 Goal 与旧版不可变要分开验证，不为该测试允许历史写。
+5. G1c 的 seq 有 CHECK(seq>0)，两阶段临时区必须取正数高位，不能用负数/0；“最终 ID/行数不变”也不能证明没有同 ID 删除重插。应在审查验收中补过程约束，不弱化 CHECK。
+6. 草案要求 replan 复制原步骤及依赖、绑定，测试却传全新 steps；如何表达“保留/替换/复制”尚未明确。开发不能自行发明接口语义。上述缺口交整合方，不改原测试粉饰通过。
