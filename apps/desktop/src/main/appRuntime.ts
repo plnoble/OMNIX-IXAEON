@@ -278,6 +278,9 @@ export class AppRuntime {
         runtimeRef.current ? runtimeRef.current.executorPlan() : { use: 'codex' as const },
       ),
       resolved.dataDir,
+      undefined, // runCheck 用默认的
+      // D5b 契约第 1 条：锁定之前核验收测试的那个核心模型（做后台分析用的那个），每次要核时现取
+      () => runtimeRef.current?.getProvider() ?? null,
     );
     const jobs = new JobQueue(db, logger.child({ component: 'jobs' }));
 
@@ -2592,6 +2595,9 @@ export class AppRuntime {
       db,
       new ConfiguredCodingExecutor(createCodingExecutor(), () => this.executorPlan()),
       this.dataDir,
+      undefined, // runCheck 用默认的
+      // D5b 契约第 1 条：同上（这处是实例内的构造）
+      () => this.getProvider(),
     );
     const jobs = new JobQueue(db, this.logger.child({ component: 'jobs' }));
     this.db = db;

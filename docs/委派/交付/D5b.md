@@ -1,4 +1,4 @@
-# D5b 锁定前核心模型核测试 交付（第一支：只推测试）
+﻿# D5b 锁定前核心模型核测试 交付（第一支：只推测试）
 
 - 分支：`dev/D5b`，基于 main `8b2456f`；档位 **B**
 - 执行方：dev
@@ -75,3 +75,43 @@
 ## 用户接受
 
 未发生。等实现并入、用户在用的时候试过再写。
+
+---
+
+# 实现那一支（dev2，2026-10-25）
+
+- 分支：`dev2/D5b`，基于 `dev/D5b`（上面的测试）；执行方：dev2
+- 背景：用户 2026-10-25 定「做 D5b」，所以照 B 档规格把实现写了。**测试的锁定仍然是整合方的关卡，我没有 `acceptance.mjs lock`。**
+
+## 已实现（契约 1–8，源码约 +270 行）
+
+**新文件 `packages/core/src/execution/testReview.ts`**（约 120 行）：`REVIEW_SYSTEM`（契约第 3 条 system 原文）、`reviewUser()`（`要做的事 + 验收条件 + 测试文件`；单文件超 20000 字截断并加「…（后面截掉了）」，总量超 60000 字之后只写路径和「（太长，没有发）」）、`cleanProblems()`（条件号不在 1..N 丢掉、`detail` 空白丢掉）、`fixTestsBrief()`（契约第 4 条「只改测试」的交代）、`twiceProblemsReason()`（契约第 5 条，截到 2000 字）。
+
+**`packages/core/src/execution/executor.ts`**：
+
+- 构造函数第 5 个可选参数 `testReviewer?: () => ModelProvider | null`。**每次要核时现调一次**——第 2 次核之前也重新调（第一版漏了这点，被条件 5 的测试抓出来）。
+- 只在 D5a「要锁定」那一刻（`reason === null`）核。
+- 第 1 次有问题 → 让执行器只改测试目录补（`scope_json` 只有测试目录、原批准范围只读）→ 照 D5a 第 1、2 步重查（越界 / 重新列文件 / 实现前跑一遍 / 跑的时候改文件）→ 再核第 2 次。
+- 两次还有问题 → `failNow`，原因逐条列。
+- `testReviewer` 返回 null → `review.skipped`；模型抛错 → `review.error`，都照 D5a 锁定、不挡任务。
+- 新字段 `ExecutorReport.acceptanceTests.review`（`status/rounds/problems/note`）；失败时也用新增的 `failNowWithReview` 把带 `review` 的报告写进 `executor_report_json`。
+- 发给模型的测试内容过 `hideWorkspacePath`。
+
+**`apps/desktop/src/main/appRuntime.ts`**：两处 `new CodingOrchestrator(` 补 `testReviewer`（第 4 参 `runCheck` 传 `undefined` 用默认）。
+
+**小重构**：`writeTestsBrief` 里「怎么写：」那段抽成 `howToWriteTests(testDir)` 供 D5b 复用，**D5a 提示词措辞一字未改**。
+
+## 自动化通过
+
+- `packages/core/test/acceptance/d5b-review-tests.test.ts`：**25/25 过**
+- `node scripts/verify.mjs`：**全部通过**
+
+## 真机通过
+
+规格没要求单独的真机脚本；行为由 25 条测试覆盖（取消、模型抛错、越界、两次失败等分支都在里面）。
+
+## 已知缺口（如实记）
+
+- **测试没有锁定**（B 档是整合方的关卡）。
+- 规格「冲突风险」说：`IXAEON_FAKE_MODEL=1` 下 FakeProvider 的结构化队列可能被核这一步吃掉预置响应。`apps/desktop/e2e/d5a-acceptance-first.spec.ts` 和 `d5a-executor-options` **我没跑**（要先 build 桌面，本轮没跑），撞红留给整合方审测试时处理。
+- `review` 只写进报告数据，界面没显示（规格说等用户试过再定）。
