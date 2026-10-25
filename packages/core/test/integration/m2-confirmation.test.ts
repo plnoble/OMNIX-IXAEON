@@ -56,12 +56,17 @@ interface SeedResult {
 }
 
 async function seedWithAiItem(statement: string, excerpt: string): Promise<SeedResult> {
-  const project = projects.create({ name: `M2-${statement.slice(0, 8)}`, rootPath: null, description: null });
+  const project = projects.create({
+    name: `M2-${statement.slice(0, 8)}`,
+    rootPath: null,
+    description: null,
+  });
   const file = join(dir, `${statement.slice(0, 12)}-${Math.random().toString(36).slice(2)}.md`);
   writeFileSync(file, `# M2\n\n${excerpt}\n`, 'utf8');
-  const created = imports
-    .importFile(file, { projectId: project.id, permissionId: perms.grantFile(file).id })
-    .created[0]!;
+  const created = imports.importFile(file, {
+    projectId: project.id,
+    permissionId: perms.grantFile(file).id,
+  }).created[0]!;
   const fake = new FakeProvider('m2');
   fake.enqueueStructured({
     items: [
@@ -164,9 +169,9 @@ describe('M2 确认维度', () => {
     expect(stats.skippedPreserved).toBe(0);
     expect(stats.inserted).toBe(1);
     expect(stats.needsReview).toBe(1); // 与人工决定冲突 → 待讨论
-    const after = db
-      .prepare('SELECT confirmation FROM items WHERE id = ?')
-      .get(item.id) as { confirmation: string };
+    const after = db.prepare('SELECT confirmation FROM items WHERE id = ?').get(item.id) as {
+      confirmation: string;
+    };
     expect(after.confirmation).toBe('rejected'); // 人工改口未被冲掉
     const conflictItems = db
       .prepare(
