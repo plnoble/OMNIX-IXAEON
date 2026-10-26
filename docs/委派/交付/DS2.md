@@ -108,5 +108,5 @@ Error: EPERM, Permission denied: 'C:\Users\RUNNER~1\AppData\Local\Temp\ixa-l6-la
 （`git diff --stat origin/main..HEAD -- packages/relay/test/acceptance/l6b-launcher.test.ts` 为空），
 且 main 最近两轮 CI 全绿——属于既有测试的 Windows 清理竞争，**不是本单引入**。
 
-已触发该 CI 重跑以确认可复现性；结论以重跑结果为准（若仍红，请按上述证据判为环境性失败）。
+已重跑 CI：**run `40329528165` conclusion=success（全绿）**——证实上次是环境性偶发，非本单引入。
 **这条属于已锁定的验收测试，我不改**（AGENTS：已并入 main 的锁定验收测试不许执行方改）。
