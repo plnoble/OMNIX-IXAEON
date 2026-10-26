@@ -84,3 +84,29 @@ capabilities 字段与 `maxContext:null`、FakeProvider 不虚报 native-schema�
 
 - 真机：**未跑**（本轮无外发调用；`FakeProvider` 合成测试）。
 - 用户接受：**未取得**。
+
+## 门禁状态（含一次与本单无关的 CI 偶发，如实记录）
+
+本机 `node scripts/verify.mjs`：**未能在本轮取得干净结果**，原因不是本单代码：
+
+- 失败全在 relay 的 init 类锁定测试（`l5-init`/`l6`/`l9`/`l10`/`l15`/`l20`），
+  报错为「拉不下来 origin/main」——已核实当时本机 git 配置写着 `http.proxy=http://127.0.0.1:7897`
+  而该代理**没有在监听**，直连 GitHub 反而可用。用 `git -c http.proxy= -c https.proxy=` 绕过代理后，
+  分支推送成功（`33d6e92`），说明是本机代理环境问题，与 `packages/core/src/model` 的改动无关。
+
+分支 CI（run `40296073542`）失败，但**失败原因同样与本单无关**，证据如下：
+
+```
+Test Files  1 failed | 129 passed (130)
+Tests      1033 passed (1033)        ← 测试一条都没失败
+Error: EPERM, Permission denied: 'C:\Users\RUNNER~1\AppData\Local\Temp\ixa-l6-launcher-...'
+  syscall: 'rm'
+```
+
+即：**1033 条测试全部通过**，唯一的失败是 `l6b-launcher.test.ts` 的**临时目录清理**
+（Windows 上文件句柄未及时释放导致 `rm` 被拒）。已核实该文件相对 main **无任何改动**
+（`git diff --stat origin/main..HEAD -- packages/relay/test/acceptance/l6b-launcher.test.ts` 为空），
+且 main 最近两轮 CI 全绿——属于既有测试的 Windows 清理竞争，**不是本单引入**。
+
+已触发该 CI 重跑以确认可复现性；结论以重跑结果为准（若仍红，请按上述证据判为环境性失败）。
+**这条属于已锁定的验收测试，我不改**（AGENTS：已并入 main 的锁定验收测试不许执行方改）。
