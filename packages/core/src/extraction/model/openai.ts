@@ -1,4 +1,5 @@
 import { z, type z as zType } from 'zod';
+import type { ModelCapabilities } from '../../model/capabilities.js';
 import { ModelError, type ModelProvider } from './provider.js';
 
 /**
@@ -10,6 +11,22 @@ import { ModelError, type ModelProvider } from './provider.js';
  */
 export class OpenAIResponsesProvider implements ModelProvider {
   readonly modelName: string;
+  /**
+   * 能力声明（DS2/RFC-003）：
+   * - `/responses` 端点确实会用 `json_schema strict`（见 chatStructured 里的 body.text.format）→ native-schema；
+   * - 但 `/chat/completions` 回退只支持 `json_object` + 提示词附 schema（无强约束）——
+   *   实现会在运行时探测端点，所以这里按**两者都可能**声明中最弱的一档之外如实标注：
+   *   我们声明 native-schema，但结构化路径内部仍保留 zod 校验兜底（strict 也可能被网关忽略）。
+   * - seed/vision/maxContext 不做假设：`seed:false`（未实现固定种子）、`maxContext:null`（不猜）。
+   */
+  readonly capabilities: ModelCapabilities = {
+    structuredOutput: 'native-schema',
+    seed: false,
+    tools: false,
+    vision: false,
+    maxContext: null,
+    streaming: true,
+  };
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;

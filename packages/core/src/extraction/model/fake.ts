@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { CONSERVATIVE_CAPABILITIES, type ModelCapabilities } from '../../model/capabilities.js';
 import { ModelError, type ModelProvider } from './provider.js';
 
 /**
@@ -9,6 +10,11 @@ import { ModelError, type ModelProvider } from './provider.js';
  */
 export class FakeProvider implements ModelProvider {
   readonly modelName: string;
+  /**
+   * 假模型没有任何真实约束能力：只能「生成后校验」。
+   * 不允许声称 native-schema——否则测试会误导「这条路真的走通了约束生成」。
+   */
+  readonly capabilities: ModelCapabilities = CONSERVATIVE_CAPABILITIES;
   readonly structuredCalls: Array<{ system: string; user: string }> = [];
   readonly textCalls: Array<{ system: string; user: string }> = [];
   private structuredQueue: unknown[] = [];
