@@ -45,8 +45,11 @@ export interface ModelProvider {
   （`provider.ts:13-18` 注释：「实现负责校验（zod safeParse）；校验失败抛 ModelError」）。
 - 外部做法（DeepInfer）：**解码期用 grammar 强制**（xgrammar），根本不可能产出非法结构。
 
-**判定**：我们**已有**结构化输出能力（且是 provider 无关的 zod 契约，这点比外部更通用）；
-**缺**的是「按 provider 能力自动选择最强约束手段」（native JSON schema / tool call / 校验修复）的分层降级。
+**判定（2026-10-26 二次核实后修正）**：`OpenAIResponsesProvider` **已经在用 `json_schema strict: true`**
+（`extraction/model/openai.ts:134-143`：`body.text.format = { type: 'json_schema', name, strict: true, schema }`），
+即**已走第二强档**，不是「始终最弱档」。zod 仍是 provider 无关的契约层，这点比外部更通用。
+**真正缺的是**：(a) **没有能力声明**去判断某 provider 支不支持 native schema（现在是硬编码在这个实现里）；
+(b) 没有进一步的降级链（native schema → tool call → 校验修复）。→ G8 降级为「**P2、小改进**」，不是 P0。
 
 ### 0.5 工具调用
 
@@ -124,7 +127,7 @@ export interface ModelProvider {
 - **G4 能力声明** → 现在 `modelName` 一个字符串承载所有判断，必然长出 `if model ==`；
 - **G3 seed/可复现** → D5a/D5b 验收、benchmark 都需要「同输入同输出」；
 - **G1 会话 IR** → 是 G2/G7 的**前置**（没有消息结构，reasoning/tool 无处安放）；
-- **G8 结构化分层** → 低成本改进（我们已有 zod，只差「优先用原生 schema」）；
+- **G8 结构化分层** → **降级为 P2**：`json_schema strict` 已在用（`openai.ts:134-143`），只剩「按能力选档 + 降级链」；
 - **G6 草稿+验证** → 成本问题真实，但**依赖先有 G1/G4**。
 
 **可延后**：

@@ -63,7 +63,7 @@
 
 1. Speculative Agent Execution（草稿+验证）
 2. 统一缓存 RFC
-3. 结构化输出能力分层（native schema → tool → 校验修复）
+3. 结构化输出能力分层（native schema 已用 → tool → 校验修复的降级链）
 4. 成本估算记录（预估 vs 实际）
 
 **Layer C —— 只留知识**
