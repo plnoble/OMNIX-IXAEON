@@ -105,26 +105,40 @@ docs/{streaming,tokenizer}.md
 - 不假设能跑完整 DeepInfer（任务书 §21）：无 GPU 集群、不下载 V4.1-Flash 权重。
 - 本目录只放**研究成果**，实验代码按 §22.D 放 `experiments/deepseek-recipe/`，不混进生产代码。
 
-## 4. 目录状态
+## 4. 目录与状态
 
-| 文件                                | 状态       |
-| ----------------------------------- | ---------- |
-| `README.md`（本文）                 | ✅ P0 基线 |
-| `deepinfer/capability-map.md`       | ⏳ 待写    |
-| `deepinfer/architecture.md`         | ⏳         |
-| `deepinfer/scheduling.md`           | ⏳         |
-| `deepinfer/cache.md`                | ⏳         |
-| `deepinfer/speculative-decoding.md` | ⏳         |
-| `deepinfer/structured-output.md`    | ⏳         |
-| `recipe/architecture.md`            | ⏳         |
-| `recipe/api-conversion.md`          | ⏳         |
-| `recipe/prompt-rendering.md`        | ⏳         |
-| `recipe/tokenizer.md`               | ⏳         |
-| `recipe/reasoning.md`               | ⏳         |
-| `recipe/tool-calling.md`            | ⏳         |
-| `adoption/adoption-matrix.md`       | ⏳         |
-| `adoption/ixaeon-mapping.md`        | ⏳         |
-| `adoption/rejected-ideas.md`        | ⏳         |
+| 文件                                                                                  | 状态                                                   |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `README.md`（本文）                                                                   | ✅ P0 基线                                             |
+| `deepinfer/capability-map.md`                                                         | ✅ 10 项能力，逐条证据                                 |
+| `recipe/architecture.md`                                                              | ✅ IR / reasoning / tools / tokenizer / 流式           |
+| `adoption/ixaeon-gap-analysis.md`                                                     | ✅ 8 个 gap（全部带我们文件:行）                       |
+| `adoption/adoption-matrix.md`                                                         | ✅ 19 项判定 + 与任务书假设差异                        |
+| `adoption/rejected-ideas.md`                                                          | ✅ Do Not Copy List + 8 条引入准则                     |
+| `adoption/top10-lessons.md`                                                           | ✅ 10 条 Lesson（Lesson/Why/Evidence/Impact/Action）   |
+| `adoption/rfc-proposals.md`                                                           | ✅ 3 份 RFC（IR / ReasoningState / ModelCapabilities） |
+| `deepinfer/{architecture,scheduling,cache,speculative-decoding,structured-output}.md` | ⏳ 主要结论已并入 `capability-map.md`，需细化再拆      |
+| `recipe/{api-conversion,prompt-rendering,tokenizer,reasoning,tool-calling}.md`        | ⏳ 主要结论已并入 `recipe/architecture.md`             |
 
-> 下一步（按 §32 顺序）：DeepInfer architecture → recipe architecture → capability extraction →
-> capability graph → ixaeon gap analysis → adoption matrix → RFC。
+## 5. 任务书 §30 验收对照
+
+| 验收项                                                           | 状态           | 位置                                                               |
+| ---------------------------------------------------------------- | -------------- | ------------------------------------------------------------------ |
+| A 准确解释两者及关系                                             | ✅             | 本文 §2 + `recipe/architecture.md` §0                              |
+| B 两份 Capability Map                                            | ✅（合并形式） | `deepinfer/capability-map.md` + `recipe/architecture.md` §1-5      |
+| C ≥10 个结构化 SourceCapability                                  | ✅ 13 项       | capability-map C1-C10 + recipe IR/reasoning/tools/tokenizer/stream |
+| D 每项有 Evidence/Problem/Mechanism/Assumptions/Mapping/Decision | ✅             | 各表 + `adoption-matrix.md`                                        |
+| E Adoption Matrix                                                | ✅             | `adoption/adoption-matrix.md`                                      |
+| F ixaeon Gap Analysis                                            | ✅             | `adoption/ixaeon-gap-analysis.md`                                  |
+| G ≥3 个架构 RFC                                                  | ✅ 3 份        | `adoption/rfc-proposals.md`                                        |
+| H 未引入 GPU 依赖/私有化设计/Provider 强耦合/重复能力            | ✅             | 零代码改动，纯文档                                                 |
+| I 所有新增代码测试通过                                           | ✅ N/A         | 本阶段无代码                                                       |
+| J 工作区干净                                                     | ✅             | 见交付说明                                                         |
+
+## 6. 本版**不含**什么（照 §25/§10 的教训显式声明）
+
+- **不含**任何 ixaeon 生产代码改动（本阶段纯研究，见任务书 §32「Adoption Matrix 前禁止大改主代码」）；
+- **不含** DeepInfer 实机运行（无 SM100/Ascend 硬件，不下载 V4.1-Flash 权重，任务书 §21）；
+- **不含** `experiments/deepseek-recipe/` 实验代码（§22.D 允许但本批未做，需统筹确认后再立）；
+- **不含** recipe 的逐文件细读（集中在 IR/reasoning/tools/tokenizer/stream 五个最相关面）；
+- **不含** `deepinfer/{scheduling,cache,speculative,structured-output}` 独立拆文档（结论已进 capability-map）。
