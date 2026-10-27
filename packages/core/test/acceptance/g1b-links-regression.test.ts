@@ -12,7 +12,10 @@ let dir: string;
 let db: CoreDatabase;
 let goals: GoalStore;
 let todos: TodoStore;
-const events = () => db.prepare('SELECT kind, ref_id FROM goal_events ORDER BY at, id').all();
+const events = () =>
+  db
+    .prepare('SELECT kind, ref_id FROM goal_events ORDER BY at, id')
+    .all() as Array<{ kind: string; ref_id: string }>;
 const open = (dataDir: string) => {
   const d = openDatabase(join(dataDir, 'test.db'));
   loadGoalDraft(d, ['goals', 'goal_events', 'goal_links']);
