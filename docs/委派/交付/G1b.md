@@ -34,6 +34,14 @@ vitest g1b-links-regression.test.ts   9 passed (9)
 - 真机检查：**已补**（见下节「真机通过」）；UI 接线、`lock`、`done`、合并：都没做，也不由执行方做。
 - 用户接受：未取得。
 
+**本机完整门禁（2026-10-27 复跑，串行）**：`node scripts/verify.mjs` → **全部通过**。
+
+⚠️ 过程中有一次假红，如实记录：我曾**并行**跑两个分支的 verify，
+`packages/core/test/integration/performance.test.ts` 的「批量导入 50k 条消息」双双重测超时
+（37.688s > 30s 门限）。单独重跑该用例 **5.6s 通过**，串行 verify 全过——是 CPU 争抢，不是回归。
+
+本单只新增真机脚本与文档，未改任何源码或测试。
+
 ## 真机通过（2026-10-27 补，**通过**）
 
 `node scripts/real/run-batch.mjs scripts/real/g1b-goal-links.ts` → **exit 0，16 项全过**。
