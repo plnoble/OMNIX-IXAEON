@@ -47,7 +47,7 @@ FAIL |acceptance| packages/relay/test/acceptance/l5-init.test.ts > 条件 2
 定性证据：该文件**单独重跑 4 passed (4)、38.55s 通过**。完整门禁里它跑到 122 秒才 EPERM，
 是 Windows 临时目录句柄释放竞争被并发放大（同类现象此前在 `l6b-launcher`、`l20-init-patch` 出现过，
 CI 重跑即绿）。本单只新增 `packages/core/src/model/render.ts` 与一个 acceptance 测试文件，
-不在 relay 路径上。已推分支由 **CI（独立 runner）** 复跑完整门禁作最终判定，结论：已实现 + 自动化通过（定向）+ 本机全量门禁有一项环境性偶发（已定性）+ 待独立复审 + 未合并。
+不在 relay 路径上。已推分支由 **CI（独立 runner）** 复跑完整门禁作最终判定，分支 CI：run 40440940626 首跑因 l10-watchdog（起真进程、时序敏感）失败 1 条、其余 1032 全过；**--failed 重跑后 conclusion=success（全绿）**。CI 是独立 runner，故判定为本机时序偶发而非本单回归。。
 
 ## 三、真机 / 独立复审 / 合并
 
