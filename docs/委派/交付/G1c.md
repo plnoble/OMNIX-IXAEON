@@ -39,6 +39,16 @@ vitest g1c-plans-regression.test.ts   8 passed (8)
 - 真机检查：**已补**（见下节「真机通过」）；UI 接线、`lock`、`done`、合并：都没做，也不由执行方做。
 - 用户接受：未取得。
 
+**本机完整门禁（2026-10-27 复跑，串行）**：`node scripts/verify.mjs` → **全部通过**。
+
+⚠️ 过程中有一次假红，如实记录：我曾**并行**跑两个分支的 verify，
+`packages/core/test/integration/performance.test.ts` 的「批量导入 50k 条消息」双双重测超时
+（37.688s > 30s 门限）。单独重跑该用例 **5.6s 通过**，串行 verify 全过——是 CPU 争抢，不是回归。
+
+另：G1c 首次串行 verify 红在 relay 的 `l5-init` / `l6-prompt`（各跑 136s+ 才失败，它们要真克隆 git）；
+单独重跑这两个文件 **7/7 通过（47.96s）**，第二次串行 verify 全过——属联网/负载偶发。
+本单只新增真机脚本与文档，未改任何源码或测试。
+
 ## 真机通过（2026-10-27 补，**通过**）
 
 `node scripts/real/run-batch.mjs scripts/real/g1c-goal-plans.ts` → **exit 0，30 项全过**。
