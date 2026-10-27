@@ -36,8 +36,64 @@ vitest g1c-plans-regression.test.ts   8 passed (8)
   3. 它只断言终态，证明不了「两阶段/不删重建/中途回滚」，这些我在开发回归里补了；
   4. 草案 3.8.5 说 replan 要**复制**旧步骤与依赖，但测试传的是全新 `steps`。「复制 / 替换 / 两者如何组合」还没定义——我**只实现了显式传入 steps 的入口**，没自行发明复制接口。
 - **自动复制模式（replan 继承旧步骤）未实现**，等整合方定语义。
-- 真机检查、UI 接线、`lock`、`done`、合并：都没做，也不由执行方做。
+- 真机检查：**已补**（见下节「真机通过」）；UI 接线、`lock`、`done`、合并：都没做，也不由执行方做。
 - 用户接受：未取得。
+
+## 真机通过（2026-10-27 补，**通过**）
+
+`node scripts/real/run-batch.mjs scripts/real/g1c-goal-plans.ts` → **exit 0，30 项全过**。
+真实 SQLite 文件 + 草案 SQL，脚本已提交 `scripts/real/g1c-goal-plans.ts`。
+
+重点（§5 里最容易做成假动作的几条，全部实测）：
+
+- **重排不是删了重建**：行数 3→3 不变、ID 集合不变、顺序真变了、Step 状态与 `started_at` 未被重置、
+  task 绑定与依赖都还在；
+- 旧版永久保留、v2 产生后 v1 → `superseded` 且 `superseded_by=2`、同 Goal 只有一版 current；
+- 历史版本只读（对 v1 的 pending 步骤 advance 被拒）；
+- `advanceStep`：依赖未完成拒绝；满足后 pending→doing 且写 `started_at`；
+- Replan 不改 Goal 状态；给 proposed 目标排方案**不会激活它**；重启后两版并存。
+
+```
+===== scripts/real/g1c-goal-plans.ts =====
+== G1c 真机检查：Plan/Step/Replan（真实 SQLite）==
+✓ v1 版本号为 1 — version=1
+✓ v1 是 current — status=current
+✓ v1 有三步 — n=3
+✓ seq 从 1 递增 — 1,2,3
+✓ 每步都有稳定 id
+✓ 新步骤状态是 pending
+✓ 依赖写入成功
+✓ 依赖没完成时 advanceStep 被拒
+✓ 第一步推进后是 doing — status=doing
+✓ 推进时写了 started_at
+✓ finishStep 后是 done — status=done
+✓ 依赖完成后第二步可推进
+✓ 重排后行数不变 — 3→3
+✓ 重排后 ID 集合不变
+✓ 重排后顺序真的变了
+✓ 重排后 Step 状态没被重置
+✓ 重排后 task 绑定没丢
+✓ 重排后依赖没丢
+✓ v2 版本号为 2 — version=2
+✓ v2 是 current
+✓ v1 被标 superseded — status=superseded
+✓ v1 的 superseded_by 指向 2 — superseded_by=2
+✓ v1 的历史步骤行还在（旧版永久保留）
+✓ 同一 Goal 只有一版 current — current=1
+✓ 历史版本不可推进（只读）
+✓ Replan 没改 Goal 状态（仍 active） — status=active
+✓ 给 proposed 目标排方案不会把它激活 — status=proposed
+✓ 重启后 v2 仍是 current
+✓ 重启后 v1 的 3 步还在
+✓ 重启后 v2 的 1 步还在
+== 真机检查通过（G1c 段）==
+===== 汇总 =====
+```
+
+被真实代码纠正的一处（我脚本写错）：`bindStep` 会校验任务真实存在，
+原来用假 ID `'synthetic-todo-id'` 被正确拒绝——改用真 TodoStore 建的任务。
+
+**应用端到端 / UI 接线：仍未跑**（同上）。
 
 ## 源码规模
 
