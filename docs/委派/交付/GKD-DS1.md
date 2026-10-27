@@ -70,4 +70,51 @@ docs/research/deepseek/adoption/rfc-proposals.md    (新增, 约 150 行)
 - `2b789f8` research(deepinfer): establish source baseline
 - `407752c` research(recipe): map protocol conversion architecture
 - `b7573b8` research(deepinfer): document rejected ideas and lessons
-- 本批：docs(distillation): add ixaeon RFC proposals and acceptance mapping
+- `31276fe` docs(distillation): add ixaeon RFC proposals and acceptance mapping
+- `be1e96a` docs(distillation): add GKD-DS1 delivery note
+- `6a7131c` research(deepinfer): correct structured-output assessment after re-check
+- `3faff25` research(deepinfer): add source intelligence cards and machine-readable capability records
+- `14fbeec` 队列登记 GKD-1~~8 与 DS2/DS3（101~~110 行）
+
+---
+
+## 八、补记（2026-10-27）：研究补齐 + 实现半场的真实状态
+
+### 补齐的研究产物（§16 / §17，之前缺）
+
+- `adoption/source-intelligence-cards.md`：两张源智能卡（DeepInfer / deepseek-recipe），
+  §16 模板字段逐项填齐，含 `not_in_this_release`（README 自述边界：KV cache、分离部署、跨副本 LB 不含）。
+- `evidence/source-capabilities.json`：§17 机器可读记录 **13 条**（DeepInfer 8 + recipe 5），
+  每条 `problem/mechanism/dependencies/assumptions/ixaeon_mapping/decision/confidence/evidence`，
+  evidence 全部是 `repo@commit:path`；决策分布 ADAPT 6 / REFERENCE 4 / ADOPT 2 / REJECT+DEFER 1。
+  `confidence` 注明是 dev2 自评（证据强度×迁移适配度），**非测量值**。
+
+### 一处误报的纠正
+
+上一轮我报「main CI 红」，实际是 `gh run watch` 自身解析失败退出 1；直接查 API 为 `conclusion=success`。
+教训：判 CI 结论只认 `gh run view --json conclusion`，不信 watch 的退出码。
+
+### 实现半场（第六节原建议已按 RFC 三件一起做，结果如下）
+
+| 单                                                      | 状态                            | 事实                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **DS2**（IR 类型 + ReasoningState + ModelCapabilities） | ✅ 已推 `dev2/DS2`（`b361805`） | 源码约 175 行；开发测试 9/9；本机 verify 全过；分支 CI 全绿（run `40329528165`）。**未 lock、未合并**（B 档关卡归整合方）。FakeProvider 如实声明 `validate-only`，不许它冒充 native-schema                                                                                                                                                                                                              |
+| **DS3**（多轮 `chat(conversation)` 真接线）             | ❌ **完整回滚**                 | 实测：给 `ModelProvider` 加方法必然改 `FakeProvider.textCalls` 字段形状，**≥6 个既有测试**直接读 `.user`（`d3-d4-conversation-context`、`b2-b4-memory-research`、`project-audit-20260906`、`direction-quality-20260911` 等）编译失败。动别人的测试=违规，遂回滚到 `tsc=0`、分支干净。两方案进队列 110 行等整合方定：**保守**=`renderConversation` 作独立纯函数、不动接口；**激进**=改接口并迁移那批测试 |
+
+### 纠正第六节的一处过时判断
+
+第六节写「建议只做 RFC-002」——实际三件的**类型/纯函数层**已在 DS2 一起做掉且可测；
+真正的阻塞点不是选哪个 RFC，而是 **DS3 的接口改动会波及既有测试**。该结论以本节的实测为准。
+
+### GKD 实现半场
+
+一行代码都没有。阻塞是结构性的：GKD-1 核心是 5 张新表 = 迁移，而「迁移文件只由整合方编写」是硬关卡。
+设计文档 §4 的 SQL 可直接作草稿底，等整合方定稿落迁移后 GKD-2 之后才可能动。
+
+### 本机环境发现（影响所有联网验证，值得留档）
+
+git 全局配置写着 `http(s).proxy=http://127.0.0.1:7897`，而该代理当时**没在监听**，
+直连 GitHub 反而可用。表现为：`l5/l6/l9/l10/l15/l20` 等 relay 锁定测试全报「拉不下来 origin/main」、
+`git push` 失败、`verify` 红。绕过方式（不改用户全局配置）：
+`git -c http.proxy= -c https.proxy= <子命令>`，或清本仓库 local 代理。
+**建议用户自行决定**是否 `git config --global --unset http.proxy` / `https.proxy`。
