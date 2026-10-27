@@ -31,8 +31,48 @@ vitest g1b-links-regression.test.ts   9 passed (9)
 - **没有发布正式迁移**（`goal_links` 表由整合方按草案落下）。开发回归靠临时库加载草案 SQL，不等于迁移验收。
 - 原 `g1b-goal-links.test.ts` 未改，仍会红。它本身有确定缺陷（已单独记录给整合方）：`add→accept` 重复批准会在真实 TodoStore 抛错；子目标默认 manual 却要求任务完成后进度 100；对 Todo 调 `noteTaskFailed`（Todo 没有 failed 态）、甚至对已 done 的 Todo 假报失败；没覆盖真实 coding 任务。**我没有为了实现去放宽产品行为，也没有加无校验的失败后门。**
 - **研究主题（research_topic）的 weighted 完成口径未定**：`research_topics` 没有完成态（只有 Run 有 succeeded/failed，且成功后还会排下一轮）。所以 `recompute` 在遇到研究主题关联时**显式抛错**，不把「一轮成功/暂停/关闭」猜成完成。要整合方先定口径。
-- 真机检查、UI 接线、`acceptance.mjs lock`、`done`、合并：**都没做**，也不由执行方做。
+- 真机检查：**已补**（见下节「真机通过」）；UI 接线、`lock`、`done`、合并：都没做，也不由执行方做。
 - 用户接受：未取得。
+
+## 真机通过（2026-10-27 补，**通过**）
+
+`node scripts/real/run-batch.mjs scripts/real/g1b-goal-links.ts` → **exit 0，16 项全过**。
+真实 SQLite 文件 + 草案 SQL（不登记迁移、不替代迁移验收），脚本已提交 `scripts/real/g1b-goal-links.ts`。
+
+重点：**统筹 §4.3 的加权规则被真实数据验证**——子目标内部 weight=100 的任务**完全不进父目标分母**
+（父目标 = 33），子目标 `completed` 后才按 `parent_weight=3` 计入**一次**（父目标 = 83），
+父目标只认自己那 2 条直接链接（不递归、不重复计数）。
+
+```
+===== scripts/real/g1b-goal-links.ts =====
+== G1b 真机检查：Goal↔Task 关联与 weighted progress（真实 SQLite）==
+✓ TodoStore.add 直接是 accepted — status=accepted
+✓ 刚绑定时进度 0 — progress=0
+✓ 完成权重 2 的任务后进度 67（2/3） — progress=67
+✓ 状态没变时 recompute 不重复记 progress 事件 — 1→1
+✓ 子目标自己算到 100 — progress=100
+✓ 子目标内部任务不进父目标分母（子目标未 completed 时只计 parent_weight=3） — progress=33
+✓ 子目标 completed 后按 parent_weight 计入父目标一次 — progress=83
+✓ 父目标只认自己的直接链接（2 条） — links=2
+✓ 用 refId="goal:xxx" 表达子目标被拒（须用 parent_goal_id）
+✓ 同一 Todo 可同时服务多个 Goal（不被独占） — distinct_goals=2
+✓ 对没有失败态的 Todo 报失败被拒（不造后门）
+✓ Goal 仍 active（失败观察不机械转 blocked） — status=active
+✓ 未定的 research_topic 关联被拒（不猜完成口径）
+✓ 解绑未完成任务后进度上升（分母变小） — 83→100
+✓ 重启后父目标进度保持 — progress=100
+✓ 重启后子目标关系还在
+== 真机检查通过（G1b 段）==
+===== 汇总 =====
+```
+
+被真实代码纠正的两处（我脚本写错，不是代码错）：
+
+1. `TodoStore.add` 直接返回 `accepted`，不是 `proposed`；
+2. 「同一 Todo 挂第二个 Goal」不能用「进度下降」断言——t1 早已完成，挂上去 total 与 done 各 +1，
+   进度仍是 100。改成查 `goal_links` 的 distinct goal 数 = 2。
+
+**应用端到端 / UI 接线：仍未跑**（与 G1a 同因：`packages/core/src/index.ts` 未再导出 `goals/`）。
 
 ## 源码规模
 
