@@ -90,6 +90,19 @@ const notifyStore = (state: RelayState): { sent: Record<string, string> } =>
   (state.notify ??= { sent: {} });
 
 /**
+ * 整合方审查（2026-10-27 用户任务书 §14）：通知去重表**必须按 key 合并**，不能整表替换。
+ *
+ * 原来两处写 `Object.assign(notifyStore(s), notifyStore(state))`：源是 `{ sent: {...} }`，
+ * `Object.assign` 只拷顶层属性，等于把盘上那份 `sent` **整份换成内存这一份**——
+ * 两条道同时跑时，另一道刚记下的「今天已经提醒过谁」会被本道盖掉，
+ * 同一天就会重复打扰用户。Quiet Policy 后续正依赖这张表可靠，所以这里逐键并。
+ * 同一个 key 两边都有时以本道新值为准（同一条提醒落在同一天，谁写都一样的日子）。
+ */
+export const mergeNotifyInto = (target: RelayState, source: RelayState): void => {
+  notifyStore(target).sent = { ...notifyStore(target).sent, ...notifyStore(source).sent };
+};
+
+/**
  * L11 契约第 5 条：改状态一律走 `updateState`（加锁、重读、只改 pick 改的、写回），
  * 不把开棒时读到的整份旧状态写回去——两条道同时跑会互相盖。改完把新值同步回本地的 state。
  */
@@ -175,7 +188,7 @@ export async function runOnce(
     }
     await persist(dataDir, state, (s) => {
       if (state.idleDay) s.idleDay = state.idleDay;
-      Object.assign(notifyStore(s), notifyStore(state));
+      mergeNotifyInto(s, state);
     });
     return decision.idle === 'stopped' ? 'stopped' : 'idle';
   }
@@ -323,7 +336,7 @@ export async function runOnce(
     if (stopReason) s.stoppedReason = stopReason;
     if (pausedUntilMine) s.pausedUntil = { ...s.pausedUntil, [decision.role]: pausedUntilMine };
     if (state.mainShaAtTurnStart) s.mainShaAtTurnStart = state.mainShaAtTurnStart;
-    Object.assign(notifyStore(s), notifyStore(state));
+    mergeNotifyInto(s, state);
     if (state.idleDay) s.idleDay = state.idleDay;
   });
   console.log(
