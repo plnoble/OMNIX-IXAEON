@@ -199,8 +199,75 @@ Tests       10 passed (10)
 
 ## 真机通过 / 用户接受
 
-- 真实应用端到端场景：**未跑**（UI与迁移接线未生效）。
-- 用户接受：**未取得**。开发授权不等于验收接受。
+### 核心逻辑真机跑（2026-10-27 补，**通过**）
+
+`node scripts/real/run-batch.mjs scripts/real/g1a-goal-core.ts` → **exit 0，37 项全过**。
+真实 SQLite 文件 + 草案 SQL（不登记迁移、不替代迁移验收），**不是内存 mock**。
+脚本已提交：`scripts/real/g1a-goal-core.ts`。
+
+覆盖（统筹 §6 组合场景里属于 Goal 核心的那段）：
+
+```
+== G1a 真机检查：Goal 核心链路（真实 SQLite 文件 + 草案 SQL）==
+✓ 界面亲手建的目标直接 active（via=ui 即用户确认） — status=active
+✓ origin 默认 user — origin=user
+✓ confirmation 记为 ui — confirmation=ui
+✓ confirmed_at 有值
+✓ AI 提的目标是 proposed（不是 active） — status=proposed
+✓ 它的 origin 记为 agent
+✓ confirmation=pending
+✓ confirmed_at 为空（还没人确认）
+✓ 未经用户确认，proposed 不能直跳 active（AI 无法绕过）
+✓ 用户确认后转 active — status=active
+✓ confirmation 变成 ui
+✓ origin 仍是 agent（两维度正交，确认不改来源）
+✓ 子 Goal 的 parent_goal_id 指向父
+✓ 子 Goal 的 parent_weight 记录为 0.3
+✓ childrenOf 能查到它
+✓ active → paused 合法
+✓ paused → active 合法
+✓ 转 blocked 必须给 blocked_reason（不给就拒）
+✓ active → blocked 合法
+✓ blocked_reason 被记下 — 需要用户拍板选哪个数据源
+✓ blocked → active 合法
+✓ 离开 blocked 后 blocked_reason 清空
+✓ proposed → paused 被拒
+✓ proposed → blocked 被拒
+✓ proposed → completed 被拒
+✓ active → completed 合法
+✓ completed → active 被拒（终态不可复活）
+✓ 非法跳级确实抛错
+✓ create 自身记了事件 — before=10 after=11
+✓ 被拒的 transition 不留事件 — now=11
+✓ 被拒后目标状态没被改 — status=proposed
+✓ 重启后 Goal 还在
+✓ 重启后状态仍是 completed — status=completed
+✓ 重启后 origin=user 仍在
+✓ 重启后子目标关系仍在
+✓ 重启后 AI 提的目标仍是 active+agent
+✓ 重启后事件历史还在 — events=6
+== 真机检查通过（G1a 段）==
+```
+
+**如实说明三条被真实代码纠正的假设**（是我脚本写错，不是代码错）：
+
+1. `via:'ui'` 本身就等于「用户亲手确认」→ 建出来直接 `active`，不必再 confirm；
+2. `origin` 的合法值是 `user | agent`（不是 `ai`）；
+3. `transition` 签名是 `{ decidedBy: 'user'|'agent'; reason?: string | null }`，且
+   `reason` **只对 blocked 必填**——原先把「completed + 空白 reason」当失败场景是错的，
+   改用 `proposed → completed`（真会被 `ALLOWED` 表挡下）来验事务原子性。
+
+### 真实应用端到端：**仍未跑**
+
+- UI 与迁移接线未生效；
+- 实测 `packages/core/src/index.ts` **没有再导出 `goals/`**（只有测试 import `src/goals/index.js`），
+  产品入口尚未接上——所以「在应用里点出目标」这一步确实还跑不了，不是我省略；
+- 组合场景其余步骤（Plan/Step、绑真实 Todo、weighted progress、task failure→watch、
+  `advanceStep`）属 G1b/G1c，等并入 main 后由组合脚本补，见 §6 依赖。
+
+### 用户接受
+
+**未取得**。开发授权不等于验收接受。
 
 ## G1b / G1c 实现前核出的契约缺口（不靠改产品过测）
 
