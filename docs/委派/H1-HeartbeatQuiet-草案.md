@@ -1,7 +1,10 @@
-# 规格草案 H1：Heartbeat 与 Quiet Policy —— 主动思考循环，主动而不打扰（v2 草案）
+# 规格草案 H1：Heartbeat 与 Quiet Policy —— 主动思考循环，主动而不打扰（v3 · 转正式规格准备状态）
 
-> **这是草案，不是生效规格。** dev2 按用户 2026-10-26 任务书大块三起草；
-> v2 已合入用户补齐的第 1–3 节原文（目的、输入、输出）。仍未进队列，等整合方定稿。
+> **仍是草案，不是生效规格。** dev2 按用户 2026-10-26 任务书大块三起草。
+> v2 合入用户补齐的第 1–3 节原文（目的、输入、输出）；附录 A 合入宿主与调度决策；
+> **v3 合入统筹 2026-10-27 第二轮拍板：建议门控、窗口不绑飞书、第一版默认参数**。
+> open 项已全部转为已定案，**只剩 §6b/§6c 两个细节与一项排期依赖**。
+> **本轮不写实现**（统筹 §16-⑩ 未完、§6c 未定），队列 97~100 行仍为「草案待审（整合方）」，不可领。
 > 依赖：G1（Goal/Plan/Step，在整合方手里）。
 
 ## 1. 要什么（用户原文 1–3 节）
@@ -127,18 +130,73 @@ CREATE_TODO | REQUEST_USER_DECISION | REPLAN | WAIT
 5. **前置依赖已解除一半**：L11 的 `sent` 整表替换缺陷（Quiet Policy 的地基）已在 `dev2/L11` `085a260`
    修成逐键合并 + 5 条回归（负向实测旧写法 4/5 红），等整合方复审合并。
 
-### 仍 open（等统筹/用户拍板，本轮没答案我不编）
+### 已定案（统筹 2026-10-27 第二轮拍板，由 open 转入）
 
-1. 「足够结论」的阈值与「建议」的生成者（模型 or 模板）；
-2. evening/weekly 窗口是否也走飞书（L16 通道）还是只在本机；
-3. H1c 依赖 **G1b/G1c 并入 main**（`goal_plans`/`goal_links` 目前不在 main，实测 `migrations.ts` 命中 0），
-   REPLAN/CONTINUE_TASK 两条映射在并入前无落点——这是**排期依赖**，不是设计缺口。
+5. **「足够结论」= 代码门控 + 模型只写建议文字**：满足**任一**即允许 `CREATE_SUGGESTION`，
+   判定在代码里，**模型不许自评「证据够了」**：
+   (a) Research Topic 的目标问题已被明确回答；或
+   (b) **≥2 个独立来源相互印证，且不存在 unresolved conflict**。
+   未过门控 → 继续 `RESEARCH` 或 `WAIT`，不发建议。门控过后模型仅负责生成措辞。
+   验收形态：来源不足 / 有未解冲突 / 模型自称够了但门控不过 → 三种都断言 `CREATE_SUGGESTION` 不产生。
+6. **窗口不绑飞书**：morning / evening / weekly **先在 core 内形成摘要事件**；用户启用远程通知时
+   再统一交给**现有** Feishu Notifier Adapter 投递。硬要求：**飞书不可用或未启用，
+   既不能阻止本地摘要形成，也不能丢通知数据。**
+7. **第一版默认参数**（只是默认配置，**不得写成不可修改的业务契约**）：
+   Tick 10 分钟；quota unavailable 退避 30 分钟；连续超 6 小时升为 60 分钟；
+   Reasoning 上限 12 次/北京日；输入封套 cap 12,000 字符。
+   验收一律经参数注入 + 合成时钟，**不得依赖具体分钟数或 cap**——改校准不该红测试。
+
+### 仍 open 的只剩排期与两个细节（不是设计缺口）
+
+- **排期**：H1c 的 `REPLAN` / `CONTINUE_TASK` 要等 **G1b/G1c 并入 main**
+  （实测 `migrations.ts` 无 `goal_plans`/`goal_links`）。在此之前
+  Tick/Reasoning 骨架、Quiet Policy、建议门控均可先行。
+- 细节见 §6b/§6c。
+
+## 6b. 第 6 条的真实成本（本轮实测，别当零成本）
+
+写规格前查过代码，两个硬事实：
+
+1. **core 侧没有任何通知/摘要存储**。只有
+   `audit_events(id, kind, detail_json, created_at)`（`packages/core/src/db/migrations.ts`）——
+   它是**留痕**，不是待投递队列（没有 delivered/失败状态，删除与保留语义也不同）。
+2. 飞书出口整个在 relay 侧：`createNotifier(target: FeishuTarget | null, store, opts)`
+   （`packages/relay/src/notify/feishu.ts:168`），**target 为 null 时直接返回 `{ok:true, sent:false}`**
+   —— 不投递、**也不留存**。这正是第 6 条要禁止的「丢通知数据」。
+
+结论：
+
+- 第 6 条需要 **core 侧新增一张通知/摘要事件表**（暂名 `notification_events`），
+  字段至少能表达 `kind(morning|evening|weekly|urgent|digest-item) / 目标窗口 / 标题 / 正文 /
+级别 / notifyKey(去重三元组) / created_at / delivered_at(可空) / delivery_error(可空)`；
+  语义 = **写入即成功**，远端投递失败只写 `delivery_error`，不删记录、不阻塞心跳；
+  投递侧消费 `delivered_at IS NULL`，投成功才盖章。
+- **这等于新增数据库迁移 → 整合方关卡**，执行方不自写（AGENTS「迁移文件只由整合方编写」）。
+- 与 §7 第一条「不新造通知通道」**不矛盾**，需在正式规格里把话说明白：
+  不新造的是**外部投递通道**（继续复用 relay 的飞书 adapter）；
+  新增的是**本地待投递存储**，否则第 6 条的「不丢」根本无处可存。
+- relay 的 `notify.sent` 继续管**飞书限频**（流水线自己的事），新表管**内容不丢**，
+  职责不同，**不要合成一张表**。
+
+## 6c. 正式开工前仍需统筹定的两件小事
+
+1. **`unresolved conflict` 由谁判、记在哪**：实测 core 的 `items.state='disputed'` 属 M1 记忆层、
+   `gkd_pattern_conflicts` 属 GKD 层，**都不等于「本轮研究结论互相矛盾」**。我不发明字段。
+2. **`notification_events` 与 `audit_events` 的分工**：我倾向新表（理由见 §6b），但由整合方定；
+   若复用 `audit_events` 需先给它加投递状态列，那是改已有表，更需整合方判。
+
+两件都不影响已定架构，但**不写清不能开工**——否则实现里必然出现临场发明的语义。
 
 ## 7. 约束
 
-- 不新造调度器/通知通道；全部复用 relay notify / JobQueue / research_topics；
-- 打扰级别不许模型直接定；
-- heartbeats 审计与周报数据不进公开仓库真实内容（合成数据测试）。
+- **不新造外部投递通道**：远端通知继续复用 relay 现成的飞书 adapter；
+  但「窗口不绑飞书」（§6 第 6 条）要求本地先落摘要事件，**这需要 core 侧新增一张表 = 数据库迁移**
+  （见 §6b，迁移由整合方编写，执行方不自写）。两条不冲突：新增的是**存储**，不是**通道**。
+- 不新造调度器：Scheduler 由 adapter 提供（第一阶段 Desktop JobQueue）；研究的重排复用
+  `research_topics` 的 interval/next_check，**不新造 Research Scheduler**；
+- 打扰级别不许模型直接定；「证据够了」也不许模型自己判（§6 第 5 条是代码门控）；
+- heartbeats 审计与周报数据不进公开仓库真实内容（合成数据测试）；
+- 默认参数（§6 第 7 条）是配置不是契约，验收不得依赖具体分钟数或 cap。
 
 ## 附录 A：Heartbeat 宿主与调度决策（2026-10-26 应用户要求补，纯比较、非定稿）
 
