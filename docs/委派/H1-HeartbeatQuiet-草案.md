@@ -42,10 +42,11 @@ CREATE_TODO | REQUEST_USER_DECISION | REPLAN | WAIT
   - `idleDay`（同文件 L72）：**「没活」一天一次**的按北京时间日期去重，就是 Quiet Policy 的第 1 条精神；
   - 早报 `morningReport`（北京时间 9 点后一次）、`daily` 事件已有；
   - `formatEvent` 已有事件 → 一条消息的收口。
-- ⚠️ **前置：`dev2/L11`（待复审分支）里的合并缺陷**——已核实 main 上现在只有 `notifyStore(state)` 的读取，
-  问题代码在 `dev2/L11`：合并用 `Object.assign(notifyStore(s), notifyStore(state))`，整张 `sent` 表被后写者
-  **替换**而不是按 key 合并，双道下另一道的去重记录会丢。Quiet Policy 全靠这张表可靠，
-  **该缺陷要在 L11 复审时改掉**（已补进周四复审清单 L11 一节），不必另开修复单。
+- ✅ **L11 的合并缺陷已在分支修好（2026-10-27，统筹 §14 要求）**：问题代码在 `dev2/L11` 的
+  `Object.assign(notifyStore(s), notifyStore(state))`——整张 `sent` 表被后写者**替换**而不是按 key 合并，
+  双道下另一道的去重记录会丢，而 Quiet Policy 全靠这张表可靠。
+  已改为 `mergeNotifyInto` 逐键并集 + 新测试 `l11-notify-merge`（5 条，未 lock），
+  **负向实测：换回旧写法 4/5 红**；分支 CI 全绿（run 40447697441）。等整合方复审合并，见队列 79 行。
 - 桌面端有 JobQueue（退避重试）、`research_topics`（interval_ms/next_check_at/enabled/paused）——
   「继续研究」的执行底子已有，缺的是「由 Goal 的当前步骤触发、结果回写、要不要说」这条链。
 
@@ -108,13 +109,30 @@ CREATE_TODO | REQUEST_USER_DECISION | REPLAN | WAIT
 | **H1c** | Heartbeat 核心循环：10 项输入封套 + 8 动作白名单映射 + 默认 NO_ACTION + heartbeats 审计 | B（自主行为边界 + 新提示词外发） | H1a、G1b/G1c 并入 |
 | **H1d** | evening summary / weekly review 窗口 + 48 小时场景的真机脚本                            | A/B 看是否新增外发文案           | H1b、H1c          |
 
-## 6. 还 open 的问题（原文 1–3 节已答的不重开：行为白名单已定 8 种；「住哪/周期」原文仍未给）
+## 6. 问题状态（2026-10-27 统筹任务书 §13 同步后更新）
 
-1. **Heartbeat 住哪**（relay 看门人里，还是桌面 JobQueue？）与**周期**——原文 1 说「定期」但没给宿主和间隔；
-   若住 relay，L18（自重启）尚未并入，形态要等它。**→ 2026-10-26 已补《附录 A：宿主与调度决策》，推荐第③案（Runner 宿主无关 + adapter），周期拆成 Tick/Reasoning 两层、数值留统筹定**；
-2. 「足够结论」的阈值与「建议」的生成者（模型 or 模板）；
-3. evening/weekly 窗口是否也走飞书（L16 通道），还是只在本机；
-4. 频控上限、输入封套长度 cap 的数值（先保守常量，真实校准后调）。
+### 已由统筹定案（不再是 open，实现照此，不再重议）
+
+1. **宿主 = 方案③**：`HeartbeatRunner` 住 `packages/core`，宿主无关；结构
+   `buildSnapshot / decide / executeAllowedAction / quietPolicy / recordRun`；
+   Scheduler 由 adapter 提供，**第一阶段 = Desktop JobQueue adapter**，未来 IXAEON Core Service 换 adapter；
+   **Relay 不作正式宿主**，继续只承担 Coding 流水线 + 现有通知出口（统筹 §13.1）。
+2. **Tick 与 Reasoning 两层必须保留**；Tick 零模型调用、可降频、**额度不足只挡 Reasoning 不停 Tick**
+   （记 `skipped/quota_unavailable` + `next_retry_at`，恢复自醒，不得失去自主唤醒能力）（§13.2 / 附录 A.2）。
+3. **去重三元组**：`snapshot_fingerprint + wake_reason + due_window/review_epoch`；
+   新窗口即使快照没变也允许再醒一次（§13.3 / 附录 A.2）。
+4. **数值口径**：默认 Tick interval、退避档位、每日 Reasoning 上限、due window 宽度——
+   统筹 §13.4 定为**可配置默认值，不得成为不可修改的业务契约**（与本草案 A.3 一致；
+   验收一律注入合成时钟，不钉分钟数）。
+5. **前置依赖已解除一半**：L11 的 `sent` 整表替换缺陷（Quiet Policy 的地基）已在 `dev2/L11` `085a260`
+   修成逐键合并 + 5 条回归（负向实测旧写法 4/5 红），等整合方复审合并。
+
+### 仍 open（等统筹/用户拍板，本轮没答案我不编）
+
+1. 「足够结论」的阈值与「建议」的生成者（模型 or 模板）；
+2. evening/weekly 窗口是否也走飞书（L16 通道）还是只在本机；
+3. H1c 依赖 **G1b/G1c 并入 main**（`goal_plans`/`goal_links` 目前不在 main，实测 `migrations.ts` 命中 0），
+   REPLAN/CONTINUE_TASK 两条映射在并入前无落点——这是**排期依赖**，不是设计缺口。
 
 ## 7. 约束
 
