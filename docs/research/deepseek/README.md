@@ -107,18 +107,20 @@ docs/{streaming,tokenizer}.md
 
 ## 4. 目录与状态
 
-| 文件                                                                                  | 状态                                                   |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `README.md`（本文）                                                                   | ✅ P0 基线                                             |
-| `deepinfer/capability-map.md`                                                         | ✅ 10 项能力，逐条证据                                 |
-| `recipe/architecture.md`                                                              | ✅ IR / reasoning / tools / tokenizer / 流式           |
-| `adoption/ixaeon-gap-analysis.md`                                                     | ✅ 8 个 gap（全部带我们文件:行）                       |
-| `adoption/adoption-matrix.md`                                                         | ✅ 19 项判定 + 与任务书假设差异                        |
-| `adoption/rejected-ideas.md`                                                          | ✅ Do Not Copy List + 8 条引入准则                     |
-| `adoption/top10-lessons.md`                                                           | ✅ 10 条 Lesson（Lesson/Why/Evidence/Impact/Action）   |
-| `adoption/rfc-proposals.md`                                                           | ✅ 3 份 RFC（IR / ReasoningState / ModelCapabilities） |
-| `deepinfer/{architecture,scheduling,cache,speculative-decoding,structured-output}.md` | ⏳ 主要结论已并入 `capability-map.md`，需细化再拆      |
-| `recipe/{api-conversion,prompt-rendering,tokenizer,reasoning,tool-calling}.md`        | ⏳ 主要结论已并入 `recipe/architecture.md`             |
+| 文件                                                                                  | 状态                                                         |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `README.md`（本文）                                                                   | ✅ P0 基线                                                   |
+| `deepinfer/capability-map.md`                                                         | ✅ 10 项能力，逐条证据                                       |
+| `recipe/architecture.md`                                                              | ✅ IR / reasoning / tools / tokenizer / 流式                 |
+| `adoption/ixaeon-gap-analysis.md`                                                     | ✅ 8 个 gap（全部带我们文件:行）                             |
+| `adoption/adoption-matrix.md`                                                         | ✅ 19 项判定 + 与任务书假设差异                              |
+| `adoption/rejected-ideas.md`                                                          | ✅ Do Not Copy List + 8 条引入准则                           |
+| `adoption/top10-lessons.md`                                                           | ✅ 10 条 Lesson（Lesson/Why/Evidence/Impact/Action）         |
+| `adoption/rfc-proposals.md`                                                           | ✅ 3 份 RFC（IR / ReasoningState / ModelCapabilities）       |
+| `adoption/source-intelligence-cards.md`                                               | ✅ §16 两张源智能卡（字段逐项对齐）                          |
+| `evidence/source-capabilities.json`                                                   | ✅ §17 机器可读记录 ×13，全部带 repo@commit:path 与 decision |
+| `deepinfer/{architecture,scheduling,cache,speculative-decoding,structured-output}.md` | ⏳ 主要结论已并入 `capability-map.md`，需细化再拆            |
+| `recipe/{api-conversion,prompt-rendering,tokenizer,reasoning,tool-calling}.md`        | ⏳ 主要结论已并入 `recipe/architecture.md`                   |
 
 ## 5. 任务书 §30 验收对照
 
@@ -131,6 +133,8 @@ docs/{streaming,tokenizer}.md
 | E Adoption Matrix                                                | ✅             | `adoption/adoption-matrix.md`                                      |
 | F ixaeon Gap Analysis                                            | ✅             | `adoption/ixaeon-gap-analysis.md`                                  |
 | G ≥3 个架构 RFC                                                  | ✅ 3 份        | `adoption/rfc-proposals.md`                                        |
+| §16 Source Intelligence Card ×2                                  | ✅             | `adoption/source-intelligence-cards.md`                            |
+| §17 机器可读知识记录（不只 Markdown）                            | ✅ 13 条 JSON  | `evidence/source-capabilities.json`                                |
 | H 未引入 GPU 依赖/私有化设计/Provider 强耦合/重复能力            | ✅             | 零代码改动，纯文档                                                 |
 | I 所有新增代码测试通过                                           | ✅ N/A         | 本阶段无代码                                                       |
 | J 工作区干净                                                     | ✅             | 见交付说明                                                         |

@@ -1,0 +1,193 @@
+{
+  "$comment": "任务书 §17 Knowledge Distillation 数据格式。13 条 SourceCapability 记录（DeepInfer 8 + deepseek-recipe 5）。evidence 均为 repo@commit:path，本轮经 GitHub API 实读。decision 用 §3 五档；confidence 是 dev2 对『证据强度×迁移适配度』的自评（0..1），非测量值，待实验更新。",
+  "schema_version": 1,
+  "generated_at": "2026-10-27",
+  "records": [
+    {
+      "source_project": "DeepInfer",
+      "capability": "two_phase_scheduling",
+      "problem": "prefill（重、长）与 decode（轻、逐 token）成本结构不同，混排互相拖累",
+      "mechanism": "EngineType NORMAL/PROMPT/COMPLETION + SchedulerOutputs.prompt_run 分流，各走不同预算与张量准备",
+      "dependencies": ["GPU 执行器", "显存 block 管理"],
+      "assumptions": ["批组成的调度决策与设备执行可分离"],
+      "ixaeon_mapping": "JobQueue 无重/轻分级（有 kind 去重与聊天让路）",
+      "decision": "REFERENCE",
+      "confidence": 0.55,
+      "evidence": ["deepseek-ai/DeepInfer@553741557a57:csrc/engine/scheduler.hpp:36-47"]
+    },
+    {
+      "source_project": "DeepInfer",
+      "capability": "async_scheduling",
+      "problem": "调度决策与执行串行导致设备空转",
+      "mechanism": "CPU 排批与设备执行重叠；async varlen 下对 seqlens 做 optimistic estimation",
+      "dependencies": ["CUDA stream 语义"],
+      "assumptions": ["下一批内容可与本批执行并行确定"],
+      "ixaeon_mapping": "我们的『设备』是外部 API，重叠=并发而非 stream",
+      "decision": "REFERENCE",
+      "confidence": 0.5,
+      "evidence": [
+        "deepseek-ai/DeepInfer@553741557a57:csrc/engine/scheduler.hpp:56",
+        "README.md:Asynchronous scheduling"
+      ]
+    },
+    {
+      "source_project": "DeepInfer",
+      "capability": "batch_invariant_inference",
+      "problem": "同请求因批组成不同得到不同结果 → 评测与回归不可信",
+      "mechanism": "开关 DEEPINFER_BATCH_INVARIANT=1（NVIDIA only）+ 专门测试保证跨批一致",
+      "dependencies": ["确定性 kernel"],
+      "assumptions": ["我们侧对应物=同输入在不同并发/上下文下结果应可复现"],
+      "ixaeon_mapping": "D5a/D5b 验收与 benchmark 的可重现基线",
+      "decision": "ADAPT",
+      "confidence": 0.8,
+      "evidence": [
+        "deepseek-ai/DeepInfer@553741557a57:tests/models/test_batch_invariant.py",
+        "README.md:Batch-invariant inference"
+      ]
+    },
+    {
+      "source_project": "DeepInfer",
+      "capability": "deterministic_sampling",
+      "problem": "采样随机使『这次比上次好』无法判断",
+      "mechanism": "SamplingParams 传固定 seq_seed；文档给出与 batch-invariant 的组合条件",
+      "dependencies": ["provider 支持 seed"],
+      "assumptions": ["seed 不保证跨模型版本一致，需连模型名一起记录"],
+      "ixaeon_mapping": "ModelProvider 无 seed（capabilities.seed=false 如实声明）；加 seed 传递+记录",
+      "decision": "ADOPT",
+      "confidence": 0.9,
+      "evidence": [
+        "deepseek-ai/DeepInfer@553741557a57:README.md:Deterministic sampling",
+        "deepseek-ai/DeepInfer@553741557a57:deepinfer/sampling_params.py"
+      ]
+    },
+    {
+      "source_project": "DeepInfer",
+      "capability": "grammar_constrained_decoding",
+      "problem": "机器间结构通信不能靠模型自觉",
+      "mechanism": "xgrammar 编译 regex/JSON schema/EBNF → 解码期 mask（structure_output/{compiler,mask,matcher}）",
+      "dependencies": ["自有权解码器"],
+      "assumptions": ["我们只能 native schema / tool / 校验修复 三档降级"],
+      "ixaeon_mapping": "已有 zod 校验 + json_schema strict（openai.ts:134-143）→ 只补按能力选档",
+      "decision": "ADAPT",
+      "confidence": 0.75,
+      "evidence": ["deepseek-ai/DeepInfer@553741557a57:deepinfer/structure_output/compiler.py:1-45"]
+    },
+    {
+      "source_project": "DeepInfer",
+      "capability": "bounded_schema_cache",
+      "problem": "按 schema 增长的编译缓存可被撑爆（OOM/DoS，CVE-2025-32381）",
+      "mechanism": "cache_limit_bytes 上限 + DISABLE kill switch + 无上限时启动即 WARNING",
+      "dependencies": [],
+      "assumptions": ["我们目前无此类缓存，属预防性规矩"],
+      "ixaeon_mapping": "未来任何 schema/prompt 模板缓存必须带 上限+开关+降级",
+      "decision": "ADOPT",
+      "confidence": 0.85,
+      "evidence": [
+        "deepseek-ai/DeepInfer@553741557a57:deepinfer/structure_output/compiler.py:15-33"
+      ]
+    },
+    {
+      "source_project": "DeepInfer",
+      "capability": "dspark_draft_verify",
+      "problem": "解码吞吐受单 token 序列速度限制",
+      "mechanism": "MTP draft tokens + confidence-scheduled verification（NEXTN 默认 5）",
+      "dependencies": ["模型带 MTP 头", "kernel 支持"],
+      "assumptions": ["token 级机制与 agent 级草稿验证是两回事"],
+      "ixaeon_mapping": "仅抽象层 Speculative Agent Execution 有参考意义（RFC，未实现）",
+      "decision": "REJECT(token 级) / 抽象层 DEFER",
+      "confidence": 0.7,
+      "evidence": [
+        "deepseek-ai/DeepInfer@553741557a57:deepinfer/model_executor/models/mtp/dflash.py",
+        "csrc/engine/mtp_varlen.hpp"
+      ]
+    },
+    {
+      "source_project": "DeepInfer",
+      "capability": "scheduling_time_cost_estimate",
+      "problem": "成本估算若无留痕，永远不知偏差",
+      "mechanism": "SchedulerOutputs.attn_tflops/total_tflops 标注 immutable scheduling-time estimate + stats_logger",
+      "dependencies": [],
+      "assumptions": ["我们可先记录预估 vs 实际，不做决策"],
+      "ixaeon_mapping": "模型调用记录预估 token/成本 与实际用量两列",
+      "decision": "ADAPT",
+      "confidence": 0.7,
+      "evidence": [
+        "deepseek-ai/DeepInfer@553741557a57:csrc/engine/scheduler.hpp:61-62",
+        "deepinfer/engine/stats_logger.py"
+      ]
+    },
+    {
+      "source_project": "deepseek-recipe",
+      "capability": "conversation_ir",
+      "problem": "API 格式直接进模型后端导致每加协议改核心",
+      "mechanism": "core 定义 Conversation/InputMessage 五变体；每协议独立 request|response convert；核心不 import 协议类型",
+      "dependencies": [],
+      "assumptions": ["协议是外部契约会变，IR 是稳定内核"],
+      "ixaeon_mapping": "ModelProvider 只有 system+user 字符串（provider.ts:7-21）→ CanonicalConversation（DS2 已交付类型层）",
+      "decision": "ADAPT",
+      "confidence": 0.9,
+      "evidence": [
+        "deepseek-ai/deepseek-recipe@935817c66f5d:deepseek-recipe-core/src/conversation.rs:9-45",
+        "deepseek-recipe/src/protocol/*/request/convert.rs"
+      ]
+    },
+    {
+      "source_project": "deepseek-recipe",
+      "capability": "reasoning_state_marker",
+      "problem": "『本轮无推理』与『漏传推理』都是空值，混同导致请求失败",
+      "mechanism": "normalize_reasoning_content 三条件才拒绝；tool_call_id 带 ET_ 标记区分；非 thinking 一律置 None",
+      "dependencies": ["thinking mode 概念"],
+      "assumptions": ["我们踩过 reasoning_content must be passed back 报错"],
+      "ixaeon_mapping": "ReasoningState 四态 + renderReasoningFor（DS2 已交付）",
+      "decision": "ADAPT",
+      "confidence": 0.92,
+      "evidence": [
+        "deepseek-ai/deepseek-recipe@935817c66f5d:deepseek-recipe/src/protocol/reasoning_content.rs:1-70",
+        "deepseek-recipe/src/protocol/tool_call_id.rs:1-40"
+      ]
+    },
+    {
+      "source_project": "deepseek-recipe",
+      "capability": "version_scoped_encoding",
+      "problem": "模型版本渲染差异散落各处会失控",
+      "mechanism": "encoding/src/v4/{dsv4,dsv41}.rs 各一份；V4/V4.1 差异收敛在 convert 与注释（如 tool 结果排序）",
+      "dependencies": ["自带 tokenizer"],
+      "assumptions": ["我们不经手 token，只借『按版本声明能力』的形状"],
+      "ixaeon_mapping": "ModelCapabilities（DS2 已交付类型层；maxContext 未知=null 不猜）",
+      "decision": "ADAPT",
+      "confidence": 0.8,
+      "evidence": [
+        "deepseek-ai/deepseek-recipe@935817c66f5d:deepseek-recipe-encoding/src/v4/dsv4.rs",
+        "deepseek-recipe-core/src/messages.rs:44-58"
+      ]
+    },
+    {
+      "source_project": "deepseek-recipe",
+      "capability": "protocol_specific_streaming",
+      "problem": "不同协议流式语义不同（delta 逐块 vs 事件累加），统一硬抽象会错",
+      "mechanism": "每协议独立 chunk_generator；Responses 另有 accumulator",
+      "dependencies": [],
+      "assumptions": ["我们接多协议前先承认差异"],
+      "ixaeon_mapping": "现有 streamingUnsupported 探测是雏形；暂不动",
+      "decision": "REFERENCE",
+      "confidence": 0.6,
+      "evidence": [
+        "deepseek-ai/deepseek-recipe@935817c66f5d:deepseek-recipe/src/protocol/openai/responses/response/accumulator.rs"
+      ]
+    },
+    {
+      "source_project": "deepseek-recipe",
+      "capability": "special_token_explicitness",
+      "problem": "文本中的特殊 token 拼写与真实 token 边界混淆（注入风险）",
+      "mechanism": "Prompt 与 String 两种类型；assistant/reasoning 里的 grounding-token 拼写在渲染时显式识别",
+      "dependencies": ["自带分词器"],
+      "assumptions": ["我们不持 tokenizer，等价问题=发给模型的文本里控制序列的边界"],
+      "ixaeon_mapping": "暂无落点，留知识",
+      "decision": "REFERENCE",
+      "confidence": 0.5,
+      "evidence": [
+        "deepseek-ai/deepseek-recipe@935817c66f5d:deepseek-recipe-core/src/messages.rs:1-10"
+      ]
+    }
+  ]
+}
