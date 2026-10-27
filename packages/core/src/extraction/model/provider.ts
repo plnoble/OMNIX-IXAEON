@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { ModelCapabilities } from '../../model/capabilities.js';
 
 /**
  * 模型提供者接口：提取与问答统一走这里。
@@ -6,6 +7,11 @@ import type { z } from 'zod';
  */
 export interface ModelProvider {
   readonly modelName: string;
+  /**
+   * 能力声明（RFC-003，DS2）：判断「支不支持」问能力，不要问模型名。
+   * 实现必须显式声明；不确定的项按最弱档（见 capabilities.ts 的 CONSERVATIVE_CAPABILITIES）。
+   */
+  readonly capabilities: ModelCapabilities;
   /**
    * 结构化输出：模型必须按 schema 返回 JSON。
    * 实现负责校验（zod safeParse）；校验失败抛 ModelError。
