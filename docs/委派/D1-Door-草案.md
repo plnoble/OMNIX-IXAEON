@@ -21,6 +21,7 @@ Migration 24 `door-devices-persistence` 已在 main 建了三张表，**生产�
 - `door_task_leases`：task_id PK / device_id / **lease_until** / status(dispatched…)
 
 **草案决定：D1 建立在这批表之上，不推翻重建。** 理由：
+
 1. 表形状与大块八要求几乎一一对应（Identity=表本体、Pairing/Heartbeat=token_hash+paired_at+last_heartbeat、
    Online State=status、Static Capability=cores/ram/storage、Tested=benchmarks、Dispatch=leases）；
 2. `expires_at` 正是 R1「Last Verified」要的形态（R1 草案已注记抄这个模式）；
@@ -33,16 +34,16 @@ Migration 24 `door-devices-persistence` 已在 main 建了三张表，**生产�
 
 优先 FAEX1。八件套逐一落点（全部对上 §2 的休眠列，缺的标出）：
 
-| 要求 | 落点 | 缺什么 |
-| --- | --- | --- |
-| Device Identity | `door_devices.id/name/platform` | id 生成与防克隆（建议首次配对生成 device key，细节待拍板） |
-| Pairing | `token_hash + paired_at` | 配对流程（扫码/输入码/局域网发现？）、token 轮换与吊销 |
-| Heartbeat | `last_heartbeat_at` | 间隔与「多久算 offline」的判定（可配置默认，同 H1 §13.4 口径） |
-| Capability | `capabilities_json` | **枚举词表**（见 §4，不许自由字符串） |
-| Resource Status | `telemetry_json` | 结构定义 + Current State 分开（§4） |
-| Permission | `status='restricted'` 粗粒度 | **细粒度授权**：哪类任务、哪类数据可在此设备执行——大概率要新列/新表（迁移归整合方） |
-| Online State | status 四态 | 网络分区时 `restricted` vs `offline` 的区分规则 |
-| Task Dispatch | `door_task_leases` | 派发即写 lease 的事务；lease 过期回收；cancel 传播 |
+| 要求            | 落点                            | 缺什么                                                                              |
+| --------------- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| Device Identity | `door_devices.id/name/platform` | id 生成与防克隆（建议首次配对生成 device key，细节待拍板）                          |
+| Pairing         | `token_hash + paired_at`        | 配对流程（扫码/输入码/局域网发现？）、token 轮换与吊销                              |
+| Heartbeat       | `last_heartbeat_at`             | 间隔与「多久算 offline」的判定（可配置默认，同 H1 §13.4 口径）                      |
+| Capability      | `capabilities_json`             | **枚举词表**（见 §4，不许自由字符串）                                               |
+| Resource Status | `telemetry_json`                | 结构定义 + Current State 分开（§4）                                                 |
+| Permission      | `status='restricted'` 粗粒度    | **细粒度授权**：哪类任务、哪类数据可在此设备执行——大概率要新列/新表（迁移归整合方） |
+| Online State    | status 四态                     | 网络分区时 `restricted` vs `offline` 的区分规则                                     |
+| Task Dispatch   | `door_task_leases`              | 派发即写 lease 的事务；lease 过期回收；cancel 传播                                  |
 
 ## 4. Capability 三层（原文 3 节，红线：**不许从型号推断性能**）
 
@@ -73,9 +74,60 @@ Tested   —— 真跑过的性能                    = door_benchmarks（带 ex
 - 设备上的执行进程属于 Executor Contract（大块十）：设备**不拥有** Goal/Memory/身份（原则 4）；
 - 设备侧通信是**新的外部网络面 = B 档**，配对与 token 管理属权限与隐私 = B 档。
 
-## 7. 待统筹拍板
+## 7. 四项选型：**已定案**（统筹 2026-10-28）
 
-1. 配对流程形态（局域网发现/输入码/扫码）与 token 轮换策略；
-2. Permission 细粒度模型的形状（新表还是列）；
-3. benchmarks 是否留历史（§4）；
-4. FAEX1 的 OS/运行时前提（systemd? node 版本?），决定心跳与执行进程的形态。
+| 待定项         | 决定                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------ |
+| 配对流程       | 第一阶段**手动输入地址 + 一次性配对码 + 双方身份确认**；**暂不做自动局域网发现**                       |
+| 权限模型       | **新增独立权限表**，**不塞进** `capabilities_json` 或靠单个 `status='restricted'`                      |
+| Benchmark 历史 | **必须保留不可变历史**；旧 `door_benchmarks` 继续作为**最新结果兼容视图/快照**                         |
+| FAEX1 运行时   | **Node 设备 Agent，Windows/Linux 双平台设计**；实际部署先确认真实 OS，再选 Task Scheduler 或 `systemd` |
+
+### 7.1 Permission 表（统筹给的最小授权记录）
+
+```text
+device_id / capability / task_kind / data_class / project_scope
+/ granted_by / expires_at / revoked_at
+```
+
+初始权限模板（统筹示例，**是建议模板、不是硬件能力结论**；真正授予时**仍由用户确认**）：
+
+| 设备     | 允许                                     | 默认禁止                           |
+| -------- | ---------------------------------------- | ---------------------------------- |
+| FAEX1    | 本地模型推理、Embedding、授权的 Research | **任意 Shell**、无授权读取私人数据 |
+| 飞牛 NAS | 索引、文件处理、已批准的存储任务         | 自行修改 Core 记忆或 Goal          |
+| 红魔     | 本地模型 Benchmark、受限推理             | 直接管理 Core 数据库               |
+
+### 7.2 配对的安全要求（写死）
+
+- 配对过程**必须建立经过认证与加密的通信通道**；**短配对码不能代替远端身份校验**；
+- **每台设备持有独立凭证**，支持**轮换、撤销、重配**；
+- **凭证不得以明文进入数据库或日志**（现有 `door_devices.token_hash` 是哈希，符合这条；具体算法待整合方定）。
+
+### 7.3 Benchmark 必须留历史（统筹给的动机，照记）
+
+以后会问：**「FAEX1 上某个模型今天为什么比上个月慢？」**
+只存最新一条 `inference_speed`，历史数据就永远丢了。所以：
+
+- **新增 `door_benchmark_runs`**：追加写入的历史实测（设备、模型、运行环境、时间、结果、有效期）；
+- **现有 `door_benchmarks`**：继续提供**最新有效结果**，不破坏 Migration 24 的既有设计；
+- **派发决策只信「未过期且测试条件匹配」的结果**（条件含模型/环境，跨条件不可比）。
+
+## 8. **不要形成两套设备身份系统**（统筹补充，写死边界）
+
+C1 是运行服务的中心，D1 是设备能力入口。正确关系：
+
+```text
+IXAEON Core Service
+   ├── Goal / Memory / Heartbeat
+   ├── Capability Registry / Router
+   └── Door Manager
+          ├── FAEX1 Agent
+          ├── NAS Agent
+          └── Android Agent
+```
+
+- **门禁、权限与派发授权由 Core 管理**；设备 Agent **只能执行被授权的明确任务并回传证据**；
+- 设备在**断联时可以暂存任务结果**，但**不能自行把自己升级成新的 Goal / Memory 权威**；
+- 因此：**设备身份只有一处权威（Core 的 `door_devices`）**，
+  C1 不另建「服务侧设备表」，D1 不另建「设备侧身份源」——两边都引用同一个权威。

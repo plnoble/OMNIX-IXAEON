@@ -11,18 +11,18 @@ FAEX1 长期开机时，**即使 Electron GUI 没开，IXAEON 也必须继续工
 
 ## 2. 现状实测（先查再写，逐项给位置）
 
-| 能力（原文 4 节的 10 项） | 现状 | 证据 |
-| --- | --- | --- |
-| 单实例 | ✅ 已有 | `apps/desktop/src/main/index.ts:56` `requestSingleInstanceLock`（+ `second-instance` 聚焦） |
-| 优雅关闭 | ✅ 已有（Electron 形态） | `index.ts:100` `before-quit` 先停运行时再退 |
-| 更新后重启 | ✅ 已有（Electron 形态） | `updater.ts:130-131` `quitAndInstall` |
-| 开机启动 | ❌ 无 | `setLoginItemSettings`/autostart 全仓零命中 |
-| 健康检查 | ❌ 无 | core 内 `health/readiness` 零命中 |
-| 状态查询 | ⚠️ 只活在大进程里 | 桌面 HTTP 面唯一落点在 `appRuntime.ts`（**3041 行**，整个文件 `import electron`） |
-| 崩溃恢复 | ⚠️ 部分 | JobQueue 有退避重试与持久化；**进程级**崩溃恢复没有（运行时就活在 Electron 主进程里） |
-| 数据库恢复 | ⚠️ 部分 | WAL + busy_timeout 在；`archiveStore` 有备份还原，但无启动自检流程 |
-| 任务恢复 | ✅ 基础好 | `JobQueue`（`jobs/jobQueue.ts`）持久队列、kind 去重、退避 |
-| 日志 | ✅ 已有 | logger 分层（`component` 子 logger） |
+| 能力（原文 4 节的 10 项） | 现状                     | 证据                                                                                        |
+| ------------------------- | ------------------------ | ------------------------------------------------------------------------------------------- |
+| 单实例                    | ✅ 已有                  | `apps/desktop/src/main/index.ts:56` `requestSingleInstanceLock`（+ `second-instance` 聚焦） |
+| 优雅关闭                  | ✅ 已有（Electron 形态） | `index.ts:100` `before-quit` 先停运行时再退                                                 |
+| 更新后重启                | ✅ 已有（Electron 形态） | `updater.ts:130-131` `quitAndInstall`                                                       |
+| 开机启动                  | ❌ 无                    | `setLoginItemSettings`/autostart 全仓零命中                                                 |
+| 健康检查                  | ❌ 无                    | core 内 `health/readiness` 零命中                                                           |
+| 状态查询                  | ⚠️ 只活在大进程里        | 桌面 HTTP 面唯一落点在 `appRuntime.ts`（**3041 行**，整个文件 `import electron`）           |
+| 崩溃恢复                  | ⚠️ 部分                  | JobQueue 有退避重试与持久化；**进程级**崩溃恢复没有（运行时就活在 Electron 主进程里）       |
+| 数据库恢复                | ⚠️ 部分                  | WAL + busy_timeout 在；`archiveStore` 有备份还原，但无启动自检流程                          |
+| 任务恢复                  | ✅ 基础好                | `JobQueue`（`jobs/jobQueue.ts`）持久队列、kind 去重、退避                                   |
+| 日志                      | ✅ 已有                  | logger 分层（`component` 子 logger）                                                        |
 
 **结论：十项里 4 项已有（都长在 Electron 形态上）、3 项有基础、3 项零基础。**
 
@@ -37,6 +37,7 @@ FAEX1 长期开机时，**即使 Electron GUI 没开，IXAEON 也必须继续工
 ## 4. 约束（原文 3 节，照抄 + 具体化）
 
 **第一阶段不重写全部代码。** 优先做四件：
+
 1. Core 生命周期从 Electron 解耦；
 2. 支持独立启动；
 3. Electron 变成连本机 Core 的 Client；
@@ -54,13 +55,13 @@ FAEX1 长期开机时，**即使 Electron GUI 没开，IXAEON 也必须继续工
 
 ## 5. 拆分、档位与依赖
 
-| 支 | 内容 | 档位 | 依赖 |
-| --- | --- | --- | --- |
+| 支      | 内容                                                                            | 档位                                | 依赖         |
+| ------- | ------------------------------------------------------------------------------- | ----------------------------------- | ------------ |
 | **C1a** | 运行时核从 appRuntime 抽出（不 import electron 的 core 生命周期），桌面端改连它 | **B**（改变进程与数据写入权威边界） | 上游五块并入 |
-| **C1b** | 独立启动入口 + 单实例（Service 形态）+ 优雅关闭 + 崩溃后自起 | B（新的进程生命周期权威） | C1a |
-| **C1c** | 开机启动（Windows 计划任务/服务或等效）、更新后重启的 Service 化 | B（改系统级配置，需另行授权） | C1b |
-| **C1d** | 状态查询 + 健康检查端点（复用 JSON-RPC 面，不新造协议） | A | C1b |
-| **C1e** | MCP 与 Notification 改连 Core（断开对桌面 HTTP 的依赖） | B | C1b |
+| **C1b** | 独立启动入口 + 单实例（Service 形态）+ 优雅关闭 + 崩溃后自起                    | B（新的进程生命周期权威）           | C1a          |
+| **C1c** | 开机启动（Windows 计划任务/服务或等效）、更新后重启的 Service 化                | B（改系统级配置，需另行授权）       | C1b          |
+| **C1d** | 状态查询 + 健康检查端点（复用 JSON-RPC 面，不新造协议）                         | A                                   | C1b          |
+| **C1e** | MCP 与 Notification 改连 Core（断开对桌面 HTTP 的依赖）                         | B                                   | C1b          |
 
 ## 6. 验收（原文 5 节，逐条可执行）
 
@@ -69,14 +70,14 @@ FAEX1 长期开机时，**即使 Electron GUI 没开，IXAEON 也必须继续工
 
 落成测试矩阵（真实世界验收优先，原则 5）：
 
-| # | 步骤 | 断言 |
-| --- | --- | --- |
-| 1 | Service 起，桌面端**未启动** | 心跳/研究/任务各产生一条真实记录（合成数据环境下） |
-| 2 | 期间 Memory 写入 | `items` 新增行，来源链完整 |
-| 3 | MCP 客户端在桌面端关闭期间连 Core 查询 | 返回成功（现状会失败——这条是回归门） |
-| 4 | 杀掉 Service 进程（崩溃模拟） | 自起恢复，任务恢复、无双跑（单实例 + lease） |
-| 5 | 重开桌面端 | **§1-4 的全部变化在 UI 可见**（这条是本块的产品级验收） |
-| 6 | 桌面端开着时 Core 的定时任务照跑 | 不与 UI 抢资源到超时（沿用给聊天让路的既有规则） |
+| #   | 步骤                                   | 断言                                                    |
+| --- | -------------------------------------- | ------------------------------------------------------- |
+| 1   | Service 起，桌面端**未启动**           | 心跳/研究/任务各产生一条真实记录（合成数据环境下）      |
+| 2   | 期间 Memory 写入                       | `items` 新增行，来源链完整                              |
+| 3   | MCP 客户端在桌面端关闭期间连 Core 查询 | 返回成功（现状会失败——这条是回归门）                    |
+| 4   | 杀掉 Service 进程（崩溃模拟）          | 自起恢复，任务恢复、无双跑（单实例 + lease）            |
+| 5   | 重开桌面端                             | **§1-4 的全部变化在 UI 可见**（这条是本块的产品级验收） |
+| 6   | 桌面端开着时 Core 的定时任务照跑       | 不与 UI 抢资源到超时（沿用给聊天让路的既有规则）        |
 
 ## 7. 不做什么
 
@@ -85,9 +86,39 @@ FAEX1 长期开机时，**即使 Electron GUI 没开，IXAEON 也必须继续工
 - Relay **不**升格为 Core Service 宿主（原则 1：Relay 只管开发流水线，不当总调度大脑）;
 - 不在验收里用「测试全绿」代替「关 GUI 真跑」——本块的成立标志只有 §6 的真机序列。
 
-## 8. 待统筹拍板
+## 8. 四项选型：**已定案**（统筹 2026-10-28）
 
-1. Service 在 Windows 上的落地形态：计划任务 + 守护？Windows Service？Electron 无关的 node 常驻？
-2. 本机回路的传输选型（named pipe / loopback HTTP / stdio 由 supervisor 拉起）——涉及与现有桌面 HTTP 面的取舍；
-3. 与 DSH/hermes 运行时的关系：Core Service 是否复用 `tuiGateway` 的宿主形态直接对外；
-4. 桌面端连接本机 Core 失败时的降级策略（排队重连？提示用户？）。
+| 待定项                 | 决定                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| Windows 宿主           | 第一阶段：**独立 Node 进程 + Windows Task Scheduler 守护**。**不急于编写原生 Windows Service**          |
+| 本机通信               | 第一阶段：**`127.0.0.1` Loopback HTTP + JSON-RPC**。复用已有 HTTP 基础，**暂不切 Named Pipe**           |
+| 与 Hermes / TUI 的关系 | **共用同一个 Core Runtime，不共用 TUI 交互生命周期**。TUI、MCP、Electron 都是 **Client/Adapter**        |
+| 桌面失联降级           | 自动**退避重连** + 清晰显示 **Core 离线**；离线只允许查看**明确标记的缓存**，**禁止静默排队重放写操作** |
+
+### 8.1 目标架构（统筹给定，实现照此分层）
+
+```text
+IXAEON Core Service
+  Memory · Goals · Heartbeat · Research · Tasks · Registry
+        │
+        本机 RPC / Client Adapters
+        ├── Electron
+        ├── MCP
+        └── TUI / CLI
+```
+
+### 8.2 三条实现红线（写死，验收要能断言）
+
+1. **Core 是 SQLite 数据写入的唯一运行时权威**——**不能让 Electron 和 Service 分别跑一套 JobQueue**。
+   实测支持这条红线：`appRuntime.ts` 现在有**两处** `new JobQueue(...)`（L282、L2596）且都在 Electron 主进程里；
+   C1a 必须把「队列的拥有者」收敛成唯一一个有生命周期所有者的实例，另一处改为**经 RPC 委托**，不是各起一套。
+2. **HTTP 只绑 loopback**，且必须有**本地客户端鉴权 + 受限凭证文件**；
+   **不允许开放 `0.0.0.0`**。远程设备以后走**独立安全接入层**（不在本块）。
+3. **Windows 计划任务须支持：无人登录启动、异常重启、最小权限运行**；
+   若 FAEX1 最终用 Linux，对应实现改为 **`systemd`，不改 Core Runtime**（宿主差异只在 adapter 层）。
+
+### 8.3 C1e 的定位（统筹明确）
+
+**C1e 必须修掉 MCP 对桌面 HTTP 的依赖**——这是**可验收的功能缺陷**，不只是架构美化。
+实测依据：`apps/mcp/src/index.ts:19` 注释为「转发到本机桌面端 HTTP」；关掉 Electron 即断，
+与 §6 验收第 3 条直接冲突。

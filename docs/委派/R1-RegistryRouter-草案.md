@@ -12,25 +12,25 @@ AGENTS 明确记着「字段齐全，值是编的」。本草案的每一列都�
 
 ## 2. 与已有资产的关系（不另起炉灶，三条衔接写死）
 
-| 已有 | 关系 |
-| --- | --- |
+| 已有                                                                                    | 关系                                                                                                                                                                                   |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **DS2 的 `ModelCapabilities`**（`packages/core/src/model/capabilities.ts`，待复审分支） | 它是**静态声明面**（provider 支持什么：native-schema/tool/seed/`maxContext`）；R1 Registry 是**观测面**（实测质量/延迟/成功率/健康）。两层必须可联查，**禁止互相冒充**：声明不等于测过 |
-| **S1/GKD 的 `experiments` 表**（草案） | Registry 的 Tested 证据**同一张表**（`subject_kind` 扩一个 `model` 即可），**不建第三套观测台账** |
-| `DeepSeek 蒸馏`的 lesson：能力声明替代 `if model ==` | Registry 是这条的完全体：名字永不参与选择，只有声明+观测参与 |
+| **S1/GKD 的 `experiments` 表**（草案）                                                  | **只存受控评测**（正式基准的可复现证据），`subject_kind` 扩 `model` 即可；**日常调用绝不逐条写入**（见 §8.1 修正）                                                                     |
+| `DeepSeek 蒸馏`的 lesson：能力声明替代 `if model ==`                                    | Registry 是这条的完全体：名字永不参与选择，只有声明+观测参与                                                                                                                           |
 
 **`maxContext: null 不猜` 原则沿用**：没测过的字段就是 null/未测，**禁止用型号、文档、宣传页推断**
 （原文 4 节与 E1 的 Observed facts only 同一条规矩）。
 
 ## 3. Registry 五组登记面（原文 2 节，逐项落来源）
 
-| 组 | 字段 | 数据来源（实测现状） |
-| --- | --- | --- |
-| Identity | provider / model / **actualVersion** / endpoint / runtime | ⚠️ 现在只有 `modelName` 一个字符串（`provider.ts`）；`actualVersion` 需要真调 API 回读（`listUpstreamModels` 已有雏形，`openai.ts:282`） |
-| Capability | chat/coding/review/planning/extraction/research/vision/tool use/long context | 静态声明（DS2）+ 每次实测结果；**组合键 (model, capability)**，不是 model 一列打天下 |
-| Real Measurement | quality / latency / context success / tool success / structured success / failure rate | ❌ 全部无持久化。这是 R1 的主体工作量 |
-| Resource | quota / concurrency / usage / cost / subscription limits | ⚠️ 零散：relay 有 `costUsd/inputTokens/outputTokens`；`scripts/real/quota-check.mjs` 存在；无统一存储 |
-| Health | available / degraded / unavailable / rate_limited | ❌ 无 |
-| **Last Verified** | 每个能力必须有最后测试时间 | ❌ 无——**没有它，上面全是过期传闻** |
+| 组                | 字段                                                                                   | 数据来源（实测现状）                                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity          | provider / model / **actualVersion** / endpoint / runtime                              | ⚠️ 现在只有 `modelName` 一个字符串（`provider.ts`）；`actualVersion` 需要真调 API 回读（`listUpstreamModels` 已有雏形，`openai.ts:282`） |
+| Capability        | chat/coding/review/planning/extraction/research/vision/tool use/long context           | 静态声明（DS2）+ 每次实测结果；**组合键 (model, capability)**，不是 model 一列打天下                                                     |
+| Real Measurement  | quality / latency / context success / tool success / structured success / failure rate | ❌ 全部无持久化。这是 R1 的主体工作量                                                                                                    |
+| Resource          | quota / concurrency / usage / cost / subscription limits                               | ⚠️ 零散：relay 有 `costUsd/inputTokens/outputTokens`；`scripts/real/quota-check.mjs` 存在；无统一存储                                    |
+| Health            | available / degraded / unavailable / rate_limited                                      | ❌ 无                                                                                                                                    |
+| **Last Verified** | 每个能力必须有最后测试时间                                                             | ❌ 无——**没有它，上面全是过期传闻**                                                                                                      |
 
 ## 4. Router 选择顺序（原文 3 节，落成硬过滤）
 
@@ -68,17 +68,59 @@ AGENTS 明确记着「字段齐全，值是编的」。本草案的每一列都�
 
 ## 7. 拆分、档位与依赖
 
-| 支 | 内容 | 档位 | 依赖 |
-| --- | --- | --- | --- |
-| R1a | Registry schema（identity/capability/measurement/resource/health/last_verified） | **B**（新表+迁移=整合方；涉及成本数据） | C1b |
-| R1b | 观测管道：每次模型调用落结果（复用 `experiments`，`subject_kind` 扩 `model`） | **B**（新的数据落库含义） | R1a、E1a 埋点 |
-| R1c | 隐私/授权硬过滤层（含隐私规则的单一事实源，与 settings 现有 `personal_memory_to_chat` 衔接） | **B**（权限与隐私） | R1a |
-| R1d | 软排序 + 决策轨迹可解释输出 | A | R1b、R1c |
-| R1e | Learning 平滑曲线与校准 | B（改记忆/评分含义） | R1b、真实观测积累 |
+| 支  | 内容                                                                                         | 档位                                    | 依赖              |
+| --- | -------------------------------------------------------------------------------------------- | --------------------------------------- | ----------------- |
+| R1a | Registry schema（identity/capability/measurement/resource/health/last_verified）             | **B**（新表+迁移=整合方；涉及成本数据） | C1b               |
+| R1b | 观测管道：日常模型调用落**观测/审计**记录（E1a 管道），聚合出质量/可靠性/延迟指标            | **B**（新的数据落库含义）               | R1a、E1a 埋点     |
+| R1c | 隐私/授权硬过滤层（含隐私规则的单一事实源，与 settings 现有 `personal_memory_to_chat` 衔接） | **B**（权限与隐私）                     | R1a               |
+| R1d | 软排序 + 决策轨迹可解释输出                                                                  | A                                       | R1b、R1c          |
+| R1e | Learning 平滑曲线与校准                                                                      | B（改记忆/评分含义）                    | R1b、真实观测积累 |
 
-## 8. 待统筹拍板
+## 8. 四项选型：**已定案**（统筹 2026-10-28）
 
-1. 三台评测对象（本地/DeepSeek/Claude·Codex）的评测集与判分口径（建议直接复用 E1b 的用例级判定）；
-2. Learning 曲线的形态与最小样本量；
-3. `actualVersion` 的获取频率（每次启动 vs 每窗口一次）；
-4. Router 是否有权在任务中途换模型（我建议：仅失败后、且留痕，不允许静默热切换）。
+| 待定项             | 决定                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 三类评测对象       | **本地 Qwen / DeepSeek / Claude**，分别代表本地、小-大云模型能力与另一云供应商；**必须记录实际端点和版本** |
+| 评测标准           | **复用 E1b 的逐例评测体系**：同一能力用同一组用例与判分规则，**结果按能力分开**                            |
+| Learning 曲线      | **Beta-Binomial 平滑成功率 + 延迟 EWMA**；健康态用**独立短窗口**；**不采用单次结果直接大幅改分**           |
+| actualVersion 更新 | **启动时探测 + 定期刷新 + 上游变更时失效重测**；供应商不提供不可变版本号时**明确记录 `unknown`**           |
+| 任务中途换模型     | **默认不允许静默切换**；仅**失败恢复**时允许重新路由，且保留**上下文兼容性检查**与**完整选择记录**         |
+
+### 8.1 一处必须修正的错误（统筹指出，我原文写错了）
+
+**`experiments` 保存受控评测，不应该把每次普通模型调用都写成一条 Experiment。**
+
+```text
+日常模型调用   → E1a 的观测/审计管道 → 聚合出质量、可靠性、延迟指标
+正式基准测试   → experiments（可复现的实验证据：环境、用例集、判分口径、逐例回归）
+```
+
+理由（统筹原话意思）：否则几个月后这张表会被**海量普通请求日志淹没**，
+「实验」与「运行观测」的区别就没了。
+
+→ 本草案 §2 的衔接表与 §7 的 R1b 已同步改正：**R1b 落观测管道，不落 experiments。**
+
+### 8.2 第一轮评测对象（统筹给定）
+
+| 组     | 对象                                 | 备注                                                    |
+| ------ | ------------------------------------ | ------------------------------------------------------- |
+| 本地   | 红魔上已有的 **Qwen3.5-4B 量化模型** | FAEX1 实际部署后再补它的本地结果                        |
+| 云端一 | **DeepSeek V4.1 Flash**              | **实际版本需运行时确认**（接 §8 的 actualVersion 规则） |
+| 云端二 | **Claude**                           | 通过**明确授权**的模型接口评测                          |
+
+**硬规矩（防冒充）**：**Claude Code / Codex CLI 作为 Agent Executor 的成绩，必须与裸模型评测分开。**
+它们能用工具、能跑代码，**不能和单纯的模型 API 回答混合排名**。
+**缺可用 Claude API 时，第三组标记「未评测」，不用 CLI 结果冒充模型结果。**
+
+### 8.3 Learning 第一版（统筹给定公式与阈值）
+
+成功/失败类能力用带先验的成功率估计：
+
+```text
+P = (10 + 成功数) / (20 + 总次数)
+```
+
+- 初始 **10/10 是中性平滑先验**，**不代表实测成功 10 次**（这条必须写进实现注释，防止后人误读）；
+- **< 20 次累计 = 低样本**（标记，不参与稳定排名）；**达到约 30 次**才允许参与稳定排名；
+- 阈值均为**可配置起点**，**必须通过真实评测校准**（与 E1/H1 的「默认值不是契约」同一条规矩）；
+- 延迟用 **EWMA**；健康态（可用/降级/限流）用**独立短窗口**，避免一次抖动污染长期 reliability。
