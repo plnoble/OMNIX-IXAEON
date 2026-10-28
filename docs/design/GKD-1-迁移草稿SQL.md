@@ -123,37 +123,55 @@ CREATE TABLE gkd_pattern_conflicts (
 | 可重建       | 是（重跑 Analyzer）；但 `slug` 是人工/半人工命名，重建可能对不上——建议整合方考虑给 slug 加受控词表或允许重命名策略                                                                              |
 | 是否错误复制 | 否。不复制 `items`（个人记忆）也不复制 `research_findings`（研究快照）。**风险点**：若 GKD pattern 与 items 内容重叠会形成两套知识——任务书 §9.3 明令禁止，代码层应拒绝把 pattern 直接写进 items |
 
-## 3. 迁移 41：实验（`gkd_experiments`）
+## 3. 迁移 41：实验（`experiments`，**领域中立**）
+
+> 统筹 2026-10-28 决定：原 `gkd_experiments` **改名为 `experiments`**，
+> 因为 Self-Improvement（S1）的 `experimenting` 也要落同一张表——禁止第三套实验台账。
+> 若本迁移尚未上线，直接按新名建；若已被整合方采纳过旧名，则按「重命名 + 补列」处理
+> （重命名属迁移变更，仍归整合方）。
 
 ```sql
-CREATE TABLE gkd_experiments (
+CREATE TABLE experiments (
   id TEXT PRIMARY KEY,
-  subject_kind TEXT NOT NULL CHECK (subject_kind IN ('pattern','capability')),
-  subject_id TEXT NOT NULL,              -- pattern_id 或（晋升后）skill_candidates.id
+  subject_kind TEXT NOT NULL CHECK (subject_kind IN ('pattern','capability','improvement')),
+  subject_id TEXT NOT NULL,              -- pattern_id / skill_candidates.id / improvement_candidates.id
+  subject_version TEXT,                  -- 主体版本绑定（技能 version / 候选版本 / pattern 可空）
+  baseline_ref TEXT,                     -- 基线引用（哪次评测/哪个用例集），与 candidate 必须同口径
+  candidate_ref TEXT,                    -- 候选引用
+  judge_rule TEXT NOT NULL DEFAULT '',   -- 判分口径；空 = 未声明，实现层拒绝入库
   kind TEXT NOT NULL CHECK (kind IN ('unit','integration','benchmark','load',
       'failure_injection','crash_recovery','security','memory','latency','throughput')),
+  env_json TEXT NOT NULL DEFAULT '{}',   -- 环境：配置版本/哈希、机器、模型版本
   spec TEXT NOT NULL,                    -- 怎么测：脚本路径 / 验收测试文件名 / 参数摘要
   result TEXT NOT NULL DEFAULT 'pending'
     CHECK (result IN ('pending','pass','fail')),
+  regression_json TEXT,                  -- 逐例回归记录（从对变错 / 从错变对），禁只存汇总
   evidence_json TEXT,                    -- 数字与输出摘要；禁真实用户数据
+  subject_retired INTEGER NOT NULL DEFAULT 0, -- 主体被删/退役标记：证据不静默消失
   coding_task_id TEXT REFERENCES coding_tasks(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE INDEX idx_gkd_exp_subject ON gkd_experiments(subject_kind, subject_id, result);
+CREATE INDEX idx_exp_subject ON experiments(subject_kind, subject_id, result);
 ```
 
-| §9.2         | 答                                                                                                                                                                          |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 谁写         | Experimenter job（借 coding task 跑就写 `coding_task_id`，引用**已存在**任务，代码层校验）                                                                                  |
-| 谁读         | 晋升闸（硬查 `result='pass'`）、Curator、周审                                                                                                                               |
-| 权威来源     | 「某实验在某结果」的唯一权威。`subject_id` 是多态引用，**不能建 FK**（指向两张不同表）→ 必须代码层按 `subject_kind` 分别校验存在性                                          |
-| 删除传播     | `coding_task_id` 用 SET NULL：删任务不删实验记录（实验证据要留存）。删 pattern 时实验行**留着**（subject 变悬挂），整合方可决定改成 CASCADE——我倾向留，因为失败实验也是知识 |
-| 授权传播     | `evidence_json` 可能含路径/输出——**必须走 `hideWorkspacePath`**，禁贴真实用户数据（公开仓库规矩）                                                                           |
-| provenance   | `spec` 指向可复现的测法（脚本/测试文件），不是自由文本                                                                                                                      |
-| identity     | `(subject_kind, subject_id, kind)` 可重复多次（不同时间的多次实验），有意为之                                                                                               |
-| 可重建       | 实验**不可重建**（结果依赖当时环境），因此删除要格外保守——这是三张表里唯一不可再生的                                                                                        |
-| 是否错误复制 | 不复制 coding task 本体，只引用 id                                                                                                                                          |
+| §9.2         | 答                                                                                                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 谁写         | Experimenter job（GKD-5）与 S1 的实验执行方；借 coding task 跑就写 `coding_task_id`，引用**已存在**任务，代码层校验                                                                               |
+| 谁读         | 晋升闸（硬查 `result='pass'`）、S1 的 validated 判定、Curator、周审                                                                                                                               |
+| 权威来源     | 「某主体某版本在某环境下的某实验结果」的唯一权威。`subject_id` 多态 → **不能建 FK**，必须代码层按 `subject_kind` 校验存在性                                                                       |
+| 删除传播     | **主体被删不得 CASCADE 掉实验**：置 `subject_retired=1` 留存证据（失败实验也是知识）。`coding_task_id` 用 SET NULL：删任务不删实验。**原「留悬挂 vs CASCADE」的待定项，统筹已定：留，且显式标记** |
+| 授权传播     | `evidence_json` / `env_json` 可能含路径——**必须走 `hideWorkspacePath`**，禁贴真实用户数据                                                                                                         |
+| provenance   | `baseline_ref` + `candidate_ref` + `judge_rule` + `env_json` + `spec` 五件齐才算可复核；三者缺任一应拒绝入库                                                                                      |
+| identity     | `(subject_kind, subject_id, subject_version, kind)` 可重复多次（不同时间的多次实验），有意为之                                                                                                    |
+| 可重建       | 实验**不可重建**（结果依赖当时环境）→ 删除要格外保守，这也是唯一不可再生的一类数据                                                                                                                |
+| 是否错误复制 | 不复制 coding task 本体，只引用 id；不复制 GKD pattern 正文                                                                                                                                       |
+
+**代码层必须补的三条**（SQL 表达不了）：
+
+1. `baseline_ref` / `candidate_ref` / `judge_rule` **任一为空 → 拒绝入库**（没有基线与判分口径的实验证明不了任何事）；
+2. `regression_json` 必须能**逐例**表达，禁止只写 `{"pass":27,"fail":3}`（否则掩盖「总体+5、旧场景−5」）；
+3. 按 `subject_kind` 分别校验主体存在性，并在主体退役时写 `subject_retired=1` 而不是删行。
 
 ## 4. 不靠 CHECK 的两条硬规矩（必须代码层，写清楚）
 
@@ -167,9 +185,16 @@ CREATE INDEX idx_gkd_exp_subject ON gkd_experiments(subject_kind, subject_id, re
 - 没有为「capability」新建表——**晋升复用 `skill_candidates`**（设计 §1.3 的架构决定：它已有 status 生命周期、version/approved_version、eval_evidence_json、eval_before/after、benefit，新建 capability 三表就是重复造轮子）；
 - 没有加任何删除数据的路径。
 
-## 6. 请整合方一并定的四件事
+## 6. 请整合方一并定的四件事（第 2 条已被统筹 2026-10-28 定案）
 
 1. 三个迁移（39/40/41）的拆分是否合适，或要不要合成一个；
-2. `gkd_experiments` 在 pattern 删除时的传播方向（留悬挂 vs CASCADE）；
+2. ~~`gkd_experiments` 在 pattern 删除时的传播方向~~ → **已定：表改名为 `experiments`；
+   主体被删一律不 CASCADE，置 `subject_retired=1` 留存证据（失败实验也是知识）**，见 §3；
 3. 评分必须有 reason 这条，要不要下沉成 CHECK（`reason <> ''`）；
 4. `slug` 命名/重命名策略（重建对不上时的口径）。
+
+**新增一条待整合方定**（因统筹改名为领域中立表而新出现）：
+
+5. 若整合方此前已按旧名 `gkd_experiments` 采纳过本迁移，改名属**迁移变更**（需重命名 + 补
+   `subject_version`/`baseline_ref`/`candidate_ref`/`judge_rule`/`env_json`/`regression_json`/
+   `subject_retired` 七列），请按贵方迁移流程处理；若尚未采纳，直接按新名 §3 建表即可。

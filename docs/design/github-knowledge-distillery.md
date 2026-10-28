@@ -94,7 +94,7 @@ Evidence（repo/commit/file/license）
         │  产出候选 skill_candidates(status='proposed') 或 gkd_patterns 合成层
         ▼
 [GKD Experimenter] ── §11：建实验（优先复用 coding task 的验收测试/benchmark）；PASS/FAIL
-        │  写 gkd_experiments
+        │  写 experiments
         ▼
 [GKD Curator]      ── 只有 PASS 才准把 proposed→evaluated→approved 落进 skill_candidates（§12/§25禁止4）
         ▼
@@ -115,7 +115,7 @@ repo_url + commit_sha + license
       → gkd_repo_studies（含 decision、reason、eval_scores_json）
       → gkd_patterns（无代码正文，problem/core_idea/benefits/costs/applicable/not_applicable/confidence/status）
            └─ gkd_pattern_sources（pattern_id ↔ study_id + file_path + line/symbol + snippet_kind）
-      → gkd_experiments（pattern/capability ↔ 用例 ↔ PASS/FAIL ↔ 证据）
+      → experiments（pattern/capability ↔ 用例 ↔ PASS/FAIL ↔ 证据）
       → skill_candidates（晋升后的能力；eval_evidence_json 指回 experiments）
       → coding_task（使用）→ 回灌 skill_candidates.benefit/version + recordAudit
 ```
@@ -198,22 +198,42 @@ CREATE TABLE gkd_pattern_conflicts (
 );
 
 -- 4.5 实验（§11；晋升闸的凭证）
-CREATE TABLE gkd_experiments (
+-- 统筹 2026-10-28 定：本表**领域中立**，命名 experiments（原 gkd_experiments 作废——
+-- Self-Improvement S1 的 experimenting 也落同一张表，禁止第三套实验台账）。
+CREATE TABLE experiments (
   id TEXT PRIMARY KEY,
-  subject_kind TEXT NOT NULL CHECK (subject_kind IN ('pattern','capability')),
-  subject_id TEXT NOT NULL,               -- pattern_id，或晋升后的 skill_candidates.id
+  subject_kind TEXT NOT NULL CHECK (subject_kind IN ('pattern','capability','improvement')),
+  subject_id TEXT NOT NULL,               -- pattern_id / skill_candidates.id / improvement_candidates.id
+  subject_version TEXT,                   -- 主体版本绑定（技能的 version / 候选版本 / pattern 无版本可空）
+  baseline_ref TEXT,                      -- 基线引用（哪次评测/哪个用例集；与 candidate 必须同口径）
+  candidate_ref TEXT,                     -- 候选引用
+  judge_rule TEXT NOT NULL DEFAULT '',    -- 判分口径（用例级自动判定 or 人工判分；空=未声明，实现层应拒绝入库）
   kind TEXT NOT NULL                      -- §11 实验类型
     CHECK (kind IN ('unit','integration','benchmark','load','failure_injection','crash_recovery','security','memory','latency','throughput')),
+  env_json TEXT NOT NULL DEFAULT '{}',    -- 环境（配置版本/哈希、机器、模型版本）
   spec TEXT NOT NULL,                     -- 怎么测（可指向一段验收测试/脚本路径，§1.5 复用 coding task 的测试）
   result TEXT NOT NULL DEFAULT 'pending'
     CHECK (result IN ('pending','pass','fail')),
+  regression_json TEXT,                   -- 失败与回归的**逐例记录**（从对变错/从错变对），不只存汇总
   evidence_json TEXT,                     -- 数字/输出摘要（不含真实用户数据，§公开仓库隐私）
+  subject_retired INTEGER NOT NULL DEFAULT 0, -- 主体被删/退役的标记：**实验证据不静默消失**
   coding_task_id TEXT,                    -- 若用真任务跑，指回 CodingTaskStore
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 ```
 
-晋升（§12）**不新建表**：`gkd_patterns.status='promoted'` + 建/更新一条 `skill_candidates`（problem/method/eval_case 来自 pattern，`eval_evidence_json` 指向 `gkd_experiments`）。confidence/版本/前后对照全用 skill_candidates 现成列。
+**本表的四条硬约束**（统筹 2026-10-28）：
+
+1. **多态引用完整性由代码层校验**——`subject_kind` 决定去查哪张表，SQL 建不了 FK，
+   所以插入/查询都必须先按 kind 校验主体存在；
+2. **删除主体不得 CASCADE 掉实验**——删 pattern/候选时置 `subject_retired=1`，
+   实验记录与证据**必须留存**（失败实验也是知识）；
+3. `baseline_ref` / `candidate_ref` / `judge_rule` 为空时**实现层应拒绝入库**
+   （没有基线和判分口径的实验证明不了任何事）；
+4. `regression_json` 必须能表达**逐例**结果，禁止只写 `{"pass":27,"fail":3}` 这种汇总
+   （否则「总体 +5、旧场景 −5」会被掩盖，S1 §4 同一要求）。
+
+晋升（§12）**不新建表**：`gkd_patterns.status='promoted'` + 建/更新一条 `skill_candidates`（problem/method/eval_case 来自 pattern，`eval_evidence_json` 指向 `experiments`）。confidence/版本/前后对照全用 skill_candidates 现成列。
 
 ---
 
@@ -229,7 +249,7 @@ CREATE TABLE gkd_experiments (
 （§12 命名）      →  skill_candidates.status
 candidate        →   proposed      ← Synthesizer 产出时
 experimental     →   evaluated(未过) / 有 pending experiment
-validated        →   evaluated 且关联 gkd_experiments.result='pass'
+validated        →   evaluated 且关联 experiments.result='pass'
 adopted          →   approved（approved_version=当前）
 deprecated       →   retired
 rejected         →   rejected
@@ -278,7 +298,7 @@ research_topic「研究最可靠的 durable queue 设计」
 → Evaluate 选 3~5 deep_analyze
 → Analyze 出 Pattern（provenance 齐）
 → Synthesize 跨仓对比（含 §16 冲突：SQLite vs Redis）
-→ 产出 candidate + 至少 1 个 gkd_experiments
+→ 产出 candidate + 至少 1 个 experiments
 → 我们自己的 jobQueue 加 lease 作实验，coding task 跑（含 crash recovery / 重复执行 / 10000 jobs 里挑 1~2 项）
 → PASS → 晋升 skill_candidates（adopted）
 → 第二个 coding task 查询命中该 capability，不重新研究 GitHub
@@ -292,7 +312,7 @@ research_topic「研究最可靠的 durable queue 设计」
 | GKD-2 | Evaluator（打分+decision）                                                                                                       | GKD-1   | 否（列已在）                     |
 | GKD-3 | Analyzer + `gkd_patterns`（结构化 16 项→Pattern，带 provenance 门禁）                                                            | GKD-1   | 是（迁移）                       |
 | GKD-4 | `gkd_pattern_conflicts` + Synthesizer（跨仓综合）                                                                                | GKD-3   | 是（迁移）                       |
-| GKD-5 | `gkd_experiments` + 晋升闸（PASS→skill_candidates，复用现有生命周期）                                                            | GKD-3   | 是（迁移）                       |
+| GKD-5 | `experiments` + 晋升闸（PASS→skill_candidates，复用现有生命周期）                                                                | GKD-3   | 是（迁移）                       |
 | GKD-6 | capability confidence/版本演进（复用 skill_candidates 列为主）                                                                   | GKD-5   | 视需要                           |
 | GKD-7 | coding task 查询接口（用现成 taskStore，薄封装）                                                                                 | GKD-5   | 否                               |
 | GKD-8 | Delta Research（复用 research checker 的 next_check_at）                                                                         | GKD-2/5 | 否                               |
@@ -312,7 +332,7 @@ research_topic「研究最可靠的 durable queue 设计」
 
 ## 11. Validation pipeline（§11/§25禁止4）
 
-`提取 ≠ 成为能力`。唯一合法路径：`gkd_patterns → gkd_experiments(result=pass) → skill_candidates.proposed → evaluated → approved`。晋升函数内**硬性 assert 存在 pass 实验**，否则抛 `IxaError`。实验优先**复用 coding task 的验收测试/benchmark 通道**（§1.5），不自造 benchmark 框架。
+`提取 ≠ 成为能力`。唯一合法路径：`gkd_patterns → experiments(result=pass) → skill_candidates.proposed → evaluated → approved`。晋升函数内**硬性 assert 存在 pass 实验**，否则抛 `IxaError`。实验优先**复用 coding task 的验收测试/benchmark 通道**（§1.5），不自造 benchmark 框架。
 
 ---
 
@@ -354,7 +374,7 @@ research_topic「研究最可靠的 durable queue 设计」
 ## 附：本文的自审（§26 结尾五问，先自查再交）
 
 1. **哪些复用现有 IXAEON**：JobQueue（阶段执行）、ResearchStore+urlSafety+fetchApproved（抓取/安全）、skill_candidates（**直接当 Capability Library**）、items 的 evidence/supersedes/disputed 范式、CodingTaskStore（落地与实验、审批闸）、recordAudit（可观测）、research checker（Delta）。
-2. **哪些必须新增**：仅蒸馏中间链 **5 表**（`gkd_repo_studies` / `gkd_patterns` / `gkd_pattern_sources` / `gkd_pattern_conflicts` / `gkd_experiments`，见 §4），均为「思想+来源+实验」证据链，现有件不承载。
+2. **哪些必须新增**：仅蒸馏中间链 **5 表**（`gkd_repo_studies` / `gkd_patterns` / `gkd_pattern_sources` / `gkd_pattern_conflicts` / `experiments`，见 §4），均为「思想+来源+实验」证据链，现有件不承载。
 3. **哪些可能过度工程，已砍**：`capabilities/capability_versions/capability_sources/research_runs/独立实验框架/独立调度器` —— 全砍，复用 skill_candidates + JobQueue + checker + coding task。§20 的 10 概念压到 5 新表。
 4. **MVP 最少需要**：Scout（GitHub Search 复用 fetch）+ Evaluate + 3~5 个 Analyzer 出带 provenance 的 Pattern + 1 个实验（借我们真 jobQueue）+ 晋升 skill_candidates + 一次查询复用 —— 一条链跑通。
 5. **是否真闭环**：是 —— repo→pattern→实验→能力→coding task 使用→结果回灌 confidence→触发 Delta 升级新版本，且每一跳带来源、无源不晋升、未验证不 adopted 三条闸把死。
