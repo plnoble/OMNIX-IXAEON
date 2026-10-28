@@ -7,7 +7,47 @@
 > **本轮只改草案与交叉引用：不写实现、不新增 migration、不 lock、不把队列改 done。**
 > 依赖：E1（评测）、G1（Goal）、H1（心跳/Reflection）、Relay（写代码的执行方）。
 
+## 0. 本轮结束时的官方状态（统筹 2026-10-28 定，不得自行推进）
+
+```text
+S1 Architecture v2   : DESIGN SYNCED
+Design Review        : PENDING INTEGRATOR
+Implementation       : LOCKED
+Migration            : DRAFT ONLY
+Production Capability: NOT AVAILABLE
+```
+
+含义：**设计同步完成 ≠ 可以开发**。S1a 未解锁；S1b/S1c 不得被任何开发 Agent 提前领取。
+这样定的理由（统筹原话）：不让 IXAEON 在**评测、隔离、回滚三项基础尚不完整**的时候，
+提前获得修改自身的执行权限。
+
+本轮检查结论逐项（四类材料分开报，不许互相冒充）：
+
+| 检查                   | 结论            |
+| ---------------------- | --------------- |
+| 文档同步               | PASS            |
+| 本轮 main CI           | PASS            |
+| G1a/G1b/G1c 分支 CI    | PASS            |
+| 本机完整 verify        | **NOT PASS**    |
+| S1 功能实现            | **NOT STARTED** |
+| B 档迁移关卡           | PENDING         |
+| Lock / 合并 / 组合验收 | PENDING         |
+
+关于本机 verify 的口径（统筹 2026-10-28 明确，我上一轮表述过松，这里收紧）：
+孤儿子进程与计时用例失败**强相关**，但**单独重跑通过不等于完整门禁已恢复正常**。
+后续应在确认进程归属后，用**隔离环境**重跑一次完整 verify，并**为测试启动器补上子进程生命周期清理**；
+**不得用 `taskkill /IM node.exe /F` 这类全局杀进程方式**（会误伤 DSH 自身）。
+
 ## 1. 要什么（用户原文 1 节）
+
+### 1.0 本轮新增的三项设计细节
+
+统筹要求补查三项，本轮**只写成可审的规格与测试矩阵，不做实现**：
+
+- **§2a**：S1 状态转换的**唯一合法转换表**（写成测试矩阵，S1a 实施前必须先有这些测试）；
+- **§5.4**：`rollback_failed` 的归属——按统筹倾向采**第二种**：
+  它是**独立的 Rollback Attempt 执行结果**，**不是**候选的第九种生命周期状态；
+- **§6.4**：`experiments.subject_retired` 的触发规则、退役后行为与事务一致性。
 
 Relay 解决的是「**怎么让 AI 修改 IXAEON 代码**」。
 Self-Improvement 要解决的是「**为什么值得修改**」以及「**修改之后是否真的变好了**」。
@@ -55,6 +95,56 @@ observed → proposed → approved → experimenting → validated → deployed
 - **任何状态都不允许模型自己迁移**：`observed→proposed` 可由系统生成；
   `approved` 必须人/整合方确认；`deployed` 必须 Relay 侧回报实际启用证据；
 - **S1 不能直接写代码或部署**，继续交给 Relay / 执行控制层（见 §7）。
+
+## 2a. 唯一合法转换表（**白名单**；统筹要求 S1a 实施前写成测试矩阵）
+
+**总则（先于任何一行成立）**：本表是白名单，**未列出的转换一律非法**，
+实现必须默认拒绝并抛 `IxaError(CONFLICT)`；禁止用「没有禁止」当允许。
+
+| #   | from → to                     | 谁触发（actor）                                        | 必须同时具备的证据/授权                                                                                          | 对应测试 |
+| --- | ----------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | -------- |
+| 1   | `observed → proposed`         | 系统可提名，**人确认**                                 | `evidence` 指向真实记录（corrections / coding_tasks.failed / research_findings 之一）                            | S1a-T01  |
+| 2   | `observed → rejected`         | 人                                                     | 写明拒绝理由                                                                                                     | S1a-T02  |
+| 3   | `proposed → approved`         | **人 / 整合方，模型不可**                              | 五件齐：真实来源、baseline、risk、evaluationPlan、rollbackPlan                                                   | S1a-T03  |
+| 4   | `proposed → rejected`         | 人                                                     | 理由                                                                                                             | S1a-T04  |
+| 5   | `approved → experimenting`    | 执行方，需 §5.1 隔离声明                               | ①隔离范围（功能/能力级，可加项目/设备/实例）②已指定「已知稳定版本」③rollbackPlan 非空 ④baseline/candidate 同口径 | S1c-T01  |
+| 6   | `experimenting → validated`   | 由实验记录推导                                         | `experiments.result=pass` **且** regression 清单为空或已逐条人工 accept                                          | S1b-T01  |
+| 7   | `experimenting → rejected`    | 人                                                     | `experiments.result=fail` 或逐例回归不可接受                                                                     | S1b-T02  |
+| 8   | `experimenting → rolled_back` | **仅当** rollback attempt `outcome=recovered_verified` | attempt 记录 + 恢复验证证据（§5.4）                                                                              | S1c-T02  |
+| 9   | `validated → deployed`        | 人授权 + Relay 回报                                    | **两条独立凭据**：①发布授权（与 validated 不同一次批准）②实际启用证据                                            | S1d-T01  |
+| 10  | `deployed → rolled_back`      | **仅当** attempt `outcome=recovered_verified`          | 同 #8                                                                                                            | S1c-T03  |
+| 11  | `rolled_back → approved`      | 人                                                     | 必须**重新走 #3 的完整批准**，不自动复活                                                                         | S1a-T05  |
+| 12  | `rolled_back → rejected`      | 人                                                     | 终局放弃，保留全部证据                                                                                           | S1a-T06  |
+
+### 2a.1 明确「不允许」的边（负向测试，一条都不能省）
+
+| 非法转换                                 | 为什么必须拒                               | 测试    |
+| ---------------------------------------- | ------------------------------------------ | ------- |
+| `observed → approved`                    | 跳过 proposed，等于没有五件证据            | S1a-N01 |
+| `proposed → experimenting`               | 跳过 approved（人批准）                    | S1a-N02 |
+| `approved → deployed`                    | 跳过实验与验证（原文禁止「没验证就上线」） | S1a-N03 |
+| `validated → experimenting`              | 已验证不该回退去重做，需新版本/新候选      | S1a-N04 |
+| `deployed → experimenting`               | 已上线不能再当实验态，须先 `rolled_back`   | S1a-N05 |
+| `experimenting → deployed`               | **validated 不是发布授权**，必须走 #9      | S1a-N06 |
+| 任何 `→ observed` / 自环                 | 生命周期不回拨                             | S1a-N07 |
+| `rejected`/`deployed` 之外任何终态再出边 | `rejected` 是终态                          | S1a-N08 |
+
+### 2a.2 三个高频误解，逐条钉死（统筹提问原文对应）
+
+1. **什么时候允许进入 `experimenting`**：只有 #5。且必须**同时**有隔离范围声明、
+   已指定的已知稳定版本、非空 rollbackPlan、同口径的 baseline/candidate——
+   **时间窗不算隔离**（§5.1 第 4 条），缺任一项不得进入；
+2. **`validated` 之后是否仍需独立发布授权**：**需要**。#6 与 #9 是两次不同的批准，
+   `validated` 只说明评测过了，**不自动授权生产发布**；
+3. **什么状态可以回滚 / 回滚失败后允许哪些操作**：可回滚的是 `experimenting` 与 `deployed`
+   （#8、#10）；失败后的允许项见 **§5.4**。
+
+### 2a.3 交付形态要求
+
+- 上表 12 条合法边 + 8 条非法边，**每条至少一个断言**；
+- **B 档先只推测试**：这些测试要在 S1a 实现之前先交、由整合方锁定，再写实现；
+- 测试不得依赖「实现里恰好没写别的边」，必须**显式断言拒绝**（`toThrow`），
+  否则实现以后加了边就悄悄通过了。
 
 ## 3. 来源（原文 3 节）——**逐项核实真实数据源**（这是本草案最要紧的部分）
 
@@ -140,7 +230,48 @@ Memory Recall v2：30 场景正确 27
   不允许出现「已回滚」但实际仍是候选配置的状态；
 - 回滚事件与证据一并留存（与 §4 的逐例证据同等级）。
 
-## 6. 关键架构判断：**与既有 skill_candidates 严重重叠，必须先定归属**
+### 5.4 `rollback_failed` 的归属：**独立 Attempt 结果，不是候选的第九态**（采统筹倾向）
+
+候选的 `status` **保持 8 态不变**（§2）。回滚是**一次操作**，它有它自己的执行结果，
+两者混用正是统筹点出的隐患（候选状态、部署状态、恢复状态三件事搅在一起）。
+
+拆开后的形状（暂名，**迁移归整合方**）：
+
+```text
+rollback_attempts
+  id                       -- 一次尝试一条，重试是新记录，不覆盖旧的
+  candidate_id             -- 指向 improvement_candidates.id
+  target_stable_version    -- 要回到的「已知稳定版本」id（§5.2 五项齐备者）
+  started_at / finished_at
+  outcome ∈ pending | recovered_verified | recovery_failed
+  verify_evidence          -- 恢复后读回的生效配置 / 哈希比对结果
+  error                    -- 失败原因
+```
+
+规则（逐条可测）：
+
+1. `status = rolled_back` **只能**由 `outcome = recovered_verified` 的 attempt 触发；
+2. `outcome = recovery_failed` 时候选**保持原状态**（`experimenting` 或 `deployed`）——
+   因为它**事实上还挂在候选配置上**，谎称已回滚比留着更危险；
+3. 「回滚待处理」用**派生视图**表达，不写进 `status`：
+   `rollback_state ∈ none | in_progress | recovered | failed_unresolved`，由 attempts 计算；
+4. 候选与 attempt **不得互相改写权威状态**（呼应 §6.1 第 1 条）：attempt 只记执行结果，
+   候选状态由转换表（§2a #8/#10）在满足条件时改；
+5. **回滚失败后允许的操作**（穷举，其余禁止）：
+   ① 再开一条新 attempt 重试（不覆盖旧记录）；② 升级给人 / `REQUEST_USER_DECISION`；
+   ③ 在隔离范围内停用该功能（若 §5.1 的开关已具备）；
+6. **回滚失败后禁止的操作**：标记 `rolled_back` 或任何成功语义；删除/覆盖失败 attempt 与证据；
+   把失败 attempt 当作不存在；据其继续 `deployed`；
+7. **失败恢复不得报告成功**（统筹原话）：报告层必须把 `failed_unresolved` 显式呈现，
+   不允许汇总里消失。
+
+对应测试（并入 §2a 矩阵）：`S1c-R01` 只有 recovered_verified 才置 rolled_back；
+`S1c-R02` recovery_failed 后状态保持 + 派生视图为 failed_unresolved；
+`S1c-R03` 重试新增记录不改写旧记录；`S1c-R04` 报告不得隐藏 failed_unresolved。
+
+## 6. 归属：**已定案 —— 方案 C（两层）**（统筹 2026-10-28 定）
+
+### 6.0 重叠事实（决策依据，实测）
 
 `skill_candidates`（`migrations.ts`，已存在并有运行时生命周期 `runtime/skills.ts`）已有：
 
@@ -161,8 +292,6 @@ problem / method / eval_case / status(proposed|evaluated|approved|rejected|retir
 | `expectedBenefit`                                                          | `benefit`                                                      | 同                                    |
 | `evidence` / `hypothesis` / `affectedCapability` / `risk` / `rollbackPlan` | **无**                                                         | 缺 5 项                               |
 | 状态 8 态                                                                  | 5 态（缺 `observed`/`experimenting`/`deployed`/`rolled_back`） | 缺 4 态（且 `evaluated`≈`validated`） |
-
-## 6. 归属：**已定案 —— 方案 C（两层）**（统筹 2026-10-28）
 
 ### 6.1 定案内容（照抄决定，逐条落成约束）
 
@@ -208,6 +337,49 @@ problem / method / eval_case / status(proposed|evaluated|approved|rejected|retir
 
 **S1 的第一个实验就落这张表**（`subject_kind='improvement'`），**不新建第三套实验台账**。
 
+### 6.4 `experiments.subject_retired` 的触发规则与事务一致性
+
+统筹定的前提：主体被删**不 CASCADE**，证据必须留下。那么「谁在什么时候置位」必须写清，
+否则会出现主体已退役、新实验还在往里塞的情况。
+
+**触发点（唯一入口）**：
+
+- 新增一个集中入口 `retireSubject(kind, id)`，由**主体所属模块**调用；
+  **禁止**各处散写 `UPDATE experiments SET subject_retired=1`（散写必然漏）；
+- 置位动作与主体自身退役（`status=retired` 或删除）**必须在同一事务内**完成：
+
+```text
+db.transaction(() => {
+  1) 主体置 retired（或删除主体行）
+  2) UPDATE experiments SET subject_retired=1, updated_at=? WHERE subject_kind=? AND subject_id=?
+})().call()
+```
+
+**退役后行为（逐条可测）**：
+
+1. **保留**：历史实验行全部留存，且**当时的版本快照字段不得改写**——
+   `subject_version` / `baseline_ref` / `candidate_ref` / `judge_rule` / `env_json` /
+   `regression_json` / `evidence_json` 退役后转**只读**；
+2. **禁止新实验**：`subject_kind` + `subject_id` 指向已退役主体时，insert 前校验主体状态，
+   命中则抛 `IxaError(VALIDATION_FAILED)`；
+3. **历史证据仍可用于复盘，但不得作为新批准的依据**——这条最容易做错：
+   晋升闸/`validated` 判定若依据某条实验，而该实验的主体已退役，
+   **不得据此批准新的候选**（旧结论是事实，但不能拿来给新版本背书）；
+4. **硬删主体仍要留证据**：若整合方最终允许硬删主体行，`experiments` 行**不得级联删除**，
+   靠 `subject_retired=1` 表达悬挂，不靠外键；
+5. **幂等**：重复退役不产生差异；退役与置位两步的顺序颠倒也不留下不一致状态。
+
+**待整合方定（我不自行选）**：
+
+| 选项                                      | 说明               | 我的倾向与顾虑                                          |
+| ----------------------------------------- | ------------------ | ------------------------------------------------------- |
+| A. 保留手写标记列 `subject_retired`       | 实现简单，查询直接 | 但存在「忘置位」风险，需靠不变量测试守                  |
+| B. 改用视图/生成列，由主体表实时推导      | 不会忘             | SQLite 下跨表推导只能用视图，写入校验仍需在代码层做一遍 |
+| C. 两者都要（视图给读、标记给写路径审计） | 最稳               | 复杂度最高                                              |
+
+对应测试：`S1a-S01` 退役同事务置位；`S1a-S02` 新实验引用退役主体被拒；
+`S1a-S03` 退役后快照字段只读；`S1a-S04` 历史实验不得作为新批准依据；`S1a-S05` 幂等。
+
 ## 7. 与 Relay 的边界（原文 6 节，写死）
 
 - S1 **只产出** `improvement_candidates` 与验证结论，**不写代码、不改仓库、不提 PR**；
@@ -244,7 +416,7 @@ problem / method / eval_case / status(proposed|evaluated|approved|rejected|retir
 - 不让 canary 绕过人批准（`approved` 必须人/整合方确认，`deployed` 必须另有实际启用证据）；
 - 不与 `skill_candidates` 共享状态机或互相改写权威状态（§6.1）。
 
-## 10. 口径状态：**已全部定案**（统筹 2026-10-28）
+## 10. 口径状态：五条主决定已定案，**三个细节本轮按倾向写入、待整合方审**（2026-10-28）
 
 | 原待定项             | 决定                                                                                                                              |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -261,3 +433,22 @@ problem / method / eval_case / status(proposed|evaluated|approved|rejected|retir
 3. **`experiments` 表尚未落正式迁移**——目前只是 GKD-1 草稿里的 Draft SQL（迁移归整合方）；
 4. **三类来源之外仍需埋点**——Memory 错误（E1a）、性能异常与模型表现变化（无运行时数据）、
    IXAEON Reflection（H1c）。
+
+### 10.1 本轮按统筹倾向写入、但仍需整合方确认的三个细节
+
+| 细节                   | 本轮写法                                                                                                | 需整合方确认什么                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `rollback_failed` 归属 | 采**第二种**：独立 `rollback_attempts` 执行结果，候选保持 8 态（§5.4）                                  | 是否同意不加第九态；attempt 表命名与迁移归属                                 |
+| `subject_retired` 触发 | 集中入口 `retireSubject()` + 与主体退役**同事务**；退役后快照只读、禁新实验、旧证据不背书新批准（§6.4） | 选项 A/B/C 选哪个；是否允许硬删主体行                                        |
+| 唯一合法转换表         | §2a 白名单 12 条合法边 + 8 条非法边，未列出即拒；要求 B 档先只推测试并锁定                              | 12+8 条是否与整合方的语义一致；`rolled_back → approved` 是否必须重走完整批准 |
+
+### 10.2 下一步归属（**不由执行方推进**，照统筹 2026-10-28 的决定）
+
+先由统筹/整合方完成，才谈得上解锁开发：
+
+1. 审核 S1 v2 的六条架构决定 + 上述三个细节；
+2. 完成 B 档 Migration / Lock 关卡；
+3. 明确 `experiments` 正式迁移的归属与命名（含改名与补列的处理方式，GKD-1 草稿 §6 第 5 条）；
+4. 把 **E1b 确认为 S1b 的硬依赖**、**配置版本化确认为 S1c 的硬依赖**。
+
+在此之前：**不启动 S1a 实现，也不让任何开发 Agent 提前领取 S1b/S1c**。
