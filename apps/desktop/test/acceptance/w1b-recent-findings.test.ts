@@ -148,7 +148,7 @@ it('条件 1：只返回启用主题 7 天内的发现，按时间倒序，最�
   // 填充 9、填充 10（最旧的两条填充）和 72 小时前的三天前乙都被挤掉。
   expect(capped.recentFindings.map((f) => f.id)).toEqual([
     today.id,
-    ...pads.slice(0, 9).map((f) => f.id),
+    ...pads.slice(0, 9).map((f) => f!.id),
   ]);
 });
 

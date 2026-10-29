@@ -35,6 +35,9 @@ export interface SearchCandidate {
   title: string;
   url: string;
   snippet: string;
+  /** W2：不是中文为主的候选翻译后的中文标题、摘要（本来就是中文、或翻译失败时没有 / 为 null） */
+  titleZh?: string | null;
+  snippetZh?: string | null;
 }
 
 export interface CheckResult {

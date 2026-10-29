@@ -100,7 +100,7 @@
       "title": "恢复失败后重建聊天",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/r1-rebuild-conversations-semantic.test.ts": "562f09395cdfd5810b9a7b27587e410c6b81c921417247757b8dec120d86d86a"
+        "apps/desktop/test/acceptance/r1-rebuild-conversations-semantic.test.ts": "d708b0ac0f62a3fb0852fe16289989f3c65a7e7e6893998ba5e0a20d12423fbb"
       }
     },
     {
@@ -108,8 +108,8 @@
       "title": "编码代理会话选择导入（界面）",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/s3b-agent-sessions-page.test.ts": "0f1d22b64c6d610e928e992651c0d116e4e8bfcdb8a54d50c8cb240880e3009a",
-        "apps/desktop/test/acceptance/s3b-agent-sessions-race.test.ts": "307ff7e107e6f9330f35edbede897a9aec5552a90fa7577795ebb9f8d2446cfc"
+        "apps/desktop/test/acceptance/s3b-agent-sessions-page.test.ts": "71e386b96f97d870663d51dba92dafeb912fdbaa05f487b9ebdad6ee083bda40",
+        "apps/desktop/test/acceptance/s3b-agent-sessions-race.test.ts": "98e73b9ce11fb041e9099ef2562fd96e6de4f1bd7203e0c6857eeb83e3f74fa0"
       }
     },
     {
@@ -117,7 +117,7 @@
       "title": "概览页新发现",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/w1b-recent-findings.test.ts": "04259a83d1d04daf6f21ddcbd003a8f43f39b0f6a6e233f4a1e37c6f3ab6b787",
+        "apps/desktop/test/acceptance/w1b-recent-findings.test.ts": "1ffd00459560681b17de345124ef06c2d63432527a2f0c23f939060129f01cf5",
         "apps/desktop/test/acceptance/w1b-overview-findings-page.test.ts": "d60de22d8a342fa2a8312bc1173434b79d5931d11100705dd933b7da7e96c2ba"
       }
     },
@@ -160,7 +160,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/g06-conversation-project.test.ts": "24e5c9760452c5c23f131e23e7cadd9b7978bca55ee11382191ef089feae4605",
-        "apps/desktop/test/acceptance/g06-conversation-project-page.test.ts": "d52da6fb066b15a2a47d8b3bdd984714234b9e7fd53d5ec86d69dab0c277da27"
+        "apps/desktop/test/acceptance/g06-conversation-project-page.test.ts": "e20572f5334af8136bcc3384a9b43c26f4d58dc556c6c5fc0d9001a8feb6c71d"
       }
     },
     {
@@ -192,8 +192,8 @@
       "title": "搜索预算按天恢复",
       "status": "done",
       "files": {
-        "packages/core/test/acceptance/g07-daily-budget.test.ts": "9b73146564e95926efdcb5de4eb84422ec4f65fb7d140c0801ddc4c1833c8d2d",
-        "apps/desktop/test/acceptance/g07-follow-budget.test.ts": "b6a6cbafe0bfa93e9ed78cb6a16d465f0f31e632e52b9adff85e4e9f301b1671",
+        "packages/core/test/acceptance/g07-daily-budget.test.ts": "2966f49ee2eec5f19981bec20565e59c23f72faac5b07d5d2f03cb30ab576d02",
+        "apps/desktop/test/acceptance/g07-follow-budget.test.ts": "e12e16a78b5538238c86d0d679fc4ccc2bc3d1f40fbf5bfbbc3a87d116acd5f2",
         "apps/desktop/test/acceptance/g07-budget-page.test.ts": "30f52f2d5b24012144c2b9dcaaf1710e1224bd253252d6c7deefc5a40c406df9"
       }
     },
@@ -203,7 +203,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/g05-cancel-preparing.test.ts": "cb10c487e81163ded43e96a0a6ffacdc7bec2ab197437534ab53a0e30f97f8c2",
-        "apps/desktop/test/acceptance/g05-cancel-preparing-extra.test.ts": "357080043999e6a1be671259ff5c21d361846b98d751b581a084b09806f2cf14"
+        "apps/desktop/test/acceptance/g05-cancel-preparing-extra.test.ts": "cfed327683054d25e55ae0f9e8435603ba26db01e014a702d0cf10fadfb14b4d"
       }
     },
     {
@@ -211,7 +211,7 @@
       "title": "研究的发现与搜索候选显示中文",
       "status": "done",
       "files": {
-        "packages/core/test/acceptance/w2-translate.test.ts": "36798557bc42fb393e3200fe84966de2a13248be7735ca64de8bbaa9468b069a",
+        "packages/core/test/acceptance/w2-translate.test.ts": "be1c274e0e84d579931a85ebe3e09e7a6ba44314b1aa20d071d3e3c6fffff16b",
         "apps/desktop/test/acceptance/w2-research-page.test.ts": "03d4328e2e7c5d35120e72ef79a00551718fa01c9ade9cb60108e60116f917f7",
         "apps/desktop/test/acceptance/w2-overview-page.test.ts": "53e89e1df49a4e442a2b8640dc5e29eac3d1361949c535de34b76674c6e854de"
       }
@@ -246,7 +246,7 @@
       "title": "聊天里说「把 X 做了」生成编码任务草案",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "5895d701eea87eba3d3bc9fa23af9f3414138a448564a2ae075cf6335deb066a",
+        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "50c8134c383debdf5f6f5a27555d5c69a9aa697c61578f2650e3a56ba904e8c5",
         "packages/core/test/acceptance/d1-convention.test.ts": "7c980df3d8de0143870b246719f41fd4caf78ee6aa5928aac45c4aa75a0b377c"
       }
     },
@@ -265,7 +265,7 @@
       "title": "V1 验证命令在应用里跑不再拉起新窗口",
       "status": "done",
       "files": {
-        "packages/core/test/acceptance/v1-electron-verification.test.ts": "5ac1a9749a65fd97658514324b92b71606f2d27a7d0ea077a7f934ccc8ab4e1a"
+        "packages/core/test/acceptance/v1-electron-verification.test.ts": "dae4ec6efa670db9e565955637e0ec0ca6a4a710c43d690d0fc1cd49fafb663d"
       }
     },
     {
@@ -300,7 +300,7 @@
       "title": "A5 模型出错的轮记成失败：不当回答显示、不进记忆、不进下一轮上下文",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/a5-model-failure.test.ts": "6574dc5ffeee3f27407cee7888d7c4197efd837fea4ba34c7a6ba09db9bb2df6"
+        "apps/desktop/test/acceptance/a5-model-failure.test.ts": "16d82f5ec2186e6ccb8b018716535ed1c28f76eeeda77bd82d5283b5b1026350"
       }
     },
     {
@@ -309,7 +309,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/m2-saved-models.test.ts": "07c0d6e309660c3d810664d8b5daa76960de188cee0ae0f3c5be0cdb4bfa13d1",
-        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "f32cabaad9d0e4e2358c215a28bee525be4b2f7a0f21b83642f69656d06741a9"
+        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "a927dd320d92248716f5dced3dc395ad43c5cb3048f3a7c2456e4bfccd47e432"
       }
     },
     {
@@ -325,7 +325,7 @@
       "title": "按设置选执行器：选了我的模型就交给它，缺东西不派发并回报，设置页一栏",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "810c9b2d4edacee94671fbff289f6dffd1f8ba44bf2f34b64600c717d26f5159",
+        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "e0428b9ec4edc542f52af49252bba990798ccc4e5d118da2612f3ed9a2da16f3",
         "apps/desktop/test/acceptance/d7b-pages.test.ts": "cba0cc624cf1b58b898b9dbc2e2479baf78c3e8074330a70a523fb7dfd1ee0f4"
       }
     },
@@ -369,7 +369,7 @@
       "title": "任务页看得到改了什么",
       "status": "done",
       "files": {
-        "packages/core/test/acceptance/u3-task-changes.test.ts": "177574ace6acf1a7e461adb143a6928b761c93c34d3509a96c19a08cdcbce439"
+        "packages/core/test/acceptance/u3-task-changes.test.ts": "b1f614f65ac83f2b1fd367d4f68054e5b7f2a0818f892de07904cf6f31c66caf"
       }
     },
     {
@@ -377,7 +377,7 @@
       "title": "任务页看改动-IPC与界面",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/u3-ipc.test.ts": "bd74b0ae1751a433efddb43e2d69816de16f3b4a30f70bf5e7809ffdccc0fac0",
+        "apps/desktop/test/acceptance/u3-ipc.test.ts": "00615ad830b8637c0564db12e8e11b45d6b467b77ecf74b6beb27909b78ba414",
         "apps/desktop/test/acceptance/u3-tasks-page.test.ts": "e98289706dd8c40e57a41d7593835dfae68eff1d4ea370fde7970c5a32f39385"
       }
     },

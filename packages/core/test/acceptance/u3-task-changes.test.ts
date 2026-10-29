@@ -12,6 +12,7 @@
  * 并把上面这句改准了（原来写的是「每条用例里都验」，实际只有最后一组验）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CodingTask } from '@ixaeon/contracts'; // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言（CodingTask 从 contracts 导出）
 import { createHash, randomUUID } from 'node:crypto';
 import type * as FsTypes from 'node:fs';
 import {
@@ -32,7 +33,6 @@ import {
   migrate,
   openDatabase,
   readTaskChanges,
-  type CodingTask,
   type CoreDatabase,
 } from '@ixaeon/core';
 
@@ -45,7 +45,7 @@ vi.mock('node:fs', async (importOriginal) => {
     openSync: vi.fn(((...args: unknown[]) => {
       fsReads.calls.push(String(args[0]));
       return (actual.openSync as (...a: unknown[]) => unknown)(...args);
-    }) as FsTypes['openSync']),
+    }) as typeof FsTypes.openSync),
   };
 });
 

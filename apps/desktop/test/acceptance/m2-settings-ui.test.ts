@@ -46,7 +46,8 @@ const state: {
 };
 
 function baseView(savedModels: string[]): SettingsView {
-  return {
+  // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言：替身没带 D7b 之后加进设置的几个字段，界面照原样渲染
+  return <SettingsView>(<unknown>{
     config: {
       modelName: 'wizard-model',
       chatModelName: '',
@@ -69,7 +70,7 @@ function baseView(savedModels: string[]): SettingsView {
     apiKeyNeedsReentry: false,
     hermesFound: false,
     hermesNotice: '',
-  };
+  });
 }
 
 vi.mock('../../src/renderer/src/api.js', () => {

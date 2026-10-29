@@ -129,7 +129,8 @@ function runtimeFor(f: ReturnType<typeof fixture>) {
   };
   const jobs = new JobQueue(f.db, logger);
   queues.add(jobs);
-  const runtime = Object.create(AppRuntime.prototype) as AppRuntime & {
+  // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言：semanticBackfillRun 在 AppRuntime 里是私有的，和它交叉会塌成 never，改成只取公开成员
+  const runtime = Object.create(AppRuntime.prototype) as Pick<AppRuntime, keyof AppRuntime> & {
     conversations: ConversationStore;
     semanticIndex: SemanticIndex | null;
     semanticBackfillRun: Promise<void> | null;
@@ -144,7 +145,7 @@ function runtimeFor(f: ReturnType<typeof fixture>) {
     stopServer: vi.fn(async () => {}),
     startServer: vi.fn(async () => {}),
   });
-  runtimes.push(runtime);
+  runtimes.push(runtime as unknown as AppRuntime);
   return runtime;
 }
 
@@ -238,5 +239,6 @@ it('条件 3：旧索引的在途补向量被弃置，新补向量从新索引�
   ).toBeNull();
   // 新的补向量从新索引开始，不抛错（0 条待补，无网络）
   await runtime.kickSemanticBackfill();
-  settle?.();
+  // 整合方改（Q3）：settle 在回调里赋值，TS 收窄成了 null
+  (settle as (() => void) | null)?.();
 });

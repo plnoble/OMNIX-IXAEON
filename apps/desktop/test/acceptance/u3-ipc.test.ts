@@ -19,9 +19,8 @@ import {
   openDatabase,
   readTaskChanges,
   type CoreDatabase,
-  type CodingTask,
 } from '@ixaeon/core';
-import type { TaskChanges } from '@ixaeon/contracts';
+import type { CodingTask, TaskChanges } from '@ixaeon/contracts'; // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言（CodingTask 从 contracts 导出）
 import { AppRuntime } from '../../src/main/appRuntime.js';
 import { registerIpc } from '../../src/main/ipc.js';
 

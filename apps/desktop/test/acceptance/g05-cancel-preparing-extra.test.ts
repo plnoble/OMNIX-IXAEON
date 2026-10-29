@@ -83,7 +83,8 @@ function runtime() {
 it('第一次提问还没有会话时，准备阶段取消：不建会话、不调用模型、回答是 cancelled', async () => {
   const { rt, conversations, conv } = runtime();
   let created = 0;
-  rt['newAskSession'] = () => {
+  // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言（替身只给 session，不给 adapter）
+  (rt as unknown as { newAskSession: () => unknown })['newAskSession'] = () => {
     created += 1;
     return {
       session: {
