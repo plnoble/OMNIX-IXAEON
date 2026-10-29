@@ -229,7 +229,7 @@ paused / blocked ──> active / abandoned
 2. 新版本必须有 `reason`；`assumptions_json` 写这次假设了什么；
 3. 一个目标同一时刻只能有一版 `current`；
 4. 重规划**不改 `status`**；
-5. 新版本的 `goal_steps` 由旧版本复制（`status` 重置 `pending`，`linked_*` 保留），`goal_step_deps` 同步复制。
+5. ~~新版本的 `goal_steps` 由旧版本复制~~ **用户 2026-10-29 定：重规划默认必须显式给出新版本的 steps（含依赖），不自动复制旧版本的步骤**；没给 steps 的重规划被拒。旧版本的步骤一行不删、只读。
 
 ## 4. UI（第一版只做「看得懂状态」）
 
@@ -362,9 +362,11 @@ G1b 才引入 `goal_links`；G1c 才引入三张方案表。**任何一单的测
 开工前必须改的两处（整合方定，照改即可）：
 
 1. **§9 第 4 条的类名写错了**：研究话题由 `ResearchStore`（`packages/core/src/research/researchStore.ts`）管，仓库里没有 `ResearchTopicStore`。
-2. **每种关联任务「完成 / 失败」的判据要写死**（G1b 的 weighted 进度和 `task_done`/`task_failed` 事件靠它），整合方定：
-   - `todo`：状态变成完成 = 完成；被拒绝或删除 = 不算完成也不算失败（只记事件）；
-   - `coding_task`：用户「接受」并落地 = 完成；执行失败或验证不通过 = 失败；取消 = 只记事件；
-   - `research_topic`：第一版**不参与进度计算**（没有「完成」这个状态，不发明），只能挂、能跳转；以后研究有「回答了目标问题」的判据再接（见 H1 审稿第 3 条）。
+2. **每种关联任务「完成 / 失败」的判据要写死**（G1b 的 weighted 进度和 `task_done`/`task_failed` 事件靠它）。用户 2026-10-29 定：**Todo / Coding Task 的完成、失败口径以真实 Store 和实际的用户接受状态为准**（不在 GoalStore 上另造标记）：
+   - `todo`：以 `TodoStore` 里的完成状态为准；
+   - `coding_task`：以 `CodingTaskStore` 和用户的「接受」为准——接受并落地才算完成，执行失败或验证不通过算失败；
+   - `research_topic`：**第一阶段允许挂到 Goal 上，但不参与 weighted 进度的分子和分母**（研究话题没有「完成」这个状态，不发明）；挂着的研究话题**不能让 `recomputeProgress` 出错**。
+3. **合并前必修（用户 10-29 查实）**：`dev2/G1b` 的 `links.ts` 遇到 `research_topic` 会抛异常，`recompute` 整体失败，和第 2 条不一致；修正并经独立验收（整合方锁定的测试里要有「挂了研究话题的目标照样能算进度、研究话题不进分子分母」）。
+4. **G1c 的 Replan**：§3.8 第 5 条已改成「默认必须显式给新 steps、不自动复制旧版本步骤」，复审时核对 `dev2/G1c` 的实现与此一致。
 
 **G1d 规格不够，不能直接领**，要补齐再进 B 档：什么时候触发识别（每轮对话后、还是用户结束一段对话后）、用哪个模型（`AppRuntime.getProvider()`）、发给模型的提示词原文（逐字）、「同一个目标」怎么判（照 `TodoStore.propose` 的判法写明）、一天最多识别几次。
