@@ -1109,6 +1109,68 @@ ALTER TABLE coding_tasks ADD COLUMN applied_at TEXT;
 ALTER TABLE coding_tasks ADD COLUMN apply_error TEXT;
 `,
   },
+  {
+    id: 39,
+    name: 'goals-core',
+    sql: `
+-- G1a（用户 2026-10-25 定，整合方 2026-10-29 写成正式迁移）：长期目标。只建 goals 和 goal_events；
+-- goal_links（G1b）、goal_plans/goal_steps/goal_step_deps（G1c）由那两单各自的迁移建。
+-- 来源（origin：谁先提的）和确认（confirmation：用户确认到什么程度）是两个独立维度：
+-- active 必须已确认；proposed 必须没确认；blocked 必须带理由。AI 任何路径都不能把 proposed 改成 active（代码另拦）。
+-- watch 是「有疑点」，不是状态；evidence-based / blocking 一类的列一律不建（用户定）。
+CREATE TABLE goals (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+  description TEXT NOT NULL DEFAULT '',
+  origin TEXT NOT NULL CHECK (origin IN ('user', 'agent')),
+  origin_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  confirmation TEXT NOT NULL DEFAULT 'pending'
+    CHECK (confirmation IN ('pending', 'ui', 'chat', 'api')),
+  confirmed_by_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+  confirmed_at TEXT,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK (status IN (
+    'proposed', 'active', 'paused', 'blocked', 'completed', 'abandoned'
+  )),
+  priority INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  target_date TEXT,
+  next_review_at TEXT,
+  confidence INTEGER CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
+  parent_goal_id TEXT REFERENCES goals(id) ON DELETE CASCADE,
+  parent_weight INTEGER CHECK (parent_weight IS NULL OR parent_weight > 0) DEFAULT 1,
+  progress INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
+  progress_mode TEXT NOT NULL DEFAULT 'manual' CHECK (progress_mode IN ('manual', 'weighted')),
+  blocked_reason TEXT,
+  watch INTEGER NOT NULL DEFAULT 0 CHECK (watch IN (0, 1)),
+  watch_reason TEXT,
+  CHECK (status <> 'active' OR confirmation <> 'pending'),
+  CHECK (status <> 'proposed' OR confirmation = 'pending'),
+  CHECK (status <> 'blocked' OR (blocked_reason IS NOT NULL AND length(blocked_reason) > 0))
+);
+CREATE INDEX idx_goals_status ON goals(status, priority DESC, updated_at DESC);
+CREATE INDEX idx_goals_parent ON goals(parent_goal_id);
+CREATE INDEX idx_goals_review ON goals(next_review_at) WHERE next_review_at IS NOT NULL;
+
+-- 审计：每次改 status / confirmation / progress / 方案版本都要有一行（凭什么改的）。
+CREATE TABLE goal_events (
+  id TEXT PRIMARY KEY,
+  goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN (
+    'created', 'confirmed', 'status', 'progress', 'plan', 'step',
+    'task_failed', 'task_done', 'watch', 'note'
+  )),
+  decided_by TEXT NOT NULL CHECK (decided_by IN ('user', 'agent', 'system')),
+  ref_kind TEXT,
+  ref_id TEXT,
+  summary TEXT NOT NULL,
+  detail_json TEXT
+);
+CREATE INDEX idx_goal_events_goal ON goal_events(goal_id, at DESC);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */

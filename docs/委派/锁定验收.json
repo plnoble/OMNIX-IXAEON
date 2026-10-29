@@ -662,6 +662,15 @@
       "files": {
         "packages/relay/test/acceptance/l20-init-patch.test.ts": "2dc5946b4ba90f285f83988d941a2b1e7e42902bec1125d209e7d8f5935bba95"
       }
+    },
+    {
+      "id": "G1a",
+      "title": "G1a Goal Engine 核心存储（迁移 + GoalStore：状态机、origin×confirmation、manual/weighted 进度）",
+      "status": "done",
+      "files": {
+        "packages/core/test/acceptance/g1a-goal-store.test.ts": "2223d326c8e85250c51f50d2f6bd043b3bfad9c28ee65012fd26aa11d7ba97d7",
+        "packages/core/test/acceptance/g1a-core-regression.test.ts": "470d2a164715fa9c903c06514da4dd3c83b7808f87480308939466e372617625"
+      }
     }
   ]
 }
