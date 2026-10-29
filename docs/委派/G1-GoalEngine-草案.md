@@ -354,3 +354,17 @@ G1b 才引入 `goal_links`；G1c 才引入三张方案表。**任何一单的测
 3. 子目标与父目标的权重用 `goals.parent_weight`（不是 `goal_links`，也不是 `refId='goal:xxx'`）。
 4. 任务完成/失败的真值来源永远是 `TodoStore` / `CodingTaskStore` / `ResearchTopicStore` 自己；
    **不许为了测试在 `GoalStore` 上开「标记完成」这类产品接口**。
+
+## 整合方审稿（2026-10-29）
+
+**结论：通过（有条件）。** 表结构、状态机、「AI 不许把 proposed 改成 active」的分层不变量、按单切分的测试边界都写死了，可以照此开发。G1a/G1b/G1c 已有实现，走 B 档复审（整合方锁测试 → 对照实现 → 合并、写正式迁移）；G1e 等 G1a 锁定后可领；G1d 先补规格再领。
+
+开工前必须改的两处（整合方定，照改即可）：
+
+1. **§9 第 4 条的类名写错了**：研究话题由 `ResearchStore`（`packages/core/src/research/researchStore.ts`）管，仓库里没有 `ResearchTopicStore`。
+2. **每种关联任务「完成 / 失败」的判据要写死**（G1b 的 weighted 进度和 `task_done`/`task_failed` 事件靠它），整合方定：
+   - `todo`：状态变成完成 = 完成；被拒绝或删除 = 不算完成也不算失败（只记事件）；
+   - `coding_task`：用户「接受」并落地 = 完成；执行失败或验证不通过 = 失败；取消 = 只记事件；
+   - `research_topic`：第一版**不参与进度计算**（没有「完成」这个状态，不发明），只能挂、能跳转；以后研究有「回答了目标问题」的判据再接（见 H1 审稿第 3 条）。
+
+**G1d 规格不够，不能直接领**，要补齐再进 B 档：什么时候触发识别（每轮对话后、还是用户结束一段对话后）、用哪个模型（`AppRuntime.getProvider()`）、发给模型的提示词原文（逐字）、「同一个目标」怎么判（照 `TodoStore.propose` 的判法写明）、一天最多识别几次。
