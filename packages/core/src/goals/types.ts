@@ -43,6 +43,14 @@ export interface Goal {
   progress: number;
   progress_mode: GoalProgressMode;
   blocked_reason: string | null;
+  /**
+   * 以下三列归 **G1b**（用户 2026-10-25 定：G1a 不碰 watch）：
+   * 失败信号与复查时间是「目标 ↔ 任务跟踪」这一层的概念，不是 Goal 核心的概念。
+   * 建表 SQL 里它们仍在 goals 上（草案 §3.1），由 G1b 的 links.ts 读写。
+   */
+  next_review_at: string | null;
+  watch: number;
+  watch_reason: string | null;
 }
 
 export interface GoalEvent {

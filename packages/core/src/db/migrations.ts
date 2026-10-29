@@ -1171,6 +1171,26 @@ CREATE TABLE goal_events (
 CREATE INDEX idx_goal_events_goal ON goal_events(goal_id, at DESC);
 `,
   },
+  {
+    id: 40,
+    name: 'goal-links',
+    sql: `
+-- G1b（用户 2026-10-25 定，整合方 2026-10-29 写成正式迁移）：目标 ↔ 已有任务的关联。
+-- 只管「目标 ↔ 任务」，不表达子目标（子目标只靠 goals.parent_goal_id）；一个任务可以同时服务两个目标。
+-- 任务完成 / 失败的真值永远读任务自己的 Store（todos / coding_tasks），这里不存状态。
+-- research_topic 第一阶段可以挂，但不进 weighted 进度的分子分母（研究话题没有「完成」这个状态，用户 10-29 定）。
+CREATE TABLE goal_links (
+  goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('todo', 'coding_task', 'research_topic')),
+  ref_id TEXT NOT NULL,
+  weight INTEGER NOT NULL DEFAULT 1 CHECK (weight > 0),
+  plan_version INTEGER,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (goal_id, kind, ref_id)
+);
+CREATE INDEX idx_goal_links_ref ON goal_links(kind, ref_id);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
