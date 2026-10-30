@@ -91,6 +91,8 @@ const api: IxaIpcApi = {
   getGoalDetail: (id) => ipcRenderer.invoke('ixaeon:getGoalDetail', id),
   // K2：驾驶舱快照（只读）
   getCockpitSnapshot: () => ipcRenderer.invoke('ixaeon:getCockpitSnapshot'),
+  // K3：设置页保存驾驶舱读队列用的仓库路径
+  saveCockpitSettings: (input) => ipcRenderer.invoke('ixaeon:saveCockpitSettings', input),
   deleteConversation: (id) => ipcRenderer.invoke('ixaeon:deleteConversation', id),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
   markFindingsSeen: () => ipcRenderer.invoke('ixaeon:markFindingsSeen'),
