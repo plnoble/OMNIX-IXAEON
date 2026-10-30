@@ -136,6 +136,8 @@ Running 1 test using 1 worker
 
 同一棒把第一支并进了 main：`dev/K1` 的 CI 绿（run 41069876174，success，12m29s），在操作目录 `git merge --no-ff origin/dev/K1`、`node scripts/acceptance.mjs done K1`，main 上的 `node scripts/verify.mjs` `EXIT=0`（日志 `ops/.logs/k1-merge-verify.log`）。**下一棒重跑审查时，`origin/main` 已经含第一支**：先把 `origin/main` 并进 `dev/K1b`（分支已经推过，用 merge 不用 rebase），审查用 `--base origin/main` 就等价于「只看第二支自己的改动」（对照 `dev/K1` 会把并进来的 main 改动也算成这一支的）。
 
+2026-10-30 22:47（第 54 棒）按上面说的先把 `origin/main` 并进 `dev/K1b`（分支已推过，用 merge 不用 rebase，合并提交 `6c2651a`；只带入 main 上的队列行、`K1.md` 两行和锁清单一条，K1b 自己的源码和测试没动）。随后仍照第 52 棒的做法临时改名钉住委派单（`--dry-run` 确认「委派单：docs/委派/K1-项目清单导入.md」、上下文 61006 字），跑 `node scripts/codex-review.mjs K1b --base origin/main`，仍退出码 3：Codex 额度用完（恢复时间仍是 2026-10-31 00:35），脚本改用 Claude 代审，Claude 也没额度。队列状态保持「待审（Codex 额度）」；原样输出在 `.logs/k1b-codex-round3.log`（只在本机，未提交）。
+
 **审查脚本取委派单的坑（下一棒重跑前要看）：** `scripts/codex-review.mjs` 的 `findOrder('K1b')` 会往前退成 `K1` 再取 `readdirSync` 找到的第一个 `K1-*.md`。`docs/委派/` 下同时有另一件同号的旧单 `K1-技能受控对照验证表单.md`，在本机它排在前面，直接用原命令会把委派单解析错（`--dry-run` 显示「委派单：docs/委派/K1-技能受控对照验证表单.md」）。这次审查用一份临时副本把委派单钉成 `K1-项目清单导入.md` 才跑（副本已删，仓库脚本一个字没改）。额度恢复后重跑要么先确认 `--dry-run` 指向的是 `K1-项目清单导入.md`，要么请整合方把两件同号文件错开/让脚本按队列行取单。
 
 第一支 `dev/K1` 的三轮审查（Claude 代审、最终「可以合并」）见 [K1-Codex审查.md](K1-Codex审查.md)；那三轮只审核心 + K1 的测试，不含这一支的界面、IPC 和真机脚本。
