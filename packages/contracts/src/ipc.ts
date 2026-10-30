@@ -27,6 +27,7 @@ import type {
 } from './entities.js';
 import { z } from 'zod';
 import { itemTypeSchema } from './entities.js';
+import type { CockpitSnapshot } from './cockpit.js';
 
 export type OverviewMatchedFindingView = {
   id: string;
@@ -715,6 +716,8 @@ export interface IxaIpcApi {
   /** G1e：Goals 列表 / 详情（只读；故意没有写通道）。 */
   listGoals(): Promise<GoalSummaryView[]>;
   getGoalDetail(id: string): Promise<GoalDetailView>;
+  /** K2：驾驶舱快照（relay、队列、项目汇总；只读）。K3 的页面用它。 */
+  getCockpitSnapshot(): Promise<CockpitSnapshot>;
   addTodo(input: { title: string }): Promise<Todo>;
   acceptTodo(id: string): Promise<Todo>;
   rejectTodo(id: string): Promise<Todo>;

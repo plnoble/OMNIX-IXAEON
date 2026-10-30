@@ -89,6 +89,8 @@ const api: IxaIpcApi = {
   // G1e：Goals 页只读
   listGoals: () => ipcRenderer.invoke('ixaeon:listGoals'),
   getGoalDetail: (id) => ipcRenderer.invoke('ixaeon:getGoalDetail', id),
+  // K2：驾驶舱快照（只读）
+  getCockpitSnapshot: () => ipcRenderer.invoke('ixaeon:getCockpitSnapshot'),
   deleteConversation: (id) => ipcRenderer.invoke('ixaeon:deleteConversation', id),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
   markFindingsSeen: () => ipcRenderer.invoke('ixaeon:markFindingsSeen'),
