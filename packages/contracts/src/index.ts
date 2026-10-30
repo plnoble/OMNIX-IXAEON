@@ -4,3 +4,4 @@ export * from './config.js';
 export * from './api.js';
 export * from './mcp.js';
 export * from './ipc.js';
+export * from './cockpit.js';
