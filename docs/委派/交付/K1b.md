@@ -56,39 +56,41 @@
       Tests  4 passed (4)
 ```
 
-- `node scripts/verify.mjs`（K1 + K1b 完整树的同一条命令）：`EXIT=0`，逐项全绿；完整日志在 K1 工作目录 `.logs/k1-verify.log`，尾部：
+- `node scripts/verify.mjs`（K1 + K1b 最终树的同一条命令）：`EXIT=0`，逐项全绿；完整日志在本工作目录 `.logs/k1b-final-verify.log`，尾部：
 
 ```text
-  ✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 6.6s
-  ✓ build（desktop / mcp / extension） — 8.7s
-  ✓ unit（Vitest 单元测试） — 4.4s
-  ✓ integration（Vitest 集成测试） — 28.9s
-  ✓ acceptance-lock（锁定的验收测试没被改） — 0.2s
-  ✓ acceptance（已完成任务的锁定验收测试） — 285.0s
-  ✓ review（二次验收独立业务测试 11 项，修复 R1-R9 回归） — 3.8s
-  ✓ review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归） — 5.0s
-  ✓ review-round4（四次验收连续性 7 项，修复 F1-F4 回归） — 2.9s
-  ✓ review-v02（v0.2 验收 15 项，修复 G1-G8 回归） — 3.6s
-  ✓ review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归） — 3.8s
-  ✓ review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归） — 3.5s
-  ✓ review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项） — 4.4s
-  ✓ review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项） — 2.9s
-  ✓ review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项） — 2.6s
-  ✓ review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项） — 2.6s
-  ✓ review-p2（P2 受控实验与安全回滚 5 项） — 2.2s
-  ✓ review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项） — 2.2s
-  ✓ review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项） — 2.2s
-  ✓ review-direction-merged（方向质量/复审/二轮复审合并套件 44 项） — 6.1s
-  ✓ review-project-audit（全项目审核 15 项，修复 C01-C13 回归） — 2.9s
-  ✓ review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归） — 3.7s
-  ✓ review-recheck-round2（二次复审 10 项，修复 F01-F03 回归） — 3.3s
+  ✓ local-user（提交的文件里没有本机的账户名） — 0.3s
+  ✓ typecheck（tsc --noEmit） — 8.3s
+  ✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 7.0s
+  ✓ build（desktop / mcp / extension） — 9.0s
+  ✓ unit（Vitest 单元测试） — 3.8s
+  ✓ integration（Vitest 集成测试） — 25.6s
+  ✓ acceptance-lock（锁定的验收测试没被改） — 0.1s
+  ✓ acceptance（已完成任务的锁定验收测试） — 246.3s
+  ✓ review（二次验收独立业务测试 11 项，修复 R1-R9 回归） — 3.3s
+  ✓ review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归） — 4.4s
+  ✓ review-round4（四次验收连续性 7 项，修复 F1-F4 回归） — 2.6s
+  ✓ review-v02（v0.2 验收 15 项，修复 G1-G8 回归） — 2.7s
+  ✓ review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归） — 3.5s
+  ✓ review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归） — 2.9s
+  ✓ review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项） — 4.1s
+  ✓ review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项） — 2.8s
+  ✓ review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项） — 2.2s
+  ✓ review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项） — 2.5s
+  ✓ review-p2（P2 受控实验与安全回滚 5 项） — 2.1s
+  ✓ review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项） — 2.1s
+  ✓ review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项） — 2.1s
+  ✓ review-direction-merged（方向质量/复审/二轮复审合并套件 44 项） — 5.5s
+  ✓ review-project-audit（全项目审核 15 项，修复 C01-C13 回归） — 2.8s
+  ✓ review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归） — 3.4s
+  ✓ review-recheck-round2（二次复审 10 项，修复 F01-F03 回归） — 2.9s
   ✓ review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归） — 2.2s
   ✓ review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界） — 2.2s
-  ✓ review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron） — 7.4s
+  ✓ review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron） — 6.8s
   ✓ review-understanding-ui（理解页 UND01-UND02，真实 Electron） — 6.1s
-  ✓ review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron） — 7.5s
+  ✓ review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron） — 6.8s
   ✓ review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron） — 6.8s
- EXIT=0
+EXIT=0
 ```
 
 - GitHub 上的 verify：本棒不推（调度器替推），没看；推送后由下一棒看 CI 再合并。
