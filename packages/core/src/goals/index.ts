@@ -10,3 +10,5 @@ export type {
   GoalProgressMode,
   GoalStatus,
 } from './types.js';
+export { PlanStore } from './plans.js';
+export type { AddVersionInput, Plan, PlanStep, StepLink, StepStatus } from './planTypes.js';

@@ -680,6 +680,15 @@
         "packages/core/test/acceptance/g1b-goal-links.test.ts": "a203bf0c9d868cc7873f32016c1e7386c7588029438c683d9cf96d717be79ca5",
         "packages/core/test/acceptance/g1b-links-regression.test.ts": "78024a2a37e66a5d10416a8b191baf92e6918f6f806e5601a5e114a57322646b"
       }
+    },
+    {
+      "id": "G1c",
+      "title": "G1c Plan 多版本 + 可操作的 Plan Step（独立表、依赖、两阶段重排、advanceStep）",
+      "status": "done",
+      "files": {
+        "packages/core/test/acceptance/g1c-goal-plans.test.ts": "bb3e46ad58b7fcbdaadeaffed6e6497c0feda0aa1aaec56d3b7ad1e11760fabe",
+        "packages/core/test/acceptance/g1c-plans-regression.test.ts": "2aabf5706d5407066eb5d08d97271d92c73cf766d223c2b4ce327e5ef5fc0cec"
+      }
     }
   ]
 }

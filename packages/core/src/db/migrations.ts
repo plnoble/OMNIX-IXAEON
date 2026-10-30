@@ -1191,6 +1191,56 @@ CREATE TABLE goal_links (
 CREATE INDEX idx_goal_links_ref ON goal_links(kind, ref_id);
 `,
   },
+  {
+    id: 41,
+    name: 'goal-plans',
+    sql: `
+-- G1c（用户 2026-10-25 定，整合方 2026-10-29 写成正式迁移）：目标的多版本方案与可操作步骤。
+-- 重规划出新版本时旧版本标 superseded，旧的方案和步骤一行不删、只读；一个目标同一时刻只有一版 current。
+-- 步骤是权威结构（不存 steps_json）：顺序可重排（id 不变）、有状态、能挂已有任务、能写依赖。
+-- 重规划必须显式给出新版本的步骤，不自动复制旧版本（用户 10-29 定）。
+CREATE TABLE goal_plans (
+  goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  assumptions_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL CHECK (status IN ('current', 'superseded', 'abandoned')),
+  superseded_by INTEGER,
+  PRIMARY KEY (goal_id, version)
+);
+
+CREATE TABLE goal_steps (
+  id TEXT PRIMARY KEY,
+  goal_id TEXT NOT NULL,
+  plan_version INTEGER NOT NULL,
+  seq INTEGER NOT NULL CHECK (seq > 0),
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+  detail TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+    'pending', 'doing', 'done', 'skipped', 'blocked'
+  )),
+  linked_kind TEXT CHECK (linked_kind IS NULL OR linked_kind IN ('todo', 'coding_task', 'research_topic')),
+  linked_id TEXT,
+  started_at TEXT,
+  ended_at TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (goal_id, plan_version) REFERENCES goal_plans(goal_id, version) ON DELETE CASCADE,
+  UNIQUE (goal_id, plan_version, seq)
+);
+CREATE INDEX idx_goal_steps_plan ON goal_steps(goal_id, plan_version, seq);
+CREATE INDEX idx_goal_steps_status ON goal_steps(status);
+
+CREATE TABLE goal_step_deps (
+  step_id TEXT NOT NULL REFERENCES goal_steps(id) ON DELETE CASCADE,
+  depends_on_step_id TEXT NOT NULL REFERENCES goal_steps(id) ON DELETE CASCADE,
+  PRIMARY KEY (step_id, depends_on_step_id),
+  CHECK (step_id <> depends_on_step_id)
+);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
