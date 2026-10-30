@@ -62,15 +62,22 @@
 
 - **怎么停**：`Ctrl+C`；或者 `run` 跑到停点自己退。
 - **不用重启就吃到新代码**：`relay run` 每一轮都从 `origin/main` 换 `<工作目录根>/relay-run`，并进 `main` 的改进下一棒就生效。**看门人自己那层**（`bin/`、`src/`）的改动要重起看门人才生效——用 `relay forever` 起就自动重起（它发现退出码 75 就再起一个）；直接用 `relay run` 起的，改了看门人那层要自己停掉再起。10 分钟里重起 6 次会停下（代码和 relay-run 对不上）。不建 Windows 计划任务、不改系统设置。
-- **开机自己起来**（可选，**你自己建**，调度器不替你建）：Windows 上可以用计划任务，登录后起一次、用普通终端就是我平时那样跑：
+- **开机自己起来**（可选，**你自己建**，调度器不替你建）。推荐放进「启动」文件夹，不要管理员权限，登录后开一个看得见的窗口：
+  1. 新建一个 `start-relay.cmd`，**存成 UTF-8**，内容：
 
-  ```bat
-  schtasks /create /tn "IXAEON relay" /tr "cmd /c cd /d <本仓库路径> && node packages\relay\bin\relay.mjs forever" /sc onlogon /rl limited
-  ```
+     ```bat
+     @echo off
+     chcp 65001 >nul
+     title IXAEON relay
+     cd /d "<本仓库路径>"
+     node packages\relay\bin\relay.mjs forever
+     pause
+     ```
 
-  要先 `cd` 到仓库里：调度器按当前目录找共用检出目录，计划任务默认的当前目录不在仓库里，会起不来（整合方复审时改的）。
+     `<本仓库路径>` 换成共用检出目录的真实路径。第二行切到 UTF-8，路径里有中文也读得对（cmd 默认按 GBK 读脚本）。要先 `cd` 到仓库里：调度器按当前目录找共用检出目录。
+  2. `Win + R` 输入 `shell:startup` 回车，把这个文件（或它的快捷方式）放进打开的文件夹。不想要了就删掉。
 
-  不想要了：`schtasks /delete /tn "IXAEON relay" /f`。
+  也可以用计划任务（`schtasks /create … /sc onlogon`），但建「登录时运行」的任务要**管理员**终端，普通终端会报「拒绝访问」；`/tr` 里套带中文的路径还要转义引号，容易出错（用户 2026-10-30 实测）。
 
 - **同一时间只许一个调度器**：数据目录里的 `lock.json` 记着正在跑的进程号，重复启动会被拒（「已经有调度器在转…」）。那个进程不在了，就能再启动。
 - **换位置**：环境变量 `IXAEON_RELAY_DIR` 有值时，数据目录用它。
