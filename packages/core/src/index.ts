@@ -105,6 +105,8 @@ export {
 } from './extraction/extractor.js';
 export { ItemService } from './storage/itemStore.js';
 export { TodoStore, type TodoLink } from './storage/todoStore.js';
+export { GoalStore, PlanStore } from './goals/index.js';
+export type { Goal, GoalEvent, Plan, PlanStep } from './goals/index.js';
 export {
   syncDerivedNeedsReasons,
   derivedNeedsReasons,

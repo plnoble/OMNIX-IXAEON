@@ -84,6 +84,9 @@ const api: IxaIpcApi = {
   acceptTodo: (id) => ipcRenderer.invoke('ixaeon:acceptTodo', id),
   rejectTodo: (id) => ipcRenderer.invoke('ixaeon:rejectTodo', id),
   completeTodo: (id) => ipcRenderer.invoke('ixaeon:completeTodo', id),
+  // G1e：Goals 页只读
+  listGoals: () => ipcRenderer.invoke('ixaeon:listGoals'),
+  getGoalDetail: (id) => ipcRenderer.invoke('ixaeon:getGoalDetail', id),
   deleteConversation: (id) => ipcRenderer.invoke('ixaeon:deleteConversation', id),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
   markFindingsSeen: () => ipcRenderer.invoke('ixaeon:markFindingsSeen'),
