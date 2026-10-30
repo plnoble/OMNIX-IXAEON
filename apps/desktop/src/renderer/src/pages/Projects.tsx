@@ -499,6 +499,10 @@ export function ProjectsPage({
       await reload();
       onChanged?.();
     } catch (err) {
+      // 凭证可能已过期：关掉这份失效预览，别让「确认导入」继续可点、点一次失败一次。
+      setImportPreview(null);
+      setImportNotes(null);
+      setImportToken(null);
       setError(errMsg(err));
     } finally {
       setBusy(false);

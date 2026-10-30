@@ -729,7 +729,7 @@
       "title": "从清单导入（桌面入口）",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/k1-project-import-page.test.ts": "1c9c0b0343ab2f63af2ee08260d786a434bfcf0e35dc1cc8002389160d713f87"
+        "apps/desktop/test/acceptance/k1-project-import-page.test.ts": "25810fac389e1e08e29801130c5b041841f8ca0421417d14201cdc0e1b2936b4"
       }
     }
   ]

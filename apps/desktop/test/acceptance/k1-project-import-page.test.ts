@@ -174,6 +174,18 @@ describe('K1 项目页从清单导入', () => {
     expect(container.textContent).toContain('合成新项目');
   });
 
+  it('确认失败（凭证过期）：关掉失效预览、显示原因，不再让人重复点确认', async () => {
+    api.applyProjectImport.mockRejectedValueOnce(new Error('预览凭证已过期（请重新选择清单）'));
+    await renderPage();
+    await click('projects-import');
+    await click('project-import-confirm');
+
+    expect(api.applyProjectImport).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="project-import-preview"]')).toBeNull();
+    expect(container.querySelector('[data-testid="project-import-confirm"]')).toBeNull();
+    expect(container.textContent).toContain('预览凭证已过期');
+  });
+
   it('选到的不是 JSON：报错，不调预览', async () => {
     api.pickFiles.mockResolvedValue({ ticket: 'ticket-1', paths: ['D:/synth/notes.md'] });
     await renderPage();
