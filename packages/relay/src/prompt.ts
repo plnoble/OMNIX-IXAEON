@@ -23,6 +23,25 @@ const PLAN =
 const buildPlanPrompt = (turnNumber: number): string =>
   `${PLAN}\n\n这是第 ${turnNumber} 棒。\n\n${ASK}\n\n停点：加完行、推上 main 就停。\n\n做完在最后一行输出：RELAY-DONE plan <加了几行>\n`;
 
+/** L16 契约第 6 条：飞书回复棒的交代开头那段，逐字。 */
+const INBOX =
+  '你是整合方（统筹）。这一棒是飞书回复棒：用户在飞书里给调度器发了下面这些话，照 AGENTS.md 和 docs/委派/整合方手册.md 处理。多半是在回答队列里「等用户」的那几行：把用户的决定写进去（改那一行的状态、要的话写规格、加行），决定记进三周任务单（原话里有名字、地址、密钥这类个人信息的不要抄进仓库，只记决定）。看不懂的，或者用户要的事得动 docs/ 以外的东西，加一行「等用户：<你的问题>」问回去。只改 docs/ 下面的文件。做完照手册推到 main。';
+
+/** ISO → 北京时间 `10月24日 14:03`（原话一行一条用的写法）。 */
+const beijingMinute = (iso: string): string => {
+  const t = new Date(Date.parse(iso) + 8 * 3_600_000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${t.getUTCMonth() + 1}月${t.getUTCDate()}日 ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}`;
+};
+
+const buildInboxPrompt = (messages: Array<{ at: string; text: string }>): string => {
+  // 交代自己按时间先后排（不靠传进来的顺序），北京时间跨日也对
+  const lines = [...messages]
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    .map((m) => `- ${beijingMinute(m.at)}：${m.text}`);
+  return `${INBOX}\n\n${lines.join('\n')}\n\n${ASK}\n\n停点：处理完这几条、推上 main 就停。\n\n做完在最后一行输出：RELAY-DONE inbox <一句话说你做了什么>\n`;
+};
+
 export function buildTurnPrompt(
   turn: Turn,
   opts: {
@@ -33,8 +52,8 @@ export function buildTurnPrompt(
     inboxMessages?: Array<{ at: string; text: string }>;
   },
 ): string {
-  void opts.inboxMessages;
   if (turn.kind === 'integrator-plan') return buildPlanPrompt(opts.turnNumber);
+  if (turn.kind === 'integrator-inbox') return buildInboxPrompt(opts.inboxMessages ?? []);
   const integ = turn.role === 'integrator';
   const role = integ
     ? '你是整合方（统筹）。这一棒只做队列里的一行，照 AGENTS.md 做，并照 docs/委派/整合方手册.md 做。'

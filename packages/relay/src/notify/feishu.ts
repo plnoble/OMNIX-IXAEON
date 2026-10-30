@@ -18,6 +18,8 @@ export type RelayEvent =
     }
   /** L9 契约第 7 条：规划棒加了几行（按主表里的先后）。 */
   | { kind: 'planned'; rows: Array<{ no: string; task: string; status: string }> }
+  /** L16 契约第 6 条：整合方办完了用户在飞书里说的那几条。 */
+  | { kind: 'inbox-done'; summary: string }
   /** L15 契约第 1 条：队列里一行从「没完成」变成「已完成」。 */
   | { kind: 'done'; taskId: string; task: string; turns: number; hours: number; costUsd: number }
   /** L15 契约第 5 条：早报（北京时间 9 点之后发一次）。 */
@@ -81,6 +83,8 @@ export function formatEvent(e: RelayEvent): string {
   } else if (e.kind === 'planned') {
     lines.push(`整合方排了 ${e.rows.length} 件新活：`);
     for (const r of e.rows) lines.push(`- 第 ${r.no} 行 ${r.task}（${r.status}）`);
+  } else if (e.kind === 'inbox-done') {
+    lines.push(`整合方处理了你的回复：${e.summary}`);
   } else if (e.kind === 'done') {
     lines.push(`第 ${e.taskId} 行做完了：${e.task}`);
     const cost = e.costUsd > 0 ? `，整合方花了 ${e.costUsd.toFixed(2)} 美元` : '';
@@ -155,7 +159,13 @@ export async function sendFeishu(
 
 /** kind 加 taskId / role / why。planned、daily、done、morning 不限频；stopped 没有 taskId 时共用一键。 */
 function rateKey(e: RelayEvent): string | null {
-  if (e.kind === 'daily' || e.kind === 'planned' || e.kind === 'done' || e.kind === 'morning') {
+  if (
+    e.kind === 'daily' ||
+    e.kind === 'planned' ||
+    e.kind === 'inbox-done' ||
+    e.kind === 'done' ||
+    e.kind === 'morning'
+  ) {
     return null;
   }
   if (e.kind === 'needs-user') return `needs-user ${e.taskId}`;

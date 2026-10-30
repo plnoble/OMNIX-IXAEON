@@ -54,7 +54,13 @@ export async function runTurn(
   turn: Turn,
   config: RelayConfig,
   state: RelayState,
-  opts: { dataDir: string; turnNumber: number; timeoutMs?: number },
+  opts: {
+    dataDir: string;
+    turnNumber: number;
+    timeoutMs?: number;
+    /** L16 契约第 6 条：飞书回复棒交代里要列的原话（runOnce 从 inbox.jsonl 算好传进来）。 */
+    inboxMessages?: Array<{ at: string; text: string }>;
+  },
 ): Promise<TurnResult> {
   const role = config.roles[turn.role];
   const dir = join(opts.dataDir, 'turns', String(opts.turnNumber));
@@ -63,6 +69,7 @@ export async function runTurn(
     turnNumber: opts.turnNumber,
     pushByRelay: role.pushByRelay === true,
     cwd: role.cwd,
+    inboxMessages: opts.inboxMessages,
   });
   // 整合方改：嵌在参数里的也换（真 Claude 要写成 -p "读 {prompt_file} 照做"）
   // L10 契约第 5 条：`{relay_root}` 一起换，值是正在跑的这份代码的仓库根。

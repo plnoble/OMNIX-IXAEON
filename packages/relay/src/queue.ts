@@ -136,8 +136,16 @@ export function decideNextTurn(
   };
   const iOk = !paused('integrator');
   const dOk = !paused('developer');
-  // L16 契约第 6 条的派活位：inboxPending 由 runOnce 算出来传进来；行为在实现阶段补（先只推测试）。
-  void opts.inboxPending;
+  // L16 契约第 6 条：用户在飞书里回了话、整合方没在歇 → 先派飞书回复棒（优先于复审；不算规划次数）。
+  if (iOk && (opts.inboxPending ?? 0) > 0) {
+    return {
+      role: 'integrator',
+      kind: 'integrator-inbox',
+      taskId: 'inbox',
+      task: '用户在飞书里说的话',
+      status: `${opts.inboxPending} 条`,
+    };
+  }
   if (iOk) {
     const r = rows.find((x) => kindOf(x.status) === 'integrator-review');
     if (r) return turnOf('integrator', 'integrator-review', r);
