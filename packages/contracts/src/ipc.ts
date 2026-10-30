@@ -522,6 +522,8 @@ export interface IxaIpcApi {
   previewProjectImport(input: { ticket: string }): Promise<{
     token: string;
     preview: ProjectImportPlan;
+    /** 已有项目的清单备注，按项目名查（note 不入库，只在预览里显示）。 */
+    notes: Record<string, string>;
   }>;
   applyProjectImport(input: { token: string }): Promise<{ created: number; updated: number }>;
   // 导入（文件选择必须经过原生对话框；渲染进程只持有一次性票据）

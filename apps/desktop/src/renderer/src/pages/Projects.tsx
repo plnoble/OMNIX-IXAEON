@@ -253,11 +253,13 @@ function deleteResultText(name: string, done: DeleteProjectResult): string {
  */
 function ImportPreview({
   preview,
+  notes,
   busy,
   onConfirm,
   onCancel,
 }: {
   preview: ProjectImportPlan;
+  notes: Record<string, string>;
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -296,6 +298,9 @@ function ImportPreview({
                 <li key={`u-${u.project.id}`}>
                   {u.project.name}：{projectStatusLabel(u.project.status)} →{' '}
                   {projectStatusLabel(u.status)}
+                  {notes[u.project.name] ? (
+                    <span className="muted">　{notes[u.project.name]}</span>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -306,7 +311,10 @@ function ImportPreview({
             <strong>不变</strong>
             <ul>
               {preview.unchanged.map((p) => (
-                <li key={`k-${p.id}`}>{p.name}</li>
+                <li key={`k-${p.id}`}>
+                  {p.name}
+                  {notes[p.name] ? <span className="muted">　{notes[p.name]}</span> : null}
+                </li>
               ))}
             </ul>
           </div>
@@ -361,8 +369,9 @@ export function ProjectsPage({
   );
   // P8：删除的结果，显示在项目列表上面
   const [deleteResult, setDeleteResult] = useState<string | null>(null);
-  // K1：清单导入的预览 / 预览凭证 / 结果
+  // K1：清单导入的预览 / 预览凭证 / 清单备注 / 结果
   const [importPreview, setImportPreview] = useState<ProjectImportPlan | null>(null);
+  const [importNotes, setImportNotes] = useState<Record<string, string> | null>(null);
   const [importToken, setImportToken] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -468,6 +477,7 @@ export function ProjectsPage({
       }
       const res = await api.previewProjectImport({ ticket: picked.ticket });
       setImportPreview(res.preview);
+      setImportNotes(res.notes);
       setImportToken(res.token);
     } catch (err) {
       setError(errMsg(err));
@@ -483,6 +493,7 @@ export function ProjectsPage({
     try {
       const done = await api.applyProjectImport({ token: importToken });
       setImportPreview(null);
+      setImportNotes(null);
       setImportToken(null);
       setImportResult(`已从清单导入：新增 ${done.created} 个项目，更新 ${done.updated} 个状态。`);
       await reload();
@@ -691,13 +702,15 @@ export function ProjectsPage({
           </ul>
         )}
       </Card>
-      {importPreview && (
+      {importPreview && importNotes && (
         <ImportPreview
           preview={importPreview}
+          notes={importNotes}
           busy={busy}
           onConfirm={() => void confirmImport()}
           onCancel={() => {
             setImportPreview(null);
+            setImportNotes(null);
             setImportToken(null);
           }}
         />

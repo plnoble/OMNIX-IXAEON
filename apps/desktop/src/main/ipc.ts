@@ -1,6 +1,7 @@
 import { app, dialog, ipcMain, shell, safeStorage } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { realpathSync, readFileSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
@@ -59,6 +60,9 @@ interface PendingTicket {
 
 const TICKET_TTL_MS = 5 * 60 * 1000;
 
+/** K1：项目清单是用户手编的小 JSON；超过这个大小不读，避免误选大文件卡住主进程。 */
+const MAX_IMPORT_FILE_BYTES = 2 * 1024 * 1024;
+
 /** 测试钩子：IXAEON_TEST_DIALOG_RESPONSES="documents|path1;path2"（仅测试环境生效）。 */
 function stubDialogPaths(kind: string): string[] | null {
   const stub = process.env.IXAEON_TEST_DIALOG_RESPONSES;
@@ -93,6 +97,23 @@ export function registerIpc(runtime: AppRuntime): void {
    * 清单内容只留在主进程内存里，渲染层拿不到原件、也不能改预览结果绕过确认。
    */
   const importPreviews = new Map<string, { list: unknown; expiresAt: number }>();
+
+  /** K1：取消预览后不现等 5 分钟也不留到进程退出——到期就删掉主进程里那份清单。 */
+  const rememberImportPreview = (token: string, list: unknown): void => {
+    importPreviews.set(token, { list, expiresAt: Date.now() + TICKET_TTL_MS });
+    setTimeout(() => importPreviews.delete(token), TICKET_TTL_MS + 1000).unref();
+  };
+
+  /** K1：清单备注按项目名对回预览行；已有项目的 note 也要显示（note 不入库）。 */
+  const importNotes = (list: unknown): Record<string, string> => {
+    const notes: Record<string, string> = {};
+    for (const item of ((list as { projects?: unknown } | null)?.projects ?? []) as unknown[]) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const { name, note } = item as { name?: unknown; note?: unknown };
+      if (typeof name === 'string' && typeof note === 'string') notes[name.trim()] ??= note;
+    }
+    return notes;
+  };
 
   const issueTicket = (paths: string[], purpose: PendingTicket['purpose']): PickResult => {
     const ticket = randomBytes(24).toString('hex');
@@ -181,16 +202,33 @@ export function registerIpc(runtime: AppRuntime): void {
       if (!file || !file.toLowerCase().endsWith('.json')) {
         throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请选择一个 .json 清单文件');
       }
+      const info = await stat(file).catch(() => null);
+      if (!info?.isFile()) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请选择一个存在的 .json 清单文件');
+      }
+      // 清单是用户编辑的小文件；先看大小再读，避免误选大 JSON 时同步解析卡住主进程。
+      if (info.size > MAX_IMPORT_FILE_BYTES) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          `清单文件太大（上限 ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB）`,
+        );
+      }
+      let text: string;
+      try {
+        text = await readFile(file, 'utf8');
+      } catch {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '读不了清单文件（可能已移走或没有权限）');
+      }
       let raw: unknown;
       try {
-        raw = JSON.parse(readFileSync(file, 'utf8'));
+        raw = JSON.parse(text);
       } catch {
         throw new IxaError(ErrorCodes.VALIDATION_FAILED, '清单不是合法的 JSON');
       }
       const preview = planProjectImport(runtime.db, raw);
       const token = randomBytes(24).toString('hex');
-      importPreviews.set(token, { list: raw, expiresAt: Date.now() + TICKET_TTL_MS });
-      return { token, preview };
+      rememberImportPreview(token, raw);
+      return { token, preview, notes: importNotes(raw) };
     },
     applyProjectImport: async (input) => {
       const list = consumeImportPreview(input.token);

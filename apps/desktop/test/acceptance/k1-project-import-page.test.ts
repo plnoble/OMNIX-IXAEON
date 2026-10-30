@@ -55,6 +55,12 @@ const previewPlan = (): ProjectImportPlan => ({
   ],
 });
 
+/** 已有项目的 note 由主进程按项目名另给（plan 里只有新增条目带 note），要和对应行一起显示。 */
+const previewNotes = () => ({
+  合成甲: '变化行的备注',
+  合成乙: '不变行的备注',
+});
+
 let container: HTMLDivElement;
 let root: Root;
 let rows: Project[];
@@ -75,7 +81,7 @@ beforeEach(() => {
     .mockResolvedValue({ ticket: 'ticket-1', paths: ['D:/synth/list.json'] });
   api.previewProjectImport
     .mockReset()
-    .mockResolvedValue({ token: 'preview-1', preview: previewPlan() });
+    .mockResolvedValue({ token: 'preview-1', preview: previewPlan(), notes: previewNotes() });
   api.applyProjectImport.mockReset().mockImplementation(async () => {
     rows = [...rows, project('p3', '合成新项目', 'paused')];
     rows = rows.map((p) => (p.id === 'p1' ? { ...p, status: 'archived' } : p));
@@ -126,8 +132,14 @@ describe('K1 项目页从清单导入', () => {
       '清单里的备注',
     );
     expect(container.querySelector('[data-testid="project-import-update"]')!.textContent).toContain(
-      '进行中 → 归档',
+      '进行中 → 放弃',
     );
+    expect(container.querySelector('[data-testid="project-import-update"]')!.textContent).toContain(
+      '变化行的备注',
+    );
+    expect(
+      container.querySelector('[data-testid="project-import-unchanged"]')!.textContent,
+    ).toContain('不变行的备注');
     expect(
       container.querySelector('[data-testid="project-import-invalid"]')!.textContent,
     ).toContain('status 不合法');

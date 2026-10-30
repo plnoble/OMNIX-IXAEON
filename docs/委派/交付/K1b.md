@@ -16,16 +16,18 @@
 - `apps/desktop/src/preload/index.ts`、`renderer/src/api.ts`：接上两条方法。
 - `renderer/src/pages/Projects.tsx`：项目页标题栏加「从清单导入」；选文件 → 预览弹窗（新增 / 变化 / 不变 / 无效的条数，各条名字、状态变化、无效原因和 `note`）→「确认导入」后写入、刷新列表、显示「新增 N 个项目，更新 N 个状态」；取消什么都不写。
 - `scripts/real/k1-project-import.spec.ts`：真机检查脚本（Playwright + 真实 Electron，临时数据目录 + 5 条合成清单）。
-- 改动文件与行数（`git diff --stat dev/K1`，含新文件；源码 241 行）：
-
+- 改动文件与行数（`git diff --stat origin/main`；源码 294 行，含第 1 轮审查后的修改）：
+ 
 ```text
- apps/desktop/src/main/ipc.ts                       |  52 +++++-
+ apps/desktop/src/main/ipc.ts                       |  88 ++++++++++
  apps/desktop/src/preload/index.ts                  |   2 +
  apps/desktop/src/renderer/src/api.ts               |   2 +
- apps/desktop/src/renderer/src/pages/Projects.tsx   | 180 ++++++++++++++++++++-
- .../test/acceptance/k1-project-import-page.test.ts | 173 ++++++++++++++++++++
- packages/contracts/src/ipc.ts                      |  10 ++
- 6 files changed, 414 insertions(+), 5 deletions(-)
+ apps/desktop/src/renderer/src/pages/Projects.tsx   | 193 ++++++++++++++++++++-
+ apps/desktop/src/renderer/src/ui.tsx               |   2 +-
+ .../test/acceptance/k1-project-import-page.test.ts | 185 ++++++++++++++++++++
+ packages/contracts/src/ipc.ts                      |  12 ++
+ scripts/real/k1-project-import.spec.ts             | 153 ++++++++++++++++++
+ 8 files changed, 637 insertions(+), 5 deletions(-)
 ```
 
 和规格不一样 / 规格没写死的地方：
@@ -93,7 +95,9 @@
 EXIT=0
 ```
 
-- GitHub 上的 verify：本棒不推（调度器替推），没看；推送后由下一棒看 CI 再合并。
+- 第 1 轮审查改完后（2026-10-31 01:03）重跑 `node scripts/verify.mjs`，也是 `EXIT=0`（日志 `.logs/k1b-verify-round55d.log`）：lint / format / local-user / typecheck / build 全过，unit 69、integration 483（17 skipped）、acceptance 148 个文件 1189 条全过；K1b 锁定测试 4/4。最终源码 294 行（≤300）。
+
+- 分支 CI：run 41074930915（提交 `18b786b`）第一次红在 `l6-launcher.test.ts` 清理临时目录时的 EPERM（与本支无关），`gh run rerun 41074930915 --failed` 后 success（2026-10-30T15:21:36Z）。第 1 轮审查后的新提交还要由调度器推上去再跑一次 CI，下一棒看结果再合并。
 
 ## 真机通过
 
@@ -126,7 +130,7 @@ Running 1 test using 1 worker
 
 ## Codex 审查（A 档）
 
-**这一支还没审。** 2026-10-30 这一棒本机 Codex 和 Claude 的额度都用完了（`node scripts/codex-review.mjs K1b --base dev/K1` 退出码 3），按 AGENTS.md 分支先等着，队列状态改「待审（Codex 额度）」；额度恢复后重跑同一命令，再把结论写进 `K1b-Codex审查.md`。
+**第 1 轮 Codex 审查（2026-10-31 00:41）：退出码 1，4 条必须改，已全部改完并重新锁定测试（见下方「第 1 轮 Codex 审查」）。** 在这之前 2026-10-30 的几次重跑都只撞额度（退出码 3），记录如下：
 
 2026-10-30 22:20（第 51 棒）重跑一次，仍然退出码 3：Codex 额度用完，脚本改用 Claude 代审，Claude 也没额度。分支没有新改动，队列状态保持「待审（Codex 额度）」；原样输出在 `.logs/k1b-codex-round1.log`（只在本机，未提交）。
 
@@ -142,10 +146,22 @@ Running 1 test using 1 worker
 
 第一支 `dev/K1` 的三轮审查（Claude 代审、最终「可以合并」）见 [K1-Codex审查.md](K1-Codex审查.md)；那三轮只审核心 + K1 的测试，不含这一支的界面、IPC 和真机脚本。
 
+### 第 1 轮 Codex 审查（2026-10-31 00:41，退出码 1：需要修改）
+
+Codex 0.166.0 审出 4 条「必须改」，已逐条处理（审查原文见 [K1b-Codex审查.md](K1b-Codex审查.md) 和本工作目录 `.logs/k1b-codex-round4.log`，后者只在本机）：
+
+1. **archived 文案**：规格说界面上显示为「放弃」，共用映射原来写「归档」。`apps/desktop/src/renderer/src/ui.tsx` 改成「放弃」；界面测试锁成「进行中 → 放弃」。
+2. **已有项目的清单备注没显示**：`planProjectImport` 的 `update` / `unchanged` 不带 `note`（新增条目才带）。`previewProjectImport` 另返回 `notes`（与 `update` / `unchanged` 逐项对应），弹窗把变化行和不变行的备注都显示出来；测试加了这两行的备注断言。`note` 仍不入库。
+3. **预览凭证没有过期清理**：原来只判断过期，不删除，取消后的整份 JSON 留到进程退出。加了到期定时器（`unref`）从主进程删除；交付说明原来「只等到过期」的写法也改正。
+4. **大文件同步读主进程**：先 `stat` 限 2 MB，再用 `fs/promises` 异步读，读不了 / 太大 / JSON 不合法分别给人话。
+
+改完重跑：`node scripts/acceptance.mjs run K1b` 4/4、`tsc --noEmit` 0、`node scripts/verify.mjs` 全过（见下一节）。测试改严后重新 `lock` 了 K1b。
+
 ## 已知缺口
 
-- 预览凭证留在主进程内存、5 分钟过期；取消预览不立即清（只等到过期），没有外部影响，只是内存里多一条。
+- 预览凭证留在主进程内存、5 分钟过期；到期有定时器删除，取消预览不会留到进程退出。
 - 预览后到确认前库若被别人改，界面只显示实际写入数（`apply` 按确认时的库重算），不另提示差异；规格没要求。
+- 清单文件上限 2 MB；更大的清单不支持（规格没写上限，这是为了不阻塞主进程）。
 - 对话框复用了 `documents` 类型，过滤器里除 `.json` 也能看到 md/txt；选错会报「请选择一个 .json 清单文件」，不会读。
 - 条件 7 的同名项目处理与数据库 `name UNIQUE` 的关系见 [K1.md](K1.md)「已知缺口」。
 
