@@ -28,6 +28,19 @@ vi.mock('../../src/renderer/src/api.js', () => ({
     getCockpitSnapshot: async () => harness.snapshot,
     updateProjectStatus: async (input: { id: string; status: string }) => {
       harness.updates.push({ id: input.id, status: input.status });
+      // 真 IPC 会写库，下一次快照就按新状态分组；替身照着改，别让「切完不刷新」也能过。
+      const s = harness.snapshot as CockpitSnapshot;
+      const all = [...s.projects.active, ...s.projects.paused, ...s.projects.archived].map((p) =>
+        p.id === input.id ? { ...p, status: input.status } : p,
+      );
+      harness.snapshot = {
+        ...s,
+        projects: {
+          active: all.filter((p) => p.status === 'active'),
+          paused: all.filter((p) => p.status === 'paused'),
+          archived: all.filter((p) => p.status === 'archived'),
+        },
+      };
       return { id: input.id, status: input.status };
     },
   },
@@ -129,16 +142,49 @@ describe('条件 3：项目分组与状态切换', () => {
     expect(container.querySelectorAll('[data-status="archived"]').length).toBe(1);
   });
 
-  it('卡片上的状态切换复用 api.updateProjectStatus', async () => {
+  it('卡片上的状态切换复用 api.updateProjectStatus，卡片跟着换组、计数跟着变，也能恢复', async () => {
     harness.snapshot = snapshot({ projects: { active, paused, archived } });
     await render();
     await click($('cockpit-project-pause-a0'));
     expect(harness.updates).toEqual([{ id: 'a0', status: 'paused' }]);
-    await click($('cockpit-project-archive-a0'));
+    expect(cards()).toBe(2);
+    expect($('cockpit-group-paused')!.textContent).toContain('暂缓（11）');
+    expect($('cockpit-project-card-a0')).toBeNull();
+    await click($('cockpit-group-paused'));
+    expect($('cockpit-project-card-a0')!.getAttribute('data-status')).toBe('paused');
+
+    await click($('cockpit-project-resume-a0'));
     expect(harness.updates).toEqual([
       { id: 'a0', status: 'paused' },
-      { id: 'a0', status: 'archived' },
+      { id: 'a0', status: 'active' },
     ]);
+    expect(container.querySelectorAll('[data-status="active"]').length).toBe(3);
+    expect($('cockpit-group-paused')!.textContent).toContain('暂缓（10）');
+    expect($('cockpit-project-card-a0')!.getAttribute('data-status')).toBe('active');
+
+    await click($('cockpit-project-archive-a1'));
+    expect(harness.updates.at(-1)).toEqual({ id: 'a1', status: 'archived' });
+    expect(container.querySelectorAll('[data-status="active"]').length).toBe(2);
+    expect($('cockpit-group-archived')!.textContent).toContain('放弃（2）');
+  });
+
+  it('调度器那一条同时写「已跑 N 分钟」和进程/开始时间', async () => {
+    harness.snapshot = snapshot({
+      running: [
+        {
+          kind: 'relay',
+          role: null,
+          taskId: null,
+          startedAt: new Date(NOW.getTime() - 5 * 60_000).toISOString(),
+          until: null,
+          text: '调度器在转（进程 123），从 11:55 起',
+        },
+      ],
+    });
+    await render();
+    const row = $('cockpit-running-item')!.textContent ?? '';
+    expect(row).toContain('已跑 5 分钟');
+    expect(row).toContain('进程 123');
   });
 });
 

@@ -251,15 +251,15 @@ export function CockpitPage() {
                   {r.kind !== 'relay' && <strong>{r.role ?? '—'}</strong>}
                   {r.taskId && <span className="muted">任务 {r.taskId}</span>}
                   <span className="muted">
-                    {r.kind === 'relay'
-                      ? r.text
-                      : r.kind === 'paused_role'
-                        ? `额度暂停到 ${hhmm(r.until)}`
-                        : mins === null
-                          ? ''
-                          : `已跑 ${mins} 分钟`}
+                    {r.kind === 'paused_role'
+                      ? `额度暂停到 ${hhmm(r.until)}`
+                      : mins === null
+                        ? ''
+                        : `已跑 ${mins} 分钟`}
                   </span>
-                  {r.kind === 'turn' && <span className="muted">{r.text}</span>}
+                  {(r.kind === 'relay' || r.kind === 'turn') && (
+                    <span className="muted">{r.text}</span>
+                  )}
                 </li>
               );
             })}

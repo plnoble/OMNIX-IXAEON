@@ -757,7 +757,7 @@
       "title": "K3b 驾驶舱页面：项目区（进行中/暂缓/放弃与状态切换）",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/k3b-cockpit-projects.test.ts": "24ec02055431268949552c3639e5c2c592df4f2875194c13ef395e284c61b9ed"
+        "apps/desktop/test/acceptance/k3b-cockpit-projects.test.ts": "9e222885fef7e5d3ddcd9a78d5619ed99b523313e0521daa6557334186f3eab8"
       }
     }
   ]
