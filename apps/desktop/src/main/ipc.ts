@@ -34,6 +34,7 @@ import {
   type PickResult,
   type Project,
   type SearchInput,
+  type ProjectImportPlan,
   type Source,
   type SourceListItem,
 } from '@ixaeon/contracts';
@@ -93,18 +94,19 @@ export function registerIpc(runtime: AppRuntime): void {
 
   /** K1：预览过的清单（确认时重算、确认前不写库）；token 一次性、5 分钟有效。 */
   const importPreviews = new Map<string, { list: unknown; expiresAt: number }>();
-
   const rememberImportPreview = (token: string, list: unknown): void => {
     importPreviews.set(token, { list, expiresAt: Date.now() + TICKET_TTL_MS });
     setTimeout(() => importPreviews.delete(token), TICKET_TTL_MS + 1000).unref();
   };
-
-  const importNotes = (list: unknown): Record<string, string> => {
-    const notes: Record<string, string> = {};
-    for (const item of ((list as { projects?: unknown } | null)?.projects ?? []) as unknown[]) {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-      const { name, note } = item as { name?: unknown; note?: unknown };
-      if (typeof name === 'string' && typeof note === 'string') notes[name.trim()] ??= note;
+  /** 已有项目的清单备注，按库里的项目名给（和 planProjectImport 一样不分大小写匹配）。 */
+  const importNotes = (list: unknown, plan: ProjectImportPlan): Record<string, string> => {
+    const items = (list as { projects: Array<{ name?: unknown; note?: unknown } | null> }).projects;
+    const notes = Object.create(null) as Record<string, string>;
+    for (const p of [...plan.update.map((u) => u.project), ...plan.unchanged]) {
+      const hit = items.find(
+        (i) => typeof i?.name === 'string' && i.name.trim().toLowerCase() === p.name.toLowerCase(),
+      );
+      if (typeof hit?.note === 'string') notes[p.name] = hit.note;
     }
     return notes;
   };
@@ -221,7 +223,7 @@ export function registerIpc(runtime: AppRuntime): void {
       const preview = planProjectImport(runtime.db, raw);
       const token = randomBytes(24).toString('hex');
       rememberImportPreview(token, raw);
-      return { token, preview, notes: importNotes(raw) };
+      return { token, preview, notes: importNotes(raw, preview) };
     },
     applyProjectImport: async (input) => {
       const list = consumeImportPreview(input.token);

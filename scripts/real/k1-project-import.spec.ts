@@ -57,7 +57,8 @@ test('K1 真机：5 条合成清单预览、确认导入、项目页刷新', asy
         version: 1,
         projects: [
           { name: '合成项目A', status: 'archived', description: '清单里的说明（不该覆盖）' },
-          { name: '合成项目B', status: 'paused' },
+          // 大小写和库里不同：照样匹配到 B，备注也要显示在 B 那一行（整合方复审补）
+          { name: '合成项目b', status: 'paused', note: '清单备注 B' },
           { name: '合成项目C', status: 'active', note: '清单备注 C' },
           { name: '合成项目D', status: 'paused' },
           { name: '合成项目E', status: 'done' },
@@ -121,6 +122,7 @@ test('K1 真机：5 条合成清单预览、确认导入、项目页刷新', asy
       '新增 2 个、变化 1 个、不变 1 个、无效 1 个',
     );
     await expect(page.getByTestId('project-import-invalid')).toContainText('status 不合法');
+    await expect(page.getByTestId('project-import-unchanged')).toContainText('清单备注 B');
     await page.screenshot({ path: join(SCREENSHOTS, 'k1-preview.png'), fullPage: true });
 
     // 预览阶段库里没有新增
@@ -139,6 +141,11 @@ test('K1 真机：5 条合成清单预览、确认导入、项目页刷新', asy
       const rows = await window.ixaeon!.listProjects();
       return Object.fromEntries(rows.map((p) => [p.name, p.status]));
     });
+    const descA = await page.evaluate(
+      async () =>
+        (await window.ixaeon!.listProjects()).find((p) => p.name === '合成项目A')?.description,
+    );
+    expect(descA).toBe('库里的 A 说明');
     expect(after['合成项目A']).toBe('archived');
     expect(after['合成项目B']).toBe('paused');
     expect(after['合成项目C']).toBe('active');

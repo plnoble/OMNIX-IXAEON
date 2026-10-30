@@ -264,6 +264,8 @@ function ImportPreview({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const noteOf = (name: string): string | undefined =>
+    Object.prototype.hasOwnProperty.call(notes, name) ? notes[name] : undefined;
   return (
     <div
       className="modal-backdrop"
@@ -298,8 +300,8 @@ function ImportPreview({
                 <li key={`u-${u.project.id}`}>
                   {u.project.name}：{projectStatusLabel(u.project.status)} →{' '}
                   {projectStatusLabel(u.status)}
-                  {notes[u.project.name] ? (
-                    <span className="muted">　{notes[u.project.name]}</span>
+                  {noteOf(u.project.name) ? (
+                    <span className="muted">　{noteOf(u.project.name)}</span>
                   ) : null}
                 </li>
               ))}
@@ -313,7 +315,7 @@ function ImportPreview({
               {preview.unchanged.map((p) => (
                 <li key={`k-${p.id}`}>
                   {p.name}
-                  {notes[p.name] ? <span className="muted">　{notes[p.name]}</span> : null}
+                  {noteOf(p.name) ? <span className="muted">　{noteOf(p.name)}</span> : null}
                 </li>
               ))}
             </ul>

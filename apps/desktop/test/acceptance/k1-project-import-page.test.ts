@@ -194,4 +194,23 @@ describe('K1 项目页从清单导入', () => {
     expect(api.previewProjectImport).not.toHaveBeenCalled();
     expect(container.textContent).toContain('.json');
   });
+
+  // 整合方复审补：备注只认 notes 自己的键，项目名恰好是原型上的名字时不能显示出原型成员
+  it('项目名叫 constructor / toString、清单没给备注：预览里不显示备注', async () => {
+    api.previewProjectImport.mockResolvedValue({
+      token: 'preview-1',
+      preview: {
+        create: [],
+        update: [{ project: project('p8', 'toString', 'active'), status: 'paused' }],
+        unchanged: [project('p9', 'constructor', 'paused')],
+        invalid: [],
+      },
+      notes: {},
+    });
+    await renderPage();
+    await click('projects-import');
+
+    expect(container.querySelector('[data-testid="project-import-update"] .muted')).toBeNull();
+    expect(container.querySelector('[data-testid="project-import-unchanged"] .muted')).toBeNull();
+  });
 });

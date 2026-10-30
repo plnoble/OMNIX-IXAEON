@@ -192,3 +192,48 @@ Codex 0.166.0 的两条「必须改」都在交付说明，不在实现：
 ## 用户接受
 
 未发生（用户用过并认可之后才写）。
+
+## 整合方复审（2026-10-31，第 56 棒）
+
+**结论：并入 main。** 三轮审查的「必须改」都已处理；逐行读了 IPC、预览弹窗和真机脚本，路径只经票据、`note` 不入库、确认时按当时的库重算、只用 `ProjectService` 写库，和规格一致。第 3 轮那条「建议」整合方顺手做了，另外发现一处真问题一起改。
+
+### 整合方已改（本次合并提交）
+
+- **备注对不上大小写不同的项目名**（真问题）：`planProjectImport` 按项目名不分大小写匹配，但 `notes` 原来按清单里的写法当键、界面按库里的名字查——清单写 `foo`、库里是 `Foo` 时，「不变 / 变化」行的备注就丢了。改成主进程按 plan 里匹配到的项目、用**库里的名字**当键给备注（`apps/desktop/src/main/ipc.ts` 的 `importNotes`）。
+- **原型上的键**（第 3 轮的建议）：主进程 `notes` 用 `Object.create(null)`；界面只认 `notes` 自己的键（`Projects.tsx` 的 `noteOf`）。原来项目名叫 `constructor` / `toString` 时会把原型上的函数当备注渲染（React 报「Functions are not valid as a React child」，留一个空的备注）。
+- 源码改动合计仍是 300 行（新增 295 + 删除 5），没超。
+
+### 补的测试（已重锁 K1b）
+
+- `k1-project-import-page.test.ts` 加第 6 条「项目名叫 constructor / toString、清单没给备注：预览里不显示备注」。变异检查：把 `Projects.tsx` 换回开发方原版，这条变红（`expected <span class="muted"></span> to be null`）；换回改后的版本 6/6 过。
+- 真机脚本 `scripts/real/k1-project-import.spec.ts` 加两处断言：清单里 B 写成 `合成项目b`（大小写和库里不同）带备注，预览「不变」一栏要显示这条备注；导入后 A 的 `description` 仍是库里原来的（条件 8）。
+
+### 自动化通过
+
+- `node scripts/acceptance.mjs run K1b`：6/6 过。
+- `node scripts/verify.mjs`（合并后的最终树，`done K1b` 之前）：全部通过——lint、format、local-user、typecheck、typecheck-acceptance、build、unit 69、integration 483（17 跳过）、acceptance-lock（82 个任务 158 个文件）、acceptance 148 个文件 1189 条、各 review 套件。
+
+### 真机通过（整合方亲手在最终版本上跑，先 `node scripts/build.mjs`）
+
+```text
+node apps\desktop\node_modules\@playwright\test\cli.js test -c scripts\real\playwright.real.config.ts k1-project-import.spec.ts
+
+Running 1 test using 1 worker
+
+  ✓  1 scripts\real\k1-project-import.spec.ts:49:1 › K1 真机：5 条合成清单预览、确认导入、项目页刷新 (2.3s)
+
+  1 passed (2.8s)
+```
+
+看了预览截图（`.logs/k1-preview.png`，合成数据）：「新增 2 个、变化 1 个、不变 1 个、无效 1 个」；A「进行中 → 放弃」；B 那行显示「清单备注 B」；E 进无效、原因写 status 不合法；底部说明「只登记项目名、目录和状态…」。
+
+### 新发现、没改的缺口
+
+- 项目卡片上的操作按钮还写「归档」，状态标签已经是「放弃」——同一个状态两种叫法。按钮文字不在这一单的 300 行里改（改了就超），留作后续小单。
+
+### 四样分开
+
+- 已实现：是（K1 + K1b，并入 main）。
+- 自动化通过：是（上面）。
+- 真机通过：是，合成清单、临时数据目录（上面）。
+- 用户接受：未发生。
