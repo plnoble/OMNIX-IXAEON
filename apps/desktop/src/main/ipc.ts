@@ -9,6 +9,8 @@ import { executorGapText } from './codingExecutor.js';
 import {
   addRequirement,
   applyProjectImport,
+  buildCockpitSnapshot,
+  getSetting,
   listAuditEvents,
   listMatchedFindings,
   listRequirements,
@@ -534,6 +536,12 @@ export function registerIpc(runtime: AppRuntime): void {
     // G1e：Goals 页只读（用户 2026-10-30 定，故意没有写通道）
     listGoals: async () => runtime.listGoals(),
     getGoalDetail: async (id) => runtime.getGoalDetail(id),
+    // K2：驾驶舱快照（只读）。ixaeonRepo 只认设置项；relayDir 空串 = 用环境变量/默认目录。
+    getCockpitSnapshot: async () =>
+      buildCockpitSnapshot(runtime.db, {
+        relayDir: '',
+        ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
+      }),
     deleteConversation: async (id) => {
       runtime.conversations.delete(id);
       return { deleted: true as const };
