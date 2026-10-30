@@ -723,6 +723,14 @@
       "files": {
         "packages/core/test/acceptance/k1-project-import.test.ts": "bf424b981700d02ebbc5ca74d8d88fc3da07695a7203c142be82f02b0ac85093"
       }
+    },
+    {
+      "id": "K1b",
+      "title": "从清单导入（桌面入口）",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/k1-project-import-page.test.ts": "25810fac389e1e08e29801130c5b041841f8ca0421417d14201cdc0e1b2936b4"
+      }
     }
   ]
 }

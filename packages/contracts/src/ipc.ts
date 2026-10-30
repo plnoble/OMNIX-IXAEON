@@ -6,6 +6,7 @@ import type {
   Job,
   Permission,
   Project,
+  ProjectImportPlan,
   ProjectRelation,
   ResearchFinding,
   ResearchRun,
@@ -514,6 +515,17 @@ export interface IxaIpcApi {
     status: 'active' | 'paused' | 'archived';
   }): Promise<Project>;
   deleteProject(id: string): Promise<DeleteProjectResult>;
+  /**
+   * K1：从清单导入项目。先选 JSON 文件（`pickFiles('documents')` 的票据），
+   * 预览只算不写；确认后用返回的 token 真正写入。
+   */
+  previewProjectImport(input: { ticket: string }): Promise<{
+    token: string;
+    preview: ProjectImportPlan;
+    /** 已有项目的清单备注，按项目名查（note 不入库，只在预览里显示）。 */
+    notes: Record<string, string>;
+  }>;
+  applyProjectImport(input: { token: string }): Promise<{ created: number; updated: number }>;
   // 导入（文件选择必须经过原生对话框；渲染进程只持有一次性票据）
   pickFiles(kind: 'documents' | 'chatgptExport' | 'directory'): Promise<PickResult | null>;
   pickSaveZip(defaultName: string): Promise<PickResult | null>;
