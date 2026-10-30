@@ -342,5 +342,19 @@ describe('「要什么」里的其它可见内容', () => {
     for (const [i, label] of ['完成', '失败', '超时', '额度', '其他'].entries())
       expect(rows[i]!.textContent).toContain(label);
     expect(rows[0]!.textContent).toContain('K3');
+    expect(rows[0]!.textContent).toContain('dev');
+    const at = new Date('2026-10-31T03:50:00.000Z');
+    const local = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    expect(rows[0]!.textContent).toContain(local);
+  });
+
+  it('最近动态最多 20 条', async () => {
+    harness.snapshot = snapshot({
+      recent: Array.from({ length: 25 }, (_, i) =>
+        recent({ taskId: `T${i}`, at: new Date(NOW.getTime() - i * 60_000).toISOString() }),
+      ),
+    });
+    await render();
+    expect(container.querySelectorAll('[data-testid="cockpit-recent-item"]').length).toBe(20);
   });
 });
