@@ -60,7 +60,6 @@ interface PendingTicket {
 
 const TICKET_TTL_MS = 5 * 60 * 1000;
 
-/** K1：项目清单是用户手编的小 JSON；超过这个大小不读，避免误选大文件卡住主进程。 */
 const MAX_IMPORT_FILE_BYTES = 2 * 1024 * 1024;
 
 /** 测试钩子：IXAEON_TEST_DIALOG_RESPONSES="documents|path1;path2"（仅测试环境生效）。 */
@@ -92,19 +91,14 @@ export function registerIpc(runtime: AppRuntime): void {
   // --- 票据表（主进程内存；随进程生命周期） ---
   const tickets = new Map<string, PendingTicket>();
 
-  /**
-   * K1：预览过的清单（确认导入时再算一遍，确认前不写库）。token 一次性、5 分钟有效。
-   * 清单内容只留在主进程内存里，渲染层拿不到原件、也不能改预览结果绕过确认。
-   */
+  /** K1：预览过的清单（确认时重算、确认前不写库）；token 一次性、5 分钟有效。 */
   const importPreviews = new Map<string, { list: unknown; expiresAt: number }>();
 
-  /** K1：取消预览后不现等 5 分钟也不留到进程退出——到期就删掉主进程里那份清单。 */
   const rememberImportPreview = (token: string, list: unknown): void => {
     importPreviews.set(token, { list, expiresAt: Date.now() + TICKET_TTL_MS });
     setTimeout(() => importPreviews.delete(token), TICKET_TTL_MS + 1000).unref();
   };
 
-  /** K1：清单备注按项目名对回预览行；已有项目的 note 也要显示（note 不入库）。 */
   const importNotes = (list: unknown): Record<string, string> => {
     const notes: Record<string, string> = {};
     for (const item of ((list as { projects?: unknown } | null)?.projects ?? []) as unknown[]) {
@@ -206,7 +200,6 @@ export function registerIpc(runtime: AppRuntime): void {
       if (!info?.isFile()) {
         throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请选择一个存在的 .json 清单文件');
       }
-      // 清单是用户编辑的小文件；先看大小再读，避免误选大 JSON 时同步解析卡住主进程。
       if (info.size > MAX_IMPORT_FILE_BYTES) {
         throw new IxaError(
           ErrorCodes.VALIDATION_FAILED,

@@ -16,18 +16,18 @@
 - `apps/desktop/src/preload/index.ts`、`renderer/src/api.ts`：接上两条方法。
 - `renderer/src/pages/Projects.tsx`：项目页标题栏加「从清单导入」；选文件 → 预览弹窗（新增 / 变化 / 不变 / 无效的条数，各条名字、状态变化、无效原因和 `note`）→「确认导入」后写入、刷新列表、显示「新增 N 个项目，更新 N 个状态」；取消什么都不写。
 - `scripts/real/k1-project-import.spec.ts`：真机检查脚本（Playwright + 真实 Electron，临时数据目录 + 5 条合成清单）。
-- 改动文件与行数（`git diff --stat origin/main`；源码 294 行，含第 1 轮审查后的修改）：
+- 改动文件与行数（`git diff --stat origin/main`；源码改动 296 行 = 新增 291 + 删除 5，未超 300）：
  
 ```text
- apps/desktop/src/main/ipc.ts                       |  88 ++++++++++
+ apps/desktop/src/main/ipc.ts                       |  81 +++++++++
  apps/desktop/src/preload/index.ts                  |   2 +
  apps/desktop/src/renderer/src/api.ts               |   2 +
- apps/desktop/src/renderer/src/pages/Projects.tsx   | 193 ++++++++++++++++++++-
+ apps/desktop/src/renderer/src/pages/Projects.tsx   | 197 ++++++++++++++++++++-
  apps/desktop/src/renderer/src/ui.tsx               |   2 +-
- .../test/acceptance/k1-project-import-page.test.ts | 185 ++++++++++++++++++++
+ .../test/acceptance/k1-project-import-page.test.ts | 197 +++++++++++++++++++++
  packages/contracts/src/ipc.ts                      |  12 ++
  scripts/real/k1-project-import.spec.ts             | 153 ++++++++++++++++++
- 8 files changed, 637 insertions(+), 5 deletions(-)
+ 8 files changed, 641 insertions(+), 5 deletions(-)
 ```
 
 和规格不一样 / 规格没写死的地方：
@@ -38,18 +38,19 @@
 
 ## 验收测试（v2 规格任务）
 
-`apps/desktop/test/acceptance/k1-project-import-page.test.ts`，4 个 `it`，对应界面契约（规格的 8 条验收条件全在 K1）：
+`apps/desktop/test/acceptance/k1-project-import-page.test.ts`，5 个 `it`，对应界面契约（规格的 8 条验收条件全在 K1）：
 
 | 测试 | 对应 |
 | --- | --- |
 | 标题栏有按钮；选了清单先弹预览，条数、无效原因都在 | 界面契约：标题栏按钮、预览内容；条件 1 的「确认前不变」在界面上表现为只调预览、不调 apply、列表不重读 |
 | 取消：不写入，列表不刷新 | 契约：点「确认导入」后才写入 |
 | 确认导入：按预览凭证写入、刷新列表、显示结果 | 契约：确认后刷新列表 |
+| 确认失败（凭证过期）：关掉失效预览、显示原因 | 契约：凭证 5 分钟有效；失败后不能重复点确认 |
 | 选到的不是 JSON：报错，不调预览 | 契约第 1 条：选一个 JSON 文件 |
 
 ## 自动化通过
 
-- `node scripts/acceptance.mjs run K1b`（本支树，锁定 1 个文件）：
+- 第 1 轮审查前的旧记录（当时测试 4 条）：`node scripts/acceptance.mjs run K1b`（本支树，锁定 1 个文件）：
 
 ```text
  ✓ |acceptance| apps/desktop/test/acceptance/k1-project-import-page.test.ts (4 tests) 699ms
@@ -95,24 +96,33 @@
 EXIT=0
 ```
 
-- 第 1 轮审查改完后（2026-10-31 01:03）重跑 `node scripts/verify.mjs`，也是 `EXIT=0`（日志 `.logs/k1b-verify-round55d.log`）：lint / format / local-user / typecheck / build 全过，unit 69、integration 483（17 skipped）、acceptance 148 个文件 1189 条全过；K1b 锁定测试 4/4。最终源码 294 行（≤300）。
+- 当前版本（5 条，第 2/3 轮审查后）`node scripts/acceptance.mjs run K1b`：
 
-- 分支 CI：run 41074930915（提交 `18b786b`）第一次红在 `l6-launcher.test.ts` 清理临时目录时的 EPERM（与本支无关），`gh run rerun 41074930915 --failed` 后 success（2026-10-30T15:21:36Z）。第 1 轮审查后的新提交还要由调度器推上去再跑一次 CI，下一棒看结果再合并。
+```text
+ ✓ |acceptance| apps/desktop/test/acceptance/k1-project-import-page.test.ts (5 tests)
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+```
+
+- 当前版本的 `node scripts/verify.mjs`：`EXIT=0`，日志 `.logs/k1b-verify-final.log`；lint / format / local-user / typecheck / build / unit / integration / acceptance-lock / acceptance / 各 review 套件全过（acceptance 148 个文件 1189 条）。
+
+- 分支 CI：run 41074930915（提交 `18b786b`）第一次红在 `l6-launcher.test.ts` 清理临时目录时的 EPERM（与本支无关），`gh run rerun 41074930915 --failed` 后 success（2026-10-30T15:21:36Z）。第 1 轮审查后的新提交由调度器推上去后还要再跑一次 CI；本支已按「最多三轮」转整合方，合并由整合方看新 CI 决定。
 
 ## 真机通过
 
 `scripts/real/k1-project-import.spec.ts`，Playwright 拉真实 Electron，`IXAEON_DATA_DIR` 临时目录，5 条合成清单（A 改归档、B 不变、C/D 新增、E 的 status 不合法）；文件选择走主进程的对话框替身（`IXAEON_TEST_DIALOG_RESPONSES`），用户真实清单没读、没进仓库。
 
-命令与输出原样（在最终提交的 `dev/K1b` 树上重跑）：
+命令与输出原样（2026-10-31 01:20 在审查修改后的最终树上重跑，`IXAEON_ELECTRON_NO_SANDBOX=1`）：
 
 ```text
 node apps\desktop\node_modules\@playwright\test\cli.js test -c scripts\real\playwright.real.config.ts k1-project-import.spec.ts
 
 Running 1 test using 1 worker
 
-  ✓  1 scripts\real\k1-project-import.spec.ts:49:1 › K1 真机：5 条合成清单预览、确认导入、项目页刷新 (2.0s)
+  ✓  1 scripts\real\k1-project-import.spec.ts:49:1 › K1 真机：5 条合成清单预览、确认导入、项目页刷新 (2.1s)
 
-  1 passed (2.5s)
+  1 passed (2.7s)
 ```
 
 脚本里另外断言了：
@@ -151,11 +161,25 @@ Running 1 test using 1 worker
 Codex 0.166.0 审出 4 条「必须改」，已逐条处理（审查原文见 [K1b-Codex审查.md](K1b-Codex审查.md) 和本工作目录 `.logs/k1b-codex-round4.log`，后者只在本机）：
 
 1. **archived 文案**：规格说界面上显示为「放弃」，共用映射原来写「归档」。`apps/desktop/src/renderer/src/ui.tsx` 改成「放弃」；界面测试锁成「进行中 → 放弃」。
-2. **已有项目的清单备注没显示**：`planProjectImport` 的 `update` / `unchanged` 不带 `note`（新增条目才带）。`previewProjectImport` 另返回 `notes`（与 `update` / `unchanged` 逐项对应），弹窗把变化行和不变行的备注都显示出来；测试加了这两行的备注断言。`note` 仍不入库。
+2. **已有项目的清单备注没显示**：`planProjectImport` 的 `update` / `unchanged` 不带 `note`（新增条目才带）。`previewProjectImport` 另返回按项目名查的备注字典 `notes`，弹窗把变化行和不变行的备注都显示出来；测试加了这两行的备注断言。`note` 仍不入库。
 3. **预览凭证没有过期清理**：原来只判断过期，不删除，取消后的整份 JSON 留到进程退出。加了到期定时器（`unref`）从主进程删除；交付说明原来「只等到过期」的写法也改正。
 4. **大文件同步读主进程**：先 `stat` 限 2 MB，再用 `fs/promises` 异步读，读不了 / 太大 / JSON 不合法分别给人话。
 
 改完重跑：`node scripts/acceptance.mjs run K1b` 4/4、`tsc --noEmit` 0、`node scripts/verify.mjs` 全过（见下一节）。测试改严后重新 `lock` 了 K1b。
+
+### 第 2 轮 Codex 审查（2026-10-31 01:02，退出码 1：需要修改）
+
+1 条「必须改」：预览超过 5 分钟后确认，凭证已失效，失败处理却保留弹窗和凭证、重新启用「确认导入」，再点必然失败；错误还只渲染在弹窗外。已改：`confirmImport` 失败时关掉预览、清掉 notes / token并显示原因；新增第 5 个测试锁住「确认失败后弹窗和确认按钮都没了、原因可见」。
+
+### 第 3 轮 Codex 审查（2026-10-31 01:09，退出码 1：需要修改）
+
+Codex 0.166.0 的两条「必须改」都在交付说明，不在实现：
+
+- 它按「新增 + 删除」算源码改动 303 行，超 300；交付还写「294 行」。已删掉 4 行注释（不改变行为），现在源码改动 296 行（291 新增 + 5 删除），交付统计同步成 296。
+- 交付还把 4/4 的旧输出当最终结果，实际测试已经 5 条。已保留旧记录并标明时间，追加当前 5/5 的验收输出和最终 `verify.mjs`（见下）。
+- 建议（不是必须改）：`notes` 用项目名直接索引普通对象，项目名恰为 `__proto__` 时会拿到继承属性。这一条没做：项目名要恰好是 `__proto__` 才会发生，属于刻意构造；要加固的话，主进程用 `Object.create(null)`、界面用 `Object.hasOwn` 即可。
+
+**按 AGENTS.md「最多审三轮」：第三轮仍是「需要修改」，不再重审，转整合方。** 分支状态改「待复审（整合方）」，不合并不 `done`；上面两条必须改已处理完，最终 `verify.mjs` 全过。
 
 ## 已知缺口
 
