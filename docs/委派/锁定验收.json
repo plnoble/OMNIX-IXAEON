@@ -697,6 +697,15 @@
       "files": {
         "packages/relay/test/acceptance/l18-forever.test.ts": "2e3cb1cf942be844c8d321dfa3f812d5e6f5b6721d10fdd32cb7efe53b302395"
       }
+    },
+    {
+      "id": "G1e",
+      "title": "Goals 列表（只读）",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/g1e-goals-page.test.ts": "4862aa8e0790cbbc11de35bbe3e8304f22d2d8a3f8c319899a31f3f729406b89",
+        "apps/desktop/test/acceptance/g1e-goals-page-ipc.test.ts": "c88ef3b4023ec7c4004efdf96050b77f319b988b17417b5e40ff5d5d00c9cd71"
+      }
     }
   ]
 }

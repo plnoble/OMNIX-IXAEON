@@ -12,6 +12,7 @@ import { PersonalOverviewPage } from './pages/Overview.js';
 import { ResearchPage } from './pages/Research.js';
 import { TasksPage, type TaskFocus } from './pages/Tasks.js';
 import { TodosPage } from './pages/Todos.js';
+import { GoalsPage } from './pages/Goals.js';
 import { ErrorBanner } from './ui.js';
 import { UpdatePrompt } from './UpdatePrompt.js';
 
@@ -27,6 +28,7 @@ type Page =
   | 'research'
   | 'tasks'
   | 'todos'
+  | 'goals'
   | 'settings';
 
 export default function App() {
@@ -172,6 +174,14 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={page === 'goals' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('goals')}
+            data-testid="nav-goals"
+          >
+            目标
+          </button>
+          <button
+            type="button"
             className={page === 'history' ? 'nav-item active' : 'nav-item'}
             onClick={() => setPage('history')}
             data-testid="nav-history"
@@ -272,6 +282,8 @@ export default function App() {
             }}
           />
         )}
+
+        {page === 'goals' && <GoalsPage />}
 
         {page === 'history' && <HistoryPage />}
 

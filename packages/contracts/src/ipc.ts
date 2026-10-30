@@ -452,6 +452,30 @@ export const exportResultSchema = z.object({
 });
 export type ExportResult = z.infer<typeof exportResultSchema>;
 
+// --- G1e：Goals 列表（只读；用户 2026-10-30 定，写操作归 G1f） ---
+
+export type GoalSummaryView = {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  origin: string;
+  confirmation: string;
+  priority: number;
+  progress: number;
+  progressMode: string;
+  nextReviewAt: string | null;
+  targetDate: string | null;
+  blockedReason: string | null;
+  watch: boolean;
+  watchReason: string | null;
+  parentGoalId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  children: Array<{ id: string; title: string; status: string; progress: number }>;
+  nextStep: { id: string; seq: number; title: string } | null;
+};
+
 /** window.ixaeon 的完整形状（preload 暴露的最小 API）。 */
 export interface IxaIpcApi {
   // 应用状态
@@ -652,6 +676,8 @@ export interface IxaIpcApi {
   deleteConversation(id: string): Promise<{ deleted: true }>;
   /** T3：待办列表（带底下编码任务的实时状态）；不传 status = 全部 */
   listTodos(input?: { status?: TodoStatus[] }): Promise<TodoView[]>;
+  /** G1e：Goals 列表（只读；故意没有写通道）。 */
+  listGoals(): Promise<GoalSummaryView[]>;
   addTodo(input: { title: string }): Promise<Todo>;
   acceptTodo(id: string): Promise<Todo>;
   rejectTodo(id: string): Promise<Todo>;

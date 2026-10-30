@@ -35,6 +35,8 @@ import {
   SearchService,
   SourceStore,
   TodoStore,
+  GoalStore,
+  PlanStore,
   explainModelFailure,
   extractSuggestedTodos,
   parseUserTodo,
@@ -102,6 +104,7 @@ import {
   type UnbindProjectFolderPreview,
   type UnbindProjectFolderResult,
   type RevokeSourceReadingPreview,
+  type GoalSummaryView,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
@@ -2291,6 +2294,57 @@ export class AppRuntime {
   }
   completeTodo(id: string): Todo {
     return this.todos.complete(id);
+  }
+
+  /**
+   * G1e：Goals 列表只读数据。用户 2026-10-30 定界面只读——这里只 SELECT，
+   * 不调任何写接口；写操作归 G1f。
+   */
+  listGoals(): GoalSummaryView[] {
+    const goals = new GoalStore(this.db).list();
+    const plans = new PlanStore(this.db);
+    return goals
+      .filter((g) => g.status !== 'abandoned')
+      .map((g) => {
+        const current = plans.plansOf(g.id).find((p) => p.status === 'current');
+        const steps = current ? plans.stepsOf(g.id, current.version) : [];
+        const byId = new Map(steps.map((s) => [s.id, s]));
+        const next = steps.find(
+          (s) =>
+            s.status === 'pending' &&
+            plans
+              .depsOf(s.id)
+              .every((d) => ['done', 'skipped'].includes(byId.get(d)?.status ?? '')),
+        );
+        return {
+          id: g.id,
+          title: g.title,
+          description: g.description,
+          status: g.status,
+          origin: g.origin,
+          confirmation: g.confirmation,
+          priority: g.priority,
+          progress: g.progress,
+          progressMode: g.progress_mode,
+          nextReviewAt: g.next_review_at,
+          targetDate: g.target_date,
+          blockedReason: g.blocked_reason,
+          watch: g.watch === 1,
+          watchReason: g.watch_reason,
+          parentGoalId: g.parent_goal_id,
+          createdAt: g.created_at,
+          updatedAt: g.updated_at,
+          children: goals
+            .filter((c) => c.parent_goal_id === g.id && c.status !== 'abandoned')
+            .map((c) => ({
+              id: c.id,
+              title: c.title,
+              status: c.status,
+              progress: c.progress,
+            })),
+          nextStep: next ? { id: next.id, seq: next.seq, title: next.title } : null,
+        };
+      });
   }
 
   getSemanticIndexStatus(): {
