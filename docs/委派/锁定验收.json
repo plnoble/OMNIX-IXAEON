@@ -747,7 +747,7 @@
       "title": "K3 驾驶舱页面（导航第一位、启动默认页；设置页填仓库路径）",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/k3-cockpit-page.test.ts": "8e33751f6b6bf498de78a33a33fb80044607aaf658ec25803ce91e11577799b6",
+        "apps/desktop/test/acceptance/k3-cockpit-page.test.ts": "c3bfe28d525cfe3be005fbd9c11d5bdc2307df8ffd7d568f21da71d02e9042b4",
         "apps/desktop/test/acceptance/k3-cockpit-settings.test.ts": "01eba6d5d1ff05ea8f95fb87f574ab2924f3ba9b4b24828e40cc48ca3f95ef4c",
         "apps/desktop/test/acceptance/k3-cockpit-settings-ipc.test.ts": "c4eae8e6875373fac3f84436d096090826091f94b001c9debec5a764ab915851"
       }

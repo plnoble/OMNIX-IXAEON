@@ -34,12 +34,17 @@ const READ_AT = '2026-10-31T03:55:00.000Z'; // NOW 前 5 分钟
 const harness = vi.hoisted(() => ({
   snapshot: null as unknown,
   calls: 0,
+  failOnce: false,
 }));
 
 vi.mock('../../src/renderer/src/api.js', () => ({
   api: {
     getCockpitSnapshot: async () => {
       harness.calls += 1;
+      if (harness.failOnce) {
+        harness.failOnce = false;
+        throw new Error('合成读取失败');
+      }
       return harness.snapshot;
     },
     getState: async () => ({
@@ -115,6 +120,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   harness.snapshot = snapshot();
   harness.calls = 0;
+  harness.failOnce = false;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -166,11 +172,11 @@ describe('条件 1：三个数字与两个列表', () => {
       recent: [recent(), recent({ outcome: 'failed' }), recent({ outcome: 'quota' })],
     });
     await render();
-    expect($('cockpit-count-attention')!.textContent).toContain('2');
+    expect($('cockpit-count-attention')!.querySelector('strong')!.textContent).toBe('2');
     expect($('cockpit-count-attention')!.textContent).toContain('等你处理');
-    expect($('cockpit-count-running')!.textContent).toContain('1');
+    expect($('cockpit-count-running')!.querySelector('strong')!.textContent).toBe('1');
     expect($('cockpit-count-running')!.textContent).toContain('正在运行');
-    expect($('cockpit-count-today')!.textContent).toContain('5');
+    expect($('cockpit-count-today')!.querySelector('strong')!.textContent).toBe('5');
     expect($('cockpit-count-today')!.textContent).toContain('今天完成');
     expect(count('cockpit-attention-item')).toBe(2);
     expect(count('cockpit-running-item')).toBe(1);
@@ -186,7 +192,7 @@ describe('条件 1：三个数字与两个列表', () => {
       ],
     });
     await render();
-    expect($('cockpit-count-running')!.textContent).toContain('2');
+    expect($('cockpit-count-running')!.querySelector('strong')!.textContent).toBe('2');
     expect(count('cockpit-running-item')).toBe(3);
   });
 });
@@ -258,6 +264,18 @@ describe('条件 5：空快照', () => {
   });
 });
 
+describe('第一次读取失败：显示报错条，刷新按钮还能点', () => {
+  it('点刷新重试成功后，驾驶舱内容出来、报错条消失', async () => {
+    harness.failOnce = true;
+    await render();
+    expect($('error-banner')!.textContent).toContain('合成读取失败');
+    expect($('cockpit-refresh')).not.toBeNull();
+    await click($('cockpit-refresh'));
+    expect($('error-banner')).toBeNull();
+    expect($('cockpit-count-today')).not.toBeNull();
+  });
+});
+
 describe('条件 6：导航第一项与默认页', () => {
   it('导航第一项是「驾驶舱」，启动后默认打开驾驶舱，总览还在导航里', async () => {
     await render(createElement(App));
@@ -324,5 +342,19 @@ describe('「要什么」里的其它可见内容', () => {
     for (const [i, label] of ['完成', '失败', '超时', '额度', '其他'].entries())
       expect(rows[i]!.textContent).toContain(label);
     expect(rows[0]!.textContent).toContain('K3');
+    expect(rows[0]!.textContent).toContain('dev');
+    const at = new Date('2026-10-31T03:50:00.000Z');
+    const local = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    expect(rows[0]!.textContent).toContain(local);
+  });
+
+  it('最近动态最多 20 条', async () => {
+    harness.snapshot = snapshot({
+      recent: Array.from({ length: 25 }, (_, i) =>
+        recent({ taskId: `T${i}`, at: new Date(NOW.getTime() - i * 60_000).toISOString() }),
+      ),
+    });
+    await render();
+    expect(container.querySelectorAll('[data-testid="cockpit-recent-item"]').length).toBe(20);
   });
 });
