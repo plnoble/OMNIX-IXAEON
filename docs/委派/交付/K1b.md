@@ -128,6 +128,10 @@ Running 1 test using 1 worker
 
 **这一支还没审。** 2026-10-30 这一棒本机 Codex 和 Claude 的额度都用完了（`node scripts/codex-review.mjs K1b --base dev/K1` 退出码 3），按 AGENTS.md 分支先等着，队列状态改「待审（Codex 额度）」；额度恢复后重跑同一命令，再把结论写进 `K1b-Codex审查.md`。
 
+2026-10-30 22:20（第 51 棒）重跑一次，仍然退出码 3：Codex 额度用完，脚本改用 Claude 代审，Claude 也没额度。分支没有新改动，队列状态保持「待审（Codex 额度）」；原样输出在 `.logs/k1b-codex-round1.log`（只在本机，未提交）。
+
+**审查脚本取委派单的坑（下一棒重跑前要看）：** `scripts/codex-review.mjs` 的 `findOrder('K1b')` 会往前退成 `K1` 再取 `readdirSync` 找到的第一个 `K1-*.md`。`docs/委派/` 下同时有另一件同号的旧单 `K1-技能受控对照验证表单.md`，在本机它排在前面，直接用原命令会把委派单解析错（`--dry-run` 显示「委派单：docs/委派/K1-技能受控对照验证表单.md」）。这次审查用一份临时副本把委派单钉成 `K1-项目清单导入.md` 才跑（副本已删，仓库脚本一个字没改）。额度恢复后重跑要么先确认 `--dry-run` 指向的是 `K1-项目清单导入.md`，要么请整合方把两件同号文件错开/让脚本按队列行取单。
+
 第一支 `dev/K1` 的三轮审查（Claude 代审、最终「可以合并」）见 [K1-Codex审查.md](K1-Codex审查.md)；那三轮只审核心 + K1 的测试，不含这一支的界面、IPC 和真机脚本。
 
 ## 已知缺口
