@@ -97,16 +97,16 @@
 
 `scripts/real/k1-project-import.spec.ts`，Playwright 拉真实 Electron，`IXAEON_DATA_DIR` 临时目录，5 条合成清单（A 改归档、B 不变、C/D 新增、E 的 status 不合法）；文件选择走主进程的对话框替身（`IXAEON_TEST_DIALOG_RESPONSES`），用户真实清单没读、没进仓库。
 
-命令与输出原样：
+命令与输出原样（在最终提交的 `dev/K1b` 树上重跑）：
 
 ```text
 node apps\desktop\node_modules\@playwright\test\cli.js test -c scripts\real\playwright.real.config.ts k1-project-import.spec.ts
 
 Running 1 test using 1 worker
 
-  ✓  1 scripts\real\k1-project-import.spec.ts:49:1 › K1 真机：5 条合成清单预览、确认导入、项目页刷新 (1.9s)
+  ✓  1 scripts\real\k1-project-import.spec.ts:49:1 › K1 真机：5 条合成清单预览、确认导入、项目页刷新 (1.4m)
 
-  1 passed (2.4s)
+  1 passed (1.5m)
 ```
 
 脚本里另外断言了：
