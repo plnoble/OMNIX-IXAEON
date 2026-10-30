@@ -11,10 +11,12 @@
  * 条件 7：库里已有两个都叫 E 的项目，清单里有 E → E 进「无效」、原因写同名；两个 E 都不变。
  * 条件 8：清单里已有项目的 `description` 和库里不同 → 库里的 `description` 不变。
  *
- * 条件 7 的「库里两个同名项目」：`projects.name` 建表就是 UNIQUE，正常建库进不去第二行，
- * 所以用只读替身库把这一个分支喂出来（见该条注释）。
+ * 条件 7 的「库里两个同名项目」：`projects.name` 建表就是 UNIQUE（区分大小写），
+ * 完全同名的两行正常进不去；但 `E` / `e` 这种大小写不同的历史数据能并存，`lower(name)` 查出来就是两行。
+ * 这一条用真库直接插第二行来测同一个分支（两个 E 都不变）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -128,6 +130,22 @@ describe('K1 从清单批量登记项目和状态', () => {
     expect(byName.get('B')!.id).toBe(b.id);
   });
 
+  it('新建项目按清单设成 paused / archived（create 默认 active 之外，条件 2 的「状态对」）', () => {
+    const plan = planProjectImport(db, {
+      version: 1,
+      projects: [
+        { name: '新暂停项目', status: 'paused' },
+        { name: '新归档项目', status: 'archived' },
+      ],
+    });
+    expect(plan.create.map((e) => e.name)).toEqual(['新暂停项目', '新归档项目']);
+
+    expect(applyProjectImport(db, plan)).toEqual({ created: 2, updated: 0 });
+    const byName = new Map(projects.list().map((p) => [p.name, p.status]));
+    expect(byName.get('新暂停项目')).toBe('paused');
+    expect(byName.get('新归档项目')).toBe('archived');
+  });
+
   it('条件 3：无效条目进「无效」并给原因，其他条目照常导入', () => {
     const plan = planProjectImport(db, {
       version: 1,
@@ -192,22 +210,16 @@ describe('K1 从清单批量登记项目和状态', () => {
     expect(count()).toBe(0);
   });
 
-  it('条件 7：库里两个同名 E → E 进「无效」、原因写同名，两个 E 都不变（只读替身库）', () => {
+  it('条件 7：库里两个同名 E（E / e）→ E 进「无效」、原因写同名，两个 E 都不变', () => {
     const made = add('E', 'active');
-    const twin: Project = {
-      ...made,
-      id: '00000000-0000-4000-8000-000000000002',
-      created_at: '2026-10-30T00:00:00.000Z',
-    };
-    // projects.name 是 UNIQUE，真库里造不出两行同名；这一个分支用只读替身库喂出来。
-    const fake = {
-      prepare: (sql: string) => ({
-        all: () => (sql.includes('lower(name)') ? [made, twin] : []),
-        get: () => undefined,
-      }),
-    } as unknown as CoreDatabase;
+    // 真库第二行：SQLite 的 UNIQUE 区分大小写，`E` / `e` 能并存（早年数据可能是这样）。
+    db.prepare(
+      `INSERT INTO projects (id, name, root_path, description, status, created_at, updated_at)
+       VALUES (?, ?, NULL, NULL, 'paused', ?, ?)`,
+    ).run(randomUUID(), 'e', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z');
+    const before = snapshot();
 
-    const plan = planProjectImport(fake, {
+    const plan = planProjectImport(db, {
       version: 1,
       projects: [{ name: 'E', status: 'paused' }],
     });
@@ -219,7 +231,8 @@ describe('K1 从清单批量登记项目和状态', () => {
     expect(plan.create).toEqual([]);
     expect(plan.update).toEqual([]);
     expect(plan.unchanged).toEqual([]);
-    // 真库里那一行也没被动过
+    // 两行都没被动过
+    expect(snapshot()).toEqual(before);
     expect(projects.get(made.id)).toEqual(made);
   });
 

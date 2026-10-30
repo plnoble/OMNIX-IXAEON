@@ -112,7 +112,6 @@ export function planProjectImport(db: CoreDatabase, list: unknown): ProjectImpor
       });
       return;
     }
-    seen.set(key, index);
     if (rows.length === 1) {
       const project = rows[0]!;
       if (project.status === entry.status) plan.unchanged.push(project);
@@ -141,6 +140,8 @@ export function planProjectImport(db: CoreDatabase, list: unknown): ProjectImpor
       }
       plannedRoots.set(rootKey, index);
     }
+    // 只有真正收下的条目才记名字：前面因为目录冲突被拒的同名条目，不该让后来这条变成「重复」。
+    seen.set(key, index);
     plan.create.push(entry);
   });
 
