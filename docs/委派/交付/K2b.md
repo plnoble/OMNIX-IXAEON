@@ -22,7 +22,7 @@
 - `packages/core/src/index.ts`：导出 `buildCockpitSnapshot`。
 - `scripts/real/cockpit-snapshot.ts`（新）：真机检查脚本，只输出统计数字（见下）。
 
-改动文件与行数（`git diff --stat dev/K2...HEAD`；源码 188 行，真机脚本和交付说明不计）：
+改动文件与行数（源码 + 真机脚本，`git diff --stat dev/K2...HEAD -- apps packages scripts`；交付说明不计）：
 
 ```
  apps/desktop/src/main/ipc.ts          |   8 ++
@@ -33,6 +33,8 @@
  scripts/real/cockpit-snapshot.ts      |  55 +++++++++++
  6 files changed, 243 insertions(+)
 ```
+
+其中**源码 188 行**（`apps/*/src`、`packages/*/src` 的 8 + 2 + 3 + 174 + 1）；真机脚本 55 行不计入 300 行。
 
 与规格的一处说明：规格「契约」把 `relayDir` 的默认值和 `IXAEON_RELAY_DIR` 覆盖写在 `buildCockpitSnapshot` 下面，整合方审测试时又定了「`ixaeonRepo` 只认参数、设置项是 IPC 那一层的事」。实现照这两条：`relayDir` 的默认/环境变量在 `buildCockpitSnapshot` 里，`ixaeonRepo` 只认参数，IPC 层读设置项后传进来。
 
