@@ -1,17 +1,16 @@
 /**
- * G1e 真机检查（列表段）：真起 Electron、临时数据目录、合成数据，点开 Goals 列表看。
+ * G1e 真机检查（列表 + 详情段）：真起 Electron、临时数据目录、合成数据，点开 Goals 列表和详情看。
  *
  *   node scripts/build.mjs
  *   node scripts/real/run-batch.mjs scripts/real/g1e-goals-page.ts
  *
- * 只读边界（用户 2026-10-30 定）：界面上没有任何写控件；打开前后 goals 六张表逐行不变。
- * 详情段在 G1e-b 的脚本里补。
+ * 只读边界（用户 2026-10-30 定）：界面上没有任何写控件；打开列表 / 详情前后 goals 六张表逐行不变。
  */
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
-import { migrate, openDatabase, type CoreDatabase } from '../../packages/core/src/index.js';
+import { migrate, openDatabase, TodoStore, type CoreDatabase } from '../../packages/core/src/index.js';
 import { GoalStore, PlanStore } from '../../packages/core/src/goals/index.js';
 
 const { _electron: electron } = createRequire(
@@ -50,17 +49,18 @@ const main = async (): Promise<void> => {
   goals.transition(child.id, 'completed', { decidedBy: 'user' });
   const blocked = goals.create({ title: '合成目标：换服务器', via: 'ui' });
   goals.transition(blocked.id, 'blocked', { decidedBy: 'user', reason: '预算还没批' });
-  const proposed = goals.create({
+const proposed = goals.create({
     title: '合成候选目标：每天读论文',
     origin: 'agent',
     via: 'pending',
   });
+  const todo = new TodoStore(db).add({ title: '合成待办：找模板' });
+  goals.link(parent.id, { kind: 'todo', refId: todo.id });
 
-  const plans1 = plans.addVersion(parent.id, {
+  plans.addVersion(parent.id, {
     reason: '第一版太粗',
     steps: [{ title: '旧步骤' }],
   });
-  void plans1;
   plans.addVersion(parent.id, {
     reason: '拆细一点',
     steps: [{ title: '收集资料' }, { title: '写初稿' }, { title: '收尾' }],
@@ -69,6 +69,7 @@ const main = async (): Promise<void> => {
   plans.setStepStatus(steps[0]!.id, 'done');
   plans.setDeps(parent.id, 2, steps[1]!.id, [steps[0]!.id]);
   plans.setDeps(parent.id, 2, steps[2]!.id, [steps[1]!.id]);
+  plans.bindStep(parent.id, 2, steps[1]!.id, { kind: 'todo', refId: todo.id });
   db.prepare('UPDATE goals SET watch = 1, watch_reason = ?, next_review_at = ? WHERE id = ?').run(
     '编码任务失败：生成脚本没跑通',
     '2026-09-01T00:00:00.000Z',
@@ -130,7 +131,7 @@ const main = async (): Promise<void> => {
         'node_modules',
         'electron',
         'dist',
-        'electron.exe',
+        process.platform === 'win32' ? 'electron.exe' : 'electron',
       ),
       args: [
         '--no-sandbox',
@@ -168,6 +169,30 @@ const main = async (): Promise<void> => {
     log(proposedText);
     log(`界面上的按钮数（导航外）：${writeButtons}`);
 
+    await page.getByTestId(`goal-${parent.id}`).click();
+    await page.getByTestId('goal-detail').waitFor({ timeout: 10_000 });
+    const detailText = (await page.getByTestId('goal-detail').innerText()).replaceAll(work, '<临时目录>');
+    const detailButtons = await page.locator('main button').allTextContents();
+    log('详情页');
+    log(detailText);
+    log(`详情页的按钮：${detailButtons.join(' / ')}`);
+
+    await page.getByTestId(`goal-child-${child.id}`).click();
+    await page.getByTestId('goal-detail').waitFor({ timeout: 10_000 });
+    const childDetailText = (await page.getByTestId('goal-detail').innerText()).replaceAll(
+      work,
+      '<临时目录>',
+    );
+    const childOk = (await page.locator('main').innerText()).includes('合成子目标：找模板');
+    log('子目标详情');
+    log(childDetailText);
+    log(`子目标详情点得进去：${childOk ? '是' : '否'}`);
+
+    await page.getByTestId('goal-back').click();
+    await page.getByTestId('goals-list').waitFor({ timeout: 10_000 });
+    const backToList = (await page.getByTestId('goal-detail').count()) === 0;
+    log(`返回列表后详情是否关闭：${backToList ? '是' : '否'}`);
+
     const pass =
       activeText.includes('合成目标：把周报自动化') &&
       activeText.includes('进行中') &&
@@ -181,8 +206,25 @@ const main = async (): Promise<void> => {
       blockedText.includes('预算还没批') &&
       proposedText.includes('合成候选目标：每天读论文') &&
       proposedText.includes('待你确认') &&
-      proposedText.includes('同一个目标提了两次') &&
-      writeButtons === 0;
+proposedText.includes('同一个目标提了两次') &&
+      writeButtons === 0 &&
+      backToList &&
+      childOk &&
+      detailText.includes('每周五自动生成周报') &&
+      detailText.includes('合成子目标：找模板') &&
+      detailText.includes('收集资料') &&
+      detailText.includes('做完') &&
+      detailText.includes('写初稿') &&
+      detailText.includes('待做') &&
+      detailText.includes('v1') &&
+      detailText.includes('已被取代') &&
+      detailText.includes('第一版太粗') &&
+      detailText.includes('旧步骤') &&
+      detailText.includes('合成待办：找模板') &&
+      detailText.includes('事件时间线') &&
+      detailText.includes('用户') &&
+      detailText.includes('模型') &&
+      !detailButtons.some((b) => ['确认', '不是这个', '改', '推进', '重规划', '挂'].some((w) => b.includes(w)));
 
     await app.close();
     app = null;
@@ -190,7 +232,7 @@ const main = async (): Promise<void> => {
     const db2 = openDatabase(dbPath);
     const afterRows = snap(db2);
     db2.close();
-    log(before === afterRows ? '只读：打开列表前后 goals 六张表逐行不变' : '只读：六张表变了（失败）');
+    log(before === afterRows ? '只读：打开列表 / 详情前后 goals 六张表逐行不变' : '只读：六张表变了（失败）');
 
     app = await launch();
     page = await app.firstWindow();
@@ -198,16 +240,19 @@ const main = async (): Promise<void> => {
     await page.getByTestId('nav-goals').click();
     await page.getByTestId(`goal-${parent.id}`).waitFor({ timeout: 20_000 });
     const reopened = await page.getByTestId(`goal-${parent.id}`).isVisible();
-    log(`重开应用后列表还在：${reopened ? '是' : '否'}`);
+    await page.getByTestId(`goal-${parent.id}`).click();
+    await page.getByTestId('goal-detail').waitFor({ timeout: 10_000 });
+    const reopenedDetail = await page.getByTestId('goal-detail').isVisible();
+    log(`重开应用后列表还在：${reopened ? '是' : '否'}；详情还在：${reopenedDetail ? '是' : '否'}`);
 
-    if (!pass || !reopened || before !== afterRows) {
+    if (!pass || !reopened || !reopenedDetail || before !== afterRows) {
       append('FAIL');
       console.log('RESULT 没通过');
       process.exitCode = 1;
       return;
     }
     append('PASS');
-    console.log('== G1e 列表段真机检查通过 ==');
+    console.log('== G1e 列表 + 详情段真机检查通过 ==');
     console.log('RESULT 通过');
   } finally {
     if (app) await app.close().catch(() => undefined);

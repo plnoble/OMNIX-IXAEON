@@ -79,6 +79,8 @@ import {
   type CoreDatabase,
   type ModelProvider,
   type WebSearchExecutor,
+  type GoalEvent,
+  type PlanStep,
 } from '@ixaeon/core';
 import {
   ErrorCodes,
@@ -104,6 +106,10 @@ import {
   type UnbindProjectFolderPreview,
   type UnbindProjectFolderResult,
   type RevokeSourceReadingPreview,
+  type GoalDetailView,
+  type GoalLinkView,
+  type GoalPlanView,
+  type GoalStepView,
   type GoalSummaryView,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
@@ -2345,6 +2351,75 @@ export class AppRuntime {
           nextStep: next ? { id: next.id, seq: next.seq, title: next.title } : null,
         };
       });
+  }
+
+  /** G1e 详情：描述、子目标、当前 / 历史方案及步骤、关联任务、事件；只读。 */
+  getGoalDetail(id: string): GoalDetailView {
+    const summary = this.listGoals().find((g) => g.id === id);
+    if (!summary) throw new IxaError(ErrorCodes.NOT_FOUND, `目标不存在: ${id}`);
+    const plans = new PlanStore(this.db);
+    const plansView: GoalPlanView[] = plans.plansOf(id).map((p) => ({
+      version: p.version,
+      status: p.status,
+      reason: p.reason,
+      createdAt: p.created_at,
+      steps: plans.stepsOf(id, p.version).map((s) => this.goalStepView(s, plans)),
+    }));
+    const links = this.db
+      .prepare(
+        'SELECT kind, ref_id FROM goal_links WHERE goal_id = ? ORDER BY created_at, kind, ref_id',
+      )
+      .all(id) as Array<{ kind: string; ref_id: string }>;
+    const events = this.db
+      .prepare('SELECT * FROM goal_events WHERE goal_id = ? ORDER BY at, rowid')
+      .all(id) as GoalEvent[];
+    return {
+      ...summary,
+      plans: plansView,
+      links: links.map((l) => this.goalLinkView(l.kind, l.ref_id)),
+      events: events.map((e) => ({
+        id: e.id,
+        at: e.at,
+        kind: e.kind,
+        decidedBy: e.decided_by,
+        summary: e.summary,
+      })),
+    };
+  }
+
+  private goalStepView(s: PlanStep, plans: PlanStore): GoalStepView {
+    const linked =
+      s.linked_kind && s.linked_id ? this.goalLinkView(s.linked_kind, s.linked_id) : null;
+    return {
+      id: s.id,
+      seq: s.seq,
+      title: s.title,
+      status: s.status,
+      deps: plans.depsOf(s.id),
+      linkedKind: s.linked_kind,
+      linkedTitle: linked?.title ?? null,
+      linkedStatus: linked?.status ?? null,
+    };
+  }
+
+  private goalLinkView(kind: string, refId: string): GoalLinkView {
+    const view = (title: string, status: string): GoalLinkView => ({ kind, refId, title, status });
+    if (kind === 'todo' || kind === 'coding_task') {
+      const table = kind === 'todo' ? 'todos' : 'coding_tasks';
+      const col = kind === 'todo' ? 'title' : 'goal';
+      const row = this.db
+        .prepare(`SELECT ${col} AS title, status FROM ${table} WHERE id = ?`)
+        .get(refId) as { title: string; status: string } | undefined;
+      return view(row?.title ?? '（任务已删除）', row?.status ?? 'missing');
+    }
+    if (kind === 'research_topic') {
+      const row = this.db
+        .prepare('SELECT question, enabled, paused FROM research_topics WHERE id = ?')
+        .get(refId) as { question: string; enabled: number; paused: number } | undefined;
+      if (!row) return view('（话题已删除）', 'missing');
+      return view(row.question, row.paused ? 'paused' : row.enabled ? 'enabled' : 'off');
+    }
+    return view('（未知关联）', 'missing');
   }
 
   getSemanticIndexStatus(): {

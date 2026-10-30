@@ -476,6 +476,30 @@ export type GoalSummaryView = {
   nextStep: { id: string; seq: number; title: string } | null;
 };
 
+export type GoalStepView = {
+  id: string;
+  seq: number;
+  title: string;
+  status: string;
+  deps: string[];
+  linkedKind: string | null;
+  linkedTitle: string | null;
+  linkedStatus: string | null;
+};
+export type GoalPlanView = {
+  version: number;
+  status: string;
+  reason: string;
+  createdAt: string;
+  steps: GoalStepView[];
+};
+export type GoalLinkView = { kind: string; refId: string; title: string; status: string };
+export type GoalDetailView = GoalSummaryView & {
+  plans: GoalPlanView[];
+  links: GoalLinkView[];
+  events: Array<{ id: string; at: string; kind: string; decidedBy: string; summary: string }>;
+};
+
 /** window.ixaeon 的完整形状（preload 暴露的最小 API）。 */
 export interface IxaIpcApi {
   // 应用状态
@@ -676,8 +700,9 @@ export interface IxaIpcApi {
   deleteConversation(id: string): Promise<{ deleted: true }>;
   /** T3：待办列表（带底下编码任务的实时状态）；不传 status = 全部 */
   listTodos(input?: { status?: TodoStatus[] }): Promise<TodoView[]>;
-  /** G1e：Goals 列表（只读；故意没有写通道）。 */
+  /** G1e：Goals 列表 / 详情（只读；故意没有写通道）。 */
   listGoals(): Promise<GoalSummaryView[]>;
+  getGoalDetail(id: string): Promise<GoalDetailView>;
   addTodo(input: { title: string }): Promise<Todo>;
   acceptTodo(id: string): Promise<Todo>;
   rejectTodo(id: string): Promise<Todo>;

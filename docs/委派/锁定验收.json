@@ -706,6 +706,15 @@
         "apps/desktop/test/acceptance/g1e-goals-page.test.ts": "4862aa8e0790cbbc11de35bbe3e8304f22d2d8a3f8c319899a31f3f729406b89",
         "apps/desktop/test/acceptance/g1e-goals-page-ipc.test.ts": "c88ef3b4023ec7c4004efdf96050b77f319b988b17417b5e40ff5d5d00c9cd71"
       }
+    },
+    {
+      "id": "G1eb",
+      "title": "Goals 详情（只读）",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/g1eb-goals-detail.test.ts": "ba76468f6771d1900b3418d1fca91c7a40c368565714378f2e267c4164ff588f",
+        "apps/desktop/test/acceptance/g1eb-goals-detail-ipc.test.ts": "a40c1d30e2cf19b742a125515bb52af38bae48a7a47cb722c2f8bd91fdc19f9a"
+      }
     }
   ]
 }

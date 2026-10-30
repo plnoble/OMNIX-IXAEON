@@ -450,6 +450,7 @@ export function registerIpc(runtime: AppRuntime): void {
     completeTodo: async (id) => runtime.completeTodo(id),
     // G1e：Goals 页只读（用户 2026-10-30 定，故意没有写通道）
     listGoals: async () => runtime.listGoals(),
+    getGoalDetail: async (id) => runtime.getGoalDetail(id),
     deleteConversation: async (id) => {
       runtime.conversations.delete(id);
       return { deleted: true as const };
