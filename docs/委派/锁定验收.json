@@ -715,6 +715,14 @@
         "apps/desktop/test/acceptance/g1eb-goals-detail.test.ts": "b6ca50a53ea19ad2940deacbb03eb603e123e9b25c3a7c9b9f620014392d197c",
         "apps/desktop/test/acceptance/g1eb-goals-detail-ipc.test.ts": "00a6028c91568b32ce2130a58e6ee5b4f86e9087f9681277755d1c0eb2574b76"
       }
+    },
+    {
+      "id": "K1",
+      "title": "从清单批量登记项目和状态",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/k1-project-import.test.ts": "6e71827f4166fd0125481b9dca4cb12b2dc9cec2dcfaf73daefc2b97fb49f8be"
+      }
     }
   ]
 }
