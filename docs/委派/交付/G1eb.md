@@ -1,6 +1,6 @@
 # G1eb Goals 详情页 交付（第二支：详情，只读）
 
-- 分支：`dev/G1eb`，基于 `dev/G1e`（第一支，`01ecbc1`；base 是 `origin/main` `b56516b`）；档位 **A**（用户 2026-10-30 定 G1e 只读）
+- 分支：`dev/G1eb`，基于 `dev/G1e`（第一支，`a79068a`；base 是 `origin/main` `6b0cbfb`）；档位 **A**（用户 2026-10-30 定 G1e 只读）
 - 执行方：dev
 
 ## 已实现
