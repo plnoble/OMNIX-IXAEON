@@ -33,45 +33,45 @@
 
 - `node scripts/acceptance.mjs run G1eb`：5 条全过（页面 3 + IPC 2）；第一支 `G1e` 的 7 条照过。
 - `node scripts/acceptance.mjs check`：80 个任务、156 个锁定测试指纹都没被改。
-- `node scripts/verify.mjs`：**本机全过**（2026-10-30 19:55–20:01 重跑；端口空出来后真 Electron 的四步也过了）。此前 15:58 那次卡在 `review-needs-lifecycle-ui`：用户正在运行的 `IXAEON.exe` 占着 43191，按规矩不杀用户的进程；失败原文保留在下面。
+- `node scripts/verify.mjs`：**本机全过**（2026-10-30 20:12–20:18 在最终树重跑，`EXIT=0`；19:55 那次也全过。端口空出来后真 Electron 的四步也过了）。此前 15:58 那次卡在 `review-needs-lifecycle-ui`：用户正在运行的 `IXAEON.exe` 占着 43191，按规矩不杀用户的进程；失败原文保留在下面。
 - GitHub 上的 verify：没看（本支由调度器代推，推送发生在本棒结束之后）。
 
-验证记录（2026-10-30 19:55–20:01，原样）：
+验证记录（2026-10-30 20:12–20:18，原样）：
 
 ```
-  ✓ lint（ESLint） — 11.6s
-  ✓ format:check（Prettier） — 4.6s
-  ✓ local-user（提交的文件里没有本机的账户名） — 0.4s
-  ✓ typecheck（tsc --noEmit） — 9.0s
-  ✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 6.6s
-  ✓ build（desktop / mcp / extension） — 8.9s
-  ✓ unit（Vitest 单元测试） — 3.6s
-  ✓ integration（Vitest 集成测试） — 26.3s
+  ✓ lint（ESLint） — 11.2s
+  ✓ format:check（Prettier） — 4.3s
+  ✓ local-user（提交的文件里没有本机的账户名） — 0.3s
+  ✓ typecheck（tsc --noEmit） — 8.6s
+  ✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 8.4s
+  ✓ build（desktop / mcp / extension） — 9.3s
+  ✓ unit（Vitest 单元测试） — 4.0s
+  ✓ integration（Vitest 集成测试） — 24.9s
   ✓ acceptance-lock（锁定的验收测试没被改） — 0.1s
-  ✓ acceptance（已完成任务的锁定验收测试） — 264.3s
-  ✓ review（二次验收独立业务测试 11 项，修复 R1-R9 回归） — 3.3s
-  ✓ review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归） — 4.5s
-  ✓ review-round4（四次验收连续性 7 项，修复 F1-F4 回归） — 2.9s
-  ✓ review-v02（v0.2 验收 15 项，修复 G1-G8 回归） — 3.3s
-  ✓ review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归） — 4.4s
-  ✓ review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归） — 3.8s
-  ✓ review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项） — 4.4s
-  ✓ review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项） — 2.7s
-  ✓ review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项） — 2.2s
+  ✓ acceptance（已完成任务的锁定验收测试） — 243.0s
+  ✓ review（二次验收独立业务测试 11 项，修复 R1-R9 回归） — 3.2s
+  ✓ review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归） — 4.1s
+  ✓ review-round4（四次验收连续性 7 项，修复 F1-F4 回归） — 2.5s
+  ✓ review-v02（v0.2 验收 15 项，修复 G1-G8 回归） — 2.8s
+  ✓ review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归） — 3.6s
+  ✓ review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归） — 3.4s
+  ✓ review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项） — 4.2s
+  ✓ review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项） — 2.8s
+  ✓ review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项） — 2.3s
   ✓ review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项） — 2.5s
   ✓ review-p2（P2 受控实验与安全回滚 5 项） — 2.2s
-  ✓ review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项） — 2.2s
-  ✓ review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项） — 2.5s
-  ✓ review-direction-merged（方向质量/复审/二轮复审合并套件 44 项） — 6.1s
+  ✓ review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项） — 2.1s
+  ✓ review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项） — 2.2s
+  ✓ review-direction-merged（方向质量/复审/二轮复审合并套件 44 项） — 5.7s
   ✓ review-project-audit（全项目审核 15 项，修复 C01-C13 回归） — 2.9s
-  ✓ review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归） — 3.5s
+  ✓ review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归） — 3.4s
   ✓ review-recheck-round2（二次复审 10 项，修复 F01-F03 回归） — 2.9s
-  ✓ review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归） — 2.3s
+  ✓ review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归） — 2.2s
   ✓ review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界） — 2.2s
-  ✓ review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron） — 7.9s
-  ✓ review-understanding-ui（理解页 UND01-UND02，真实 Electron） — 6.3s
-  ✓ review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron） — 7.4s
-  ✓ review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron） — 6.8s
+  ✓ review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron） — 6.7s
+  ✓ review-understanding-ui（理解页 UND01-UND02，真实 Electron） — 5.7s
+  ✓ review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron） — 6.6s
+  ✓ review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron） — 6.4s
 全部通过（IXAEON v0.2 验证完成）
 ```
 
