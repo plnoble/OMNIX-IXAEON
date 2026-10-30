@@ -15,7 +15,7 @@
  * 完全同名的两行正常进不去；但 `E` / `e` 这种大小写不同的历史数据能并存，`lower(name)` 查出来就是两行。
  * 这一条用真库直接插第二行来测同一个分支（两个 E 都不变）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -171,6 +171,27 @@ describe('K1 从清单批量登记项目和状态', () => {
     expect(names).toEqual(['好项目']);
   });
 
+  it('条件 3：重名的是库里已有项目 → 第二条也进「无效」，只按第一条改一次', () => {
+    const a = add('A', 'active');
+    const plan = planProjectImport(db, {
+      version: 1,
+      projects: [
+        { name: 'A', status: 'archived' },
+        { name: 'A', status: 'paused' },
+      ],
+    });
+
+    expect(counts(plan)).toEqual({ create: 0, update: 1, unchanged: 0, invalid: 1 });
+    expect(plan.update[0]!.project.id).toBe(a.id);
+    expect(plan.update[0]!.status).toBe('archived');
+    expect(plan.invalid[0]!.index).toBe(1);
+    expect(plan.invalid[0]!.name).toBe('A');
+    expect(plan.invalid[0]!.reason).toContain('重复');
+
+    expect(applyProjectImport(db, plan)).toEqual({ created: 0, updated: 1 });
+    expect(projects.get(a.id)!.status).toBe('archived');
+  });
+
   it('条件 4：同一份清单再导入一次 → 全部「不变」', () => {
     add('A', 'active');
     add('B', 'paused');
@@ -194,20 +215,35 @@ describe('K1 从清单批量登记项目和状态', () => {
     expect(snapshot().map((p) => p.name)).toEqual(['A', 'B', 'C', 'D']);
   });
 
-  it('条件 6：导入后没有任何新的 project_snapshot 来源', () => {
+  it('条件 6：带 root_path 的新项目也只登记，不产生 project_snapshot 来源、不授权读取', () => {
     add('A', 'active');
     add('B', 'paused');
-    const count = (): number =>
+    const root = join(dir, '合成目录');
+    mkdirSync(root, { recursive: true });
+    const sourceCount = (): number =>
       (
         db.prepare("SELECT count(*) AS c FROM sources WHERE kind = 'project_snapshot'").get() as {
           c: number;
         }
       ).c;
-    expect(count()).toBe(0);
+    const permissionCount = (): number =>
+      (db.prepare('SELECT count(*) AS c FROM permissions').get() as { c: number }).c;
+    expect(sourceCount()).toBe(0);
+    expect(permissionCount()).toBe(0);
 
-    applyProjectImport(db, planProjectImport(db, listABC));
+    const plan = planProjectImport(db, {
+      version: 1,
+      projects: [
+        ...listABC.projects,
+        { name: '带目录项目', status: 'active', root_path: root, description: '只登记目录' },
+      ],
+    });
+    expect(plan.create.map((e) => e.name)).toEqual(['C', '带目录项目']);
+    expect(applyProjectImport(db, plan)).toEqual({ created: 2, updated: 1 });
 
-    expect(count()).toBe(0);
+    expect(sourceCount()).toBe(0);
+    expect(permissionCount()).toBe(0);
+    expect(projects.list().find((p) => p.name === '带目录项目')!.root_path).toBe(root);
   });
 
   it('条件 7：库里两个同名 E（E / e）→ E 进「无效」、原因写同名，两个 E 都不变', () => {
@@ -217,22 +253,29 @@ describe('K1 从清单批量登记项目和状态', () => {
       `INSERT INTO projects (id, name, root_path, description, status, created_at, updated_at)
        VALUES (?, ?, NULL, NULL, 'paused', ?, ?)`,
     ).run(randomUUID(), 'e', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z');
-    const before = snapshot();
+    const bothE = (): Project[] =>
+      db.prepare("SELECT * FROM projects WHERE lower(name) = 'e' ORDER BY name").all() as Project[];
+    const beforeE = bothE();
 
     const plan = planProjectImport(db, {
       version: 1,
-      projects: [{ name: 'E', status: 'paused' }],
+      projects: [
+        { name: 'E', status: 'paused' },
+        { name: '新项目F', status: 'active' },
+      ],
     });
 
+    expect(plan.create.map((e) => e.name)).toEqual(['新项目F']);
     expect(plan.invalid).toHaveLength(1);
     expect(plan.invalid[0]!.index).toBe(0);
     expect(plan.invalid[0]!.name).toBe('E');
     expect(plan.invalid[0]!.reason).toContain('同名');
-    expect(plan.create).toEqual([]);
     expect(plan.update).toEqual([]);
     expect(plan.unchanged).toEqual([]);
-    // 两行都没被动过
-    expect(snapshot()).toEqual(before);
+
+    // 确认导入真的执行了（F 建出来），两个 E 仍然一模一样
+    expect(applyProjectImport(db, plan)).toEqual({ created: 1, updated: 0 });
+    expect(bothE()).toEqual(beforeE);
     expect(projects.get(made.id)).toEqual(made);
   });
 

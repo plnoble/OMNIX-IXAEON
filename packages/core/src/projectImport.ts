@@ -113,6 +113,8 @@ export function planProjectImport(db: CoreDatabase, list: unknown): ProjectImpor
       return;
     }
     if (rows.length === 1) {
+      // 已有项目也要马上记名字：清单里同一个已有项目写两遍，第二条必须进「无效」。
+      seen.set(key, index);
       const project = rows[0]!;
       if (project.status === entry.status) plan.unchanged.push(project);
       else plan.update.push({ project, status: entry.status });

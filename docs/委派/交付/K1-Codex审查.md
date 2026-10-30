@@ -1,16 +1,19 @@
 # K1 审查（Codex 额度用完，由 Claude 代审）
 
-- 时间：2026-10-30T13:41:01.186Z
-- 分支：dev/K1（0dc6ed2），对照 docs/委派/K1-项目清单导入.md
+- 时间：2026-10-30T13:47:02.988Z
+- 分支：dev/K1（d6df27a），对照 docs/委派/K1-项目清单导入.md
 - 审查者：Claude（2.1.312）；上下文由脚本喂入（不让审查者跑命令）
-- 花费：0.3053032 美元
+- 花费：0.3655018 美元
 
-- **必须改**：`docs/委派/交付/K1.md` 第 79 行写的是「预览后到确认前如果库被别人改了，`apply` 会按确认时的库重新算一遍（不照旧预览盲写）」，代码里没有这件事。`packages/core/src/projectImport.ts` 第 155–178 行的 `applyProjectImport` 一次库都不读，直接照传进来的 `plan.create` / `plan.update` 写。第 172 行的 `item.project.status === item.status` 比的是预览时存下的旧快照，不是确认时的库。这句交付说明不实。两种改法：在 `apply` 里真的按当前库重算；或者如果重算其实是 K1b 的 IPC 在确认时重新调了 `planProjectImport`，就把说明改成照实写在哪一层做的。需要人工确认：K1b 的确认流程是不是重新 plan。
-- **建议**：`packages/core/test/acceptance/k1-project-import.test.ts` 第 84–92 行和第 115–130 行，条件 2 测「C 新建且状态对」时，清单里 C 的状态是 `active`，正好是 `create` 的默认值。所以 `projectImport.ts` 第 166–169 行「新建后按清单改状态」这段测试没跑到。没跑到的话，这段代码出错，条件 2 的测试也照样会过。建议补一条：新建项目的状态设成 `paused` 或 `archived`，再断言建出来就是这个状态。（规格没写 C 是什么状态，所以算「建议」。）
-- **建议**：`packages/core/src/projectImport.ts` 第 58–59 行，`sameNameRows` 把 `SELECT *` 的原始行直接当成 `Project` 用，放进 `unchanged` / `update.project` 给预览显示。如果 `ProjectService` 读出项目时对字段做过转换（比如可选列、JSON 列），这里的形状会和 `ProjectService.get` 返回的不一样。建议匹配到唯一一行后，用 `ProjectService.get(id)` 再取一次。需要人工确认：`ProjectService` 读出项目时有没有做字段映射。
-- **建议**：`packages/core/src/projectImport.ts` 第 117 行，`seen.set` 放在 `root_path` 检查的前面。一条新项目如果因为目录冲突进了「无效」，后面同名的条目给的原因会是「第 N 条已经用过」，可那第 N 条自己也是无效的，用户看了容易糊涂。建议把 `seen.set` 挪到真正收下这一条之后。
-- **建议**：`packages/core/test/acceptance/k1-project-import.test.ts` 第 199–226 行，条件 7 用的是替身库。替身库里任何含 `lower(name)` 的查询都返回两行，所以这条测试只证明了「查出多于一行就进无效」这一个分支。另外，SQLite 的 `UNIQUE` 默认区分大小写，真库里 `E` 和 `e` 可能并存（比如早年的数据）。如果能这样造出两行，建议改用真库直接插入两行来测，这样「两个 E 都不变」也能在真库上验证。需要人工确认：`projects.name` 的约束和排序规则。
-- **建议**：`applyProjectImport` 完全信任传进来的 plan，包括 `project.id` 和 `status`。如果 K1b 让 plan 从渲染进程经 IPC 原样传回主进程，渲染进程就能改掉任意项目的状态，绕过「不改清单里没有的项目」这条约束。需要人工确认：K1b 是不是在主进程里根据清单重新算 plan，而不是收渲染进程传回来的 plan。
-- 需要人工确认：这一支本身没有可以点的界面，规格要求的真机检查（5 条合成清单、两张截图）写在 `K1b.md` 里，这次给我的材料里没有。按 AGENTS.md「没跑的不能合并」，要先核对 K1b.md 里确实贴了原样输出、截图路径，并且没有带出本机账户名。
+- **必须改** `packages/core/src/projectImport.ts:115-120`：条目匹配到库里已有项目时直接 `return`，没有执行第 144 行的 `seen.set(key, index)`。所以清单里同一个已有项目出现两次（例如库里有 A，清单写 `{A, archived}`、`{A, paused}`）时，两条都会进 `update`，`apply` 依次改两次状态，最后一条生效。这违反条件 3「清单内 name 重复进无效」。应在匹配已有项目（以及进「库里多个同名」无效）之前就记名字。
+- **必须改** `packages/core/test/acceptance/k1-project-import.test.ts:149-172`：条件 3 的重名用例只测了「两条都是新项目」，没覆盖「重名的是库里已有项目」。上面那个 bug 因此没被测出来。应补这一情形，重新 `lock`。
+- **必须改** `packages/core/test/acceptance/k1-project-import.test.ts:213-237`：条件 7 要求「两个 E 都不变」，测试只在 `planProjectImport` 之后比了快照，没有调用 `applyProjectImport`。确认导入后两个 E 是否不变，测试没有验证。应在清单里加上 E 和其他条目，执行 apply 后再断言两行都不变。
+- **必须改** `packages/core/test/acceptance/k1-project-import.test.ts:197-211`：条件 6（不产生 `project_snapshot` 来源）用的 `listABC` 里没有任何 `root_path`。真正可能触发目录登记读取的路径（带 `root_path` 的新建）没被测到，这条测试实际等于空测。应让清单里的新项目带合成的 `root_path`（用 `tmpdir` 下现建的目录），再断言 `project_snapshot` 数量为 0；最好同时断言没有新增目录读取授权。
+- **需要人工确认**：`ProjectService.create` / `createMany` 带 `rootPath` 时会不会顺带授予目录读取权限，或者排队生成快照。diff 里看不到；如果会，就违反「root_path 只登记」的约束。
+- **需要人工确认**：`projects.name` 是否确实是区分大小写的 `UNIQUE`（没有 `COLLATE NOCASE`）。条件 7 的测试和交付说明里的解释都建立在这个前提上。
+- **需要人工确认**：K1b.md 里规格要求的真机检查（5 条合成清单、预览弹窗和导入后项目页的截图）是否已经跑过、输出是否贴了，且不含账户名路径。本支交付说明只引用了 K1b，按「没跑的不能合并」，K1 合并前应先确认这一点。
+- **建议** `docs/委派/交付/K1.md:17-24`：贴的 stat 写的是 `projectImport.ts` 179 行、测试 254 行，实际 diff 是 180 / 267 行，说明测试在出 stat 之后又改过。请更新 stat，并确认 `锁定验收.json` 里的指纹是对最终版本测试文件算的（`acceptance-lock` 能拦住，但交付说明应如实）。
+- **建议** `packages/core/src/projectImport.ts:62-68`：`rootOwner` 只做 `lower()` 比较。如果 `ProjectService.create` 对路径做了规范化（分隔符、末尾斜杠、`resolve`），预览会漏判目录冲突，`apply` 时 `create` 抛错，整个事务回滚。建议复用 `ProjectService` 的同一套规范化逻辑（需要人工确认它是否有规范化）。
+- **建议** `packages/core/src/projectImport.ts:58` 与 `:96`：SQLite 的 `lower()` 只转换 ASCII，JS 的 `toLowerCase()` 会转换 Unicode，两边对非 ASCII 字母大小写的判重口径不一致。中文名不受影响，可以统一成一种口径。
 
 结论：需要修改
