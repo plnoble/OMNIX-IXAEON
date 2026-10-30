@@ -1,30 +1,19 @@
 # G1eb 审查（Codex 额度用完，由 Claude 代审）
 
-- 时间：2026-10-30T08:21:51.389Z
-- 分支：dev/G1eb（a993459），对照 docs/委派/G1-GoalEngine-草案.md
+- 时间：2026-10-30T08:29:44.761Z
+- 分支：dev/G1eb（fcc07dc），对照 docs/委派/G1-GoalEngine-草案.md
 - 审查者：Claude（2.1.312）；上下文由脚本喂入（不让审查者跑命令）
-- 花费：0.5286312 美元
+- 花费：0.5880228 美元
 
-# G1eb 审查：Goals 详情页（只读）
+- 必须改 `docs/委派/交付/G1eb.md`（Codex 审查一节「测试文件行宽 / 末尾换行 / 脚本缩进」那条）＋ `scripts/real/g1e-goals-page.ts:52`、`:210`：交付说明写「脚本里 `proposed` 两行缩进已对齐」，但 diff 里 `const proposed = goals.create({`（52 行）和 `proposedText.includes('同一个目标提了两次') &&`（210 行）仍顶格。说明与实际改动不符，属于交付说明不实。要么把这两行对齐，要么改正说明。
+- 建议 `scripts/real/g1e-goals-page.ts:186`：`childOk` 只查 `main` 里有没有「合成子目标：找模板」。父目标详情里的子目标按钮本身就带这几个字，所以没点进子目标也会判「是」。可以改成查子目标详情特有的内容（比如没有子目标、状态是「已完成 进度 100%」），或者核对 `goal-child-*` 已经消失。
+- 建议 `apps/desktop/src/renderer/src/pages/Goals.tsx:180-189`：`open` 没有请求序号保护。快速连点两个目标或子目标时，先发的请求如果后返回，会盖掉新的详情；点「返回列表」后旧请求才返回，也会写进 `detail`。交付说明已如实列为缺口，现交互下罕见。
+- 建议 `apps/desktop/src/renderer/src/pages/Goals.tsx:252-254`：`role="button"` 的卡片按空格时没有 `preventDefault`，会一边滚页一边打开详情。交付说明已列缺口。
+- 建议 `apps/desktop/src/main/appRuntime.ts:2358`：`getGoalDetail` 先算整个 `listGoals()`（每个目标都查方案和步骤），再 `find` 出一条，另外每步还单独查依赖和关联。目标多了以后，每打开一次详情都要同步全量计算、阻塞主进程。可以按 id 取单条摘要。
+- 建议 `scripts/codex-review.mjs:98-107`：任务分支改了审查门禁脚本。逻辑本身对（`G1eb → G1e → G1`，遇到非字母结尾就停），但这个工具管所有任务的审查，最好单独提交、由整合方过目，不和产品分支一起合。
+- 建议 `apps/desktop/test/acceptance/g1eb-goals-detail.test.ts`、`g1eb-goals-detail-ipc.test.ts` 文件末尾：缺换行（`\ No newline at end of file`）。在重新 `lock` 之前顺手补上即可，属于本分支自己的测试，允许改。
+- 需要人工确认：规格第 4 节写「关联任务（能跳过去）」，验收条件第 33 条只要求显示。执行方没做跳转，已如实记为缺口，是否接受由整合方定。
+- 需要人工确认：本机 `verify` 停在 `review-needs-lifecycle-ui`（端口被用户正在运行的 IXAEON 占用），交付说明没写 `local-user` 这一步跑没跑过；GitHub CI 也还没看。按 AGENTS，这一支必须本机 verify（含 `local-user`）通过、分支 CI 绿了才能合并。
+- 需要人工确认：交付说明写第二轮 Claude 代审「exit 0、可以合并」，但这次改动里没有提交 `docs/委派/交付/G1eb-Codex审查.md`。AGENTS 要求审查结论文件随分支一起提交，合并前要确认已经补上（或者由本轮审查生成后提交）。
 
-- **建议** `apps/desktop/src/main/appRuntime.ts:2357-2359`：`getGoalDetail` 要先调一遍 `listGoals()` 才能找到一个目标。`listGoals()` 本身对每个目标都要查方案和步骤，等于每次打开详情都把全部目标算一遍。目标多了会同步卡住主进程。建议直接按 id 只查这一个目标。
-- **需要人工确认** `apps/desktop/src/main/appRuntime.ts:2358` 和 `Goals.tsx` 的子目标按钮：详情靠 `listGoals()` 判断目标是否存在。要确认两件事：
-  - 第一支的 `listGoals()` 是否把子目标也作为单独的行返回。如果只返回根目标，在真实运行时点子目标会报「目标不存在」。
-  - 子目标是 `abandoned` 时，`children` 里会不会照样列出它。如果会，点它也会报错。
-  - 「点子目标进详情」目前只在 jsdom 里用替身 api 测过。IPC 测试没有对子目标调 `getGoalDetail`，真机脚本也没点子目标，所以真实路径没有验证过。建议在 `g1eb-goals-detail-ipc.test.ts` 里加一条「对子目标调 `getGoalDetail` 成功」。如果确认会报错，这条就升为「必须改」。
-- **需要人工确认 / 建议** `Goals.tsx` 关联任务区（diff 约 :140-152）：规格第 4 节写的是「关联任务（能跳过去）」，第 33 条只要求显示，现在实现的是只显示、不能跳。用户 10-30 定的「挪到 G1f」只包括写操作，跳转不是写操作。执行方已在交付说明里如实写成缺口，但「留给 G1f / G1v」这个决定该由整合方确认。
-- **建议** `Goals.tsx` 的 `open()`（diff 约 :186-197）：连续很快点两个目标或子目标时，没有防止先发的请求后返回。后返回的旧结果会盖掉新的，详情页可能显示错的目标。可以用当前 `openId` 比对，或者在请求里带个序号。
-- **建议** `Goals.tsx` 列表卡片的 `onKeyDown`（diff 约 :254-256）：按空格时没有 `preventDefault`，页面会一边滚动一边打开详情。
-- **建议** `scripts/real/g1e-goals-page.ts:52` 和 `:192`：`const proposed = …` 和 `proposedText.includes(…)` 两行丢了缩进。另外两个新测试文件末尾没有换行，`g1eb-goals-detail-ipc.test.ts:11` 和 `:51` 两行超过常见的 100 字宽。需要人工确认：verify 的 format 这一步是否覆盖 `scripts/` 和 `test/`。如果覆盖，CI 会红，而改格式就得重新 `lock`。
-- **建议** `scripts/codex-review.mjs:99-107`：被审的分支顺手改了审查工具本身。新的回退逻辑会一直往前去字母，可能把规格缺失的任务错配到别的同前缀规格上，比如 `AB` 退成 `A`。逻辑本身对 `G1eb → G1` 是对的，但这是流程门禁的改动，建议单独提交，由整合方过目。
-- **建议** `scripts/real/g1e-goals-page.ts`（只读那行日志）：快照前后其实覆盖了打开列表和详情两段，但日志写的是「打开列表前后…不变」，交付说明里贴的输出也这么写。建议改成「列表 / 详情」，免得看起来详情段没测只读。
-- **需要人工确认** `docs/委派/交付/G1eb.md`：本机 verify 卡在 `review-needs-lifecycle-ui` 这一步。原因是端口 43191 被用户自己开着的 IXAEON 占了，交付说明照实写了，也贴了原文。分支的 GitHub CI 有没有变绿还没看；按 AGENTS，CI 绿之前不能合并。另外交付说明里「Codex 审查」一节还写着「没审成」，有了本次审查结论后要补上。
-
-其余各项没有发现问题：
-- **只读边界**：主进程只多了一个 `getGoalDetail` 读通道，没有改 `GoalStore`、`PlanStore` 或关联接口；测试断言了 goals 只有两个读通道，并做了六张表的前后快照。
-- **数据**：测试和脚本都用合成数据，临时目录在输出里遮掉了，没有新的外发。
-- **锁定测试**：G1eb 的测试是本分支新登记的，没有改到 main 上已锁定的测试。
-- **改动行数**：源码 297 行，在 300 行以内。
-- **研究话题**：没有和记忆里的目标混用。
-
-结论：可以合并
+结论：需要修改

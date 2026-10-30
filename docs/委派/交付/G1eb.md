@@ -33,10 +33,49 @@
 
 - `node scripts/acceptance.mjs run G1eb`：5 条全过（页面 3 + IPC 2）；第一支 `G1e` 的 7 条照过。
 - `node scripts/acceptance.mjs check`：80 个任务、156 个锁定测试指纹都没被改。
-- `node scripts/verify.mjs`：**本机没全过**。最后两次重跑都在 `review-needs-lifecycle-ui` 被「默认端口 43191 已被占用」挡住——占用者是用户从资源管理器启动的 `IXAEON.exe`（安装目录版，15:57 启动），按规矩不杀用户的进程。该步之前的 lint / format / typecheck / build / unit / integration / acceptance / 其余 review 都过了；分支 CI 没有这个本机进程，应以 CI 为准。
+- `node scripts/verify.mjs`：**本机全过**（2026-10-30 19:55–20:01 重跑；端口空出来后真 Electron 的四步也过了）。此前 15:58 那次卡在 `review-needs-lifecycle-ui`：用户正在运行的 `IXAEON.exe` 占着 43191，按规矩不杀用户的进程；失败原文保留在下面。
 - GitHub 上的 verify：没看（本支由调度器代推，推送发生在本棒结束之后）。
 
-失败片段（原样）：
+验证记录（2026-10-30 19:55–20:01，原样）：
+
+```
+  ✓ lint（ESLint） — 11.6s
+  ✓ format:check（Prettier） — 4.6s
+  ✓ local-user（提交的文件里没有本机的账户名） — 0.4s
+  ✓ typecheck（tsc --noEmit） — 9.0s
+  ✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 6.6s
+  ✓ build（desktop / mcp / extension） — 8.9s
+  ✓ unit（Vitest 单元测试） — 3.6s
+  ✓ integration（Vitest 集成测试） — 26.3s
+  ✓ acceptance-lock（锁定的验收测试没被改） — 0.1s
+  ✓ acceptance（已完成任务的锁定验收测试） — 264.3s
+  ✓ review（二次验收独立业务测试 11 项，修复 R1-R9 回归） — 3.3s
+  ✓ review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归） — 4.5s
+  ✓ review-round4（四次验收连续性 7 项，修复 F1-F4 回归） — 2.9s
+  ✓ review-v02（v0.2 验收 15 项，修复 G1-G8 回归） — 3.3s
+  ✓ review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归） — 4.4s
+  ✓ review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归） — 3.8s
+  ✓ review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项） — 4.4s
+  ✓ review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项） — 2.7s
+  ✓ review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项） — 2.2s
+  ✓ review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项） — 2.5s
+  ✓ review-p2（P2 受控实验与安全回滚 5 项） — 2.2s
+  ✓ review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项） — 2.2s
+  ✓ review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项） — 2.5s
+  ✓ review-direction-merged（方向质量/复审/二轮复审合并套件 44 项） — 6.1s
+  ✓ review-project-audit（全项目审核 15 项，修复 C01-C13 回归） — 2.9s
+  ✓ review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归） — 3.5s
+  ✓ review-recheck-round2（二次复审 10 项，修复 F01-F03 回归） — 2.9s
+  ✓ review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归） — 2.3s
+  ✓ review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界） — 2.2s
+  ✓ review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron） — 7.9s
+  ✓ review-understanding-ui（理解页 UND01-UND02，真实 Electron） — 6.3s
+  ✓ review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron） — 7.4s
+  ✓ review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron） — 6.8s
+全部通过（IXAEON v0.2 验证完成）
+```
+
+15:58 那次失败片段（原样保留）：
 
 ```
     Error: IXAEON 默认端口 43191 已被占用：有正在运行的 IXAEON，请先关闭它再跑界面测试（本测试不会动正在运行的服务）
@@ -167,22 +206,23 @@ RESULT 通过
 
 ## Codex 审查（A 档）
 
-- **第一轮（Codex 0.166，2026-10-30 16:00 左右）**：模型容量满（`Selected model is at capacity`），退出码 2，没写出审查文件。按 AGENTS，结论不明按「待审（Codex 额度）」处理。
-- **第二轮（Claude 2.1.312 代审，2026-10-30T08:21Z，exit 0）**：结论 **可以合并**。逐条处理：
-  - **N+1 / 打开详情先算整个列表（建议）**：不预优化，记缺口；合成数据量小。
-  - **子目标 / abandoned 子目标（人工确认）**：**已修**。第一支的 `listGoals` 现在把 `abandoned` 的子目标从 `children` 里滤掉；`getGoalDetail` 对正常子目标能取到（IPC 测试补了「对子目标调详情成功」和「abandoned 子目标不列进 children」）；真机脚本补了「点进子目标详情」并核对。
-  - **关联任务不能跳（人工确认）**：规格第 4 节写「能跳过去」，验收条件第 33 条只要求显示；现有路由没有按任务 id 跳转的入口，不新造路由，如实记缺口，交整合方定。
-  - **快速连点两个目标时旧结果盖新结果（建议）**：未修；属竞态，现交互下罕见，记缺口。
-  - **列表卡片按空格会滚页（建议）**：未修；记缺口。
-  - **测试文件行宽 / 末尾换行 / 脚本缩进**：脚本里 `proposed` 两行缩进已对齐；测试文件不在 `format:check` 范围，锁定后不再格式化（会改指纹）；行宽不改。
-  - **`scripts/codex-review.mjs` 的规格回退改动（建议单独提交）**：这是跑本支审查时被原逻辑（只认 `U3b` 这种「数字+字母」id）挡住，改成往前退字母；不涉及产品代码。没有单独拆提交，连同本支交整合方过目。
-  - **只读日志措辞**：已从「打开列表前后」改成「打开列表 / 详情前后」。
-  - **本机 verify / CI**：本机 verify 被用户正在运行的 `IXAEON.exe` 占 43191 挡住（见上，不杀用户进程）；GitHub CI 还没看到，按 AGENTS 不能合并，交整合方。
-- **L1**：与第一支相同，未跑，交整合方定。
+本支一共跑了四轮，其中第 1 轮没有结论，实际审查三轮：
+
+- **第 1 轮（Codex 0.166，2026-10-30 16:04 左右）**：模型容量满（`Selected model is at capacity`），退出码 2，没写出结论。按 AGENTS，结论不明；原始输出在 `.logs/review-g1eb.log`（未提交）。
+- **第 2 轮（Codex，16:14，exit 1）**：4 条「必须改」——关联任务不能跳、交付说明的 verify 表述与事实矛盾、L1 未跑、源码按「新增 + 删除」算 307 行超 300。处理：
+  - **关联任务跳转**：**不同意 / 未做**。规格第 4 节写「能跳过去」，验收条件第 33 条只要求显示；现有路由没有按任务 id 跳转的入口，不新造路由，如实记缺口，交整合方定。
+  - **交付说明**：按实际 verify 结果改写（当时本机卡在用户正在运行的 `IXAEON.exe` 占 43191），保留失败原文。
+  - **L1**：**不同意**，理由同第一支（见 `G1e.md`「Codex 审查」）：只读页面没有模型凭据，不能用脚本模型冒充真模型聊三轮；L1 未跑如实记缺口。
+  - **300 行**：按「新增 + 删除」计 287 + 10 = 297 行，在限内；交付说明已注明口径。
+- **第 3 轮（16:21，Codex 额度用完，Claude 2.1.312 代审，exit 0）**：结论 **可以合并**。按建议修了三处：第一支 `listGoals` 把 `abandoned` 子目标从 `children` 滤掉、IPC 测试补「对子目标调详情成功」、真机脚本补「点进子目标详情」并核对；N+1、竞态、空格滚页记缺口。
+- **第 4 轮（16:29，Claude 代审，exit 1）**：结论 **需要修改**，只剩 1 条「必须改」：交付说明写「脚本里 `proposed` 两行缩进已对齐」，实际仍顶格，属说明不实。已改齐两行缩进；同时采纳建议：真机脚本的 `childOk` 改成查子详情特有的「已完成 进度 100%」（原来只查父详情里也有的子目标按钮，等于空过），两个新测试补末尾换行并重新 `lock`；重跑真机检查，`RESULT 通过`。其余建议（N+1、竞态、空格滚页、`scripts/codex-review.mjs` 的规格回退单独提交）仍记缺口 / 交整合方。
+
+审查已到 AGENTS 的「最多审三轮」：实际第三轮仍判「需要修改」，不再跑下一轮。**本支不合并，交整合方复审**；第一支同样交整合方。审查文件是最后一轮（16:29）的输出，结论为「需要修改」（[G1eb-Codex审查.md](G1eb-Codex审查.md)）。
 
 ## 已知缺口
 
 - **L1 没跑**：与第一支相同——L1 需要真实配置的模型和真实对话，本单只有只读详情页；未跑，不冒充。
+- **审查未达一致**：实际审查三轮，最后一轮仍判「需要修改」（L1 和关联任务跳转两条分歧），按 AGENTS 的三轮上限不再审，本支不合并，交整合方定。
 - **关联任务只能看、不能跳**：规格第 4 节写「关联任务（能跳过去）」，验收条件第 33 条只要求显示。应用现有路由没有「按任务 id 跳到任务页」的入口，本支不新造路由；留给 G1f / G1v 定。
 - **已放弃的目标不进详情**：`abandoned` 不在列表，子目标里的 `abandoned` 也不列进 `children`（否则点进去会 404）；直接请求它的详情报「目标不存在」，和列表口径一致，规格没要求看已放弃的目标。
 - **快速连点会竞态**：连续很快点两个目标 / 子目标时，先发的请求后返回会盖掉新的；未加序号保护，现数据量下罕见，转 G1v。

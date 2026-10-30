@@ -712,8 +712,8 @@
       "title": "Goals 详情（只读）",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/g1eb-goals-detail.test.ts": "ba76468f6771d1900b3418d1fca91c7a40c368565714378f2e267c4164ff588f",
-        "apps/desktop/test/acceptance/g1eb-goals-detail-ipc.test.ts": "a40c1d30e2cf19b742a125515bb52af38bae48a7a47cb722c2f8bd91fdc19f9a"
+        "apps/desktop/test/acceptance/g1eb-goals-detail.test.ts": "b6ca50a53ea19ad2940deacbb03eb603e123e9b25c3a7c9b9f620014392d197c",
+        "apps/desktop/test/acceptance/g1eb-goals-detail-ipc.test.ts": "64d3158e8f75d58d2a93ba8cdb321d08f5402a2b7a9ac14bb295ef0a4ffdf4e4"
       }
     }
   ]

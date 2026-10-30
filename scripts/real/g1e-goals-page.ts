@@ -49,7 +49,7 @@ const main = async (): Promise<void> => {
   goals.transition(child.id, 'completed', { decidedBy: 'user' });
   const blocked = goals.create({ title: '合成目标：换服务器', via: 'ui' });
   goals.transition(blocked.id, 'blocked', { decidedBy: 'user', reason: '预算还没批' });
-const proposed = goals.create({
+  const proposed = goals.create({
     title: '合成候选目标：每天读论文',
     origin: 'agent',
     via: 'pending',
@@ -183,7 +183,7 @@ const proposed = goals.create({
       work,
       '<临时目录>',
     );
-    const childOk = (await page.locator('main').innerText()).includes('合成子目标：找模板');
+    const childOk = childDetailText.includes('已完成 进度 100%');
     log('子目标详情');
     log(childDetailText);
     log(`子目标详情点得进去：${childOk ? '是' : '否'}`);
@@ -206,7 +206,7 @@ const proposed = goals.create({
       blockedText.includes('预算还没批') &&
       proposedText.includes('合成候选目标：每天读论文') &&
       proposedText.includes('待你确认') &&
-proposedText.includes('同一个目标提了两次') &&
+      proposedText.includes('同一个目标提了两次') &&
       writeButtons === 0 &&
       backToList &&
       childOk &&
