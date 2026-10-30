@@ -605,7 +605,7 @@
     {
       "id": "L16",
       "title": "用户在飞书里回复，调度器收得到、交给整合方办",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l16-accept.test.ts": "7c2122059f717b223aa352fb8e552ac9c07684aae3a8e6d922c133b86db7d8ea",
         "packages/relay/test/acceptance/l16-listen.test.ts": "0d0d24869599ccd8340ddd46c5c13b746fd71d356a1343243fa4de2eafd2a65c",
