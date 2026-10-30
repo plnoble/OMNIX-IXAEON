@@ -735,10 +735,11 @@
     {
       "id": "K2",
       "title": "驾驶舱快照（核心）",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/k2-cockpit-snapshot.test.ts": "63e1265591a13b1e29e32cb2f8bb30a1f0fb1ec57c651aab151ee678e1a9d571",
-        "apps/desktop/test/acceptance/k2-cockpit-ipc.test.ts": "40611342273d6b275abdf86adf46847251888166525c48dad34c3ff25989b38e"
+        "apps/desktop/test/acceptance/k2-cockpit-ipc.test.ts": "40611342273d6b275abdf86adf46847251888166525c48dad34c3ff25989b38e",
+        "packages/core/test/acceptance/k2-cockpit-review.test.ts": "4c2ba8ae47658d6625647d23286662f20f28606e8ef41107bf969129d45d7c70"
       }
     }
   ]
