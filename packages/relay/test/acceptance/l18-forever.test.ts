@@ -122,6 +122,10 @@ function synthWorld(match: boolean): { w: World; shared: string } {
   const shared = join(w.root, 'shared');
   w.git(w.root, ['clone', '-q', w.origin, shared]);
   w.git(shared, ['config', 'core.autocrlf', 'false']);
+  // 整合方改（2026-10-30）：CI 上没有全局 git 身份，不设的话下面的 commit 失败、什么都没推上去，
+  // 条件 2–4 在 CI 上从来没成立过（本机有全局身份才过）。照 l10-harness 给 integ/dev 设的那样设。
+  w.git(shared, ['config', 'user.email', 'relay@example.invalid']);
+  w.git(shared, ['config', 'user.name', 'relay']);
   writeFileSync(join(shared, '.git', 'info', 'exclude'), 'node_modules/\n', 'utf8');
   copyRelayTree(shared);
   w.git(shared, ['add', '-A']);
@@ -131,6 +135,8 @@ function synthWorld(match: boolean): { w: World; shared: string } {
     const other = join(w.root, 'other');
     w.git(w.root, ['clone', '-q', w.origin, other]);
     w.git(other, ['config', 'core.autocrlf', 'false']);
+    w.git(other, ['config', 'user.email', 'relay@example.invalid']);
+    w.git(other, ['config', 'user.name', 'relay']);
     const f = join(other, 'packages', 'relay', 'src', 'selfupdate.ts');
     writeFileSync(f, `${readFileSync(f, 'utf8')}\n// origin 上多的一笔\n`, 'utf8');
     w.git(other, ['add', '-A']);
