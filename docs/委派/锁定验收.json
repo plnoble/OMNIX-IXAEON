@@ -731,6 +731,15 @@
       "files": {
         "apps/desktop/test/acceptance/k1-project-import-page.test.ts": "449453f73db87cf2ac99f8fa458d324d9856ef11ba20e42bed11769a61f4a5b8"
       }
+    },
+    {
+      "id": "K2",
+      "title": "驾驶舱快照（核心）",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/k2-cockpit-snapshot.test.ts": "63e1265591a13b1e29e32cb2f8bb30a1f0fb1ec57c651aab151ee678e1a9d571",
+        "apps/desktop/test/acceptance/k2-cockpit-ipc.test.ts": "40611342273d6b275abdf86adf46847251888166525c48dad34c3ff25989b38e"
+      }
     }
   ]
 }

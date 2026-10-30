@@ -96,7 +96,8 @@ beforeAll(async () => {
     const mod = (await import('../../src/cockpit/snapshot.js')) as {
       buildCockpitSnapshot?: BuildCockpitSnapshot;
     };
-    buildSnapshot = typeof mod.buildCockpitSnapshot === 'function' ? mod.buildCockpitSnapshot : null;
+    buildSnapshot =
+      typeof mod.buildCockpitSnapshot === 'function' ? mod.buildCockpitSnapshot : null;
   } catch {
     buildSnapshot = null;
   }
@@ -307,9 +308,7 @@ describe('K2 驾驶舱快照（核心）', () => {
       `${JSON.stringify({ stoppedReason: null, pausedUntil: {}, turns: 1 })}\n`,
       'utf8',
     );
-    const repo = makeQueueRepo(
-      queueMarkdown([{ no: '139', task: 'K2 合成行', status: '待领' }]),
-    );
+    const repo = makeQueueRepo(queueMarkdown([{ no: '139', task: 'K2 合成行', status: '待领' }]));
     const db = freshDb(tempDir('ixaeon-k2-db-'));
 
     const stale = build()(db, { relayDir: relay, ixaeonRepo: repo, now: NOW });
@@ -399,8 +398,8 @@ describe('K2 驾驶舱快照（核心）', () => {
 
     expect(snap.sources.relay.status).toBe('missing');
     expect(snap.sources.relay.note).toBeTruthy();
-    expect(snap.sources.queue.status).not.toBe('missing');
-    expect(snap.sources.projects.status).not.toBe('missing');
+    expect(snap.sources.queue.status).toBe('ok');
+    expect(snap.sources.projects.status).toBe('ok');
     expect(snap.projects.active).toHaveLength(1);
   });
 
@@ -409,11 +408,7 @@ describe('K2 驾驶舱快照（核心）', () => {
     writeLock(relay, process.pid, NOW);
     writeLedger(relay, [ledgerRow(1, hoursAgo(NOW, 1))]);
     writeTurnDirs(relay, 4);
-    writeFileSync(
-      join(relay, 'turns', '4', 'prompt.md'),
-      'PROMPT-XYZ 这一棒要做什么\n',
-      'utf8',
-    );
+    writeFileSync(join(relay, 'turns', '4', 'prompt.md'), 'PROMPT-XYZ 这一棒要做什么\n', 'utf8');
     writeFileSync(
       join(relay, 'config.json'),
       `${JSON.stringify({ feishuAppSecret: 'SECRET-XYZ', roles: {} })}\n`,
@@ -503,5 +498,151 @@ describe('K2 驾驶舱快照（核心）', () => {
     expect(json).not.toContain('STATUSBEFORE-XYZ');
     expect(snap.recent).toHaveLength(1);
     expect(snap.recent[0]!.text).toContain('处理了你在飞书里的回复');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 整合方审测试时补（2026-10-31）：上面各条只测了「该出现的出现」，补「不该出现的不出现」，
+// 以及规格「要什么」「约束」里写了、编号条件没单列的几处（最多 20 条、outcome、解析失败不抛错）。
+// ---------------------------------------------------------------------------
+describe('K2 驾驶舱快照（整合方补充）', () => {
+  it('条件 1 反面：调度器活着时，第 4 棒不算没跑完、也不报锁残留；relay 为 ok', () => {
+    const relay = seedRelayWithUnfinishedTurn(NOW, process.pid);
+    const repo = makeQueueRepo(queueMarkdown([{ no: '138', task: 'K1 合成行', status: '已完成' }]));
+    const db = freshDb(tempDir('ixaeon-k2-db-'));
+    const snap = build()(db, { relayDir: relay, ixaeonRepo: repo, now: NOW });
+
+    expect(snap.attention.filter((a) => a.kind === 'relay_down')).toEqual([]);
+    expect(snap.attention.filter((a) => a.kind === 'turn_unfinished')).toEqual([]);
+    expect(snap.running.filter((r) => r.kind === 'turn')).toHaveLength(1);
+    expect(snap.sources.relay.status).toBe('ok');
+    expect(snap.sources.queue.status).toBe('ok');
+  });
+
+  it('条件 2 反面：调度器不在时，第 4 棒不进 running', () => {
+    const relay = seedRelayWithUnfinishedTurn(NOW, 999_999);
+    const repo = makeQueueRepo(queueMarkdown([{ no: '138', task: 'K1 合成行', status: '已完成' }]));
+    const db = freshDb(tempDir('ixaeon-k2-db-'));
+    const snap = build()(db, { relayDir: relay, ixaeonRepo: repo, now: NOW });
+
+    expect(snap.running).toEqual([]);
+    expect(snap.attention.filter((a) => a.kind === 'turn_unfinished')).toHaveLength(1);
+  });
+
+  it('条件 3 的三条缺一不可：不到 2 小时、队列没有可领的 → 都不算 stale；「进行中（」也算可领', () => {
+    const cases: Array<{ hours: number; status: string; stale: boolean }> = [
+      { hours: 1, status: '待领', stale: false },
+      { hours: 3, status: '已完成（2026-10-31）', stale: false },
+      { hours: 3, status: '等用户：要不要做 X', stale: false },
+      { hours: 3, status: '进行中（dev）', stale: true },
+    ];
+    for (const c of cases) {
+      const relay = tempDir('ixaeon-k2-relay-');
+      writeLedger(relay, [ledgerRow(1, hoursAgo(NOW, c.hours))]);
+      writeFileSync(
+        join(relay, 'state.json'),
+        `${JSON.stringify({ stoppedReason: null, pausedUntil: {}, turns: 1 })}\n`,
+        'utf8',
+      );
+      const repo = makeQueueRepo(
+        queueMarkdown([{ no: '139', task: 'K2 合成行', status: c.status }]),
+      );
+      const db = freshDb(tempDir('ixaeon-k2-db-'));
+      const snap = build()(db, { relayDir: relay, ixaeonRepo: repo, now: NOW });
+
+      const label = `${c.hours} 小时前、状态「${c.status}」`;
+      expect(snap.sources.relay.status === 'stale', label).toBe(c.stale);
+      expect(
+        snap.attention.some((a) => a.kind === 'relay_stale'),
+        label,
+      ).toBe(c.stale);
+      // 没有 lock.json：不是「锁残留」；stoppedReason 为空：不是「停了」。
+      expect(
+        snap.attention.some((a) => a.kind === 'relay_down'),
+        label,
+      ).toBe(false);
+      expect(
+        snap.attention.some((a) => a.kind === 'relay_stopped'),
+        label,
+      ).toBe(false);
+    }
+  });
+
+  it('pausedUntil 已经过去的角色：不进 running，也挡不住 stale', () => {
+    const relay = tempDir('ixaeon-k2-relay-');
+    writeLedger(relay, [ledgerRow(1, hoursAgo(NOW, 3))]);
+    writeFileSync(
+      join(relay, 'state.json'),
+      `${JSON.stringify({
+        stoppedReason: null,
+        pausedUntil: { developer: hoursAgo(NOW, 1).toISOString() },
+        turns: 1,
+      })}\n`,
+      'utf8',
+    );
+    const repo = makeQueueRepo(queueMarkdown([{ no: '139', task: 'K2 合成行', status: '待领' }]));
+    const db = freshDb(tempDir('ixaeon-k2-db-'));
+    const snap = build()(db, { relayDir: relay, ixaeonRepo: repo, now: NOW });
+
+    expect(snap.running.filter((r) => r.kind === 'paused_role')).toEqual([]);
+    expect(snap.sources.relay.status).toBe('stale');
+  });
+
+  it('recent 最多 20 条、最新在前；outcome 照 exitCode / timedOut / quotaHit 分', () => {
+    const relay = tempDir('ixaeon-k2-relay-');
+    writeLock(relay, process.pid, NOW);
+    const rows = [];
+    for (let n = 1; n <= 25; n++)
+      rows.push(ledgerRow(n, new Date(NOW.getTime() - (30 - n) * 60_000)));
+    rows[21] = ledgerRow(22, new Date(NOW.getTime() - 8 * 60_000), { exitCode: 1 });
+    rows[22] = ledgerRow(23, new Date(NOW.getTime() - 7 * 60_000), {
+      exitCode: null,
+      timedOut: true,
+    });
+    rows[23] = ledgerRow(24, new Date(NOW.getTime() - 6 * 60_000), { exitCode: 1, quotaHit: true });
+    writeLedger(relay, rows);
+    const repo = makeQueueRepo(queueMarkdown([{ no: '138', task: 'K1 合成行', status: '已完成' }]));
+    const db = freshDb(tempDir('ixaeon-k2-db-'));
+    const snap = build()(db, { relayDir: relay, ixaeonRepo: repo, now: NOW });
+
+    expect(snap.recent).toHaveLength(20);
+    expect(snap.recent[0]!.taskId).toBe('125');
+    expect(snap.recent[19]!.taskId).toBe('106');
+    expect(snap.recent.map((e) => e.outcome).slice(0, 5)).toEqual([
+      'done',
+      'quota',
+      'timeout',
+      'failed',
+      'done',
+    ]);
+    expect(snap.sources.relay.lastEventAt).toBe(rows[24]!.endedAt);
+  });
+
+  it('文件解析失败、仓库读不到 → 对应来源 error/missing 并写 note，不抛错，其他来源照常', () => {
+    const relay = tempDir('ixaeon-k2-relay-');
+    writeFileSync(join(relay, 'state.json'), '{这不是 JSON', 'utf8');
+    const notRepo = tempDir('ixaeon-k2-notrepo-');
+    const dir = tempDir('ixaeon-k2-db-');
+    const db = freshDb(dir);
+    new ProjectService(db).create({ name: 'K2 项目', rootPath: null, description: null });
+
+    const snap = build()(db, { relayDir: relay, ixaeonRepo: notRepo, now: NOW });
+    expect(snap.sources.relay.status).toBe('error');
+    expect(snap.sources.relay.note).toBeTruthy();
+    expect(['missing', 'error']).toContain(snap.sources.queue.status);
+    expect(snap.sources.queue.note).toBeTruthy();
+    expect(snap.sources.projects.status).toBe('ok');
+    expect(snap.projects.active).toHaveLength(1);
+  });
+
+  it('没给仓库路径 → queue 为 missing，relay、projects 照常', () => {
+    const relay = seedRelayWithUnfinishedTurn(NOW, process.pid);
+    const db = freshDb(tempDir('ixaeon-k2-db-'));
+    const snap = build()(db, { relayDir: relay, ixaeonRepo: '', now: NOW });
+
+    expect(snap.sources.queue.status).toBe('missing');
+    expect(snap.sources.queue.note).toBeTruthy();
+    expect(snap.sources.relay.status).toBe('ok');
+    expect(snap.recent).toHaveLength(3);
   });
 });

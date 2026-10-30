@@ -19,13 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcMain } from 'electron';
-import {
-  migrate,
-  openDatabase,
-  ProjectService,
-  setSetting,
-  type CoreDatabase,
-} from '@ixaeon/core';
+import { migrate, openDatabase, ProjectService, setSetting, type CoreDatabase } from '@ixaeon/core';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- 实现还没写；@ts-ignore 在实现写出来后也不报「多余指令」
 // @ts-ignore 实现在 packages/core/src/cockpit/snapshot.ts，等整合方锁定测试之后才写（B 档先只推测试）
 import { buildCockpitSnapshot } from '@ixaeon/core';
@@ -226,5 +220,14 @@ describe('K2 驾驶舱快照（projects 分组 + IPC，条件 8）', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // 整合方审测试时补（2026-10-31）：规格「没设就不读队列，queue 记为 missing」。
+  it('没设 cockpit.ixaeon_repo → IPC 的快照里 queue 为 missing，relay 照常从 IXAEON_RELAY_DIR 读', async () => {
+    process.env.IXAEON_RELAY_DIR = relayDir;
+    const snap = await ipc()<CockpitSnapshot>('getCockpitSnapshot');
+    expect(snap.sources.queue.status).toBe('missing');
+    expect(snap.sources.relay.status).toBe('ok');
+    expect(snap.running.some((r) => r.kind === 'relay')).toBe(true);
   });
 });
