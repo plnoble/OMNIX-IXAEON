@@ -38,6 +38,7 @@ export {
 export { loadConfig, saveConfig } from './config.js';
 export { PermissionService } from './permissions.js';
 export { ProjectService } from './projects.js';
+export { planProjectImport, applyProjectImport } from './projectImport.js';
 export { SourceStore, type SourceWithStats } from './storage/sourceStore.js';
 export { SearchService, type SegmentSearchHit } from './storage/search.js';
 export {
