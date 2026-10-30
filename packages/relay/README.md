@@ -34,6 +34,7 @@
 | 命令                         | 做什么                                                                                                                                                                                                     | 什么时候用                 |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
 | `relay once`                 | 看队列定下一棒，跑完一棒就退                                                                                                                                                                               | 想盯着看的时候             |
+| `relay forever`              | **推荐**：一直起 `relay run`；看门人发现 `relay-run` 里自己那层的代码换了（退出码 75）就马上重起，不用人管（L18）                                                                                          | 让它 24 小时自己转         |
 | `relay run`                  | **看门人**：每一轮先把 `<工作目录根>/relay-run` 换到最新 `origin/main`、装好依赖，再起 `once` 跑一棒；有活就跑，没活等 `idleSeconds`（默认 60 秒）再看；**停下**（越界/拉不下来）就自己退；连着崩 3 次也停 | 让它自己干活               |
 | `relay run --exit-when-idle` | 第一次「没活」就退                                                                                                                                                                                         | 想让它把当前能干的干完就停 |
 | `relay status`               | 打印数据目录、`state.json` 里的状态、最近 5 条记账；旧数据目录还有文件也会提醒                                                                                                                             | 看它现在什么状态           |
@@ -60,11 +61,11 @@
 第一次跑 `relay listen --bind`，在群里 @ 机器人说一句话：它把 `chatId`、`ownerOpenId` 补进这个文件、回「绑好了」就退，以后只听**你在这个群里** @ 它说的话。之后不用你操心：看门人（`relay run`）发现四个字段都齐了会自己起一个收听进程；你 @ 它说的话记进 `inbox.jsonl`、它回一句「收到」，下一棒**优先**派给整合方——多半是在回答队列里「等用户」的那几行，整合方办完会在群里回它做了什么。
 
 - **怎么停**：`Ctrl+C`；或者 `run` 跑到停点自己退。
-- **不用重启就吃到新代码**：`relay run` 每一轮都从 `origin/main` 换 `<工作目录根>/relay-run`，并进 `main` 的改进下一棒就生效。看门人自己的那轮**不建 Windows 计划任务、不改系统设置**。
+- **不用重启就吃到新代码**：`relay run` 每一轮都从 `origin/main` 换 `<工作目录根>/relay-run`，并进 `main` 的改进下一棒就生效。**看门人自己那层**（`bin/`、`src/`）的改动要重起看门人才生效——用 `relay forever` 起就自动重起（它发现退出码 75 就再起一个）；直接用 `relay run` 起的，改了看门人那层要自己停掉再起。10 分钟里重起 6 次会停下（代码和 relay-run 对不上）。不建 Windows 计划任务、不改系统设置。
 - **开机自己起来**（可选，**你自己建**，调度器不替你建）：Windows 上可以用计划任务，登录后起一次、用普通终端就是我平时那样跑：
 
   ```bat
-  schtasks /create /tn "IXAEON relay" /tr "cmd /c cd /d <本仓库路径> && node packages\relay\bin\relay.mjs run" /sc onlogon /rl limited
+  schtasks /create /tn "IXAEON relay" /tr "cmd /c cd /d <本仓库路径> && node packages\relay\bin\relay.mjs forever" /sc onlogon /rl limited
   ```
 
   要先 `cd` 到仓库里：调度器按当前目录找共用检出目录，计划任务默认的当前目录不在仓库里，会起不来（整合方复审时改的）。
@@ -112,13 +113,13 @@
 
 ## 数据目录里有什么
 
-| 文件              | 是什么                                                                                                                                 | 能不能动                                        |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `config.json`     | 两个角色的命令行与 `cwd`、`idleSeconds`、`localUserCheck`                                                                              | 手改要看懂再改（改坏了配置检查会拒绝启动）      |
-| `state.json`      | `turns`（跑了几棒）、`stoppedReason`、`pausedUntil`、`notify.sent`（飞书限频）、`lastDailyDate`、`idleDay`（没活发到哪天）、`lastMorningDate`                                        | **别手改**；`relay resume` 会动 `stoppedReason` |
-| `ledger.jsonl`    | 一棒一行：`role`、`kind`、`taskId`、起止时间、退出码、`usage`（Claude 那一棒花了多少）、`statusBefore/After`、`doneLine`、`violations` | 看完想留档就先拷走，删了不影响运行              |
-| `turns/<第几棒>/` | `prompt.md`（这一棒的交代）、`stdout.txt`、`stderr.txt`（角色的原样输出）                                                              | 旧目录可以删（排查问题时就靠它）                |
-| `lock.json`       | 正在跑的那个进程                                                                                                                       | **别手删**，正常退出会自己清                    |
+| 文件              | 是什么                                                                                                                                        | 能不能动                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `config.json`     | 两个角色的命令行与 `cwd`、`idleSeconds`、`localUserCheck`                                                                                     | 手改要看懂再改（改坏了配置检查会拒绝启动）      |
+| `state.json`      | `turns`（跑了几棒）、`stoppedReason`、`pausedUntil`、`notify.sent`（飞书限频）、`lastDailyDate`、`idleDay`（没活发到哪天）、`lastMorningDate` | **别手改**；`relay resume` 会动 `stoppedReason` |
+| `ledger.jsonl`    | 一棒一行：`role`、`kind`、`taskId`、起止时间、退出码、`usage`（Claude 那一棒花了多少）、`statusBefore/After`、`doneLine`、`violations`        | 看完想留档就先拷走，删了不影响运行              |
+| `turns/<第几棒>/` | `prompt.md`（这一棒的交代）、`stdout.txt`、`stderr.txt`（角色的原样输出）                                                                     | 旧目录可以删（排查问题时就靠它）                |
+| `lock.json`       | 正在跑的那个进程                                                                                                                              | **别手删**，正常退出会自己清                    |
 
 ## 已知的限制
 

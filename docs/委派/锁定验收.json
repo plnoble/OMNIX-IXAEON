@@ -689,6 +689,14 @@
         "packages/core/test/acceptance/g1c-goal-plans.test.ts": "bb3e46ad58b7fcbdaadeaffed6e6497c0feda0aa1aaec56d3b7ad1e11760fabe",
         "packages/core/test/acceptance/g1c-plans-regression.test.ts": "2aabf5706d5407066eb5d08d97271d92c73cf766d223c2b4ce327e5ef5fc0cec"
       }
+    },
+    {
+      "id": "L18",
+      "title": "看门人换了代码自己重起（relay forever）",
+      "status": "queued",
+      "files": {
+        "packages/relay/test/acceptance/l18-forever.test.ts": "2961a9d5ce2e5bc14fd29ddc2a5968fe0958ffe494b876832c167a68b7e37330"
+      }
     }
   ]
 }

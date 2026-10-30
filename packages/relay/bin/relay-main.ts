@@ -21,6 +21,8 @@ import {
   runOnce,
   saveState,
   updateCodeCheckout,
+  relayCodeHash,
+  RESTART_EXIT_CODE,
   worktreesRoot,
   type RelayConfig,
   type RelayState,
@@ -214,6 +216,11 @@ const watchdog = async (config: RelayConfig, state: RelayState): Promise<void> =
     now: () => new Date(),
   });
   const idleMs = Math.max(1, config.idleSeconds) * 1000;
+  // L18 契约第 2 条：forever 底下才自比代码（没设 IXAEON_RELAY_CODE 时）；别的情况一点不变。
+  const selfCheck =
+    process.env.IXAEON_RELAY_FOREVER === '1' && !process.env.IXAEON_RELAY_CODE?.trim()
+      ? relayCodeHash(REPO_ROOT)
+      : null;
   let crashes = 0;
   let lastTurns = loadState(dataDir).turns ?? 0;
 
@@ -263,11 +270,14 @@ const watchdog = async (config: RelayConfig, state: RelayState): Promise<void> =
 
   try {
     for (;;) {
+      // L18：这一轮有没有把 relay-run 换成最新代码（没换成就不比指纹）
+      let codeSwapped = false;
       // `IXAEON_RELAY_CODE` 有值 → 直接用那个目录，不建、不更新、不装依赖（测试/临时调试用）。
       if (!codeEnv) {
         if (repo && (await fetchMain(repo))) {
           const up = updateCodeCheckout(repo, codeRoot);
           if (up.note) console.log(`代码没换成最新的：${up.note}`);
+          else codeSwapped = true;
           // 装不上就当这一轮没开（打一行日志，不停下，等下一轮）。
           if (ensureDeps(codeRoot) === 'failed') {
             console.log('没开棒：看门人那份代码装不上依赖');
@@ -281,6 +291,19 @@ const watchdog = async (config: RelayConfig, state: RelayState): Promise<void> =
             await sleep(idleMs);
             continue;
           }
+        }
+      }
+      // L18 契约第 2 条：relay-run 里的看门人那层和自己起来时不一样 → 退 75 让 forever 重起
+      // （这一轮没换成代码（note / 拉不下来）时 codeSwapped 是 false，不比。）
+      // 整合方合 L16 时放在起收听之前：要退就别先起收听；return 之后 finally 照样停收听、放锁。
+      if (selfCheck !== null && codeSwapped) {
+        const nowHash = relayCodeHash(codeRoot);
+        if (nowHash !== selfCheck) {
+          console.log(
+            `看门人自己的代码换了（${selfCheck.slice(0, 8)} → ${nowHash.slice(0, 8)}），退出让 relay forever 重起`,
+          );
+          process.exitCode = RESTART_EXIT_CODE;
+          return;
         }
       }
       startListen();
