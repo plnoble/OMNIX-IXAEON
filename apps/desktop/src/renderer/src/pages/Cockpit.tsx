@@ -46,12 +46,9 @@ const timeOf = (iso: string | null, now: number): string => {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  const t = new Date(now);
-  const sameDay =
-    d.getFullYear() === t.getFullYear() &&
-    d.getMonth() === t.getMonth() &&
-    d.getDate() === t.getDate();
-  return sameDay ? hhmm(iso) : `${d.getMonth() + 1}月${d.getDate()}日 ${hhmm(iso)}`;
+  return d.toDateString() === new Date(now).toDateString()
+    ? hhmm(iso)
+    : `${d.getMonth() + 1}月${d.getDate()}日 ${hhmm(iso)}`;
 };
 const minutesSince = (iso: string | null, now: number): number | null => {
   const t = iso ? Date.parse(iso) : Number.NaN;
@@ -87,7 +84,12 @@ export function CockpitPage() {
 
   if (!snap)
     return (
-      <div data-testid="page-cockpit">{error ? <ErrorBanner message={error} /> : <Spinner />}</div>
+      <div data-testid="page-cockpit">
+        {error ? <ErrorBanner message={error} /> : <Spinner />}
+        <Button kind="ghost" onClick={() => void load()} testId="cockpit-refresh">
+          刷新
+        </Button>
+      </div>
     );
 
   const now = Date.now();
@@ -132,17 +134,17 @@ export function CockpitPage() {
         </div>
       )}
 
-      <div className="cockpit-stats">
+      <div style={{ display: 'flex', gap: 28, alignItems: 'baseline', margin: '4px 0 16px' }}>
         <div data-testid="cockpit-count-attention">
-          <strong>{snap.attention.length}</strong>
+          <strong style={{ fontSize: 28, marginRight: 6 }}>{snap.attention.length}</strong>
           <span>等你处理</span>
         </div>
         <div data-testid="cockpit-count-running">
-          <strong>{runningCount}</strong>
+          <strong style={{ fontSize: 28, marginRight: 6 }}>{runningCount}</strong>
           <span>正在运行</span>
         </div>
         <div data-testid="cockpit-count-today">
-          <strong>{snap.today.finishedTurns}</strong>
+          <strong style={{ fontSize: 28, marginRight: 6 }}>{snap.today.finishedTurns}</strong>
           <span>今天完成</span>
         </div>
         <div className="muted" data-testid="cockpit-quota-placeholder">

@@ -295,23 +295,6 @@ select:focus {
   margin: 12px 0;
 }
 
-/* K3：驾驶舱顶部三个数字 + 额度占位。 */
-.cockpit-stats {
-  display: flex;
-  gap: 28px;
-  align-items: baseline;
-  margin: 4px 0 16px;
-}
-.cockpit-stats > div {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-}
-.cockpit-stats strong {
-  font-size: 28px;
-  line-height: 1;
-}
-
 .project-list {
   list-style: none;
   margin: 0;
