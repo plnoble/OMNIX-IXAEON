@@ -1,6 +1,6 @@
 # G1e Goals 列表页 + 详情页 交付（第一支：列表）
 
-- 分支：`dev/G1e`，基于 `origin/main` `b56516b`（rebase 后）；档位 **A**（用户 2026-10-30 定 G1e 只读）
+- 分支：`dev/G1e`，基于 `origin/main` `6b0cbfb`（rebase 后）；档位 **A**（用户 2026-10-30 定 G1e 只读）
 - 执行方：dev
 
 ## 已实现
@@ -44,45 +44,45 @@
 ## 自动化通过
 
 - `node scripts/acceptance.mjs run G1e`：本支 7 条全过（页面 4 + IPC 3）；第二支（详情页）的验收测试另锁。
-- `node scripts/verify.mjs`：见下方「验证记录」。
+- `node scripts/verify.mjs`：见下方「验证记录」（2026-10-30 20:02–20:09 在最终树重跑，全过，`EXIT=0`）。
 - GitHub 上的 verify：没看（本支由调度器代推，推送发生在本棒结束之后；本机 `verify.mjs` 全过，见下）。
 
-验证记录（原样）：
+验证记录（2026-10-30 20:02–20:09，原样）：
 
 ```
-✓ lint（ESLint） — 14.1s
-✓ format:check（Prettier） — 3.9s
-✓ local-user（提交的文件里没有本机的账户名） — 0.4s
-✓ typecheck（tsc --noEmit） — 8.7s
-✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 7.0s
-✓ build（desktop / mcp / extension） — 8.7s
-✓ unit（Vitest 单元测试） — 4.6s
-✓ integration（Vitest 集成测试） — 29.4s
-✓ acceptance-lock（锁定的验收测试没被改） — 0.1s
-✓ acceptance（已完成任务的锁定验收测试） — 313.6s
-✓ review（二次验收独立业务测试 11 项，修复 R1-R9 回归） — 3.7s
-✓ review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归） — 4.1s
-✓ review-round4（四次验收连续性 7 项，修复 F1-F4 回归） — 2.6s
-✓ review-v02（v0.2 验收 15 项，修复 G1-G8 回归） — 2.8s
-✓ review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归） — 3.4s
-✓ review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归） — 2.7s
-✓ review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项） — 3.9s
-✓ review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项） — 2.6s
-✓ review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项） — 2.1s
-✓ review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项） — 2.6s
-✓ review-p2（P2 受控实验与安全回滚 5 项） — 2.0s
-✓ review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项） — 2.1s
-✓ review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项） — 2.1s
-✓ review-direction-merged（方向质量/复审/二轮复审合并套件 44 项） — 5.5s
-✓ review-project-audit（全项目审核 15 项，修复 C01-C13 回归） — 2.7s
-✓ review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归） — 3.5s
-✓ review-recheck-round2（二次复审 10 项，修复 F01-F03 回归） — 2.8s
-✓ review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归） — 2.2s
-✓ review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界） — 2.1s
-✓ review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron） — 6.7s
-✓ review-understanding-ui（理解页 UND01-UND02，真实 Electron） — 6.0s
-✓ review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron） — 6.8s
-✓ review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron） — 7.4s
+  ✓ lint（ESLint） — 12.6s
+  ✓ format:check（Prettier） — 4.4s
+  ✓ local-user（提交的文件里没有本机的账户名） — 0.4s
+  ✓ typecheck（tsc --noEmit） — 10.0s
+  ✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 7.7s
+  ✓ build（desktop / mcp / extension） — 9.7s
+  ✓ unit（Vitest 单元测试） — 4.1s
+  ✓ integration（Vitest 集成测试） — 25.2s
+  ✓ acceptance-lock（锁定的验收测试没被改） — 0.1s
+  ✓ acceptance（已完成任务的锁定验收测试） — 253.1s
+  ✓ review（二次验收独立业务测试 11 项，修复 R1-R9 回归） — 3.5s
+  ✓ review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归） — 4.6s
+  ✓ review-round4（四次验收连续性 7 项，修复 F1-F4 回归） — 2.8s
+  ✓ review-v02（v0.2 验收 15 项，修复 G1-G8 回归） — 3.0s
+  ✓ review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归） — 4.2s
+  ✓ review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归） — 3.3s
+  ✓ review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项） — 4.6s
+  ✓ review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项） — 2.9s
+  ✓ review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项） — 2.5s
+  ✓ review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项） — 3.2s
+  ✓ review-p2（P2 受控实验与安全回滚 5 项） — 2.5s
+  ✓ review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项） — 2.4s
+  ✓ review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项） — 2.4s
+  ✓ review-direction-merged（方向质量/复审/二轮复审合并套件 44 项） — 9.4s
+  ✓ review-project-audit（全项目审核 15 项，修复 C01-C13 回归） — 5.6s
+  ✓ review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归） — 4.5s
+  ✓ review-recheck-round2（二次复审 10 项，修复 F01-F03 回归） — 3.2s
+  ✓ review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归） — 2.3s
+  ✓ review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界） — 2.3s
+  ✓ review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron） — 8.0s
+  ✓ review-understanding-ui（理解页 UND01-UND02，真实 Electron） — 6.0s
+  ✓ review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron） — 6.8s
+  ✓ review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron） — 6.6s
 全部通过（IXAEON v0.2 验证完成）
 ```
 
@@ -133,19 +133,20 @@ RESULT 通过
 
 ## Codex 审查（A 档）
 
-第一轮（2026-10-30，exit 1）：需要修改，3 条「必须改」。原始意见见 [G1e-Codex审查.md](G1e-Codex审查.md)。
+三轮都是 Codex 本尊审的（没用到 Claude 代审）：
 
-- **#1 `proposed` 块没显示 `watch`（条件 31）**：已改，顶部 `proposed` 卡片也标「有疑点」并显示 `watch_reason`；页面测试补了「proposed + watch」的断言。
-- **#2 下一步测试可能空跑**：原测试里第一个 pending 步骤的依赖恰好已满足，实现忽略依赖也能过。已补 IPC 测试：第一个 pending 依赖没满足、第二个可做，`nextStep` 必须是第二个；改坏实现会红。
-- **#3 L1 证据（三轮聊天记忆 + 办成一件事）**：**不同意**，理由：
-  1. G1e 的验收条件是规格第 5 节第 30–34 条，没有 L1；规格第 8 节给这一单的界面检查是「临时数据目录、合成数据点一遍」，已跑（见下）。
-  2. L1 要真实配置的模型和真实对话；本单是只读目标页，没有模型凭据，也不能拿脚本模型冒充真模型聊三轮（AGENTS：「模拟工具不等于真实接入」）。
-  3. G1a / G1b / G1c 的交付说明也没有 L1（都写「G1 还没有界面」），整合方当时照常并入；把 L1 当每单必须，会让所有无模型的任务都过不了。
-  4. 本单在「已知缺口」里如实写「L1 未跑」，不冒充。
+- **第一轮（2026-10-30 15:33，exit 1）**：3 条「必须改」：
+  - **#1 `proposed` 块没显示 `watch`（条件 31）**：已改，顶部 `proposed` 卡片也标「有疑点」并显示 `watch_reason`；页面测试补了「proposed + watch」的断言。
+  - **#2 下一步测试可能空跑**：原测试里第一个 pending 步骤的依赖恰好已满足，实现忽略依赖也能过。已补 IPC 测试：第一个 pending 依赖没满足、第二个可做，`nextStep` 必须是第二个；改坏实现会红。
+  - **#3 L1 证据（三轮聊天记忆 + 办成一件事）**：**不同意**，理由：
+    1. G1e 的验收条件是规格第 5 节第 30–34 条，没有 L1；规格第 8 节给这一单的界面检查是「临时数据目录、合成数据点一遍」，已跑（见下）。
+    2. L1 要真实配置的模型和真实对话；本单是只读目标页，没有模型凭据，也不能拿脚本模型冒充真模型聊三轮（AGENTS：「模拟工具不等于真实接入」）。
+    3. G1a / G1b / G1c 的交付说明也没有 L1（都写「G1 还没有界面」），整合方当时照常并入；把 L1 当每单必须，会让所有无模型的任务都过不了。
+    4. 本单在「已知缺口」里如实写「L1 未跑」，不冒充。
+- **第二轮（15:46，exit 1）**：3 条「必须改」：真机脚本用 `确认\n` 判断只读会误判（已改成按实际按钮数判断并重跑）、交付说明与事实矛盾（已改，见「自动化通过 / 真机通过」）、L1 仍未跑（同上）。
+- **第三轮（15:48，exit 1）**：结论仍是「需要修改」，只剩 L1 一条；原始意见见 [G1e-Codex审查.md](G1e-Codex审查.md)。
 
-第二轮（2026-10-30，exit 1）：结论仍是「需要修改」，只剩 L1 一条（见 [G1e-Codex审查.md](G1e-Codex审查.md)）。
-
-按 AGENTS「Codex 的必须改不同意 → 不合并，理由写进交付说明，队列状态改待复审（整合方）」，本支交整合方定；G1eb 同批交。
+三轮都判「需要修改」；按 AGENTS「最多审三轮」，不再审第四轮，本支不合并，队列改待复审（整合方）；G1eb 同批交。
 
 ## 已知缺口
 
