@@ -427,6 +427,8 @@ export const settingsViewSchema = z.object({
     webSearchKeyPresent: z.boolean().default(false),
   }),
   dataDir: z.string(),
+  /** K3：驾驶舱读队列用的 IXAEON 仓库路径（设置页填；空串 = 不读队列）。 */
+  cockpit: z.object({ ixaeonRepo: z.string() }).default({ ixaeonRepo: '' }),
   /** A03（审核 2026-09-13）：桌面问答存档授权状态（enabled / revoked） */
   askCaptureStatus: z.enum(['enabled', 'revoked']).default('enabled'),
   mcp: z.object({
@@ -718,6 +720,8 @@ export interface IxaIpcApi {
   getGoalDetail(id: string): Promise<GoalDetailView>;
   /** K2：驾驶舱快照（relay、队列、项目汇总；只读）。K3 的页面用它。 */
   getCockpitSnapshot(): Promise<CockpitSnapshot>;
+  /** K3：设置页保存 IXAEON 仓库路径（驾驶舱读队列用；空串 = 不读队列）。 */
+  saveCockpitSettings(input: { ixaeonRepo: string }): Promise<{ ok: true }>;
   addTodo(input: { title: string }): Promise<Todo>;
   acceptTodo(id: string): Promise<Todo>;
   rejectTodo(id: string): Promise<Todo>;

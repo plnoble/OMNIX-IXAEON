@@ -21,6 +21,7 @@ import {
   recordAudit,
   removeRequirement,
   requeueFailedExtractions,
+  setSetting,
 } from '@ixaeon/core';
 import {
   ErrorCodes,
@@ -743,6 +744,9 @@ export function registerIpc(runtime: AppRuntime): void {
           webSearchKeyPresent: config.webSearch?.apiKeyPresent ?? false,
         },
         dataDir: runtime.state.dataDir,
+        cockpit: {
+          ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
+        },
         askCaptureStatus: runtime.askCaptureStatus(),
         mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
         encryptionNotice:
@@ -756,6 +760,11 @@ export function registerIpc(runtime: AppRuntime): void {
     },
     saveModelSettings: async (input) => runtime.saveModelSettings(input),
     saveCodingSettings: async (input) => runtime.saveCodingSettings(input),
+    // K3：驾驶舱要读的仓库路径（只存设置项；快照结构不变）
+    saveCockpitSettings: async (input) => {
+      setSetting(runtime.db, 'cockpit.ixaeon_repo', input.ixaeonRepo.trim());
+      return { ok: true as const };
+    },
     // 记忆桥（F1）：状态与开关（开之前查 HTTPS；改 Hermes 配置前先备份）
     getPersonalMemoryToChat: async () => runtime.personalMemoryToChatStatus(),
     setPersonalMemoryToChat: async (enabled: boolean) =>

@@ -9,6 +9,7 @@ import { UnderstandingPage } from './pages/Understanding.js';
 import { InboxPage, HistoryPage } from './pages/Inbox.js';
 import { AskPage } from './pages/Ask.js';
 import { PersonalOverviewPage } from './pages/Overview.js';
+import { CockpitPage } from './pages/Cockpit.js';
 import { ResearchPage } from './pages/Research.js';
 import { TasksPage, type TaskFocus } from './pages/Tasks.js';
 import { TodosPage } from './pages/Todos.js';
@@ -17,6 +18,7 @@ import { ErrorBanner } from './ui.js';
 import { UpdatePrompt } from './UpdatePrompt.js';
 
 type Page =
+  | 'cockpit'
   | 'overview'
   | 'understanding'
   | 'inbox'
@@ -34,7 +36,7 @@ type Page =
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState<Page>('overview');
+  const [page, setPage] = useState<Page>('cockpit');
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
@@ -128,6 +130,14 @@ export default function App() {
         </h1>
         <p className="tagline">本地个人内核：理解你、统筹项目、在授权边界内行动 · OMNIX</p>
         <nav className="nav" data-testid="main-nav">
+          <button
+            type="button"
+            className={page === 'cockpit' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('cockpit')}
+            data-testid="nav-cockpit"
+          >
+            驾驶舱
+          </button>
           <button
             type="button"
             className={page === 'overview' ? 'nav-item active' : 'nav-item'}
@@ -246,6 +256,8 @@ export default function App() {
 
       <main className="app-main">
         {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+
+        {page === 'cockpit' && <CockpitPage />}
 
         {page === 'overview' && <PersonalOverviewPage state={state} />}
 

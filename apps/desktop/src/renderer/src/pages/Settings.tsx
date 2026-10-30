@@ -372,6 +372,8 @@ export function SettingsPage() {
     busy: boolean;
     result: string | null;
   }>({ busy: false, result: null });
+  // K3：驾驶舱读队列用的 IXAEON 仓库路径
+  const [repoPath, setRepoPath] = useState('');
 
   const reload = useCallback(async (): Promise<SettingsView | null> => {
     try {
@@ -392,6 +394,7 @@ export function SettingsPage() {
         provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
       });
+      setRepoPath(v.cockpit?.ixaeonRepo ?? '');
       return v;
     } catch (err) {
       setError(errMsg(err));
@@ -402,6 +405,18 @@ export function SettingsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /** K3：只保存仓库路径；留空 = 驾驶舱不读队列。 */
+  const saveCockpitRepo = async () => {
+    try {
+      const value = repoPath.trim();
+      await api.saveCockpitSettings({ ixaeonRepo: value });
+      setRepoPath(value);
+      setNotice('IXAEON 仓库路径已保存。');
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
 
   // M2：勾选清单与下拉框的计算状态
   const savedSet = useMemo(() => new Set(view?.config.savedModels ?? []), [view]);
@@ -711,6 +726,27 @@ export function SettingsPage() {
       {notice && <div className="ok-banner">{notice}</div>}
 
       <UpdateCard />
+
+      <Card title="驾驶舱" testId="settings-cockpit">
+        <Field
+          label="IXAEON 仓库路径"
+          hint="驾驶舱从这里读队列；留空表示不读队列（只记路径，不读别的文件）"
+        >
+          <input
+            value={repoPath}
+            onChange={(e) => setRepoPath(e.target.value)}
+            placeholder="D:\\…\\IXAEON"
+            data-testid="settings-cockpit-repo"
+          />
+        </Field>
+        <Button
+          kind="primary"
+          onClick={() => void saveCockpitRepo()}
+          testId="settings-cockpit-save"
+        >
+          保存
+        </Button>
+      </Card>
 
       <Card title="Agent 运行时（Hermes）" testId="settings-hermes">
         <p className={view.hermesFound ? 'note' : 'warn'} data-testid="settings-hermes-notice">
