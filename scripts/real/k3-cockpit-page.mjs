@@ -5,7 +5,7 @@
  * 只写合成数据；截图落到 apps/desktop/release/screenshots/。
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -68,6 +68,9 @@ if (!electron) throw new Error('no _electron: ' + Object.keys(pw).slice(0, 30).j
 const Database = require(require.resolve('better-sqlite3', { paths: [desktopDir, root] }));
 const shotDir = join(desktopDir, 'release', 'screenshots');
 mkdirSync(shotDir, { recursive: true });
+// 整合方复审：先删上一轮的截图，免得「截图都在」认的是旧文件。
+for (const f of ['k3-cockpit-before.png', 'k3-cockpit-after.png'])
+  rmSync(join(shotDir, f), { force: true });
 
 const now = new Date().toISOString();
 const hhmm = new Date(Date.now() + 60 * 60_000).toISOString();

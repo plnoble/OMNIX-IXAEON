@@ -308,6 +308,20 @@ describe('「要什么」里的其它可见内容', () => {
     expect(rows[3]!.textContent).toContain('等你拍板');
   });
 
+  // 整合方复审补（变异检查：删掉项目、发生时间这两列测试照样过）
+  it('等你处理每条写项目和发生时间（本地 HH:MM）', async () => {
+    const since = '2026-10-31T03:41:00.000Z';
+    harness.snapshot = snapshot({
+      attention: [attention({ kind: 'relay_down', project: '合成项目甲', since })],
+    });
+    await render();
+    const row = $('cockpit-attention-item')!;
+    expect(row.textContent).toContain('合成项目甲');
+    const at = new Date(since);
+    const local = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    expect(row.textContent).toContain(local);
+  });
+
   it('在跑的写角色、任务号和已跑分钟数；额度暂停写「额度暂停到 HH:MM」', async () => {
     const started = new Date(NOW.getTime() - 3 * 60_000).toISOString();
     const until = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate(), 18, 30).toISOString();

@@ -142,6 +142,16 @@ describe('条件 3：项目分组与状态切换', () => {
     expect(container.querySelectorAll('[data-status="archived"]').length).toBe(1);
   });
 
+  // 整合方复审补（变异检查：卡片删掉描述、当前状态测试照样过）
+  it('进行中卡片写名称、描述和当前状态', async () => {
+    harness.snapshot = snapshot({ projects: { active, paused: [], archived: [] } });
+    await render();
+    const a1 = $('cockpit-project-card-a1')!.textContent;
+    expect(a1).toContain('合成项目 a1');
+    expect(a1).toContain('描述 a1');
+    expect(a1).toContain('状态 a1');
+  });
+
   it('卡片上的状态切换复用 api.updateProjectStatus，卡片跟着换组、计数跟着变，也能恢复', async () => {
     harness.snapshot = snapshot({ projects: { active, paused, archived } });
     await render();
