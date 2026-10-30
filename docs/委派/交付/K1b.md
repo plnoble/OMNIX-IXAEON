@@ -126,7 +126,9 @@ Running 1 test using 1 worker
 
 ## Codex 审查（A 档）
 
-见 [K1b-Codex审查.md](K1b-Codex审查.md)。
+**这一支还没审。** 2026-10-30 这一棒本机 Codex 和 Claude 的额度都用完了（`node scripts/codex-review.mjs K1b --base dev/K1` 退出码 3），按 AGENTS.md 分支先等着，队列状态改「待审（Codex 额度）」；额度恢复后重跑同一命令，再把结论写进 `K1b-Codex审查.md`。
+
+第一支 `dev/K1` 的三轮审查（Claude 代审、最终「可以合并」）见 [K1-Codex审查.md](K1-Codex审查.md)；那三轮只审核心 + K1 的测试，不含这一支的界面、IPC 和真机脚本。
 
 ## 已知缺口
 
