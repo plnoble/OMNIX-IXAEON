@@ -1,17 +1,19 @@
 import { app, dialog, ipcMain, shell, safeStorage } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { realpathSync } from 'node:fs';
+import { realpathSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
 import { executorGapText } from './codingExecutor.js';
 import {
   addRequirement,
+  applyProjectImport,
   listAuditEvents,
   listMatchedFindings,
   listRequirements,
   MATCH_WINDOW_DAYS,
   markMatchedFindingsSeen,
+  planProjectImport,
   readTaskChanges,
   recordAudit,
   removeRequirement,
@@ -86,6 +88,12 @@ export function registerIpc(runtime: AppRuntime): void {
   // --- 票据表（主进程内存；随进程生命周期） ---
   const tickets = new Map<string, PendingTicket>();
 
+  /**
+   * K1：预览过的清单（确认导入时再算一遍，确认前不写库）。token 一次性、5 分钟有效。
+   * 清单内容只留在主进程内存里，渲染层拿不到原件、也不能改预览结果绕过确认。
+   */
+  const importPreviews = new Map<string, { list: unknown; expiresAt: number }>();
+
   const issueTicket = (paths: string[], purpose: PendingTicket['purpose']): PickResult => {
     const ticket = randomBytes(24).toString('hex');
     tickets.set(ticket, {
@@ -125,6 +133,22 @@ export function registerIpc(runtime: AppRuntime): void {
     return entry.paths;
   };
 
+  /** K1：消费预览凭证（单次使用）；伪造/过期/重复一律拒绝。 */
+  const consumeImportPreview = (token: unknown): unknown => {
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '缺少预览凭证（请重新选择清单）');
+    }
+    const entry = importPreviews.get(token);
+    importPreviews.delete(token);
+    if (!entry) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '预览凭证无效或已使用（请重新选择清单）');
+    }
+    if (Date.now() > entry.expiresAt) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '预览凭证已过期（请重新选择清单）');
+    }
+    return entry.list;
+  };
+
   const enqueueExtractions = (
     sources: Array<{ id: string }>,
     projectId: string | null,
@@ -150,6 +174,32 @@ export function registerIpc(runtime: AppRuntime): void {
     updateProjectStatus: async (input) => runtime.projects.updateStatus(input.id, input.status),
     // P8：审计由运行时记（project.deleted 只一条）；这里再记一遍就成了两条
     deleteProject: async (id) => runtime.deleteProject(id),
+    // K1：选一个 JSON 清单 → 只预览（不写库）；确认后按预览凭证写。
+    previewProjectImport: async (input) => {
+      const paths = consumeTicket(input.ticket, 'import');
+      const file = paths[0];
+      if (!file || !file.toLowerCase().endsWith('.json')) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请选择一个 .json 清单文件');
+      }
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(file, 'utf8'));
+      } catch {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '清单不是合法的 JSON');
+      }
+      const preview = planProjectImport(runtime.db, raw);
+      const token = randomBytes(24).toString('hex');
+      importPreviews.set(token, { list: raw, expiresAt: Date.now() + TICKET_TTL_MS });
+      return { token, preview };
+    },
+    applyProjectImport: async (input) => {
+      const list = consumeImportPreview(input.token);
+      // 确认时才按当时的库重算：预览之后库变了，也不会照着旧结果盲写。
+      const plan = planProjectImport(runtime.db, list);
+      const done = applyProjectImport(runtime.db, plan);
+      recordAudit(runtime.db, 'project.imported', done);
+      return done;
+    },
 
     // --- 导入（票据制） ---
     pickFiles: async (kind): Promise<PickResult | null> => {

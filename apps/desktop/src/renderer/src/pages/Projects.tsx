@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, errMsg, type Project, type WorkRun } from '../api.js';
-import type { DeleteProjectResult, UnbindProjectFolderPreview } from '@ixaeon/contracts';
+import type {
+  DeleteProjectResult,
+  ProjectImportPlan,
+  UnbindProjectFolderPreview,
+} from '@ixaeon/contracts';
 import { Button, Card, Empty, ErrorBanner, Field, projectStatusLabel, Spinner } from '../ui.js';
 
 type WorkTest = { name: string; result: 'passed' | 'failed' | 'not_run' };
@@ -243,6 +247,103 @@ function deleteResultText(name: string, done: DeleteProjectResult): string {
   return parts.join('');
 }
 
+/**
+ * K1：清单导入的预览。只显示要发生什么，不写库；「确认导入」才写。
+ * 预览条数用同一个口径：新增 / 变化 / 不变 / 无效，无效的逐条给原因。
+ */
+function ImportPreview({
+  preview,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  preview: ProjectImportPlan;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop"
+      data-testid="project-import-preview"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="modal-card">
+        <h2>从清单导入项目</h2>
+        <p data-testid="project-import-counts">
+          新增 {preview.create.length} 个、变化 {preview.update.length} 个、不变{' '}
+          {preview.unchanged.length} 个、无效 {preview.invalid.length} 个
+        </p>
+        {preview.create.length > 0 && (
+          <div data-testid="project-import-create">
+            <strong>新增</strong>
+            <ul>
+              {preview.create.map((e) => (
+                <li key={`c-${e.name}`}>
+                  {e.name}（{projectStatusLabel(e.status)}）
+                  {e.note ? <span className="muted">　{e.note}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {preview.update.length > 0 && (
+          <div data-testid="project-import-update">
+            <strong>状态变化</strong>
+            <ul>
+              {preview.update.map((u) => (
+                <li key={`u-${u.project.id}`}>
+                  {u.project.name}：{projectStatusLabel(u.project.status)} →{' '}
+                  {projectStatusLabel(u.status)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {preview.unchanged.length > 0 && (
+          <div data-testid="project-import-unchanged">
+            <strong>不变</strong>
+            <ul>
+              {preview.unchanged.map((p) => (
+                <li key={`k-${p.id}`}>{p.name}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {preview.invalid.length > 0 && (
+          <div data-testid="project-import-invalid">
+            <strong>无效</strong>
+            <ul>
+              {preview.invalid.map((v) => (
+                <li key={`i-${v.index}`}>
+                  第 {v.index + 1} 条{v.name ? `「${v.name}」` : ''}：{v.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <p className="note">
+          只登记项目名、目录和状态。不会读目录内容，不会改动清单里没有的项目，已有项目只改状态。
+        </p>
+        <div className="wizard-nav">
+          <Button onClick={onCancel} testId="project-import-cancel">
+            取消
+          </Button>
+          <Button
+            kind="primary"
+            disabled={busy}
+            onClick={onConfirm}
+            testId="project-import-confirm"
+          >
+            确认导入
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** 项目页：列表 + 新建 + 目录登记 + 状态切换。 */
 export function ProjectsPage({
   onOpenSources,
@@ -260,6 +361,10 @@ export function ProjectsPage({
   );
   // P8：删除的结果，显示在项目列表上面
   const [deleteResult, setDeleteResult] = useState<string | null>(null);
+  // K1：清单导入的预览 / 预览凭证 / 结果
+  const [importPreview, setImportPreview] = useState<ProjectImportPlan | null>(null);
+  const [importToken, setImportToken] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -348,6 +453,47 @@ export function ProjectsPage({
     }
   };
 
+  /**
+   * K1：选一份 JSON 清单 → 只预览。选文件走原生对话框（票据），渲染层不自己读路径。
+   */
+  const importFromList = async () => {
+    setImportResult(null);
+    setBusy(true);
+    try {
+      const picked = await api.pickFiles('documents');
+      if (!picked) return;
+      if (picked.paths.length !== 1 || !picked.paths[0]!.toLowerCase().endsWith('.json')) {
+        setError('请选择一个 .json 清单文件（一次一个）');
+        return;
+      }
+      const res = await api.previewProjectImport({ ticket: picked.ticket });
+      setImportPreview(res.preview);
+      setImportToken(res.token);
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** K1：确认导入。取消什么都不写。 */
+  const confirmImport = async () => {
+    if (!importToken) return;
+    setBusy(true);
+    try {
+      const done = await api.applyProjectImport({ token: importToken });
+      setImportPreview(null);
+      setImportToken(null);
+      setImportResult(`已从清单导入：新增 ${done.created} 个项目，更新 ${done.updated} 个状态。`);
+      await reload();
+      onChanged?.();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const setStatus = async (p: Project, status: Project['status']) => {
     setBusy(true);
     try {
@@ -390,9 +536,19 @@ export function ProjectsPage({
         title="项目"
         testId="projects-card"
         actions={
-          <Button kind="primary" onClick={() => setCreating(!creating)} testId="projects-new">
-            新建项目
-          </Button>
+          <>
+            <Button
+              kind="ghost"
+              disabled={busy}
+              onClick={() => void importFromList()}
+              testId="projects-import"
+            >
+              从清单导入
+            </Button>
+            <Button kind="primary" onClick={() => setCreating(!creating)} testId="projects-new">
+              新建项目
+            </Button>
+          </>
         }
       >
         {creating && (
@@ -441,6 +597,11 @@ export function ProjectsPage({
         {deleteResult && (
           <p className="note" data-testid="project-delete-result">
             {deleteResult}
+          </p>
+        )}
+        {importResult && (
+          <p className="note" data-testid="project-import-result">
+            {importResult}
           </p>
         )}
         {projects === null ? (
@@ -530,6 +691,17 @@ export function ProjectsPage({
           </ul>
         )}
       </Card>
+      {importPreview && (
+        <ImportPreview
+          preview={importPreview}
+          busy={busy}
+          onConfirm={() => void confirmImport()}
+          onCancel={() => {
+            setImportPreview(null);
+            setImportToken(null);
+          }}
+        />
+      )}
     </div>
   );
 }
