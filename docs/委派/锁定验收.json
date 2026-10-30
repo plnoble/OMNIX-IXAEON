@@ -693,7 +693,7 @@
     {
       "id": "L18",
       "title": "看门人换了代码自己重起（relay forever）",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/relay/test/acceptance/l18-forever.test.ts": "2961a9d5ce2e5bc14fd29ddc2a5968fe0958ffe494b876832c167a68b7e37330"
       }
