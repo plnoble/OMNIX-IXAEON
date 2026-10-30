@@ -50,7 +50,7 @@
 - `node scripts/acceptance.mjs run K1b`（本支树，锁定 1 个文件）：
 
 ```text
- ✓ |acceptance| apps/desktop/test/acceptance/k1-project-import-page.test.ts (4 tests) 768ms
+ ✓ |acceptance| apps/desktop/test/acceptance/k1-project-import-page.test.ts (4 tests) 699ms
 
  Test Files  1 passed (1)
       Tests  4 passed (4)
@@ -104,9 +104,9 @@ node apps\desktop\node_modules\@playwright\test\cli.js test -c scripts\real\play
 
 Running 1 test using 1 worker
 
-  ✓  1 scripts\real\k1-project-import.spec.ts:49:1 › K1 真机：5 条合成清单预览、确认导入、项目页刷新 (1.4m)
+  ✓  1 scripts\real\k1-project-import.spec.ts:49:1 › K1 真机：5 条合成清单预览、确认导入、项目页刷新 (2.0s)
 
-  1 passed (1.5m)
+  1 passed (2.5s)
 ```
 
 脚本里另外断言了：
