@@ -701,19 +701,19 @@
     {
       "id": "G1e",
       "title": "Goals 列表（只读）",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/g1e-goals-page.test.ts": "4862aa8e0790cbbc11de35bbe3e8304f22d2d8a3f8c319899a31f3f729406b89",
-        "apps/desktop/test/acceptance/g1e-goals-page-ipc.test.ts": "c88ef3b4023ec7c4004efdf96050b77f319b988b17417b5e40ff5d5d00c9cd71"
+        "apps/desktop/test/acceptance/g1e-goals-page-ipc.test.ts": "5b817e9126beeebf31bcbecb3aa001ac9d8524ff245081d2fb5531c127abda23"
       }
     },
     {
       "id": "G1eb",
       "title": "Goals 详情（只读）",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/g1eb-goals-detail.test.ts": "b6ca50a53ea19ad2940deacbb03eb603e123e9b25c3a7c9b9f620014392d197c",
-        "apps/desktop/test/acceptance/g1eb-goals-detail-ipc.test.ts": "64d3158e8f75d58d2a93ba8cdb321d08f5402a2b7a9ac14bb295ef0a4ffdf4e4"
+        "apps/desktop/test/acceptance/g1eb-goals-detail-ipc.test.ts": "00a6028c91568b32ce2130a58e6ee5b4f86e9087f9681277755d1c0eb2574b76"
       }
     }
   ]

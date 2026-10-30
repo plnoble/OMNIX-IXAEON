@@ -72,9 +72,14 @@ function seed(): { goalId: string; childId: string; todoId: string; stepIds: str
   const todo = todos.add({ title: '合成待办：找模板' });
   goals.link(goal.id, { kind: 'todo', refId: todo.id });
 
-  plans.addVersion(goal.id, { reason: '第一版太粗', steps: [{ title: '旧步骤' }] });
+  plans.addVersion(goal.id, {
+    reason: '第一版太粗',
+    assumptions: [],
+    steps: [{ title: '旧步骤' }],
+  });
   plans.addVersion(goal.id, {
     reason: '拆细一点',
+    assumptions: [],
     steps: [{ title: '收集资料' }, { title: '写初稿' }, { title: '收尾' }],
   });
   const steps = plans.stepsOf(goal.id, 2);

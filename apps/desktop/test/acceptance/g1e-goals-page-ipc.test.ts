@@ -78,9 +78,14 @@ function seed(): { parentId: string } {
   const todo = todos.add({ title: '合成待办：找模板' });
   goals.link(parent.id, { kind: 'todo', refId: todo.id });
 
-  plans.addVersion(parent.id, { reason: '第一版太粗', steps: [{ title: '旧步骤' }] });
+  plans.addVersion(parent.id, {
+    reason: '第一版太粗',
+    assumptions: [],
+    steps: [{ title: '旧步骤' }],
+  });
   plans.addVersion(parent.id, {
     reason: '拆细一点',
+    assumptions: [],
     steps: [{ title: '收集资料' }, { title: '写初稿' }, { title: '收尾' }],
   });
   const steps = plans.stepsOf(parent.id, 2);
@@ -126,6 +131,7 @@ describe('Goals 只读 IPC', () => {
     const goal = goals.create({ title: '合成目标：依赖顺序', via: 'ui' });
     plans.addVersion(goal.id, {
       reason: '验证下一步选择',
+      assumptions: [],
       steps: [{ title: '被依赖卡住' }, { title: '可以先做' }],
     });
     const [first, ready] = plans.stepsOf(goal.id, 1);

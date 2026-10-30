@@ -250,7 +250,9 @@ export function GoalsPage() {
                 data-testid={`goal-${g.id}`}
                 onClick={() => void open(g.id)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') void open(g.id);
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  void open(g.id);
                 }}
               >
                 <header>

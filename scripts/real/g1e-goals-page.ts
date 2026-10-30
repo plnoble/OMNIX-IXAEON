@@ -59,10 +59,12 @@ const main = async (): Promise<void> => {
 
   plans.addVersion(parent.id, {
     reason: '第一版太粗',
+    assumptions: [],
     steps: [{ title: '旧步骤' }],
   });
   plans.addVersion(parent.id, {
     reason: '拆细一点',
+    assumptions: [],
     steps: [{ title: '收集资料' }, { title: '写初稿' }, { title: '收尾' }],
   });
   const steps = plans.stepsOf(parent.id, 2);
