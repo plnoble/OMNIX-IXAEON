@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { AttentionItem, CockpitSnapshot, SourceHealth } from '@ixaeon/contracts';
+import type { AttentionItem, CockpitSnapshot, ProjectCard, SourceHealth } from '@ixaeon/contracts';
 import { api, errMsg } from '../api.js';
-import { Button, Card, Empty, ErrorBanner, Spinner } from '../ui.js';
+import { Button, Card, Empty, ErrorBanner, Spinner, projectStatusLabel } from '../ui.js';
 
-/** K3：驾驶舱（规格 docs/委派/K3-驾驶舱页面.md）。只读 K2 的快照；项目区在 K3b。 */
+/** K3：驾驶舱（规格 docs/委派/K3-驾驶舱页面.md）。只读 K2 的快照；项目区是 K3b。 */
 
 const SOURCE_ORDER = ['relay', 'queue', 'projects'] as const;
 const SOURCE_LABEL: Record<(typeof SOURCE_ORDER)[number], string> = {
@@ -65,9 +65,63 @@ function sourceReason(key: string, h: SourceHealth): string {
   return h.note ?? (h.status === 'stale' ? '数据可能停了' : '读取失败');
 }
 
+function ProjectBox({
+  p,
+  onStatus,
+}: {
+  p: ProjectCard;
+  onStatus: (p: ProjectCard, status: 'active' | 'paused' | 'archived') => void;
+}) {
+  return (
+    <li className="project-row" data-testid={`cockpit-project-card-${p.id}`} data-status={p.status}>
+      <div className="project-main">
+        <strong>{p.name}</strong>
+        <span className={`badge badge-${p.status}`}>{projectStatusLabel(p.status)}</span>
+        {p.description && <span className="muted">{p.description}</span>}
+        {p.currentState && (
+          <span className="muted" style={{ display: 'block', fontSize: 12 }}>
+            当前：{p.currentState}
+          </span>
+        )}
+      </div>
+      <div className="project-actions">
+        {p.status !== 'active' && (
+          <Button
+            kind="ghost"
+            onClick={() => onStatus(p, 'active')}
+            testId={`cockpit-project-resume-${p.id}`}
+          >
+            恢复
+          </Button>
+        )}
+        {p.status === 'active' && (
+          <Button
+            kind="ghost"
+            onClick={() => onStatus(p, 'paused')}
+            testId={`cockpit-project-pause-${p.id}`}
+          >
+            暂缓
+          </Button>
+        )}
+        {p.status !== 'archived' && (
+          <Button
+            kind="ghost"
+            onClick={() => onStatus(p, 'archived')}
+            testId={`cockpit-project-archive-${p.id}`}
+          >
+            放弃
+          </Button>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export function CockpitPage() {
   const [snap, setSnap] = useState<CockpitSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openPaused, setOpenPaused] = useState(false);
+  const [openArchived, setOpenArchived] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -85,6 +139,15 @@ export function CockpitPage() {
     return () => clearInterval(timer);
   }, [load]);
 
+  const setStatus = async (p: ProjectCard, status: 'active' | 'paused' | 'archived') => {
+    try {
+      await api.updateProjectStatus({ id: p.id, status });
+      await load();
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+
   if (!snap)
     return (
       <div data-testid="page-cockpit">{error ? <ErrorBanner message={error} /> : <Spinner />}</div>
@@ -98,6 +161,8 @@ export function CockpitPage() {
   const oldest = readAts.length > 0 ? Math.min(...readAts) : null;
   const ago = oldest === null ? null : Math.max(0, Math.floor((now - oldest) / 60_000));
   const runningCount = snap.running.filter((r) => r.kind === 'relay' || r.kind === 'turn').length;
+  const { active, paused, archived } = snap.projects;
+  const totalProjects = active.length + paused.length + archived.length;
 
   return (
     <div data-testid="page-cockpit">
@@ -180,19 +245,21 @@ export function CockpitPage() {
               const mins = minutesSince(r.startedAt, now);
               return (
                 <li key={`${r.kind}-${i}`} className="work-run" data-testid="cockpit-running-item">
-                  <span className="badge">
-                    {r.kind === 'relay' ? '调度器' : r.kind === 'turn' ? '这一棒' : '额度暂停'}
-                  </span>
-                  <strong>{r.role ?? (r.kind === 'relay' ? '调度器' : '—')}</strong>
+                  {r.kind !== 'relay' && (
+                    <span className="badge">{r.kind === 'turn' ? '这一棒' : '额度暂停'}</span>
+                  )}
+                  {r.kind !== 'relay' && <strong>{r.role ?? '—'}</strong>}
                   {r.taskId && <span className="muted">任务 {r.taskId}</span>}
                   <span className="muted">
-                    {r.kind === 'paused_role'
-                      ? `额度暂停到 ${hhmm(r.until)}`
-                      : mins === null
-                        ? ''
-                        : `已跑 ${mins} 分钟`}
+                    {r.kind === 'relay'
+                      ? r.text
+                      : r.kind === 'paused_role'
+                        ? `额度暂停到 ${hhmm(r.until)}`
+                        : mins === null
+                          ? ''
+                          : `已跑 ${mins} 分钟`}
                   </span>
-                  <span className="muted">{r.text}</span>
+                  {r.kind === 'turn' && <span className="muted">{r.text}</span>}
                 </li>
               );
             })}
@@ -201,7 +268,52 @@ export function CockpitPage() {
       </Card>
 
       <Card title="项目" testId="cockpit-projects">
-        <Empty testId="cockpit-projects-empty">现在没有项目。</Empty>
+        {totalProjects === 0 ? (
+          <Empty testId="cockpit-projects-empty">现在没有项目。</Empty>
+        ) : (
+          <>
+            <h3>进行中</h3>
+            {active.length === 0 ? (
+              <p className="muted">没有进行中的项目。</p>
+            ) : (
+              <ul className="project-list">
+                {active.map((p) => (
+                  <ProjectBox key={p.id} p={p} onStatus={(x, s) => void setStatus(x, s)} />
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              className="nav-item"
+              data-testid="cockpit-group-paused"
+              onClick={() => setOpenPaused(!openPaused)}
+            >
+              暂缓（{paused.length}）
+            </button>
+            {openPaused && (
+              <ul className="project-list">
+                {paused.map((p) => (
+                  <ProjectBox key={p.id} p={p} onStatus={(x, s) => void setStatus(x, s)} />
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              className="nav-item"
+              data-testid="cockpit-group-archived"
+              onClick={() => setOpenArchived(!openArchived)}
+            >
+              放弃（{archived.length}）
+            </button>
+            {openArchived && (
+              <ul className="project-list">
+                {archived.map((p) => (
+                  <ProjectBox key={p.id} p={p} onStatus={(x, s) => void setStatus(x, s)} />
+                ))}
+              </ul>
+            )}
+          </>
+        )}
       </Card>
 
       <Card title="最近动态" testId="cockpit-recent">

@@ -751,6 +751,14 @@
         "apps/desktop/test/acceptance/k3-cockpit-settings.test.ts": "01eba6d5d1ff05ea8f95fb87f574ab2924f3ba9b4b24828e40cc48ca3f95ef4c",
         "apps/desktop/test/acceptance/k3-cockpit-settings-ipc.test.ts": "c4eae8e6875373fac3f84436d096090826091f94b001c9debec5a764ab915851"
       }
+    },
+    {
+      "id": "K3b",
+      "title": "K3b 驾驶舱页面：项目区（进行中/暂缓/放弃与状态切换）",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/k3b-cockpit-projects.test.ts": "24ec02055431268949552c3639e5c2c592df4f2875194c13ef395e284c61b9ed"
+      }
     }
   ]
 }
