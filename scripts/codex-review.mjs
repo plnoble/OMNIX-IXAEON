@@ -21,6 +21,8 @@
  *   `<数据目录>/config.json` 的 roles.integrator.argv[0]（数据目录 = IXAEON_RELAY_DIR，否则
  *   ~/.ixaeon/relay）。同一份上下文和 prompt，参数固定、不给工具，结论写同一个文件，开头注明
  *   是 Claude 代审；两家都没有额度、或者找不到 Claude，才退 3。
+ * - K10a：调度器配置的 `review.codexModel` 有值就给 `codex exec` 加 `-m <值>`（驾驶舱里能选）；
+ *   没值照旧跟 Codex 自己的设置。
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -124,9 +126,14 @@ function readRelayConfig() {
     return null;
   }
 }
-const integrator = readRelayConfig()?.roles?.integrator;
+const relayConfig = readRelayConfig();
+const integrator = relayConfig?.roles?.integrator;
 const claude =
   process.env.CLAUDE_BIN || (typeof integrator?.argv?.[0] === 'string' ? integrator.argv[0] : null);
+// K10a：驾驶舱「审查（Codex）」那一行写进 review.codexModel；有值就给 codex exec 加 -m，
+// 没有就照旧跟 Codex 自己的设置。
+const codexModel =
+  typeof relayConfig?.review?.codexModel === 'string' ? relayConfig.review.codexModel.trim() : '';
 const quotaPatterns = Array.isArray(integrator?.quotaPatterns)
   ? integrator.quotaPatterns.filter((p) => typeof p === 'string' && p.length > 0)
   : ['usage_limit_reached', 'session limit'];
@@ -187,12 +194,26 @@ if (dryRun) {
 const scratch = join(tmpdir(), `ixaeon-codex-review-${id}-${process.pid}`);
 mkdirSync(scratch, { recursive: true });
 const lastMessage = join(scratch, 'last.md');
-const r = runBin(codex, ['exec', '-s', 'read-only', '-C', root, '-o', lastMessage, prompt], {
-  input: context,
-  encoding: 'utf8',
-  maxBuffer: 256 * 1024 * 1024,
-  timeout: 45 * 60 * 1000,
-});
+const r = runBin(
+  codex,
+  [
+    'exec',
+    '-s',
+    'read-only',
+    '-C',
+    root,
+    '-o',
+    lastMessage,
+    ...(codexModel ? ['-m', codexModel] : []),
+    prompt,
+  ],
+  {
+    input: context,
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+    timeout: 45 * 60 * 1000,
+  },
+);
 const log = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
 let review = existsSync(lastMessage) ? readFileSync(lastMessage, 'utf8').trim() : '';
 rmSync(scratch, { recursive: true, force: true });

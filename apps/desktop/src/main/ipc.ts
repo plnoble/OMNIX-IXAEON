@@ -19,6 +19,7 @@ import {
   markMatchedFindingsSeen,
   planProjectImport,
   readTaskChanges,
+  readRelayModels,
   recordAudit,
   removeRequirement,
   requeueFailedExtractions,
@@ -558,6 +559,8 @@ export function registerIpc(runtime: AppRuntime): void {
         relayDir: '',
         ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
       }),
+    // K10a：调度器与模型（只读名字；改的是调度器配置 / 接力补丁，下一棒生效）。relayDir 空串 = 用环境变量/默认目录。
+    getRelayModels: async () => readRelayModels({ relayDir: '' }),
     deleteConversation: async (id) => {
       runtime.conversations.delete(id);
       return { deleted: true as const };

@@ -91,6 +91,8 @@ const api: IxaIpcApi = {
   getGoalDetail: (id) => ipcRenderer.invoke('ixaeon:getGoalDetail', id),
   // K2：驾驶舱快照（只读）
   getCockpitSnapshot: () => ipcRenderer.invoke('ixaeon:getCockpitSnapshot'),
+  // K10a：调度器与模型（只读）
+  getRelayModels: () => ipcRenderer.invoke('ixaeon:getRelayModels'),
   // K3：设置页保存驾驶舱读队列用的仓库路径
   saveCockpitSettings: (input) => ipcRenderer.invoke('ixaeon:saveCockpitSettings', input),
   // K5：设置页保存手机只读页的开关与端口

@@ -28,6 +28,7 @@ import type {
 import { z } from 'zod';
 import { itemTypeSchema } from './entities.js';
 import type { CockpitSnapshot, ManualQuota } from './cockpit.js';
+import type { RelayModels } from './relayModels.js';
 import { manualQuotaSchema } from './cockpit.js';
 
 export type OverviewMatchedFindingView = {
@@ -738,6 +739,8 @@ export interface IxaIpcApi {
   getGoalDetail(id: string): Promise<GoalDetailView>;
   /** K2：驾驶舱快照（relay、队列、项目汇总；只读）。K3 的页面用它。 */
   getCockpitSnapshot(): Promise<CockpitSnapshot>;
+  /** K10a：调度器每个角色用的模型（只读名字，不含密钥与网关地址）。 */
+  getRelayModels(): Promise<RelayModels>;
   /**
    * K3：设置页保存 IXAEON 仓库路径（驾驶舱读队列用；空串 = 不读队列）。
    * K4 起同一个通道保存额度设置：只写传入的键，没传的不动。

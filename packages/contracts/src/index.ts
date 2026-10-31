@@ -5,4 +5,5 @@ export * from './api.js';
 export * from './mcp.js';
 export * from './ipc.js';
 export * from './cockpit.js';
+export * from './relayModels.js';
 export * from './modelErrors.js';
