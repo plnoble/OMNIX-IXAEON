@@ -6,7 +6,7 @@
 
 ## 已实现
 
-K4 的页面部分：驾驶舱的额度卡与项目卡片上的最近活动。源码 191 行（`Cockpit.tsx` +63/−5、
+K4 的页面部分：驾驶舱的额度卡与项目卡片上的最近活动。源码 189 行（`Cockpit.tsx` +56/−5、
 新增 `CockpitQuotas.tsx` +128）；规格要求的两块页面内容都在，真机截图脚本另算。
 
 - `apps/desktop/src/renderer/src/pages/CockpitQuotas.tsx`（新增）：每个账号一张卡——状态、各窗口
