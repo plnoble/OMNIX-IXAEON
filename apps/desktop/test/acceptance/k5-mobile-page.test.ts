@@ -198,9 +198,7 @@ describe('条件 5：手机页结构与 390px 四列', () => {
       /grid-template-columns\s*:\s*repeat\(\s*4\s*,\s*minmax\(\s*0(?:px)?\s*,\s*1fr\s*\)\s*\)/,
     );
     // 页面主体不能有写死的、比 390px 还宽的最小宽度
-    const widths = Array.from(styles.matchAll(/min-width\s*:\s*(\d+)px/g)).map((m) =>
-      Number(m[1]),
-    );
+    const widths = Array.from(styles.matchAll(/min-width\s*:\s*(\d+)px/g)).map((m) => Number(m[1]));
     expect(widths.filter((w) => w > 390)).toEqual([]);
 
     // 顶部「N 分钟前更新」
@@ -220,6 +218,8 @@ describe('条件 5：手机页结构与 390px 四列', () => {
       .map((s) => s.textContent ?? '')
       .join('\n');
     expect(scripts).toMatch(/setInterval\s*\(/);
-    expect(scripts).toMatch(/60[_\s]*000/);
+    // 整合方改严（2026-10-31）：60000 必须是 setInterval 的间隔参数——
+    // 只查「有 60000」时，算「N 分钟前」的 /60000 就能让 30 秒刷新也过
+    expect(scripts).toMatch(/setInterval\s*\([\s\S]*?,\s*60_?000\s*\)/);
   });
 });

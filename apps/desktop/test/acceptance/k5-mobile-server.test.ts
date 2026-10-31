@@ -23,11 +23,17 @@ import { request as httpRequest } from 'node:http';
 import type { IncomingHttpHeaders } from 'node:http';
 import { connect } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ipcMain } from 'electron';
-import { buildCockpitSnapshot, migrate, openDatabase, type CoreDatabase } from '@ixaeon/core';
+import {
+  buildCockpitSnapshot,
+  migrate,
+  openDatabase,
+  setSetting,
+  type CoreDatabase,
+} from '@ixaeon/core';
 import type { CockpitSnapshot } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
 import { registerIpc } from '../../src/main/ipc.js';
@@ -132,9 +138,9 @@ async function setMobile(
   await saved('saveMobileSettings', { enabled, port });
 }
 
-function isListening(port: number, timeoutMs = 400): Promise<boolean> {
+function isListening(port: number, timeoutMs = 400, host = '127.0.0.1'): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = connect({ host: '127.0.0.1', port });
+    const socket = connect({ host, port });
     let settled = false;
     const done = (value: boolean): void => {
       if (settled) return;
@@ -252,6 +258,18 @@ describe('条件 2：只绑 127.0.0.1:43192', () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers['content-type'] ?? '').toContain('text/html');
+
+    // 整合方补（2026-10-31）：address 是实现自己报的，绑了 0.0.0.0 / :: 也能报 127.0.0.1。
+    // 真去连本机的其他地址：IPv6 回环和每块网卡的地址都必须连不上。
+    const others = ['::1'];
+    for (const list of Object.values(networkInterfaces())) {
+      for (const info of list ?? []) {
+        if (!info.internal && info.family === 'IPv4') others.push(info.address);
+      }
+    }
+    for (const host of others) {
+      expect(await isListening(DEFAULT_PORT, 400, host), host).toBe(false);
+    }
   });
 });
 
@@ -289,6 +307,16 @@ describe('条件 3：只提供 /m 和 /m/snapshot，其它 404、非 GET 405', (
       });
       expect(res.status, path).toBe(405);
     }
+
+    // 整合方补（2026-10-31）：「非 GET」不只是 POST
+    for (const method of ['PUT', 'DELETE', 'PATCH']) {
+      const res = await request(DEFAULT_PORT, '/m/snapshot', {
+        method,
+        host: `127.0.0.1:${DEFAULT_PORT}`,
+      });
+      expect(res.status, method).toBe(405);
+      expect(res.body, method).not.toContain('generatedAt');
+    }
   });
 });
 
@@ -305,7 +333,19 @@ describe('条件 4：快照和桌面版同一份', () => {
         .prepare(
           'INSERT INTO projects (id, name, status, description, current_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
         )
-        .run('p1', '合成项目', 'active', null, null, FIXED_NOW.toISOString(), FIXED_NOW.toISOString());
+        .run(
+          'p1',
+          '合成项目',
+          'active',
+          null,
+          null,
+          FIXED_NOW.toISOString(),
+          FIXED_NOW.toISOString(),
+        );
+      // 整合方补（2026-10-31）：桌面版驾驶舱读设置项里的仓库路径，手机页也要读同一项。
+      // 合成的空目录（不是 git 仓库）：队列那一路的结果和「没设路径」不同，写死空串会被看出来。
+      const repo = tempDir('ixaeon-k5-repo-');
+      setSetting(database, 'cockpit.ixaeon_repo', repo);
       const target = makeServer(database);
       const saved = ipcFor(database, target);
       await setMobile(saved, true, DEFAULT_PORT);
@@ -317,9 +357,10 @@ describe('条件 4：快照和桌面版同一份', () => {
       const served = JSON.parse(res.body) as CockpitSnapshot;
       const direct = await buildCockpitSnapshot(database, {
         relayDir,
-        ixaeonRepo: '',
+        ixaeonRepo: repo,
         now: FIXED_NOW,
       });
+      expect(direct.sources.queue.status).not.toBe('missing');
 
       const withoutGeneratedAt = (s: CockpitSnapshot): Omit<CockpitSnapshot, 'generatedAt'> => {
         const copy = { ...s } as Partial<CockpitSnapshot> & Record<string, unknown>;
@@ -403,6 +444,12 @@ describe('条件 7：Host 白名单与 CORS', () => {
       `127.0.0.1:${DEFAULT_PORT + 1}`,
       'my-machine.some-tailnet.ts.net.evil.example',
       `evil.example:${DEFAULT_PORT}`,
+      // 整合方补（2026-10-31）：只认「.ts.net」结尾，不是「ts.net」结尾；前缀匹配也不行
+      'evilts.net',
+      `evilts.net:${DEFAULT_PORT}`,
+      `localhost:${DEFAULT_PORT + 1}`,
+      `127.0.0.1.evil.example:${DEFAULT_PORT}`,
+      `localhost.evil.example:${DEFAULT_PORT}`,
     ];
     for (const host of rejected) {
       const res = await request(DEFAULT_PORT, '/m/snapshot', { host });
