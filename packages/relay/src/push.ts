@@ -204,10 +204,21 @@ function dirReason(dir: string, roleCwd: string, shared: string): string | null 
   return `${dir} 既不是调度器所在仓库的工作目录，origin 也和它不一样`;
 }
 
-function lineReason(line: PushLine, roleCwd: string, shared: string): string | null {
+function lineReason(
+  line: PushLine,
+  roleCwd: string,
+  shared: string,
+  substitute = false,
+): string | null {
   const dirBad = dirReason(line.dir, roleCwd, shared);
   if (dirBad) return dirBad;
-  if (line.remote !== 'main' && !line.remote.startsWith('dev/')) {
+  // K9b 契约第 3 条：替补只许推 main（只能放文档，核对时查）和 integrate-sub/ 开头的分支；
+  // 开发照旧 main / dev/。
+  if (substitute) {
+    if (line.remote !== 'main' && !line.remote.startsWith('integrate-sub/')) {
+      return `远端分支只能是 main 或者以 integrate-sub/ 开头：${line.remote}`;
+    }
+  } else if (line.remote !== 'main' && !line.remote.startsWith('dev/')) {
     return `远端分支只能是 main 或者以 dev/ 开头：${line.remote}`;
   }
   if (badName(line.local)) return `本地分支名里不能有 + : 空格，也不能以 - 开头：${line.local}`;
@@ -220,15 +231,17 @@ function lineReason(line: PushLine, roleCwd: string, shared: string): string | n
  * 有一条不过 → `pushes` 空、`stopReason` 写「第 N 棒替开发推送被拒：<原因>」；
  * 推的时候有一条失败 → 停下、「第 N 棒替开发推送失败：<远端分支>」，后面的不推。
  * L13b：每一次推都最多试 3 次（2 秒 / 5 秒），所以这个函数是 async 的。
+ * K9b：`opts.substitute` 为 true 时只许推 main 和 `integrate-sub/`（替补整合方）。
  */
 export async function relayPushes(
   lines: PushLine[],
   role: RoleConfig,
   turnNumber: number,
   shared = findSharedCheckout(),
+  opts: { substitute?: boolean } = {},
 ): Promise<PushResult> {
   for (const line of lines) {
-    const bad = lineReason(line, role.cwd, shared);
+    const bad = lineReason(line, role.cwd, shared, opts.substitute === true);
     if (bad) return { pushes: [], stopReason: `第 ${turnNumber} 棒替开发推送被拒：${bad}` };
   }
   const pushes: PushRecord[] = [];

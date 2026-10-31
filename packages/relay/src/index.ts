@@ -3,9 +3,22 @@ export * from './types.js';
 export * from './lock.js';
 export * from './store.js';
 export { decideNextTurn, leadingId, parseMainTable, tierOfTask } from './queue.js';
-export { checkConfig, findSharedCheckout, FORBIDDEN_SWITCHES, isInside } from './config.js';
+export {
+  checkConfig,
+  findSharedCheckout,
+  FORBIDDEN_SWITCHES,
+  isInside,
+  roleConfigFor,
+  substituteConfig,
+} from './config.js';
 export { buildTurnPrompt, writeTurnPrompt } from './prompt.js';
-export { verifyTurn, type VerifyResult } from './verify.js';
+export {
+  verifyTurn,
+  remoteHeads,
+  substitutePushViolations,
+  type VerifyOptions,
+  type VerifyResult,
+} from './verify.js';
 export { fetchMain, git } from './git.js';
 export { dailyDue, dailyEvent } from './daily.js';
 export { parseRoleOutput, type RoleOutput } from './output.js';

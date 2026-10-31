@@ -100,6 +100,9 @@ const buildConfig = (o: {
   for (const key of Object.keys(bag)) {
     if (key.startsWith('_')) delete bag[key];
   }
+  // K9b：替补整合方是可选的——示例里那份要用户自己建补丁、自己填模型；init 不能把它写进去，
+  // 否则整合方一撞额度就会拿示例里的占位路径去起 DSH。
+  delete (example.roles as Record<string, unknown>).integratorSubstitute;
   const integrator = example.roles.integrator;
   const developer = example.roles.developer;
   integrator.argv = integrator.argv.map((a) => {

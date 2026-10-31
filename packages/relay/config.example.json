@@ -50,6 +50,19 @@
       ],
       "label": "DSH + <网关>/<模型>",
       "timeoutSeconds": 1200
+    },
+    "integratorSubstitute": {
+      "argv": [
+        "node",
+        "{relay_root}/packages/relay/bin/dsh.mjs",
+        "--profile",
+        "headless",
+        "--json",
+        "--patch",
+        "<家目录>/.dsh/ixaeon-integrate.patch.yml",
+        "读 {prompt_file}，照里面做。"
+      ],
+      "label": "DSH + <网关>/<模型>（替补整合方）"
     }
   },
   "idleSeconds": 60,

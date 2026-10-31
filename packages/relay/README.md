@@ -47,6 +47,26 @@
      ```
 
      替补只在 Codex 报额度用完时起：同一份审查上下文，在一个临时、只读用途的 git worktree 里跑（它改了什么也只改在临时副本里，跑完删掉），结论写进 `<任务号>-Codex审查.md`，开头注明「由替补审查代审（`label`）」。没配替补、或者替补也撞额度 → 审查退 3（分支先等着），不再找 Claude。
+
+   - **（可选）整合方撞额度时谁顶班（K9b）**：整合方（Claude）歇着的时候，复审、测试待审、飞书回复这三类活可以改派给**替补整合方**（也是 DSH + 网关模型）。自己建一份补丁：把 `~/.dsh/ixaeon-relay.patch.yml` 复制成 `~/.dsh/ixaeon-integrate.patch.yml`，只改 `agent-default-model` 的 `provider:`、`model:` 两行（可以和审查替补用同一份）。再在 `config.json` 的 `roles` 里加 `integratorSubstitute`：
+
+     ```json
+     "integratorSubstitute": {
+       "argv": [
+         "node",
+         "{relay_root}/packages/relay/bin/dsh.mjs",
+         "--profile",
+         "headless",
+         "--json",
+         "--patch",
+         "<家目录>/.dsh/ixaeon-integrate.patch.yml",
+         "读 {prompt_file}，照里面做。"
+       ],
+       "label": "DSH + <网关>/<模型>（替补整合方）"
+     }
+     ```
+
+     它只在 `pausedUntil.integrator` 还没到的时候起；整合方没在歇、或者没配它 → 行为和原来一模一样。**替补只能预审，不能放行**：不合 `main`、不锁验收测试（不跑 `acceptance.mjs done`、不改 `锁定验收.json`）、不写迁移；复审完把意见写进交付说明的「替补整合方预审」一段，那一行状态改成 `待复审（整合方）：替补审过（<日期>）：<结论>；<原来的要点>`（前缀不变，Claude 回来接着办；下一棒替补看到「替补审过」就不再接这一行）。只许把文档推到 `main`（`docs/委派/` 下的队列那一行和交付说明），代码只许推 `integrate-sub/` 开头的分支。规划棒不派给它。`relay init` **不会**把这段写进生成的配置——补丁和模型要你自己选。
 4. **确认开发那份工作目录**。开发的 `cwd` 是 `<工作目录根>`（就是 `Worktrees/IXAEON` 这一层），因为开发要照 `AGENTS.md` 在它底下用 `git worktree` 建自己的活儿目录；整合方的 `cwd` 是它自己的 `relay-int`，**不和开发共用**。
 
 ## 日常怎么使
@@ -143,7 +163,7 @@
 
 | 文件              | 是什么                                                                                                                                        | 能不能动                                        |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `config.json`     | 两个角色的命令行与 `cwd`、可选的替补审查（`roles.reviewer`）、`idleSeconds`、`localUserCheck`                                                 | 手改要看懂再改（改坏了配置检查会拒绝启动）      |
+| `config.json`     | 两个角色的命令行与 `cwd`、可选的替补审查（`roles.reviewer`）与替补整合方（`roles.integratorSubstitute`）、`idleSeconds`、`localUserCheck`     | 手改要看懂再改（改坏了配置检查会拒绝启动）      |
 | `state.json`      | `turns`（跑了几棒）、`stoppedReason`、`pausedUntil`、`notify.sent`（飞书限频）、`lastDailyDate`、`idleDay`（没活发到哪天）、`lastMorningDate` | **别手改**；`relay resume` 会动 `stoppedReason` |
 | `ledger.jsonl`    | 一棒一行：`role`、`kind`、`taskId`、起止时间、退出码、`usage`（Claude 那一棒花了多少）、`statusBefore/After`、`doneLine`、`violations`        | 看完想留档就先拷走，删了不影响运行              |
 | `turns/<第几棒>/` | `prompt.md`（这一棒的交代）、`stdout.txt`、`stderr.txt`（角色的原样输出）                                                                     | 旧目录可以删（排查问题时就靠它）                |

@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { roleConfigFor } from './config.js';
 import { parseRoleOutput } from './output.js';
 import { writeTurnPrompt } from './prompt.js';
 import { nextWeeklyReset } from './weekly.js';
@@ -62,7 +63,7 @@ export async function runTurn(
     inboxMessages?: Array<{ at: string; text: string }>;
   },
 ): Promise<TurnResult> {
-  const role = config.roles[turn.role];
+  const role = roleConfigFor(config, turn.role);
   const dir = join(opts.dataDir, 'turns', String(opts.turnNumber));
   const promptPath = writeTurnPrompt(turn, {
     dataDir: opts.dataDir,
@@ -70,6 +71,7 @@ export async function runTurn(
     pushByRelay: role.pushByRelay === true,
     cwd: role.cwd,
     inboxMessages: opts.inboxMessages,
+    substituteLabel: role.label,
   });
   // 整合方改：嵌在参数里的也换（真 Claude 要写成 -p "读 {prompt_file} 照做"）
   // L10 契约第 5 条：`{relay_root}` 一起换，值是正在跑的这份代码的仓库根。

@@ -12,6 +12,39 @@ const ASK =
 const PUSH =
   '这一棒的推送由调度器替你做：你只提交，不要 git push。要推的，在最后一行之前每条写一行：RELAY-PUSH <工作目录的绝对路径> <本地分支> <远端分支>。远端分支只能是 main 或者以 dev/ 开头。';
 
+/** K9b 契约第 3 条：替补整合方的推送（main 只放文档、代码只许 integrate-sub/，不许推 dev/）。 */
+const SUBSTITUTE_PUSH =
+  '这一棒的推送由调度器替你做：你只提交，不要 git push。要推的，在最后一行之前每条写一行：RELAY-PUSH <工作目录的绝对路径> <本地分支> <远端分支>。远端分支只能是 main 或者以 integrate-sub/ 开头。';
+
+/**
+ * K9b 契约第 3 条：替补整合方交代开头那段（能做 / 不能做，逐字照规格「要什么」第 2、3 条）。
+ * 标签来自配置里的 `roles.integratorSubstitute.label`。
+ */
+const SUBSTITUTE_RULES = (label: string): string =>
+  `你是替补整合方（${label}）。这一棒只做队列里的一行，照 AGENTS.md 做，并照 docs/委派/整合方手册.md 做。\n\n` +
+  '你能做的：读规格、测试、实现、交付说明，跑测试和变异检查，把复审意见写进交付说明的追加段' +
+  `「替补整合方预审（<日期>，${label}）」；B 档测试有问题，可以把改正后的测试提交到 ` +
+  'integrate-sub/<任务号> 分支；飞书回复棒照现在的飞书回复棒办（只改 docs/）。\n\n' +
+  '你不能做的：不合 main、不锁验收测试（不改 docs/委派/锁定验收.json、不跑 acceptance.mjs done）、' +
+  '不写迁移（不改 packages/core/src/db/migrations.ts）；代码只许推到 integrate-sub/ 开头的分支，' +
+  '不许推 main、不许推 dev/ 分支。复审棒推到 main 的只许是 docs/委派/ 下的文件（队列那一行、' +
+  '交付说明的追加段）；飞书回复棒照旧只许改 docs/。';
+
+/** K9b：替补的飞书回复棒——开头那段 + 现有的回复棒正文 + 替补的推送规矩。 */
+const buildSubstituteInboxPrompt = (
+  label: string,
+  messages: Array<{ at: string; text: string }>,
+): string => {
+  const base = buildInboxPrompt(messages);
+  // buildInboxPrompt 的开头是「你是整合方（统筹）。」，替补换成自己的那一段；其余一字不动。
+  const body = base.replace(/^你是整合方（统筹）。/, '');
+  const beforeLast = body.replace(
+    /\n\n做完在最后一行输出：RELAY-DONE inbox /,
+    `\n\n${SUBSTITUTE_PUSH}\n\n做完在最后一行输出：RELAY-DONE inbox `,
+  );
+  return `${SUBSTITUTE_RULES(label)}\n\n${beforeLast}`;
+};
+
 /** L6b 契约第 3 条：开发的仓库是 `<cwd>/repo`，工作目录建在 `<cwd>` 下面。逐字照规格（`<cwd>/repo` 字面拼接）。 */
 const ownRepo = (cwd: string): string =>
   `你的仓库是 ${cwd}/repo：AGENTS.md 里说的「共用检出目录」换成它；工作目录照 AGENTS.md 用 node scripts/worktree.mjs 建，会落在 ${cwd} 下面。`;
@@ -50,19 +83,33 @@ export function buildTurnPrompt(
     cwd?: string;
     /** L16 契约第 6 条：飞书回复棒交代里要列的原话（按时间先后）；行为在实现阶段补。 */
     inboxMessages?: Array<{ at: string; text: string }>;
+    /** K9b：替补整合方的标签（写进「你是替补整合方」那段）；别的角色用不到。 */
+    substituteLabel?: string;
   },
 ): string {
   if (turn.kind === 'integrator-plan') return buildPlanPrompt(opts.turnNumber);
-  if (turn.kind === 'integrator-inbox') return buildInboxPrompt(opts.inboxMessages ?? []);
+  const isSub = turn.role === 'integrator-substitute';
+  if (turn.kind === 'integrator-inbox') {
+    // K9b 契约第 4 条：整合方在歇时，飞书回复棒由替补来办；开头换成替补那段，推送规矩也换成替补的。
+    if (isSub)
+      return buildSubstituteInboxPrompt(opts.substituteLabel ?? '', opts.inboxMessages ?? []);
+    return buildInboxPrompt(opts.inboxMessages ?? []);
+  }
   const integ = turn.role === 'integrator';
-  const role = integ
-    ? '你是整合方（统筹）。这一棒只做队列里的一行，照 AGENTS.md 做，并照 docs/委派/整合方手册.md 做。'
-    : '你是开发 agent（名字 dev）。这一棒只做队列里的一行，照 AGENTS.md 做。';
-  const stop = integ
-    ? '停点：这一行复审完就停（并入 main，或者把状态改成你给的结论）。'
-    : '停点：这一行到了 AGENTS.md 说的停点就停（B 档推了测试或实现、A 档审过合并，或者转给整合方）。';
-  const push = opts.pushByRelay ? `\n\n${PUSH}` : '';
-  const own = opts.pushByRelay && opts.cwd ? `\n\n${ownRepo(opts.cwd)}` : '';
+  const role = isSub
+    ? SUBSTITUTE_RULES(opts.substituteLabel ?? '')
+    : integ
+      ? '你是整合方（统筹）。这一棒只做队列里的一行，照 AGENTS.md 做，并照 docs/委派/整合方手册.md 做。'
+      : '你是开发 agent（名字 dev）。这一棒只做队列里的一行，照 AGENTS.md 做。';
+  const stop = isSub
+    ? '停点：复审完、把意见写进交付说明的追加段、把这一行的状态改成「<原来的前缀>：替补审过（<日期>）：<一句话结论>；<原来的要点>」就停（不合 main、不锁、不写迁移；测试要改就推 integrate-sub/<任务号>）。'
+    : integ
+      ? '停点：这一行复审完就停（并入 main，或者把状态改成你给的结论）。'
+      : '停点：这一行到了 AGENTS.md 说的停点就停（B 档推了测试或实现、A 档审过合并，或者转给整合方）。';
+  const push = opts.pushByRelay ? `\n\n${isSub ? SUBSTITUTE_PUSH : PUSH}` : '';
+  // L6b 契约第 3 条只给开发：它的仓库是 `<cwd>/repo`。替补在整合方的工作目录里干，没有这层。
+  const own =
+    opts.pushByRelay && opts.cwd && turn.role === 'developer' ? `\n\n${ownRepo(opts.cwd)}` : '';
   const head =
     `${role}\n\n这是第 ${opts.turnNumber} 棒。\n\n序号：${turn.taskId}\n` +
     `任务号：${leadingId(turn.task)}（分支、工作目录、交付说明都用它；序号只是它在队列里第几行）\n` +
@@ -79,6 +126,7 @@ export function writeTurnPrompt(
     pushByRelay?: boolean;
     cwd?: string;
     inboxMessages?: Array<{ at: string; text: string }>;
+    substituteLabel?: string;
   },
 ): string {
   const dir = join(opts.dataDir, 'turns', String(opts.turnNumber));
@@ -91,6 +139,7 @@ export function writeTurnPrompt(
       pushByRelay: opts.pushByRelay,
       cwd: opts.cwd,
       inboxMessages: opts.inboxMessages,
+      substituteLabel: opts.substituteLabel,
     }),
     'utf8',
   );

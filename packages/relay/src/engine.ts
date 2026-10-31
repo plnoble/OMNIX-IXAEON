@@ -1,5 +1,6 @@
 /** 命令背后的逻辑（第 9 条）：定一棒、跑一棒、核对、记账；越界就停、resume 之后接着；L2b 接飞书。 */
 import { createHash } from 'node:crypto';
+import { roleConfigFor, substituteConfig } from './config.js';
 import { dailyDue, dailyEvent } from './daily.js';
 import { ensureDeps } from './deps.js';
 import { git } from './git.js';
@@ -16,7 +17,7 @@ import {
   saveState,
   type LedgerEntry,
 } from './store.js';
-import { diffPlanRows, verifyTurn } from './verify.js';
+import { diffPlanRows, remoteHeads, verifyTurn } from './verify.js';
 import type { RelayConfig, RelayState } from './types.js';
 
 const BJ = 8 * 3_600_000;
@@ -121,9 +122,12 @@ export async function runOnce(
   }
   // L16 契约第 6 条：inbox.jsonl 里还没办的（id 不在 inboxDone 里），有几条就派飞书回复棒。
   const pending = pendingInbox(dataDir, state.inboxDone ?? []);
+  // K9b 契约第 1 条：配了可用的替补、且整合方在歇，整合方的活才可能改派给替补。
+  const substitute = substituteConfig(config) !== null;
   const decision = decideNextTurn(queueMd, state, now, {
     planPerDay: config.planPerDay,
     inboxPending: pending.length,
+    integratorSubstitute: substitute,
   });
   if ('idle' in decision) {
     console.log(`没活：${decision.idle}`);
@@ -151,14 +155,24 @@ export async function runOnce(
     return decision.idle === 'stopped' ? 'stopped' : 'idle';
   }
   const turn = state.turns + 1;
+  // K9b：替补在整合方的工作目录里干（读 origin/main、提交文档），依赖也给它装一次。
+  const effectiveRole = roleConfigFor(config, decision.role);
   // L10 契约第 4 条：整合方的棒开之前，给它 cwd 装一次依赖；装不上就当这一轮没开（不建 turns/、不记账、不停下）。
-  if (decision.role === 'integrator') {
-    if (ensureDeps(config.roles.integrator.cwd) === 'failed') {
-      console.log('没开棒：整合方的工作目录装不上依赖');
+  if (decision.role === 'integrator' || decision.role === 'integrator-substitute') {
+    if (ensureDeps(effectiveRole.cwd) === 'failed') {
+      console.log(
+        decision.role === 'integrator'
+          ? '没开棒：整合方的工作目录装不上依赖'
+          : '没开棒：替补整合方的工作目录装不上依赖',
+      );
       return 'idle';
     }
   }
   state.mainShaAtTurnStart = git(config.roles.integrator.cwd, ['rev-parse', 'origin/main']).out;
+  // K9b 契约第 4 条：替补开棒前记下 origin 上已有的分支，跑完比对它有没有推 integrate-sub/ 以外的。
+  if (decision.role === 'integrator-substitute') {
+    state.remoteHeadsAtTurnStart = remoteHeads(effectiveRole.cwd) ?? undefined;
+  }
   // L9 契约第 3、4 条：派了规划棒就先记下这一次（日子、次数、队列全文的 sha256），跑之前存盘。
   if (decision.kind === 'integrator-plan') {
     const today = beijingDay(now.getTime());
@@ -178,15 +192,22 @@ export async function runOnce(
   });
   // L6 契约第 4 条：标了 pushByRelay 的角色，替它把这一棒要推的推上去。**先推后端**再核对——
   // 替推上去的东西（比如「并入 B 档」）也要被核对到。
-  const role = config.roles[decision.role];
+  const role = effectiveRole;
+  const pushLines = parsePushLines(readTurnStdout(result.stdoutPath));
   const push = role.pushByRelay
-    ? await relayPushes(parsePushLines(readTurnStdout(result.stdoutPath)), role, turn)
+    ? await relayPushes(pushLines, role, turn, undefined, {
+        substitute: decision.role === 'integrator-substitute',
+      })
     : null;
-  // 整合方改（2026-10-23）：只有一条都没推（被拒）才跳过核对；推上去过东西（哪怕后面一条失败了）照样核对
+  // 整合方改（2026-10-23）：只有一条都没推（被拒）才跳过核对；推上去过东西（哪怕后面一条失败了）照样核对。
+  // K9b：替补被拒的那一条也要核对——「推了 dev/ 分支」本身就是越界，档位记进记账。
   const verdict =
-    push?.stopReason && push.pushes.length === 0
+    push?.stopReason && push.pushes.length === 0 && decision.role !== 'integrator-substitute'
       ? { violations: [], mainSha: null }
-      : await verifyTurn(decision, config, state);
+      : await verifyTurn(decision, config, state, {
+          pushRemotes:
+            decision.role === 'integrator-substitute' ? pushLines.map((p) => p.remote) : undefined,
+        });
   // 拉不下来就没法核对：停下，做完后的状态也不猜（规格末尾第 4 条）。
   const after = verdict.mainSha === null ? null : await readMainQueue(config);
   // L9 契约第 8 条：规划棒的 statusAfter 是「加了 <N> 行」，不是队列里某一行的状态。
@@ -221,12 +242,15 @@ export async function runOnce(
     ...(push && push.pushes.length ? { pushes: push.pushes } : {}),
   });
   state.turns = turn;
+  // K9b 契约第 5 条：记账的 role 照原样是 `integrator-substitute`；给人看的地方写明「替补整合方（标签）」。
+  const who =
+    decision.role === 'integrator-substitute' ? `替补整合方（${role.label ?? ''}）` : decision.role;
   const stopReason =
     push?.stopReason ??
     (verdict.violations.includes('verify-fetch-failed')
       ? `第 ${turn} 棒之后拉不下来 origin/main，没法核对`
       : verdict.violations.length
-        ? `第 ${turn} 棒越界（${decision.role}）：${verdict.violations.join('、')}`
+        ? `第 ${turn} 棒越界（${who}）：${verdict.violations.join('、')}`
         : null);
   if (stopReason) state.stoppedReason = stopReason;
   // 什么时候发（规格契约第 4 条的表）：停下 → stopped；撞额度 → paused；等用户 → needs-user。
@@ -266,6 +290,7 @@ export async function runOnce(
       await notifier.notify({
         kind: 'paused',
         role: decision.role,
+        ...(decision.role === 'integrator-substitute' ? { label: role.label ?? '' } : {}),
         until: state.pausedUntil[decision.role]!,
       });
     }
@@ -289,12 +314,18 @@ export async function runOnce(
     // 往群里发整合方做了什么。没有 RELAY-DONE（崩了、撞额度、超时）→ 不记，下一棒再派。
     if (decision.kind === 'integrator-inbox' && !stopReason && inboxSummary) {
       state.inboxDone = [...(state.inboxDone ?? []), ...pending.map((p) => p.id)].slice(-200);
-      await notifier.notify({ kind: 'inbox-done', summary: inboxSummary });
+      await notifier.notify({
+        kind: 'inbox-done',
+        summary: inboxSummary,
+        ...(decision.role === 'integrator-substitute'
+          ? { role: decision.role, label: role.label ?? '' }
+          : {}),
+      });
     }
   }
   saveState(dataDir, state);
   console.log(
-    `第 ${turn} 棒 ${decision.role} ${decision.kind} 行 ${decision.taskId} → ${statusAfter ?? '?'}` +
+    `第 ${turn} 棒 ${who} ${decision.kind} 行 ${decision.taskId} → ${statusAfter ?? '?'}` +
       // 整合方改（2026-10-24）：停下的原因整句打出来（替推失败原来不打，第 24 棒停了终端里看不出来）
       (stopReason ? `｜停下：${stopReason}` : ''),
   );

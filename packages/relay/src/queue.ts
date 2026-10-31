@@ -126,6 +126,8 @@ export function decideNextTurn(
   opts: {
     planPerDay?: number;
     /** L16 契约第 6 条：inbox.jsonl 里还没办的条数，由 runOnce 算出来。 */ inboxPending?: number;
+    /** K9b 契约第 1 条：配了可用的 `roles.integratorSubstitute` 才为 true；没配时行为一点不变。 */
+    integratorSubstitute?: boolean;
   } = {},
 ): Turn | Idle {
   if (state.stoppedReason) return { idle: 'stopped' };
@@ -136,6 +138,8 @@ export function decideNextTurn(
   };
   const iOk = !paused('integrator');
   const dOk = !paused('developer');
+  // K9b 契约第 1 条：替补只在整合方于未来某个时刻才「当班」；配了、但替补自己也在歇 → 不派。
+  const sOk = !iOk && !!opts.integratorSubstitute && !paused('integrator-substitute');
   // L16 契约第 6 条：用户在飞书里回了话、整合方没在歇 → 先派飞书回复棒（优先于复审；不算规划次数）。
   if (iOk && (opts.inboxPending ?? 0) > 0) {
     return {
@@ -146,9 +150,25 @@ export function decideNextTurn(
       status: `${opts.inboxPending} 条`,
     };
   }
+  // K9b 契约第 4 条：整合方在歇时，飞书回复棒改派替补（和前一条同次序）。
+  if (sOk && (opts.inboxPending ?? 0) > 0) {
+    return {
+      role: 'integrator-substitute',
+      kind: 'integrator-inbox',
+      taskId: 'inbox',
+      task: '用户在飞书里说的话',
+      status: `${opts.inboxPending} 条`,
+    };
+  }
   if (iOk) {
     const r = rows.find((x) => kindOf(x.status) === 'integrator-review');
     if (r) return turnOf('integrator', 'integrator-review', r);
+  } else if (sOk) {
+    // K9b 契约第 2 条：状态里已经有「替补审过」的行跳过（替补审一次就够，留给 Claude 回来放行）。
+    const r = rows.find(
+      (x) => kindOf(x.status) === 'integrator-review' && !x.status.includes('替补审过'),
+    );
+    if (r) return turnOf('integrator-substitute', 'integrator-review', r);
   }
   if (dOk) {
     const r =
@@ -156,11 +176,12 @@ export function decideNextTurn(
       rows.find((x) => kindOf(x.status) === 'developer-claim' && depsDone(rows, x.deps));
     if (r) return turnOf('developer', kindOf(r.status)!, r);
   }
-  if (!iOk && !dOk) return { idle: 'all-paused' };
+  if (!iOk && !dOk && !sOk) return { idle: 'all-paused' };
   const idle: Idle['idle'] = rows.some((r) => !r.status.startsWith('已完成'))
     ? 'all-blocked'
     : 'queue-empty';
   const perDay = opts.planPerDay;
+  // K9b 契约第 5 条：规划棒不派给替补——只在整合方当班时规划。
   if (iOk && typeof perDay === 'number' && perDay > 0) {
     const plan = state.plan;
     const today = beijingDay(now.getTime());

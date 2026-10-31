@@ -9,7 +9,13 @@ import { relayDir } from '../datadir.js';
 export type RelayEvent =
   | { kind: 'stopped'; reason: string; taskId?: string; task?: string }
   | { kind: 'needs-user'; taskId: string; task: string; status: string }
-  | { kind: 'paused'; role: 'integrator' | 'developer'; until: string }
+  /** K9b 契约第 5 条：替补整合方撞额度也发一条，写明「替补整合方（标签）」。 */
+  | {
+      kind: 'paused';
+      role: 'integrator' | 'developer' | 'integrator-substitute';
+      label?: string;
+      until: string;
+    }
   /** L15 契约第 3 条：`waiting` 有值时列出「等用户」的行；空数组表示没有要回答的。 */
   | {
       kind: 'idle';
@@ -18,8 +24,13 @@ export type RelayEvent =
     }
   /** L9 契约第 7 条：规划棒加了几行（按主表里的先后）。 */
   | { kind: 'planned'; rows: Array<{ no: string; task: string; status: string }> }
-  /** L16 契约第 6 条：整合方办完了用户在飞书里说的那几条。 */
-  | { kind: 'inbox-done'; summary: string }
+  /** L16 契约第 6 条：整合方办完了用户在飞书里说的那几条。K9b：替补办的要写明。 */
+  | {
+      kind: 'inbox-done';
+      summary: string;
+      role?: 'integrator' | 'integrator-substitute';
+      label?: string;
+    }
   /** L15 契约第 1 条：队列里一行从「没完成」变成「已完成」。 */
   | { kind: 'done'; taskId: string; task: string; turns: number; hours: number; costUsd: number }
   /** L15 契约第 5 条：早报（北京时间 9 点之后发一次）。 */
@@ -65,7 +76,12 @@ export function formatEvent(e: RelayEvent): string {
   } else if (e.kind === 'needs-user') {
     lines.push(`要你拍板：第 ${e.taskId} 行「${e.task}」现在是「${e.status}」。`);
   } else if (e.kind === 'paused') {
-    const who = e.role === 'integrator' ? '统筹' : '开发';
+    const who =
+      e.role === 'integrator'
+        ? '统筹'
+        : e.role === 'developer'
+          ? '开发'
+          : `替补整合方（${e.label ?? ''}）`;
     lines.push(`${who}撞上额度，歇到 ${beijing(e.until)}。`);
   } else if (e.kind === 'idle') {
     lines.push(IDLE[e.why]);
@@ -84,7 +100,8 @@ export function formatEvent(e: RelayEvent): string {
     lines.push(`整合方排了 ${e.rows.length} 件新活：`);
     for (const r of e.rows) lines.push(`- 第 ${r.no} 行 ${r.task}（${r.status}）`);
   } else if (e.kind === 'inbox-done') {
-    lines.push(`整合方处理了你的回复：${e.summary}`);
+    const who = e.role === 'integrator-substitute' ? `替补整合方（${e.label ?? ''}）` : '整合方';
+    lines.push(`${who}处理了你的回复：${e.summary}`);
   } else if (e.kind === 'done') {
     lines.push(`第 ${e.taskId} 行做完了：${e.task}`);
     const cost = e.costUsd > 0 ? `，整合方花了 ${e.costUsd.toFixed(2)} 美元` : '';
