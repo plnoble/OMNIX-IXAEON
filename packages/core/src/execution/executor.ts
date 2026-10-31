@@ -16,8 +16,18 @@ import {
 import { dirname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ErrorCodes, IxaError, type CodingTask } from '@ixaeon/contracts';
+import { z } from 'zod';
 import type { CoreDatabase } from '../db/database.js';
 import { CodingTaskStore } from './taskStore.js';
+import {
+  cleanProblems,
+  fixTestsBrief,
+  REVIEW_SYSTEM,
+  reviewUser,
+  twiceProblemsReason,
+  type ReviewProvider,
+  type TestReviewProblem,
+} from './testReview.js';
 import { landTask, toLf } from './landing.js';
 import { FORBIDDEN_DIRS } from './workspaceCopy.js';
 import { SkillCandidateStore } from '../runtime/skills.js';
@@ -47,10 +57,24 @@ export const DEFAULT_NOTE_VERIFY: string[][] = [
   ],
 ];
 
+/**
+ * D5b 契约第 7 条：核对的结果。
+ * - `passed`：某一次核下来没问题（rounds 是 1 或 2）；
+ * - `skipped`：没配核心模型（rounds 0）；
+ * - `error`：核的时候模型出错（不挡任务，照 D5a 锁定）；
+ * - `failed`：两次还有问题、或者补测试那一步出了问题（任务停下，不写实现）。
+ */
+export interface AcceptanceReview {
+  status: 'passed' | 'skipped' | 'error' | 'failed';
+  rounds: number;
+  problems: TestReviewProblem[];
+  note: string | null;
+}
+
 export interface ExecutorReport {
-  claimedSuccess: boolean;
-  summary: string;
   changedPaths: string[];
+  summary: string;
+  claimedSuccess: boolean;
   testsModified: boolean;
   raw: string;
   /**
@@ -61,12 +85,34 @@ export interface ExecutorReport {
   /**
    * D5a：这次任务的验收测试。只有走「验收先行」的任务才有（有验收条件、没有验证命令）。
    * files 是第 1 步写出来的测试文件；locked 是锁没锁定；没锁定时 reason 是原因。
+   * D5b 契约第 7 条：走了核对这一步的任务还带 `review`。
    */
-  acceptanceTests?: { files: string[]; locked: boolean; reason: string | null };
+  acceptanceTests?: {
+    files: string[];
+    locked: boolean;
+    reason: string | null;
+    review?: AcceptanceReview;
+  };
 }
 
 /** D5a：验收测试所在的目录名（副本里的 ixaeon-acceptance/<任务号前 8 位>/）。 */
 export const ACCEPTANCE_DIR = 'ixaeon-acceptance';
+
+/**
+ * D5b 契约第 3 条：核对结果的结构（zod）。`condition` 用整数范围在拿到之后自己筛
+ * （契约要求把不在 1..条件数里的丢掉），schema 这里只要它是个整数。
+ */
+function reviewSchema(_conditionCount: number) {
+  return z.object({
+    problems: z.array(
+      z.object({
+        condition: z.number().int(),
+        kind: z.enum(['missing', 'loose']),
+        detail: z.string(),
+      }),
+    ),
+  });
+}
 
 /** D5a：执行器的一次运行还能看哪些文件（内容发给执行器，但不许改）。 */
 export interface ExecutorRunOptions {
@@ -84,21 +130,28 @@ const numbered = (title: string, items: string[]): string =>
 /**
  * D5a 契约 5：给执行器的三段交代。原文写死在规格里，改措辞要先改规格和锁定的验收测试。
  */
+/**
+ * D5b 契约第 4 条要复用的「怎么写」那一段（原文和 D5a 一个字不差）。
+ * 抽成独立函数只是为了让「补测试」的交代能原样引用它——D5a 的提示词措辞没动。
+ */
+function howToWriteTests(testDir: string): string {
+  return [
+    '怎么写：',
+    `- 测试文件放在 ${testDir}/ 下，文件名以 .test.mjs 结尾。别的文件一个都不要动。`,
+    '- 用 node:test 和 node:assert/strict，不用任何 npm 包。每个文件要能用「node 文件名」直接跑；有测试不通过时退出码不是 0。',
+    '- 跑的时候当前目录是项目根目录；引入项目里的模块，要从测试文件所在的目录往上两级（../../）。',
+    '- 每条验收条件至少有一个测试，测试的名字以「条件 N：」开头。',
+    '- 测试跑的时候不能联网、不能起别的进程，只能读项目目录里的文件；不要改项目里的文件。',
+    '- 实现现在还没有写：这些测试现在应该不通过，实现写对之后才通过。',
+    '- 有的条件没法这样自动测（比如要人看界面、要联网）：不要硬凑，在 summary 里写明是哪几条、为什么。一条都测不了就不要写文件，把 claimedSuccess 设为 false，在 summary 里说明。',
+  ].join('\n');
+}
 function writeTestsBrief(goal: string, conditions: string[], testDir: string): string {
   return [
     '这一步只写验收测试，不要写实现。',
     `要做的事：\n${goal}`,
     numbered('验收条件：', conditions),
-    [
-      '怎么写：',
-      `- 测试文件放在 ${testDir}/ 下，文件名以 .test.mjs 结尾。别的文件一个都不要动。`,
-      '- 用 node:test 和 node:assert/strict，不用任何 npm 包。每个文件要能用「node 文件名」直接跑；有测试不通过时退出码不是 0。',
-      '- 跑的时候当前目录是项目根目录；引入项目里的模块，要从测试文件所在的目录往上两级（../../）。',
-      '- 每条验收条件至少有一个测试，测试的名字以「条件 N：」开头。',
-      '- 测试跑的时候不能联网、不能起别的进程，只能读项目目录里的文件；不要改项目里的文件。',
-      '- 实现现在还没有写：这些测试现在应该不通过，实现写对之后才通过。',
-      '- 有的条件没法这样自动测（比如要人看界面、要联网）：不要硬凑，在 summary 里写明是哪几条、为什么。一条都测不了就不要写文件，把 claimedSuccess 设为 false，在 summary 里说明。',
-    ].join('\n'),
+    howToWriteTests(testDir),
   ].join('\n\n');
 }
 function lockedBrief(files: string[], testDir: string): string {
@@ -502,6 +555,11 @@ export class CodingOrchestrator {
       signal?: AbortSignal,
       context?: { projectRoot: string; dataDir: string },
     ) => Promise<IndependentCheck> = defaultRunCheck,
+    /**
+     * D5b 契约第 1 条：锁定之前核验收测试的那个核心模型，每次要核时现调一次。
+     * 不传 → 行为和 D5a 一字不差（D5a、D1、D3、D4、P4、P6 的锁定测试都不传）。
+     */
+    private readonly testReviewer?: () => ReviewProvider | null,
   ) {
     this.store = new CodingTaskStore(db);
   }
@@ -630,6 +688,27 @@ export class CodingOrchestrator {
       const settleCancelled = (): CodingTask =>
         this.store.setStatus(taskId, 'cancelled', { error: '取消后的晚到成功不覆盖取消' });
       /** 这一步就判任务失败：记下原因，不再往下走。 */
+      /**
+       * D5b 契约第 7 条：核不过而失败时，带 `review` 的报告也要写进 `executor_report_json`。
+       * 所以先写一份最小的报告（只有 acceptanceTests.review），再按 D5a 的 failNow 收尾。
+       */
+      const failNowWithReview = (error: string, review: AcceptanceReview): CodingTask => {
+        const report: ExecutorReport = {
+          changedPaths: [],
+          summary: '',
+          claimedSuccess: false,
+          testsModified: false,
+          raw: '',
+          acceptanceTests: { files: [], locked: false, reason: error, review },
+        };
+        const failed = this.store.setStatus(taskId, 'failed', {
+          executorName: executorNameAtStart,
+          error,
+          executorReportJson: JSON.stringify(report),
+        });
+        this.recordWorkRun(failed, 'failed');
+        return failed;
+      };
       const failNow = (error: string): CodingTask => {
         const failed = this.store.setStatus(taskId, 'failed', {
           executorName: executorNameAtStart,
@@ -651,6 +730,8 @@ export class CodingOrchestrator {
       let changed: string[];
       let testsModified: boolean;
       let acceptanceTests: ExecutorReport['acceptanceTests'];
+      /** D5b 契约第 7 条：核的结果（没走核这一步时是 undefined，报告里就没有 review 字段）。 */
+      let review: AcceptanceReview | undefined;
       if (!acceptanceFirst) {
         report = await this.executor.run(dispatched, workspace, signal);
         if (this.store.get(taskId).generation !== generation) {
@@ -686,7 +767,7 @@ export class CodingOrchestrator {
         const afterTests = hashWorkspace(workspace);
         const stray = changedBetween(before, afterTests).filter((p) => !inTestDir(p));
         if (stray.length > 0) return failNow(`写验收测试时改了别的文件：${stray.join('、')}`);
-        const files = [...afterTests.keys()]
+        let files = [...afterTests.keys()]
           .filter((p) => inTestDir(p) && p.endsWith('.test.mjs'))
           .sort();
         // 不锁定的原因；到最后还是 null 就是锁定了
@@ -712,8 +793,132 @@ export class CodingOrchestrator {
           else if (results.every((r) => r.exitCode === 0)) {
             reason = '验收测试在实现之前就全部通过，测不出这次改动';
           }
+          // ---- D5b：要锁定之前，让核心模型核一遍「测试够不够」 ----
+          if (reason === null && this.testReviewer) {
+            const provider = this.testReviewer();
+            if (!provider) {
+              // 契约第 6 条：没配核心模型 → 不核，照 D5a 锁定
+              review = { status: 'skipped', rounds: 0, problems: [], note: '没有配置核心模型' };
+            } else {
+              let rounds = 0;
+              let lastProblems: TestReviewProblem[] = [];
+              // 契约第 3 条：问一次。返回 null 表示「模型出错」，调用方照 D5a 锁定（若补过就锁补过的）
+              const askOnce = async (): Promise<TestReviewProblem[] | null> => {
+                try {
+                  const read = files.map((rel) => ({
+                    path: rel,
+                    content: hideWorkspacePath(
+                      readFileSync(join(workspace, rel), 'utf8'),
+                      workspace,
+                    ),
+                  }));
+                  const raw = await provider.chatStructured({
+                    system: REVIEW_SYSTEM,
+                    user: reviewUser(task.goal, conditions, read),
+                    schema: reviewSchema(conditions.length) as never,
+                  });
+                  rounds += 1;
+                  return cleanProblems(raw, conditions.length);
+                } catch (err) {
+                  review = {
+                    status: 'error',
+                    rounds,
+                    problems: lastProblems,
+                    note: clip(err instanceof Error ? err.message : String(err)),
+                  };
+                  return null;
+                }
+              };
+              for (let round = 1; round <= 2; round++) {
+                // 契约第 1 条：「每次要核时现调一次」——第 2 次核也要重新问一遍有没有 provider
+                if (round > 1 && !this.testReviewer()) {
+                  review = { status: 'skipped', rounds, problems: [], note: '没有配置核心模型' };
+                  break;
+                }
+                const answer = await askOnce();
+                if (cancelledMid()) return settleCancelled();
+                if (answer === null) break; // 契约第 6 条：模型出错不挡任务
+                if (answer.length === 0) {
+                  // 契约第 3 条：这一次核下来没问题 → 锁定
+                  review = { status: 'passed', rounds, problems: [], note: null };
+                  break;
+                }
+                lastProblems = answer;
+                if (round === 2) {
+                  // 契约第 5 条：两次还有问题 → 停下，不写实现
+                  review = { status: 'failed', rounds, problems: answer, note: null };
+                  return failNowWithReview(twiceProblemsReason(answer), review);
+                }
+                // ---- 契约第 4 条：让执行器只补测试 ----
+                try {
+                  await this.executor.run(
+                    {
+                      ...dispatched,
+                      goal: fixTestsBrief(
+                        task.goal,
+                        conditions,
+                        answer,
+                        howToWriteTests(testDir),
+                        testDir,
+                      ),
+                      scope_json: JSON.stringify([testDir]),
+                    },
+                    workspace,
+                    signal,
+                    { readScope: JSON.parse(task.scope_json) as string[] },
+                  );
+                } catch (err) {
+                  review = { status: 'failed', rounds, problems: answer, note: null };
+                  const note = err instanceof Error ? err.message : String(err);
+                  return failNowWithReview(`补验收测试时执行器出错：${clip(note)}`, review);
+                }
+                if (cancelledMid()) return settleCancelled();
+                // 补完照 D5a 第 1、2 步原样核
+                const afterFix = hashWorkspace(workspace);
+                const stray = changedBetween(before, afterFix).filter((p) => !inTestDir(p));
+                if (stray.length > 0) {
+                  review = { status: 'failed', rounds, problems: answer, note: null };
+                  return failNowWithReview(`写验收测试时改了别的文件：${stray.join('、')}`, review);
+                }
+                files = [...afterFix.keys()]
+                  .filter((p) => inTestDir(p) && p.endsWith('.test.mjs'))
+                  .sort();
+                if (files.length === 0) {
+                  review = { status: 'failed', rounds, problems: answer, note: null };
+                  reason = '没写出验收测试：补完之后测试目录里没有 .test.mjs';
+                  afterRed = afterFix;
+                  break;
+                }
+                const again: IndependentCheck[] = [];
+                for (const rel of files) {
+                  again.push(await runTest(rel));
+                  if (cancelledMid()) return settleCancelled();
+                }
+                afterRed = hashWorkspace(workspace);
+                const touchedFiles = changedBetween(afterFix, afterRed);
+                if (touchedFiles.length > 0) {
+                  review = { status: 'failed', rounds, problems: answer, note: null };
+                  return failNowWithReview(
+                    `验收测试改了项目里的文件：${touchedFiles.join('、')}`,
+                    review,
+                  );
+                }
+                const refusedAgain = again.find((r) => !r.ran);
+                if (refusedAgain) {
+                  review = { status: 'failed', rounds, problems: answer, note: null };
+                  reason = refusedAgain.output.trim() || SANDBOX_SILENT;
+                  break;
+                }
+                if (again.every((r) => r.exitCode === 0)) {
+                  review = { status: 'failed', rounds, problems: answer, note: null };
+                  reason = '验收测试在实现之前就全部通过，测不出这次改动';
+                  break;
+                }
+              }
+            }
+          }
         }
-        acceptanceTests = { files, locked: reason === null, reason };
+        acceptanceTests = { files, locked: reason === null, reason, ...(review ? { review } : {}) };
         // ---- 第 3 步：锁定。记下测试目录里每个文件的指纹。没锁定也记：写实现那一步动了
         // 测试目录一律算失败，不然批准范围以外就有了一条不受核对的路 ----
         const lockedDir = new Map([...afterRed].filter(([p]) => inTestDir(p)));
