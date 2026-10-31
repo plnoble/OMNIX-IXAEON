@@ -6,6 +6,9 @@
  * 只输出统计数字：各来源的 status、running / attention / recent 的条数、projects 三组的数量。
  * 不输出任何文本内容，也不打印临时目录（本机账户名只在路径里）。项目分组用临时空库 + 3 个
  * 合成项目（active / paused / archived 各一），不碰用户的应用数据库。
+ *
+ * K4：设了 `IXAEON_QUOTAHUB_URL` 时把它写进临时库的 `cockpit.quotahub_url`，走真的本机
+ * QuotaHub（没设就照旧只报 quotas=missing）；输出仍只有数字。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,6 +18,7 @@ import {
   migrate,
   openDatabase,
   ProjectService,
+  setSetting,
 } from '../../packages/core/src/index.js';
 import { findSharedCheckout } from '../../packages/relay/src/config.js';
 import { relayDir } from '../../packages/relay/src/datadir.js';
@@ -22,6 +26,9 @@ import { relayDir } from '../../packages/relay/src/datadir.js';
 const dir = mkdtempSync(join(tmpdir(), 'ixaeon-k2-real-'));
 const db = openDatabase(join(dir, 'ixaeon.db'));
 migrate(db);
+// K4：真机检查可以显式指向本机 QuotaHub；默认不动，保持 K2 的「没配 = missing」。
+const quotaUrl = process.env.IXAEON_QUOTAHUB_URL?.trim();
+if (quotaUrl) setSetting(db, 'cockpit.quotahub_url', quotaUrl);
 try {
   const projects = new ProjectService(db);
   projects.create({ name: 'K2 真机 active', rootPath: null, description: null });
