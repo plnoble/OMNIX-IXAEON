@@ -95,12 +95,15 @@
 
 - `node scripts/acceptance.mjs run CF0`：`Test Files 3 passed (3)`、`Tests 17 passed (17)`。
 - `node scripts/verify.mjs`：**全部通过，退出码 0**（本机，任务分支 `dev/CF0`，日志
-  `.logs/verify-cf0-2.log`；第一次也是全过，只是 PowerShell 把子进程 stderr 记成包装器退出码 1，
-  第二次重定向后 `VERIFY_EXIT=0`）。各步：lint、format:check、local-user（1058 个跟踪文件里没有
-  本机账户名）、typecheck、typecheck-acceptance、build 都 ✓；unit 13 个文件 69 条 ✓；
-  integration 83 个文件 483 条通过、9 个文件 17 条跳过（原有跳过）；acceptance-lock：90 个任务的
-  177 个锁定验收测试都没被改 ✓；acceptance：163 个文件 1271 条 ✓；review 各套件与 4 组真 Electron
-  界面都 ✓。
+  `.logs/verify-cf0-final4.log`）。各步：lint、format:check、local-user（1067 个跟踪文件里没有
+  本机账户名）、typecheck、typecheck-acceptance（167 个验收测试文件，排队中的 11 个不查）、
+  build 都 ✓；unit 13 个文件 69 条 ✓；integration 83 个文件 483 条通过、9 个文件 17 条跳过
+  （原有跳过）；acceptance-lock：90 个任务的 177 个锁定验收测试都没被改 ✓；acceptance：
+  163 个文件 1271 条 ✓；review 各套件与 4 组真 Electron 界面都 ✓。
+  中间几次重跑被环境里的旧临时 worktree 和并发负载打断过：`performance.test.ts` 的 50k 导入
+  一次 34.7s（上限 30s；单独跑 5.7s）、relay `l5/l9` 的 `relay init` 一次到 120s 超时（单独跑
+  11/11 过，单个 init 19–34s）；清掉测试留下的临时 worktree 后最后一次全绿。这两处都不在 CF0
+  改动范围内。
 - GitHub 上的 verify：**本棒看不到**。接力指令写明「这一棒的推送由调度器替你做：你只提交，不要
   git push」，分支要等本棒结束后才由调度器推上去；本棒按 L15 的做法先在本机跑同一条 `verify.mjs`。
 
