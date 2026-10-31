@@ -86,6 +86,8 @@ export function AskPage({
   const [renameText, setRenameText] = useState('');
   const renameCancelled = useRef(false);
   const stick = useRef(true);
+  // CF0：换模型重问在保存设置期间也要挡住第二次点击（ask() 的 busy 要到保存完才置上）。
+  const retrying = useRef(false);
   const listEl = useRef<HTMLDivElement>(null);
   // A4：本页发起的轮次代际。2s 同步 tick 发出前记下当时的代际，返回后对不上
   //（await 期间发起过新一轮，哪怕新一轮已经结束、waiting 又清空）就丢弃旧快照。
@@ -415,19 +417,22 @@ export function AskPage({
    * 对话里重发原话。失败的那条消息不删、不改写。
    */
   const retryWithModel = async (message: ConversationMessage, model: string) => {
-    // 正在答另一轮时不能悄悄改模型又什么都不发：按钮也会禁用，这里再兜一道。
-    if (busy) return;
+    // 正在答另一轮、或上一次重问还没走完（保存设置期间 busy 还没置上）都不能再来一次：
+    // 否则同一句原话会发两遍。
+    if (busy || retrying.current) return;
     const original = questionBefore(message.id);
     if (original === null || modelName === null) return;
+    retrying.current = true;
     try {
       // 复用设置页同一条保存通道（只传已保存的聊天模型，Key / 地址 / 分析模型原样带回去）
       await api.saveModelSettings({ modelName, chatModelName: model });
       setChatModelName(model);
+      await ask(original);
     } catch (err) {
       setError(errMsg(err));
-      return;
+    } finally {
+      retrying.current = false;
     }
-    await ask(original);
   };
 
   const actOnConv = async (fn: () => Promise<unknown>) => {

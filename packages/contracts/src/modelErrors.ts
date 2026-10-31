@@ -30,16 +30,48 @@ const NOT_FOUND = new RegExp(`\\bmodel\\s+\`?${NAME}\`?\\s+not found`, 'i');
 /** 认本任务自己的说明句：失败说明的「原始错误」被截短时，靠它仍能认出模型。 */
 const EXPLAINED = /网关里「([^」]+)」现在没有可用渠道/;
 
+/** 这些是句子里的虚词，不是模型名："The requested model was not found"。 */
+const NOT_A_NAME = new Set([
+  'was',
+  'is',
+  'are',
+  'be',
+  'been',
+  'being',
+  'not',
+  'cannot',
+  'could',
+  'would',
+  'should',
+  'may',
+  'might',
+  'must',
+  'has',
+  'have',
+  'had',
+  'does',
+  'did',
+  'will',
+  'can',
+]);
+
+/** 取到的名字是虚词 / 空 → 当没取到（返回 null，说明写「这个模型」）。 */
+function nameOrNull(match: RegExpExecArray | null): string | null {
+  const name = match?.[1];
+  if (name === undefined || name.length === 0) return null;
+  return NOT_A_NAME.has(name.toLowerCase()) ? null : name;
+}
+
 /** 是上面那几种就返回 `{ model }`（取不到名字为 null），否则 null。 */
 export function isModelUnavailable(detail: string): ModelUnavailableDetail | null {
   const raw = detail.replace(/\s+/g, ' ').trim();
   if (raw.length === 0) return null;
   const channel = CHANNEL.exec(raw);
-  if (channel) return { model: channel[1] ?? null };
+  if (channel) return { model: nameOrNull(channel) };
   const missing = DOES_NOT_EXIST.exec(raw);
-  if (missing) return { model: missing[1] ?? null };
+  if (missing) return { model: nameOrNull(missing) };
   const notFound = NOT_FOUND.exec(raw);
-  if (notFound) return { model: notFound[1] ?? null };
+  if (notFound) return { model: nameOrNull(notFound) };
   const explained = EXPLAINED.exec(raw);
   if (explained) return { model: explained[1] === '这个模型' ? null : (explained[1] ?? null) };
   if (/model_not_found/i.test(raw)) return { model: null };

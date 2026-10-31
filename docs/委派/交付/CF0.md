@@ -10,8 +10,8 @@
 `model <名字> not found`、`model_not_found`，不分大小写），尽量取模型名，取不到回
 `{ model: null }`。三条带名字的规则先跑，最后才认 `model_not_found`——网关常见的
 `{"message":"The model \`x\` does not exist","code":"model_not_found"}` 两种说法同时出现时，
-名字照样取得到。另外也认本任务自己的说明句（`网关里「…」现在没有可用渠道`）：失败说明的
-  「原始错误」被截短时，界面仍认得出是哪个模型。
+名字照样取得到；取到的是 was / is 这类虚词时当没取到。另外也认本任务自己的说明句
+  （`网关里「…」现在没有可用渠道`）：失败说明的「原始错误」被截短时，界面仍认得出是哪个模型。
 - `packages/core/src/runtime/modelErrors.ts`：`explainModelFailure` 在这类失败时改说
   「网关里「<模型名>」现在没有可用渠道（常见原因是那条渠道的套餐或额度失效了）。去网关后台给它
   补一条渠道，或者在聊天里换一个模型重问。」，后面照旧接 `（原始错误：…）`；不再出现
@@ -26,7 +26,8 @@
   写配置的 IPC：`modelName` 是现有通道必填的分析模型，聊天页从 `getSettings()` 原样带回去，
   只改 `chatModelName`（下一问生效，旧引擎会话会被丢掉）。重问走和输入框发送同一条
   `askQuestion` 路径，在同一个对话里重发失败回答前面那条用户消息的原话；失败消息不删、不改写。
-  正在答另一轮时 `busy` 挡住重问（按钮同时禁用），不会出现「模型改了却没重问」。
+  正在答另一轮时 `busy` 挡住重问（按钮同时禁用）；保存设置还没返回时也有本地的进行中标记，
+  连续点击不会把同一句发两遍。
 - 设置页的「滚到模型接入」按 `focus.at` 只做一次，之后保存别的设置重读 `view` 不会再拽回顶部。
 
 改动文件与行数（提交后 `git diff --stat origin/main...HEAD` 原样贴）：
@@ -71,22 +72,27 @@
 
 ## 验收测试（v2 规格任务）
 
-- `packages/core/test/acceptance/cf0-model-errors.test.ts`（10 条）——条件 1、2、3：
+- `packages/core/test/acceptance/cf0-model-errors.test.ts`（11 条）——条件 1、2、3：
   条件 1 逐字断言 demo-a / 没有可用渠道 / 换一个模型 / 不含稍后再试，`isModelUnavailable` 回
   `{ model: 'demo-a' }`；条件 2 的 `model_not_found`（取不到名字写「这个模型」）与
   `The model \`demo-b\` does not exist`，另加规格要求 1 里列的 `model demo-c not found`、
-两种说法同时出现（取到 demo-d）、说明被截短仍从说明句取到 demo-e；条件 3 对 502 / 429 /
-超时 / 401 逐字比对改前的说明，并断言 `isModelUnavailable` 回 null。
+  两种说法同时出现（取到 demo-d）、说明被截短仍从说明句取到 demo-e、
+  `The requested model was not found` 不把虚词 was 当名字（写「这个模型」）；条件 3 对
+  502 / 429 / 超时 / 401 逐字比对改前的说明，并断言 `isModelUnavailable` 回 null。
 - `apps/desktop/test/acceptance/cf0-chat-retry.test.ts`（5 条）——条件 4、5、6、7：
   失败消息下面出现下拉框且选项正好 demo-b、demo-c；选 demo-b 重问后设置改成 demo-b（分析模型
-  仍是 demo-a）、同一个对话多出一问一答、问的是原话、失败消息还是 failed；只有失败的那个模型时
-  不出下拉框、出提示和去设置的按钮；超时和 429 两类失败都不出控件。
+  仍是 demo-a，且 `saveModelSettings` 的调用顺序在 `askQuestion` 之前）、同一个对话多出一问一答、
+  问的是原话、失败消息还是 failed；只有失败的那个模型时不出下拉框、出提示和去设置的按钮；
+  超时和 429 两类失败都不出控件。
+- `apps/desktop/test/acceptance/cf0-chat-model-switch.test.ts`（1 条）——换模型走的现有保存
+  通道只改 `chatModelName`：分析模型、API 地址、Key、`savedModels` 都不动，`keyCleared: false`，
+  配置落盘；全程一次 `fetch` 都没有。
 
-已用 `node scripts/acceptance.mjs lock CF0 "CF0 聊天先能用：模型没渠道时说清是哪个模型、能在聊天里换个已保存的模型重问" packages/core/test/acceptance/cf0-model-errors.test.ts apps/desktop/test/acceptance/cf0-chat-retry.test.ts` 登记指纹。
+已用 `node scripts/acceptance.mjs lock CF0 "CF0 聊天先能用：模型没渠道时说清是哪个模型、能在聊天里换个已保存的模型重问" packages/core/test/acceptance/cf0-model-errors.test.ts apps/desktop/test/acceptance/cf0-chat-retry.test.ts apps/desktop/test/acceptance/cf0-chat-model-switch.test.ts` 登记指纹。
 
 ## 自动化通过
 
-- `node scripts/acceptance.mjs run CF0`：`Test Files 2 passed (2)`、`Tests 15 passed (15)`。
+- `node scripts/acceptance.mjs run CF0`：`Test Files 3 passed (3)`、`Tests 17 passed (17)`。
 - `node scripts/verify.mjs`：**全部通过，退出码 0**（本机，任务分支 `dev/CF0`，日志
   `.logs/verify-cf0-2.log`；第一次也是全过，只是 PowerShell 把子进程 stderr 记成包装器退出码 1，
   第二次重定向后 `VERIFY_EXIT=0`）。各步：lint、format:check、local-user（1058 个跟踪文件里没有
@@ -109,7 +115,7 @@ demo-a / demo-b / demo-c，聊天模型选 demo-a，问一句；再选 demo-b �
 脚本：`scripts/real/cf0-chat-retry.mjs`（本机跑，输出原样贴在下面，临时目录/账户名已遮）：
 
 ```
-FAKE_GATEWAY http://127.0.0.1:63714/v1
+FAKE_GATEWAY http://127.0.0.1:63046/v1
 SETTINGS_CHAT_MODEL demo-a
 截图： D:\Agent\Worktrees\IXAEON\dsh\CF0\.logs\cf0-real\cf0-1-model-unavailable.png
 FAILURE_TEXT 失败：这一轮没答完：网关里「demo-a」现在没有可用渠道（常见原因是那条渠道的套餐或额度失效了）。去网关后台给它补一条渠道，或者在聊天里换一个模型重问。（原始错误：HTTP 503: No available channel for model demo-a under group default (distributor)） demo-b demo-c 用这个模型重问 引擎 ask · 模型 —
@@ -157,6 +163,23 @@ Codex 额度用完，`codex-review.mjs` 改用 Claude 代审（L17）。第 1 �
 - 说明被截短时可能认不出：已在 `isModelUnavailable` 里加认本任务说明句的规则，并补测试。
 - 设置页 `focus` 每次 `reload()` 都重滚：已按 `focus.at` 只滚一次。
 - Core 兜底仍用 `modelName`（已知缺口 3）：保留给整合方确认，本棒不扩大规格。
+
+第 2 轮（`42537a5` + 本轮整改）：结论 **可以合并**，没有「必须改」；建议照做了：
+
+- 界面测试开头注释还写着 `api.setChatModel`：已改成 `saveModelSettings({ modelName, chatModelName })`。
+- 条件 5 没钉住「先改模型、再重问」：已用 `invocationCallOrder` 断言 `saveModelSettings` 在
+  `askQuestion` 之前。
+- 保存设置还没返回时连点两下会发两遍原话：已加 `retrying` 引用，保存前就挡住第二次。
+- `model <名字> not found` 会把 `The requested model was not found` 里的 was 当模型名：已加虚词
+  排除，这种情况写「这个模型」，并补测试。
+- 交付统计与分支对不上 / 第 1 轮审查文件没进分支：本轮把 `<任务号>-Codex审查.md` 和最终统计一起
+  提交（统计见上，取自本轮整改提交；这段文字补进来后只让 `CF0.md` 自己的行数再变）。
+- 人工确认「只传 modelName + chatModelName 会不会清 Key / 地址 / 已保存清单 / 发网络请求」：
+  已加后端测试 `cf0-chat-model-switch.test.ts`，用真的 `AppRuntime.saveModelSettings` 钉住
+  Key、地址、分析模型、`savedModels` 都不变、`keyCleared: false`、一次 `fetch` 都没有。
+- 人工确认「两张公开仓库截图里有没有本机账户名 / 临时目录 / 真实数据」：截图是假网关上合成的
+  demo-a/demo-b 对话，画面里只有应用界面与合成问题；没有路径、账户名、Key、真实网关。已人工
+  看过两张图（2614×1582）。
 
 ## 已知缺口
 

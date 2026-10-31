@@ -68,6 +68,14 @@ describe('CF0 模型没渠道时说清是哪个模型（核心层）', () => {
     expect(isModelUnavailable(detail)).toEqual({ model: 'demo-e' });
   });
 
+  it('条件 2（不把虚词当名字）：The requested model was not found 写「这个模型」', () => {
+    const detail = 'HTTP 404: The requested model was not found';
+    expect(isModelUnavailable(detail)).toEqual({ model: null });
+    const text = explainModelFailure(detail);
+    expect(text).toContain('这个模型');
+    expect(text).not.toContain('「was」');
+  });
+
   it('条件 3：502 的说明和改之前逐字一样，不认成没渠道', () => {
     const detail = 'HTTP 502: Bad Gateway';
     expect(explainModelFailure(detail)).toBe(

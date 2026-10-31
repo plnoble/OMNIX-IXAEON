@@ -12,8 +12,9 @@
  *
  * 钉住的接缝（实现必须兼容）：
  * - 失败控件在回答消息（AskMessage）里，靠 `isModelUnavailable(消息的 errorMessage)` 判定；
- * - 聊天页从 `api.getSettings()` 读 `config.savedModels` / `config.chatModelName`；
- * - 重问 = 先 `api.setChatModel({ model })`，再走和输入框发送同一条 `api.askQuestion` 路径，
+ * - 聊天页从 `api.getSettings()` 读 `config.modelName` / `config.savedModels` / `config.chatModelName`；
+ * - 重问 = 先走现有保存设置的 `api.saveModelSettings({ modelName, chatModelName })`（`modelName`
+ *   原样带回、只改聊天模型），再走和输入框发送同一条 `api.askQuestion` 路径，
  *   `conversationId` 是当前对话，`question` 是失败回答前面那条用户消息的原话。
  */
 import { createElement } from 'react';
@@ -266,6 +267,10 @@ describe('CF0 在聊天里换个已保存的模型重问（聊天页）', () => 
       modelName: 'demo-a',
       chatModelName: 'demo-b',
     });
+    // 规格：先改聊天模型，再重问（不是先问、再改）
+    expect(harness.saveModelSettings.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.askQuestion.mock.invocationCallOrder[0]!,
+    );
     expect(harness.askQuestion).toHaveBeenCalledTimes(1);
     expect(harness.askQuestion.mock.calls[0]![0]).toMatchObject({
       conversationId: 'conv-1',
