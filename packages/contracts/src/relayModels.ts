@@ -17,3 +17,5 @@ export type RelayModelRow = {
 };
 
 export type RelayModels = { roles: RelayModelRow[] };
+
+export type SetRelayModelInput = { role: RelayModelRole; value: string | null };

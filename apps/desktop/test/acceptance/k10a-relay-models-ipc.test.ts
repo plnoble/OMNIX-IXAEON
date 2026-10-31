@@ -1,9 +1,9 @@
 /**
- * K10a 验收（第一支：核心读取 + IPC；规格 docs/委派/K10a-调度器面板.md，B 档本周例外）。
+ * K10a 验收（规格 docs/委派/K10a-调度器面板.md，B 档：本周例外，测试和实现一起在分支上）。
  *
- * 契约里的 IPC：`getRelayModels(): Promise<RelayModels>`（contracts 加类型、preload 暴露）。
- * `relayDir` 照 K2：默认 ~/.ixaeon/relay，IXAEON_RELAY_DIR 覆盖。这里用合成 relay 目录，
- * 按通道名调 registerIpc 注册的处理函数。写通道 `setRelayModel` 在 K10b。
+ * 契约里的 IPC：`getRelayModels(): Promise<RelayModels>`、`setRelayModel(input)`（contracts 加类型、
+ * preload 暴露）。`relayDir` 照 K2：默认 ~/.ixaeon/relay，IXAEON_RELAY_DIR 覆盖。
+ * 这里用合成 relay 目录，按通道名调 registerIpc 注册的处理函数。
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -83,22 +83,34 @@ function ipc() {
   };
 }
 
-describe('K10a IPC（只读）', () => {
-  it('getRelayModels 从 IXAEON_RELAY_DIR 读，返回与核心一致的五个角色', async () => {
+describe('K10a IPC', () => {
+  it('getRelayModels 从 IXAEON_RELAY_DIR 读；setRelayModel 写回补丁，下一棒生效', async () => {
+    const call = ipc();
+    const before = await call<{ roles: Array<{ role: string; current: string | null }> }>(
+      'getRelayModels',
+    );
+    expect(before.roles.find((r) => r.role === 'developer')!.current).toBe('gw-a / model-a1');
+
+    await expect(call('setRelayModel', { role: 'integrator', value: 'sonnet' })).resolves.toEqual({
+      ok: true,
+    });
+    const config = JSON.parse(readFileSync(join(relayDir, 'config.json'), 'utf8')) as {
+      roles: { integrator: { argv: string[] } };
+    };
+    expect(config.roles.integrator.argv).toContain('sonnet');
+
+    const after = await call<{ roles: Array<{ role: string; current: string | null }> }>(
+      'getRelayModels',
+    );
+    expect(after.roles.find((r) => r.role === 'integrator')!.current).toBe('sonnet');
+  });
+
+  it('setRelayModel 拒绝没登记的模型：IPC 报 VALIDATION_FAILED，文件不动', async () => {
+    const call = ipc();
     const before = readFileSync(join(relayDir, 'config.json'), 'utf8');
-    const models = await ipc()<{
-      roles: Array<{ role: string; current: string | null; options: string[] }>;
-    }>('getRelayModels');
-    expect(models.roles.map((r) => r.role)).toEqual([
-      'developer',
-      'integrator',
-      'reviewer',
-      'reviewerSubstitute',
-      'integratorSubstitute',
-    ]);
-    expect(models.roles.find((r) => r.role === 'developer')!.current).toBe('gw-a / model-a1');
-    expect(models.roles.find((r) => r.role === 'integrator')!.current).toBe('默认');
-    // 只读通道：一次都没写文件。
+    await expect(
+      call('setRelayModel', { role: 'developer', value: 'gw-a / nope' }),
+    ).rejects.toThrow(/IXA0012/);
     expect(readFileSync(join(relayDir, 'config.json'), 'utf8')).toBe(before);
   });
 });
