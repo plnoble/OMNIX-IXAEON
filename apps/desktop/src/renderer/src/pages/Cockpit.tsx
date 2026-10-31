@@ -3,6 +3,7 @@ import type { AttentionItem, CockpitSnapshot, ProjectCard, SourceHealth } from '
 import { api, errMsg } from '../api.js';
 import { Button, Card, Empty, ErrorBanner, Spinner, projectStatusLabel } from '../ui.js';
 import { QuotaSection } from './CockpitQuotas.js';
+import { RelayModelsSection } from './CockpitRelayModels.js';
 
 /** K3：驾驶舱（规格 docs/委派/K3-驾驶舱页面.md）。只读 K2 的快照；项目区是 K3b。 */
 
@@ -302,6 +303,9 @@ export function CockpitPage() {
           </ul>
         )}
       </Card>
+
+      {/* K10a：每个角色用的模型、在界面上换（下一棒生效）。 */}
+      <RelayModelsSection running={snap.running} />
 
       <QuotaSection cards={snap.quotas ?? []} health={quotaHealth} />
 
