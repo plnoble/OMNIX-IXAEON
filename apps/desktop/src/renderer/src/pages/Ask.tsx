@@ -56,10 +56,13 @@ export function AskPage({
   projects,
   openConversationId,
   onOpenTask,
+  onOpenModelSettings,
 }: {
   projects: Project[];
   openConversationId?: string | null;
   onOpenTask?: (taskId: string) => void;
+  /** CF0：没有别的可用模型时，跳到设置页「模型接入」。 */
+  onOpenModelSettings?: () => void;
 }) {
   const [projectId, setProjectId] = useState('');
   /** G06：当前对话有消息后项目下拉框锁定（换项目请开新对话）。 */
@@ -70,6 +73,10 @@ export function AskPage({
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  // CF0：设置里已检测并保存的模型 / 当前聊天模型。读不到设置前保持 undefined，
+  // 失败消息下面的换模型控件先不出现（免得闪一下「还没有别的模型」）。
+  const [savedModels, setSavedModels] = useState<string[] | undefined>(undefined);
+  const [chatModelName, setChatModelName] = useState<string | null>(null);
   const [expandedRef, setExpandedRef] = useState<string | null>(null);
   // 列表里直接改名。不能用 window.prompt：Electron 不支持，调用会直接抛错
   //（9-07 的 ea7c721 因此改掉过归档的 prompt，D6 又把它带了回来，9-17 用户实测改名无反应）。
@@ -106,6 +113,22 @@ export function AskPage({
   const reloadList = useCallback(async () => {
     setList(await api.listConversations());
   }, []);
+
+  // CF0：换模型重问只从「已检测并保存的模型」里选，聊天模型和设置页是同一个。
+  const reloadChatSettings = useCallback(async () => {
+    if (!api.getSettings) return;
+    try {
+      const view = await api.getSettings();
+      setSavedModels(view.config.savedModels ?? []);
+      setChatModelName(view.config.chatModelName || view.config.modelName || null);
+    } catch {
+      // 设置读不到就不出换模型控件；不影响聊天本身
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadChatSettings();
+  }, [reloadChatSettings]);
 
   const reloadTodoStatus = useCallback(async () => {
     if (!api.listTodos) return;
@@ -302,12 +325,13 @@ export function AskPage({
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [messages, busy]);
 
-  const ask = async () => {
-    const text = question.trim();
+  const ask = async (override?: string) => {
+    const text = (override ?? question).trim();
     if (text.length === 0 || busy) return;
     setBusy(true);
     setError(null);
-    setQuestion('');
+    // 从输入框发送才清空输入框；换模型重问传的是原话，用户正在打的草稿留着
+    if (override === undefined) setQuestion('');
     // 回答要等好几秒（真模型可能十几秒）。先把问题和「正在回答」气泡放上去，
     // 否则输入框清空后屏幕上什么都没有，像是发出去就没了。
     const lastSeq = messages.length > 0 ? messages[messages.length - 1]!.seq : 0;
@@ -369,6 +393,35 @@ export function AskPage({
     } finally {
       setBusy(false);
     }
+  };
+
+  /** CF0：失败回答前面那条用户消息的原话（同一条对话里按顺序往前找）。 */
+  const questionBefore = (messageId: string): string | null => {
+    const idx = messages.findIndex((m) => m.id === messageId);
+    if (idx < 0) return null;
+    for (let i = idx - 1; i >= 0; i -= 1) {
+      const m = messages[i]!;
+      if (m.role === 'user' && m.content.trim().length > 0) return m.content;
+    }
+    return null;
+  };
+
+  /**
+   * CF0：换个已保存的模型重问同一句。先改聊天模型（走现有保存设置的通道，下一问
+   * 就用它；旧引擎会话会被丢掉），再走和输入框发送同一条 `ask()` 路径、在同一个
+   * 对话里重发原话。失败的那条消息不删、不改写。
+   */
+  const retryWithModel = async (message: ConversationMessage, model: string) => {
+    const original = questionBefore(message.id);
+    if (original === null || !api.setChatModel) return;
+    try {
+      await api.setChatModel({ model });
+      setChatModelName(model);
+    } catch (err) {
+      setError(errMsg(err));
+      return;
+    }
+    await ask(original);
   };
 
   const actOnConv = async (fn: () => Promise<unknown>) => {
@@ -531,6 +584,12 @@ export function AskPage({
                   todoStatus={todoStatus}
                   todoCoding={todoCoding}
                   onOpenTask={onOpenTask}
+                  savedModels={savedModels}
+                  chatModelName={chatModelName}
+                  onRetryWithModel={(model) => {
+                    void retryWithModel(m, model);
+                  }}
+                  onOpenModelSettings={onOpenModelSettings}
                   onDecideTodo={(id, decision) => {
                     void (async () => {
                       try {

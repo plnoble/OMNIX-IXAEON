@@ -796,6 +796,16 @@
         "apps/desktop/test/acceptance/k5-mobile-settings.test.ts": "6300b62c5aae2859b08a834bed8e290446985c561bc869bf0c022147a2e970f1",
         "apps/desktop/test/acceptance/k5-mobile-settings-ipc.test.ts": "7bd85538085761e5b5064c5720450eaebd3208322e03e612b5f0455ac55dd5ff"
       }
+    },
+    {
+      "id": "CF0",
+      "title": "CF0 聊天先能用：模型没渠道时说清是哪个模型、能在聊天里换个已保存的模型重问",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/cf0-model-errors.test.ts": "8ce0d2f8831a18563c721eff9404c3446e39922ea79ffdfe3697967726742692",
+        "apps/desktop/test/acceptance/cf0-chat-retry.test.ts": "ecaba02ba5ec627f1fe782db32ae71ed1fe442a37dfdbd09085b42d9feb7b94a",
+        "apps/desktop/test/acceptance/cf0-set-chat-model.test.ts": "5f532fdbd88268106667d1984e1d453d0ea6c77f2cf8f3c591c702a28e9400ad"
+      }
     }
   ]
 }

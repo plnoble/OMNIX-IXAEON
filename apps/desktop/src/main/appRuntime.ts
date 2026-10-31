@@ -1472,6 +1472,25 @@ export class AppRuntime {
     return { ok: true, keyCleared };
   }
 
+  /**
+   * CF0：聊天里「换个已保存的模型重问」只改聊天模型。
+   * 走 `saveModelSettings` 同一条保存路径（不另外发明写配置的通道）；模型必须在
+   * 已保存清单里，不在就拒绝——不自动挑模型，也不探测哪个模型能用。
+   * 聊天模型变了会丢掉在跑的引擎会话，下一问从新进程开始（见 saveModelSettings）。
+   */
+  async setChatModel(input: { model: string }): Promise<{ ok: true }> {
+    const model = input.model.trim();
+    const saved = this.config.model.savedModels ?? [];
+    if (!saved.includes(model)) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        '这个模型不在已保存清单里：先去「模型接入」检测、勾选保存。',
+      );
+    }
+    this.saveModelSettings({ modelName: this.config.model.modelName, chatModelName: model });
+    return { ok: true };
+  }
+
   /** D7b：保存「编码任务交给谁」。模型只能从已保存的清单里选；只动 config.coding。 */
   saveCodingSettings(input: { executor: 'codex' | 'model'; modelName: string }): { ok: true } {
     if (input.executor !== 'codex' && input.executor !== 'model') {

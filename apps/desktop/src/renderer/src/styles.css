@@ -893,6 +893,23 @@ textarea {
   margin-top: 12px;
 }
 
+/* CF0：模型没渠道时，失败回答下面的「换个模型重问」控件 */
+.ask-model-retry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.ask-model-retry > p {
+  margin: 0;
+}
+
+.ask-model-retry > select {
+  max-width: 260px;
+}
+
 .answer-text {
   white-space: pre-wrap;
   word-break: break-word;

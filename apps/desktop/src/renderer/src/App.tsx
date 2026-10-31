@@ -41,6 +41,8 @@ export default function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
   const [taskFocus, setTaskFocus] = useState<TaskFocus | null>(null);
+  // CF0：从聊天里点「去设置」时，设置页滚到「模型接入」那一块。
+  const [settingsFocus, setSettingsFocus] = useState<{ section: 'model'; at: number } | null>(null);
   const openTasks = () => (setTaskFocus(null), setPage('tasks'));
   const [matchedNew, setMatchedNew] = useState(0);
 
@@ -246,7 +248,10 @@ export default function App() {
           <button
             type="button"
             className={page === 'settings' ? 'nav-item active' : 'nav-item'}
-            onClick={() => setPage('settings')}
+            onClick={() => {
+              setSettingsFocus(null);
+              setPage('settings');
+            }}
             data-testid="nav-settings"
           >
             设置
@@ -283,6 +288,10 @@ export default function App() {
               setTaskFocus({ taskId, at: Date.now() });
               setPage('tasks');
             }}
+            onOpenModelSettings={() => {
+              setSettingsFocus({ section: 'model', at: Date.now() });
+              setPage('settings');
+            }}
           />
         )}
 
@@ -311,7 +320,7 @@ export default function App() {
 
         {page === 'tasks' && <TasksPage projects={projects} focus={taskFocus} />}
 
-        {page === 'settings' && <SettingsPage />}
+        {page === 'settings' && <SettingsPage focus={settingsFocus} />}
       </main>
     </div>
   );

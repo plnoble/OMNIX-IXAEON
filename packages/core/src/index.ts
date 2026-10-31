@@ -294,4 +294,4 @@ export {
   extractSuggestedTodos,
   parseUserTodo,
 } from './runtime/suggestedTodos.js';
-export { explainModelFailure } from './runtime/modelErrors.js';
+export { explainModelFailure, isModelUnavailable } from './runtime/modelErrors.js';
