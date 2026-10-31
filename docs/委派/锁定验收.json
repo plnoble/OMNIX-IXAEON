@@ -806,6 +806,14 @@
         "apps/desktop/test/acceptance/cf0-chat-retry.test.ts": "6bf7a49a9ef4880b063cb138b2b2f725ab4ae46fdc5d4290d626af40323e461a",
         "apps/desktop/test/acceptance/cf0-chat-model-switch.test.ts": "7acb568e2b6dfb9514ef759269e1db669ed37fa8985675ca890f9d0af1e22665"
       }
+    },
+    {
+      "id": "CF1",
+      "title": "CF1 聊天做首页、驾驶舱放第二",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/cf1-chat-first-nav.test.ts": "22861842acb02476516944944bd6a399de6479372486a516d133441899224646"
+      }
     }
   ]
 }
