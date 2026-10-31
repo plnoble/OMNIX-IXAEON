@@ -1,4 +1,4 @@
-﻿/**
+/**
  * L11 复审修复的回归测试（统筹 2026-10-27 任务书 §14）。
  *
  * 原缺陷：`engine.ts` 两处写 `Object.assign(notifyStore(s), notifyStore(state))`。
@@ -13,8 +13,19 @@
  * 4. 目标已有 notify 时不被整份丢弃（保留它原有的其它 key）。
  */
 import { describe, expect, it } from 'vitest';
-import { mergeNotifyInto } from '../../src/engine.js';
+import * as engineModule from '../../src/engine.js';
 import type { RelayState } from '../../src/types.js';
+
+/**
+ * 实现之前 `mergeNotifyInto` 还没有导出（测试先行、B 档还不许写实现）。
+ * 用断言取出：运行时没有就是 `undefined`，下面一调就红；类型检查照过。
+ * 实现补上之后这里不用改。
+ */
+const mergeNotifyInto = (
+  engineModule as unknown as {
+    mergeNotifyInto: (target: RelayState, source: RelayState) => void;
+  }
+).mergeNotifyInto;
 
 const state = (over: Partial<RelayState> = {}): RelayState => ({
   pausedUntil: {},

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * L11 验收条件 5：配置。
  * - `checkConfig`：`lanes` 不是 1 或 2 不过；`lanes: 2` 时两个角色都要有 `gitIdentity`、
  *   两个 name 不一样，否则不过；`lanes` 不写或写 1，没有 gitIdentity 也照常过。
@@ -24,6 +24,15 @@ const temp = (prefix: string) => {
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
+
+/** `relay init` / `config.example.json` 该有的形状（实现之前类型里还没有这两个字段）。 */
+interface ParsedConfig {
+  lanes?: number;
+  roles: {
+    developer: { gitIdentity?: { name: string; email: string } };
+    integrator: { gitIdentity?: { name: string; email: string } };
+  };
+}
 
 /** 最小可用配置（照 relay init 生成的形状），角色 argv 随便给——checkConfig 不看存在性。 */
 function config(over: {
@@ -121,7 +130,9 @@ describe('条件 5：checkConfig 的 lanes 与 gitIdentity', () => {
       },
     );
     expect(r.status, r.stderr).toBe(0);
-    const generated = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as RelayConfig;
+    // 实现之前 `lanes` / `gitIdentity` 还不在 RelayConfig 上；按「生成文件该有的形状」读，
+    // 不借类型声明兜底（否则类型一加，这一条断言就等于没测）。
+    const generated = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as ParsedConfig;
     expect(generated.lanes).toBe(1);
     expect(generated.roles.developer.gitIdentity).toEqual({
       name: 'dev',
@@ -134,7 +145,7 @@ describe('条件 5：checkConfig 的 lanes 与 gitIdentity', () => {
     // config.example.json 同一份字段
     const examplePath = join(REPO, 'packages', 'relay', 'config.example.json');
     expect(existsSync(examplePath)).toBe(true);
-    const example = JSON.parse(readFileSync(examplePath, 'utf8')) as RelayConfig;
+    const example = JSON.parse(readFileSync(examplePath, 'utf8')) as ParsedConfig;
     expect(example.lanes).toBe(1);
     expect(example.roles.developer.gitIdentity).toEqual({
       name: 'dev',
