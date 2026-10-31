@@ -114,6 +114,7 @@ import {
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
+import { MobileServer } from './server/mobileServer.js';
 import { bridgeBlockedReason, bridgeEntry, writeHermesBridgeEntry } from './hermesBridge.js';
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
 import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './researchFetch.js';
@@ -145,6 +146,8 @@ export class AppRuntime {
   todos: TodoStore;
   readonly logger: Logger;
   readonly localServer: LocalServer;
+  /** K5：手机只读页（独立端口；默认关，按设置项起停）。 */
+  readonly mobileServer: MobileServer;
   private readonly fakeProvider = new FakeProvider('fake-model-v1');
   /** 测试模型响应脚本是否已加载（IXAEON_FAKE_MODEL_SCRIPT，仅一次） */
   private fakeScriptLoaded = false;
@@ -218,6 +221,7 @@ export class AppRuntime {
     jobs: JobQueue;
     logger: Logger;
     localServer: LocalServer;
+    mobileServer: MobileServer;
   }) {
     this.dataDir = deps.dataDir;
     this.configFile = deps.configFile;
@@ -236,6 +240,7 @@ export class AppRuntime {
     this.jobs = deps.jobs;
     this.logger = deps.logger;
     this.localServer = deps.localServer;
+    this.mobileServer = deps.mobileServer;
     this.conversations = new ConversationStore(deps.db);
     this.todos = new TodoStore(deps.db);
     this.semanticIndex = createSemanticIndex(deps.db);
@@ -356,6 +361,9 @@ export class AppRuntime {
       },
     });
 
+    // K5：手机只读页的独立监听，接着同一个库；默认关，startServer 时按设置起停。
+    const mobileServer = new MobileServer({ db });
+
     const runtime = new AppRuntime({
       dataDir: resolved.dataDir,
       configFile: layout.configFile,
@@ -374,6 +382,7 @@ export class AppRuntime {
       jobs,
       logger,
       localServer,
+      mobileServer,
     });
     runtimeRef.current = runtime;
     runtime.registerJobHandlers();
@@ -2757,6 +2766,8 @@ export class AppRuntime {
       sources,
       vault,
     });
+    // K5：手机只读页也要换成新库（照 localServer.rebindDeps）。
+    this.mobileServer?.rebindDeps({ db });
     this.registerJobHandlers();
     const requeued = jobs.requeueNetworkFailures();
     if (requeued > 0) {
@@ -2779,6 +2790,12 @@ export class AppRuntime {
       await fastify.listen({ port: LOCAL_HTTP_PORT, host: '127.0.0.1' });
       this.fastify = fastify;
       this.logger.info('本地服务已启动', { host: '127.0.0.1', port: LOCAL_HTTP_PORT });
+      // K5：按设置起停手机只读页；端口被占等失败只记日志，不挡住桌面版。
+      try {
+        await this.mobileServer?.apply();
+      } catch (err) {
+        this.logger.warn('手机查看没有起来（不影响桌面版）', { error: String(err) });
+      }
     } catch (err) {
       this.logger.error('本地服务启动失败', { error: String(err) });
       throw err;
@@ -2886,6 +2903,8 @@ export class AppRuntime {
       this.fastify = null;
       this.logger.info(reason === 'restore' ? '本地服务已停止（数据恢复）' : '本地服务已停止');
     }
+    // K5：退出/恢复前一并关掉手机只读页，不让它拿着即将失效的库继续对外。
+    await this.mobileServer?.stop();
   }
 
   get state() {
