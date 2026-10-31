@@ -7,6 +7,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type * as C from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
+import { readProjectActivity } from './activity.js';
+import { readQuotas } from './quotas.js';
 import { readRelaySnapshot } from './relay.js';
 
 type QueueRow = { no: string; task: string; status: string };
@@ -87,7 +89,7 @@ function readProjects(db: CoreDatabase, now: Date) {
   try {
     const rows = db
       .prepare(
-        'SELECT id, name, status, description, current_state, updated_at FROM projects ORDER BY created_at',
+        'SELECT id, name, status, description, current_state, updated_at, root_path FROM projects ORDER BY created_at',
       )
       .all() as Array<{
       id: string;
@@ -96,6 +98,7 @@ function readProjects(db: CoreDatabase, now: Date) {
       description: string | null;
       current_state: string | null;
       updated_at: string;
+      root_path: string | null;
     }>;
     const group = (status: string) =>
       rows
@@ -107,6 +110,8 @@ function readProjects(db: CoreDatabase, now: Date) {
           description: r.description,
           currentState: r.current_state,
           updatedAt: r.updated_at,
+          // K4：每组都带；没登记读取的 readable=false，不跑 git。
+          activity: readProjectActivity(db, r.id, r.root_path),
         }));
     const lastEventAt = rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), '');
     return {
@@ -129,11 +134,14 @@ function readProjects(db: CoreDatabase, now: Date) {
  * 规格契约：`buildCockpitSnapshot(db, { relayDir, ixaeonRepo, now? })`。
  * `ixaeonRepo` 只认参数（设置项是 IPC 那一层的事，空串 = 没设）；`relayDir` 空串时用
  * `IXAEON_RELAY_DIR`、默认 `~/.ixaeon/relay`。
+ *
+ * K4 起返回 Promise：额度要等 QuotaHub 的 HTTP 回答，同步等会卡住事件循环（同进程的
+ * 合成服务回不了话）。项目活动仍是同步跑 git。
  */
-export function buildCockpitSnapshot(
+export async function buildCockpitSnapshot(
   db: CoreDatabase,
   opts: { relayDir: string; ixaeonRepo: string; now?: Date },
-): C.CockpitSnapshot {
+): Promise<C.CockpitSnapshot> {
   const now = opts.now ?? new Date();
   const dir =
     opts.relayDir.trim() ||
@@ -142,6 +150,7 @@ export function buildCockpitSnapshot(
   const relay = readRelaySnapshot(dir, now);
   const queue = readQueue(opts.ixaeonRepo, now);
   const projects = readProjects(db, now);
+  const quotas = await readQuotas(db, now);
   const attention = [...relay.attention, ...queue.attention];
   const hasWork = queue.rows.some(
     (r) => r.status.startsWith('待领') || r.status.startsWith('进行中（'),
@@ -164,11 +173,17 @@ export function buildCockpitSnapshot(
   }
   return {
     generatedAt: now.toISOString(),
-    sources: { relay: relay.health, queue: queue.health, projects: projects.health },
+    sources: {
+      relay: relay.health,
+      queue: queue.health,
+      projects: projects.health,
+      quotas: quotas.health,
+    },
     attention,
     running: relay.running,
     projects: { active: projects.active, paused: projects.paused, archived: projects.archived },
     recent: relay.recent,
     today: { finishedTurns: relay.finishedTurns },
+    quotas: quotas.cards,
   };
 }

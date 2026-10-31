@@ -538,8 +538,9 @@ export function registerIpc(runtime: AppRuntime): void {
     listGoals: async () => runtime.listGoals(),
     getGoalDetail: async (id) => runtime.getGoalDetail(id),
     // K2：驾驶舱快照（只读）。ixaeonRepo 只认设置项；relayDir 空串 = 用环境变量/默认目录。
+    // K4：快照改成异步（额度要等 QuotaHub 的 HTTP 回答）。
     getCockpitSnapshot: async () =>
-      buildCockpitSnapshot(runtime.db, {
+      await buildCockpitSnapshot(runtime.db, {
         relayDir: '',
         ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
       }),

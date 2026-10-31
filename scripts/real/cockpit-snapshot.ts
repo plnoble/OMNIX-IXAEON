@@ -35,8 +35,16 @@ try {
     console.log('RESULT K2 找不到 IXAEON 仓库（要在仓库的工作目录里跑）');
     process.exitCode = 2;
   } else {
-    const snap = buildCockpitSnapshot(db, { relayDir: relayDir(), ixaeonRepo: repo });
+    const snap = await buildCockpitSnapshot(db, { relayDir: relayDir(), ixaeonRepo: repo });
     const { relay, queue, projects: projectHealth } = snap.sources;
+    const quotas = snap.sources.quotas;
+    const quotaCards = snap.quotas ?? [];
+    const windows = quotaCards.reduce((n, q) => n + q.windows.length, 0);
+    const readable = [
+      ...snap.projects.active,
+      ...snap.projects.paused,
+      ...snap.projects.archived,
+    ].filter((p) => p.activity?.readable).length;
     console.log(
       `来源状态：relay=${relay.status} queue=${queue.status} projects=${projectHealth.status}`,
     );
@@ -46,7 +54,11 @@ try {
       `projects：active=${snap.projects.active.length} paused=${snap.projects.paused.length} archived=${snap.projects.archived.length}`,
     );
     console.log(
-      `RESULT K2 relay=${relay.status} queue=${queue.status} projects=${projectHealth.status} running=${snap.running.length} attention=${snap.attention.length} recent=${snap.recent.length} active=${snap.projects.active.length} paused=${snap.projects.paused.length} archived=${snap.projects.archived.length}`,
+      `额度：quotas=${quotas?.status ?? 'missing'} accounts=${quotaCards.length} windows=${windows}`,
+    );
+    console.log(`项目活动：可读项目=${readable}`);
+    console.log(
+      `RESULT K2 relay=${relay.status} queue=${queue.status} projects=${projectHealth.status} running=${snap.running.length} attention=${snap.attention.length} recent=${snap.recent.length} active=${snap.projects.active.length} paused=${snap.projects.paused.length} archived=${snap.projects.archived.length} quotas=${quotas?.status ?? 'missing'} accounts=${quotaCards.length} windows=${windows} readableProjects=${readable}`,
     );
   }
 } finally {
