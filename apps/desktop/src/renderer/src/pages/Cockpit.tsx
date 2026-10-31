@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AttentionItem, CockpitSnapshot, ProjectCard, SourceHealth } from '@ixaeon/contracts';
 import { api, errMsg } from '../api.js';
 import { Button, Card, Empty, ErrorBanner, Spinner, projectStatusLabel } from '../ui.js';
+import { QuotaSection } from './CockpitQuotas.js';
 
 /** K3：驾驶舱（规格 docs/委派/K3-驾驶舱页面.md）。只读 K2 的快照；项目区是 K3b。 */
 
@@ -54,6 +55,14 @@ const minutesSince = (iso: string | null, now: number): number | null => {
   const t = iso ? Date.parse(iso) : Number.NaN;
   return Number.isNaN(t) ? null : Math.max(0, Math.floor((now - t) / 60_000));
 };
+/** K4：「N 分钟 / 小时 / 天前」；时间读不出来写「未知」。 */
+const agoText = (iso: string | null, now: number): string => {
+  const mins = minutesSince(iso, now);
+  if (mins === null) return '未知';
+  if (mins < 60) return `${mins} 分钟前`;
+  if (mins < 1_440) return `${Math.floor(mins / 60)} 小时前`;
+  return `${Math.floor(mins / 1_440)} 天前`;
+};
 
 /** 没有「没设仓库路径」这一种写成规格里的短句；其余照来源给的 note。 */
 function sourceReason(key: string, h: SourceHealth): string {
@@ -64,11 +73,20 @@ function sourceReason(key: string, h: SourceHealth): string {
 
 function ProjectBox({
   p,
+  now,
   onStatus,
 }: {
   p: ProjectCard;
+  now: number;
   onStatus: (p: ProjectCard, status: 'active' | 'paused' | 'archived') => void;
 }) {
+  // K4：没登记读取（或授权撤销）→ readable=false，不显示数字，写「未授权读取」。
+  const activity = p.activity;
+  const activityText = !activity?.readable
+    ? '未授权读取'
+    : `最后提交 ${activity.lastCommitAt ? agoText(activity.lastCommitAt, now) : '未知'} · 7 天 ${
+        activity.commits7d ?? '未知'
+      } 次`;
   return (
     <li className="project-row" data-testid={`cockpit-project-card-${p.id}`} data-status={p.status}>
       <div className="project-main">
@@ -80,6 +98,13 @@ function ProjectBox({
             当前：{p.currentState}
           </span>
         )}
+        <span
+          className="muted"
+          style={{ display: 'block', fontSize: 12 }}
+          data-testid={`cockpit-project-activity-${p.id}`}
+        >
+          {activityText}
+        </span>
       </div>
       <div className="project-actions">
         {p.status !== 'active' && (
@@ -157,6 +182,8 @@ export function CockpitPage() {
 
   const now = Date.now();
   const bad = SOURCE_ORDER.filter((k) => snap.sources[k].status !== 'ok');
+  const quotaHealth = snap.sources.quotas;
+  const quotaCount = snap.quotas?.length ?? 0;
   const readAts = SOURCE_ORDER.map((k) => Date.parse(snap.sources[k].readAt)).filter((t) =>
     Number.isFinite(t),
   );
@@ -195,6 +222,12 @@ export function CockpitPage() {
                 <span className="muted">（{k}）</span>
               </li>
             ))}
+            {quotaHealth?.status === 'error' && (
+              <li data-testid="cockpit-source-quotas">
+                额度：{quotaHealth.note ?? '读取失败'}
+                <span className="muted">（quotas）</span>
+              </li>
+            )}
           </ul>
         </div>
       )}
@@ -212,8 +245,8 @@ export function CockpitPage() {
           <strong style={{ fontSize: 28, marginRight: 6 }}>{snap.today.finishedTurns}</strong>
           <span>今天完成</span>
         </div>
-        <div className="muted" data-testid="cockpit-quota-placeholder">
-          额度：等 K4
+        <div className="muted" data-testid="cockpit-quota-count">
+          额度：{quotaCount} 个账号
         </div>
       </div>
 
@@ -269,6 +302,8 @@ export function CockpitPage() {
         )}
       </Card>
 
+      <QuotaSection cards={snap.quotas ?? []} health={quotaHealth} />
+
       <Card title="项目" testId="cockpit-projects">
         {totalProjects === 0 ? (
           <Empty testId="cockpit-projects-empty">现在没有项目。</Empty>
@@ -280,7 +315,12 @@ export function CockpitPage() {
             ) : (
               <ul className="project-list">
                 {active.map((p) => (
-                  <ProjectBox key={p.id} p={p} onStatus={(x, s) => void setStatus(x, s)} />
+                  <ProjectBox
+                    key={p.id}
+                    p={p}
+                    now={now}
+                    onStatus={(x, s) => void setStatus(x, s)}
+                  />
                 ))}
               </ul>
             )}
@@ -295,7 +335,12 @@ export function CockpitPage() {
             {openPaused && (
               <ul className="project-list">
                 {paused.map((p) => (
-                  <ProjectBox key={p.id} p={p} onStatus={(x, s) => void setStatus(x, s)} />
+                  <ProjectBox
+                    key={p.id}
+                    p={p}
+                    now={now}
+                    onStatus={(x, s) => void setStatus(x, s)}
+                  />
                 ))}
               </ul>
             )}
@@ -310,7 +355,12 @@ export function CockpitPage() {
             {openArchived && (
               <ul className="project-list">
                 {archived.map((p) => (
-                  <ProjectBox key={p.id} p={p} onStatus={(x, s) => void setStatus(x, s)} />
+                  <ProjectBox
+                    key={p.id}
+                    p={p}
+                    now={now}
+                    onStatus={(x, s) => void setStatus(x, s)}
+                  />
                 ))}
               </ul>
             )}
