@@ -36,6 +36,20 @@
       "quotaPatterns": ["usage_limit_reached", "rate_limit_exceeded", "session limit"],
       "quotaPauseMinutes": 200,
       "pushByRelay": true
+    },
+    "reviewer": {
+      "argv": [
+        "node",
+        "{relay_root}/packages/relay/bin/dsh.mjs",
+        "--profile",
+        "headless",
+        "--json",
+        "--patch",
+        "<家目录>/.dsh/ixaeon-review.patch.yml",
+        "读 {prompt_file}，照里面做。"
+      ],
+      "label": "DSH + <网关>/<模型>",
+      "timeoutSeconds": 1200
     }
   },
   "idleSeconds": 60,

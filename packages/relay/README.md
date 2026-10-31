@@ -27,6 +27,26 @@
    - 数据目录以前在 `<工作目录根>/relay`，**旧位置的文件不会自动搬**：跑一次 `relay status`，它会提醒你「旧的数据目录里还有文件」。
 
 3. **（可选）定接力的 DSH 用哪个 plan、什么权限**。DSH 的 `headless` 配置自己不带模型设置，默认走 DeepSeek 官方 API，而且关在沙箱里（装不了依赖、跑不了测试）。2026-10-23 起的做法：在 `~/.dsh/ixaeon-relay.patch.yml` 写一层 DSH 补丁（选哪个 provider / model、要不要完全权限），在 `config.json` 开发的命令里 `--profile headless` 后面加 `--patch <这个文件>`。**换 plan 只改这个文件**，下一棒就生效；你平时用的 DSH 桌面版不读它。`relay init` 找得到这个文件就自动加上；生成配置之后才建的这个文件，要自己补。
+   - **（可选）Codex 没额度时谁审（K9a）**：以前换 Claude 代审；现在 Claude 的额度留给整合方，改成「DSH + 网关里的强模型」。自己建一份替补补丁：把 `~/.dsh/ixaeon-relay.patch.yml` 复制成 `~/.dsh/ixaeon-review.patch.yml`，只改最下面 `agent-default-model` 那段的 `provider:`、`model:` 两行。再在 `config.json` 的 `roles` 里加 `reviewer`（写法同 `developer`，argv 里带 `--patch <这份补丁>` 和 `{prompt_file}` 占位）：
+
+     ```json
+     "reviewer": {
+       "argv": [
+         "node",
+         "{relay_root}/packages/relay/bin/dsh.mjs",
+         "--profile",
+         "headless",
+         "--json",
+         "--patch",
+         "<家目录>/.dsh/ixaeon-review.patch.yml",
+         "读 {prompt_file}，照里面做。"
+       ],
+       "label": "DSH + <网关>/<模型>",
+       "timeoutSeconds": 1200
+     }
+     ```
+
+     替补只在 Codex 报额度用完时起：同一份审查上下文，在一个临时、只读用途的 git worktree 里跑（它改了什么也只改在临时副本里，跑完删掉），结论写进 `<任务号>-Codex审查.md`，开头注明「由替补审查代审（`label`）」。没配替补、或者替补也撞额度 → 审查退 3（分支先等着），不再找 Claude。
 4. **确认开发那份工作目录**。开发的 `cwd` 是 `<工作目录根>`（就是 `Worktrees/IXAEON` 这一层），因为开发要照 `AGENTS.md` 在它底下用 `git worktree` 建自己的活儿目录；整合方的 `cwd` 是它自己的 `relay-int`，**不和开发共用**。
 
 ## 日常怎么使
@@ -75,6 +95,7 @@
      ```
 
      `<本仓库路径>` 换成共用检出目录的真实路径。第二行切到 UTF-8，路径里有中文也读得对（cmd 默认按 GBK 读脚本）。要先 `cd` 到仓库里：调度器按当前目录找共用检出目录。
+
   2. `Win + R` 输入 `shell:startup` 回车，把这个文件（或它的快捷方式）放进打开的文件夹。不想要了就删掉。
 
   也可以用计划任务（`schtasks /create … /sc onlogon`），但建「登录时运行」的任务要**管理员**终端，普通终端会报「拒绝访问」；`/tr` 里套带中文的路径还要转义引号，容易出错（用户 2026-10-30 实测）。
@@ -122,7 +143,7 @@
 
 | 文件              | 是什么                                                                                                                                        | 能不能动                                        |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `config.json`     | 两个角色的命令行与 `cwd`、`idleSeconds`、`localUserCheck`                                                                                     | 手改要看懂再改（改坏了配置检查会拒绝启动）      |
+| `config.json`     | 两个角色的命令行与 `cwd`、可选的替补审查（`roles.reviewer`）、`idleSeconds`、`localUserCheck`                                                 | 手改要看懂再改（改坏了配置检查会拒绝启动）      |
 | `state.json`      | `turns`（跑了几棒）、`stoppedReason`、`pausedUntil`、`notify.sent`（飞书限频）、`lastDailyDate`、`idleDay`（没活发到哪天）、`lastMorningDate` | **别手改**；`relay resume` 会动 `stoppedReason` |
 | `ledger.jsonl`    | 一棒一行：`role`、`kind`、`taskId`、起止时间、退出码、`usage`（Claude 那一棒花了多少）、`statusBefore/After`、`doneLine`、`violations`        | 看完想留档就先拷走，删了不影响运行              |
 | `turns/<第几棒>/` | `prompt.md`（这一棒的交代）、`stdout.txt`、`stderr.txt`（角色的原样输出）                                                                     | 旧目录可以删（排查问题时就靠它）                |
