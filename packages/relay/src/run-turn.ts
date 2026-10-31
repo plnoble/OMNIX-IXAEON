@@ -4,6 +4,13 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseRoleOutput } from './output.js';
+import {
+  GATEWAY_NOT_FOUND_LINE,
+  isDshLauncher,
+  prepareGatewayPatch,
+  removeGatewayPatch,
+  type GatewayPatch,
+} from './gateway.js';
 import { writeTurnPrompt } from './prompt.js';
 import { nextWeeklyReset } from './weekly.js';
 import type { RelayConfig, RelayState, Turn, Usage } from './types.js';
@@ -73,35 +80,50 @@ export async function runTurn(
   });
   // 整合方改：嵌在参数里的也换（真 Claude 要写成 -p "读 {prompt_file} 照做"）
   // L10 契约第 5 条：`{relay_root}` 一起换，值是正在跑的这份代码的仓库根。
-  const argv = role.argv.map((a) =>
+  let argv = role.argv.map((a) =>
     a.split('{prompt_file}').join(promptPath).split('{relay_root}').join(RELAY_ROOT),
   );
-  const child = spawn(argv[0]!, argv.slice(1), {
-    cwd: role.cwd,
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32',
-  });
+  // DG1 契约第 1、3 条：DSH 那一棒先从桌面版配置取网关段，插在接力补丁前面；
+  // 取不到（配置不存在 / 没有 llm-pi-ai）就照原来的参数起，打一行提示。临时补丁在下面 finally 删。
+  let gateway: GatewayPatch | null = null;
+  if (isDshLauncher(argv)) {
+    gateway = prepareGatewayPatch(argv);
+    if (gateway) argv = gateway.argv;
+    else console.log(GATEWAY_NOT_FOUND_LINE);
+  }
   let out = '';
   let err = '';
-  child.stdout?.on('data', (d: Buffer) => {
-    out += d.toString('utf8');
-  });
-  child.stderr?.on('data', (d: Buffer) => {
-    err += d.toString('utf8');
-  });
+  let code: number | null = null;
   let timedOut = false;
-  const onTimeout = () => {
-    timedOut = true;
-    killTree(child.pid);
-  };
-  const timer = setTimeout(onTimeout, opts.timeoutMs ?? role.timeoutMinutes * 60_000);
-  const code = await new Promise<number | null>((r) => {
-    child.on('close', (c) => r(c));
-    child.on('error', () => r(null));
-  });
-  clearTimeout(timer);
-  if (timedOut) killTree(child.pid);
+  try {
+    const child = spawn(argv[0]!, argv.slice(1), {
+      cwd: role.cwd,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
+    child.stdout?.on('data', (d: Buffer) => {
+      out += d.toString('utf8');
+    });
+    child.stderr?.on('data', (d: Buffer) => {
+      err += d.toString('utf8');
+    });
+    const onTimeout = () => {
+      timedOut = true;
+      killTree(child.pid);
+    };
+    const timer = setTimeout(onTimeout, opts.timeoutMs ?? role.timeoutMinutes * 60_000);
+    code = await new Promise<number | null>((r) => {
+      child.on('close', (c) => r(c));
+      child.on('error', () => r(null));
+    });
+    clearTimeout(timer);
+    if (timedOut) killTree(child.pid);
+  } finally {
+    // 正常、替身崩溃、超时（进程被强杀）三种都在这里删：这一段在调起方（调度器）里跑，
+    // 比放在 dsh.mjs 里可靠——超时那一刀会连启动器一起杀掉，启动器自己的 finally 跑不到。
+    if (gateway) removeGatewayPatch(gateway.file);
+  }
   const stdoutPath = join(dir, 'stdout.txt');
   const stderrPath = join(dir, 'stderr.txt');
   writeFileSync(stdoutPath, out, 'utf8');
