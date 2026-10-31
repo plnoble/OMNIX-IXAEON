@@ -428,7 +428,14 @@ export const settingsViewSchema = z.object({
   }),
   dataDir: z.string(),
   /** K3：驾驶舱读队列用的 IXAEON 仓库路径（设置页填；空串 = 不读队列）。 */
-  cockpit: z.object({ ixaeonRepo: z.string() }).default({ ixaeonRepo: '' }),
+  cockpit: z
+    .object({
+      ixaeonRepo: z.string(),
+      /** K5：手机只读页（默认关）与端口（默认 43192）。 */
+      mobileEnabled: z.boolean().default(false),
+      mobilePort: z.number().int().default(43192),
+    })
+    .default({ ixaeonRepo: '', mobileEnabled: false, mobilePort: 43192 }),
   /** A03（审核 2026-09-13）：桌面问答存档授权状态（enabled / revoked） */
   askCaptureStatus: z.enum(['enabled', 'revoked']).default('enabled'),
   mcp: z.object({
@@ -722,6 +729,8 @@ export interface IxaIpcApi {
   getCockpitSnapshot(): Promise<CockpitSnapshot>;
   /** K3：设置页保存 IXAEON 仓库路径（驾驶舱读队列用；空串 = 不读队列）。 */
   saveCockpitSettings(input: { ixaeonRepo: string }): Promise<{ ok: true }>;
+  /** K5：保存手机只读页开关与端口；存完立刻按新设置起停。 */
+  saveMobileSettings(input: { enabled: boolean; port: number }): Promise<{ ok: true }>;
   addTodo(input: { title: string }): Promise<Todo>;
   acceptTodo(id: string): Promise<Todo>;
   rejectTodo(id: string): Promise<Todo>;

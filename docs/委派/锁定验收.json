@@ -772,7 +772,7 @@
     {
       "id": "K5",
       "title": "手机只读页",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/k5-mobile-server.test.ts": "0cb6bf1851b38a7cecb8ce647eb5601ffceedc7589298bcbe820c8e5a6af5731",
         "apps/desktop/test/acceptance/k5-mobile-page.test.ts": "7aa6eaae068e2167b619ef48d2e4b2359a63f7f0709280b2ecd6e4ca539eeb37",
