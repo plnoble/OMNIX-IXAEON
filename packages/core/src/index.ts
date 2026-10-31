@@ -38,6 +38,7 @@ export {
 export { loadConfig, saveConfig } from './config.js';
 export { PermissionService } from './permissions.js';
 export { ProjectService } from './projects.js';
+export { planProjectImport, applyProjectImport } from './projectImport.js';
 export { SourceStore, type SourceWithStats } from './storage/sourceStore.js';
 export { SearchService, type SegmentSearchHit } from './storage/search.js';
 export {
@@ -105,6 +106,8 @@ export {
 } from './extraction/extractor.js';
 export { ItemService } from './storage/itemStore.js';
 export { TodoStore, type TodoLink } from './storage/todoStore.js';
+export { GoalStore, PlanStore } from './goals/index.js';
+export type { Goal, GoalEvent, Plan, PlanStep } from './goals/index.js';
 export {
   syncDerivedNeedsReasons,
   derivedNeedsReasons,
@@ -223,6 +226,8 @@ export {
   type TuiSpawnOptions,
 } from './runtime/tuiGateway.js';
 export { JsonRpcStdio } from './runtime/jsonrpcStdio.js';
+export { readRelaySnapshot } from './cockpit/relay.js';
+export { buildCockpitSnapshot } from './cockpit/snapshot.js';
 export { buildProjectBrief, type ProjectBriefCounts } from './runtime/projectBrief.js';
 export { CoreToolBroker, CORE_TOOL_NAMES, type CoreToolName } from './runtime/broker.js';
 export {
@@ -289,4 +294,4 @@ export {
   extractSuggestedTodos,
   parseUserTodo,
 } from './runtime/suggestedTodos.js';
-export { explainModelFailure } from './runtime/modelErrors.js';
+export { explainModelFailure, isModelUnavailable } from './runtime/modelErrors.js';

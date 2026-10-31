@@ -41,6 +41,29 @@ function runGitLog(root: string): string {
   ).toString();
 }
 
+/**
+ * 项目能不能读：做过目录登记读取（`project_snapshot` 来源）、对应授权仍 active、
+ * 且项目当前的根目录在授权目录里（含子目录）。返回可读的根目录，不可读时 null。
+ * 规格 K4 要求这个判断只写一处，`buildProjectBrief` 和驾驶舱的项目活动共用。
+ */
+export function readableProjectRoot(
+  db: CoreDatabase,
+  projectId: string,
+  rootPath: string | null,
+): string | null {
+  if (!rootPath) return null;
+  const snapshot = db
+    .prepare(
+      `SELECT p.locator AS locator FROM sources s JOIN permissions p ON p.id = s.permission_id
+        WHERE s.project_id = ? AND s.kind = 'project_snapshot' AND p.status = 'active'
+        ORDER BY s.captured_at DESC LIMIT 1`,
+    )
+    .get(projectId) as { locator: string } | undefined;
+  // G02：授权还要覆盖项目当前的根目录（isPathInside，不是相等——授权了上级文件夹、
+  // 项目根目录是其子目录时照样跑）；授权撤销或根目录跑到范围外 → 不跑。
+  return snapshot && isPathInside(snapshot.locator, rootPath) ? rootPath : null;
+}
+
 export function buildProjectBrief(
   db: CoreDatabase,
   projectId: string,
@@ -52,21 +75,12 @@ export function buildProjectBrief(
   if (!project) return empty;
 
   // 登记读取是门槛：登记目录时用户才同意把 git 摘要交给模型分析，这里不扩大范围。
-  // G02：门槛还要看授权**仍有效**，且覆盖项目当前的根目录（isPathInside，
-  // 不是两者相等——授权了上级文件夹、项目根目录是其子目录时照样跑）。
-  // 快照授权被撤销、或项目换了根目录跑到授权范围外 → 不跑：已有快照不能充当永久授权。
-  const snapshot = db
-    .prepare(
-      `SELECT p.locator AS locator FROM sources s JOIN permissions p ON p.id = s.permission_id
-        WHERE s.project_id = ? AND s.kind = 'project_snapshot' AND p.status = 'active'
-        ORDER BY s.captured_at DESC LIMIT 1`,
-    )
-    .get(projectId) as { locator: string } | undefined;
+  const readableRoot = readableProjectRoot(db, projectId, project.root_path);
   const runGit = opts?.runGit ?? runGitLog;
   let commitLines: string[] = [];
-  if (snapshot && project.root_path && isPathInside(snapshot.locator, project.root_path)) {
+  if (readableRoot) {
     try {
-      commitLines = runGit(project.root_path)
+      commitLines = runGit(readableRoot)
         .split('\n')
         .map((l) => l.trim())
         .filter(Boolean);

@@ -9,13 +9,16 @@ import { UnderstandingPage } from './pages/Understanding.js';
 import { InboxPage, HistoryPage } from './pages/Inbox.js';
 import { AskPage } from './pages/Ask.js';
 import { PersonalOverviewPage } from './pages/Overview.js';
+import { CockpitPage } from './pages/Cockpit.js';
 import { ResearchPage } from './pages/Research.js';
 import { TasksPage, type TaskFocus } from './pages/Tasks.js';
 import { TodosPage } from './pages/Todos.js';
+import { GoalsPage } from './pages/Goals.js';
 import { ErrorBanner } from './ui.js';
 import { UpdatePrompt } from './UpdatePrompt.js';
 
 type Page =
+  | 'cockpit'
   | 'overview'
   | 'understanding'
   | 'inbox'
@@ -27,16 +30,19 @@ type Page =
   | 'research'
   | 'tasks'
   | 'todos'
+  | 'goals'
   | 'settings';
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState<Page>('overview');
+  const [page, setPage] = useState<Page>('cockpit');
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
   const [taskFocus, setTaskFocus] = useState<TaskFocus | null>(null);
+  // CF0：从聊天里点「去设置」时，设置页滚到「模型接入」那一块。
+  const [settingsFocus, setSettingsFocus] = useState<{ section: 'model'; at: number } | null>(null);
   const openTasks = () => (setTaskFocus(null), setPage('tasks'));
   const [matchedNew, setMatchedNew] = useState(0);
 
@@ -128,6 +134,14 @@ export default function App() {
         <nav className="nav" data-testid="main-nav">
           <button
             type="button"
+            className={page === 'cockpit' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('cockpit')}
+            data-testid="nav-cockpit"
+          >
+            驾驶舱
+          </button>
+          <button
+            type="button"
             className={page === 'overview' ? 'nav-item active' : 'nav-item'}
             onClick={() => setPage('overview')}
             data-testid="nav-overview"
@@ -169,6 +183,14 @@ export default function App() {
             data-testid="nav-todos"
           >
             待办
+          </button>
+          <button
+            type="button"
+            className={page === 'goals' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('goals')}
+            data-testid="nav-goals"
+          >
+            目标
           </button>
           <button
             type="button"
@@ -226,7 +248,10 @@ export default function App() {
           <button
             type="button"
             className={page === 'settings' ? 'nav-item active' : 'nav-item'}
-            onClick={() => setPage('settings')}
+            onClick={() => {
+              setSettingsFocus(null);
+              setPage('settings');
+            }}
             data-testid="nav-settings"
           >
             设置
@@ -236,6 +261,8 @@ export default function App() {
 
       <main className="app-main">
         {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+
+        {page === 'cockpit' && <CockpitPage />}
 
         {page === 'overview' && <PersonalOverviewPage state={state} />}
 
@@ -261,6 +288,10 @@ export default function App() {
               setTaskFocus({ taskId, at: Date.now() });
               setPage('tasks');
             }}
+            onOpenModelSettings={() => {
+              setSettingsFocus({ section: 'model', at: Date.now() });
+              setPage('settings');
+            }}
           />
         )}
 
@@ -272,6 +303,8 @@ export default function App() {
             }}
           />
         )}
+
+        {page === 'goals' && <GoalsPage />}
 
         {page === 'history' && <HistoryPage />}
 
@@ -287,7 +320,7 @@ export default function App() {
 
         {page === 'tasks' && <TasksPage projects={projects} focus={taskFocus} />}
 
-        {page === 'settings' && <SettingsPage />}
+        {page === 'settings' && <SettingsPage focus={settingsFocus} />}
       </main>
     </div>
   );

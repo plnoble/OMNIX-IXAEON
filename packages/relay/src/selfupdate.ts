@@ -4,9 +4,43 @@
  * - `dir` 不存在 → `git -C <repo> worktree add --detach <dir> origin/main`；
  * - 存在 → 在 `dir` 里 `git switch --detach origin/main`；
  * - `dir` 里有没提交的改动 → 不动它，`note` 说明，`sha` 是它现在的提交。
+ *
+ * L18 契约第 2、3 条：`relayCodeHash`——看门人那层代码的指纹（`bin/` 和 `src/` 下所有文件，
+ * 按相对路径排序，逐个把「路径 + \0 + 内容」喂进 sha256）；`RESTART_EXIT_CODE`——
+ * `relay run` 用它退出表示「代码换了，relay forever 快重起我」。测试、README 不算指纹——
+ * 换了它们不需要重起看门人。
  */
-import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { git } from './git.js';
+
+/** L18 契约第 4 条：`relay run` 用这个码退出 = 「代码换了，relay forever 快重起我」。 */
+export const RESTART_EXIT_CODE = 75;
+
+/** 看门人那层代码的 sha256（十六进制串）。同样的文件两次算出来一样。 */
+export function relayCodeHash(root: string): string {
+  const rels: string[] = [];
+  for (const sub of ['bin', 'src']) {
+    const dir = join(root, 'packages', 'relay', sub);
+    let entries: Array<{ isFile: () => boolean; parentPath: string; name: string }> = [];
+    try {
+      entries = readdirSync(dir, { recursive: true, withFileTypes: true }) as typeof entries;
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (e.isFile()) rels.push(relative(root, join(e.parentPath, e.name)));
+    }
+  }
+  const hash = createHash('sha256');
+  for (const rel of rels.map((p) => p.split(sep).join('/')).sort()) {
+    hash.update(rel);
+    hash.update('\0');
+    hash.update(readFileSync(join(root, ...rel.split('/'))));
+  }
+  return hash.digest('hex');
+}
 
 export function updateCodeCheckout(
   repo: string,

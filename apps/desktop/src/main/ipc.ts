@@ -1,39 +1,60 @@
 import { app, dialog, ipcMain, shell, safeStorage } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
 import { executorGapText } from './codingExecutor.js';
+import { readMobileSettings } from './server/mobileServer.js';
 import {
   addRequirement,
+  applyProjectImport,
+  buildCockpitSnapshot,
+  getSetting,
   listAuditEvents,
   listMatchedFindings,
   listRequirements,
   MATCH_WINDOW_DAYS,
   markMatchedFindingsSeen,
+  planProjectImport,
   readTaskChanges,
   recordAudit,
   removeRequirement,
   requeueFailedExtractions,
+  setSetting,
 } from '@ixaeon/core';
 import {
   ErrorCodes,
   IxaError,
   MODEL_EXECUTOR_SENDS,
   executorLabel,
+  manualQuotaSchema,
   toApiError,
   type AppState,
   type IxaIpcApi,
   type Item,
   type Job,
+  type ManualQuota,
   type Permission,
   type PickResult,
   type Project,
   type SearchInput,
+  type ProjectImportPlan,
   type Source,
   type SourceListItem,
 } from '@ixaeon/contracts';
+
+/** K4：设置页读回手动额度；坏了的 JSON / 形状不当没有（核心层同样当没有并记 error）。 */
+function savedManualQuotas(raw: string | undefined): ManualQuota[] {
+  if (!raw) return [];
+  try {
+    const parsed = manualQuotaSchema.array().safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * IPC 处理器注册：实现 IxaIpcApi 的全部方法。
@@ -56,6 +77,8 @@ interface PendingTicket {
 }
 
 const TICKET_TTL_MS = 5 * 60 * 1000;
+
+const MAX_IMPORT_FILE_BYTES = 2 * 1024 * 1024;
 
 /** 测试钩子：IXAEON_TEST_DIALOG_RESPONSES="documents|path1;path2"（仅测试环境生效）。 */
 function stubDialogPaths(kind: string): string[] | null {
@@ -85,6 +108,25 @@ export function registerIpc(runtime: AppRuntime): void {
 
   // --- 票据表（主进程内存；随进程生命周期） ---
   const tickets = new Map<string, PendingTicket>();
+
+  /** K1：预览过的清单（确认时重算、确认前不写库）；token 一次性、5 分钟有效。 */
+  const importPreviews = new Map<string, { list: unknown; expiresAt: number }>();
+  const rememberImportPreview = (token: string, list: unknown): void => {
+    importPreviews.set(token, { list, expiresAt: Date.now() + TICKET_TTL_MS });
+    setTimeout(() => importPreviews.delete(token), TICKET_TTL_MS + 1000).unref();
+  };
+  /** 已有项目的清单备注，按库里的项目名给（和 planProjectImport 一样不分大小写匹配）。 */
+  const importNotes = (list: unknown, plan: ProjectImportPlan): Record<string, string> => {
+    const items = (list as { projects: Array<{ name?: unknown; note?: unknown } | null> }).projects;
+    const notes = Object.create(null) as Record<string, string>;
+    for (const p of [...plan.update.map((u) => u.project), ...plan.unchanged]) {
+      const hit = items.find(
+        (i) => typeof i?.name === 'string' && i.name.trim().toLowerCase() === p.name.toLowerCase(),
+      );
+      if (typeof hit?.note === 'string') notes[p.name] = hit.note;
+    }
+    return notes;
+  };
 
   const issueTicket = (paths: string[], purpose: PendingTicket['purpose']): PickResult => {
     const ticket = randomBytes(24).toString('hex');
@@ -125,6 +167,22 @@ export function registerIpc(runtime: AppRuntime): void {
     return entry.paths;
   };
 
+  /** K1：消费预览凭证（单次使用）；伪造/过期/重复一律拒绝。 */
+  const consumeImportPreview = (token: unknown): unknown => {
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '缺少预览凭证（请重新选择清单）');
+    }
+    const entry = importPreviews.get(token);
+    importPreviews.delete(token);
+    if (!entry) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '预览凭证无效或已使用（请重新选择清单）');
+    }
+    if (Date.now() > entry.expiresAt) {
+      throw new IxaError(ErrorCodes.PERMISSION_DENIED, '预览凭证已过期（请重新选择清单）');
+    }
+    return entry.list;
+  };
+
   const enqueueExtractions = (
     sources: Array<{ id: string }>,
     projectId: string | null,
@@ -150,6 +208,48 @@ export function registerIpc(runtime: AppRuntime): void {
     updateProjectStatus: async (input) => runtime.projects.updateStatus(input.id, input.status),
     // P8：审计由运行时记（project.deleted 只一条）；这里再记一遍就成了两条
     deleteProject: async (id) => runtime.deleteProject(id),
+    // K1：选一个 JSON 清单 → 只预览（不写库）；确认后按预览凭证写。
+    previewProjectImport: async (input) => {
+      const paths = consumeTicket(input.ticket, 'import');
+      const file = paths[0];
+      if (!file || !file.toLowerCase().endsWith('.json')) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请选择一个 .json 清单文件');
+      }
+      const info = await stat(file).catch(() => null);
+      if (!info?.isFile()) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '请选择一个存在的 .json 清单文件');
+      }
+      if (info.size > MAX_IMPORT_FILE_BYTES) {
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          `清单文件太大（上限 ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB）`,
+        );
+      }
+      let text: string;
+      try {
+        text = await readFile(file, 'utf8');
+      } catch {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '读不了清单文件（可能已移走或没有权限）');
+      }
+      let raw: unknown;
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '清单不是合法的 JSON');
+      }
+      const preview = planProjectImport(runtime.db, raw);
+      const token = randomBytes(24).toString('hex');
+      rememberImportPreview(token, raw);
+      return { token, preview, notes: importNotes(raw, preview) };
+    },
+    applyProjectImport: async (input) => {
+      const list = consumeImportPreview(input.token);
+      // 确认时才按当时的库重算：预览之后库变了，也不会照着旧结果盲写。
+      const plan = planProjectImport(runtime.db, list);
+      const done = applyProjectImport(runtime.db, plan);
+      recordAudit(runtime.db, 'project.imported', done);
+      return done;
+    },
 
     // --- 导入（票据制） ---
     pickFiles: async (kind): Promise<PickResult | null> => {
@@ -448,6 +548,16 @@ export function registerIpc(runtime: AppRuntime): void {
     acceptTodo: async (id) => runtime.acceptTodo(id),
     rejectTodo: async (id) => runtime.rejectTodo(id),
     completeTodo: async (id) => runtime.completeTodo(id),
+    // G1e：Goals 页只读（用户 2026-10-30 定，故意没有写通道）
+    listGoals: async () => runtime.listGoals(),
+    getGoalDetail: async (id) => runtime.getGoalDetail(id),
+    // K2：驾驶舱快照（只读）。ixaeonRepo 只认设置项；relayDir 空串 = 用环境变量/默认目录。
+    // K4：快照改成异步（额度要等 QuotaHub 的 HTTP 回答）。
+    getCockpitSnapshot: async () =>
+      await buildCockpitSnapshot(runtime.db, {
+        relayDir: '',
+        ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
+      }),
     deleteConversation: async (id) => {
       runtime.conversations.delete(id);
       return { deleted: true as const };
@@ -649,6 +759,13 @@ export function registerIpc(runtime: AppRuntime): void {
           webSearchKeyPresent: config.webSearch?.apiKeyPresent ?? false,
         },
         dataDir: runtime.state.dataDir,
+        cockpit: {
+          ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
+          quotahubUrl: getSetting(runtime.db, 'cockpit.quotahub_url')?.value ?? '',
+          manualQuotas: savedManualQuotas(getSetting(runtime.db, 'cockpit.manual_quotas')?.value),
+          mobileEnabled: readMobileSettings(runtime.db).enabled,
+          mobilePort: readMobileSettings(runtime.db).port,
+        },
         askCaptureStatus: runtime.askCaptureStatus(),
         mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
         encryptionNotice:
@@ -662,6 +779,30 @@ export function registerIpc(runtime: AppRuntime): void {
     },
     saveModelSettings: async (input) => runtime.saveModelSettings(input),
     saveCodingSettings: async (input) => runtime.saveCodingSettings(input),
+    // K3：驾驶舱要读的仓库路径（只存设置项；快照结构不变）。K4：同一通道保存额度设置，
+    // 只写传入的键。
+    saveCockpitSettings: async (input) => {
+      if (input.ixaeonRepo !== undefined) {
+        setSetting(runtime.db, 'cockpit.ixaeon_repo', input.ixaeonRepo.trim());
+      }
+      if (input.quotahubUrl !== undefined) {
+        setSetting(runtime.db, 'cockpit.quotahub_url', input.quotahubUrl.trim());
+      }
+      if (input.manualQuotas !== undefined) {
+        setSetting(runtime.db, 'cockpit.manual_quotas', JSON.stringify(input.manualQuotas));
+      }
+      return { ok: true as const };
+    },
+    // K5：存手机查看开关与端口，存完立刻按新设置起停（端口不合法/被占用时报错，不崩主进程）
+    saveMobileSettings: async (input) => {
+      if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '端口要填 1 到 65535 之间的整数');
+      }
+      setSetting(runtime.db, 'mobile.enabled', input.enabled ? 'true' : 'false');
+      setSetting(runtime.db, 'mobile.port', String(input.port));
+      await runtime.mobileServer.apply();
+      return { ok: true as const };
+    },
     // 记忆桥（F1）：状态与开关（开之前查 HTTPS；改 Hermes 配置前先备份）
     getPersonalMemoryToChat: async () => runtime.personalMemoryToChatStatus(),
     setPersonalMemoryToChat: async (enabled: boolean) =>

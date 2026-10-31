@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ConversationMessage, MemoryUsedItem, TodoStatus } from '@ixaeon/contracts';
+import { isModelUnavailable } from '@ixaeon/contracts';
 import { api, errMsg } from '../api.js';
 import { Button, Spinner } from '../ui.js';
 
@@ -109,6 +110,68 @@ function MemoryUsedList({ items }: { items: MemoryUsedItem[] }) {
 }
 
 /**
+ * CF0：这一轮失败是「网关里这个模型没有可用渠道 / 模型不存在」时，在失败消息下面
+ * 给一个换模型重问的小控件。只用设置里已检测并保存的模型，不自动换、不自动重试：
+ * 换不换由用户点。已保存的模型里除了失败的那个没有别的 → 不出下拉框，指去设置。
+ */
+function RetryWithModel({
+  failedModel,
+  savedModels,
+  disabled,
+  onRetryWithModel,
+  onOpenModelSettings,
+}: {
+  failedModel: string | null;
+  savedModels: string[];
+  disabled?: boolean;
+  onRetryWithModel?: (model: string) => void;
+  onOpenModelSettings?: () => void;
+}) {
+  const options = savedModels.filter((m) => m !== failedModel);
+  // 用户选过的；清单变了（例如换了设置再回来）而选项里没有它就退回第一个。
+  const [picked, setPicked] = useState<string>('');
+  const selected = options.includes(picked) ? picked : (options[0] ?? '');
+  if (options.length === 0) {
+    return (
+      <div className="ask-model-retry" data-testid="model-unavailable">
+        <p className="muted" data-testid="model-unavailable-hint">
+          设置里还没有别的可用模型
+        </p>
+        {onOpenModelSettings ? (
+          <Button kind="default" testId="model-unavailable-settings" onClick={onOpenModelSettings}>
+            去设置「模型接入」添加
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="ask-model-retry" data-testid="model-unavailable">
+      <select
+        value={selected}
+        onChange={(e) => setPicked(e.target.value)}
+        data-testid="model-retry-select"
+        aria-label="换一个已保存的模型"
+      >
+        {options.map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
+      </select>
+      <Button
+        kind="default"
+        testId="model-retry-run"
+        disabled={disabled === true || selected.length === 0}
+        onClick={() => onRetryWithModel?.(selected)}
+      >
+        用这个模型重问
+      </Button>
+    </div>
+  );
+}
+
+/**
  * 流式过程中先不显示回答末尾的「建议待办」段：答完后主进程会把它拆成下面的待办卡，
  * 正文里就没有这一段了（标题行的认法同 packages/core/src/runtime/suggestedTodos.ts）。
  */
@@ -154,6 +217,11 @@ export function AskMessage({
   todoCoding,
   onDecideTodo,
   onOpenTask,
+  savedModels,
+  chatModelName,
+  retryDisabled,
+  onRetryWithModel,
+  onOpenModelSettings,
 }: {
   message: ConversationMessage;
   /**
@@ -173,6 +241,16 @@ export function AskMessage({
   todoCoding?: Record<string, boolean>;
   onDecideTodo?: (id: string, decision: 'accept' | 'reject') => void;
   onOpenTask?: (taskId: string) => void;
+  /** CF0：设置里已检测并保存的模型（没读到设置前不传，控件先不出现）。 */
+  savedModels?: string[];
+  /** CF0：当前聊天模型（失败原文没给模型名时，退回这条消息自己记录的模型）。 */
+  chatModelName?: string | null;
+  /** CF0：正在回答/准备中时不许再点「用这个模型重问」。 */
+  retryDisabled?: boolean;
+  /** CF0：用选中的模型在同一个对话里重问原话。 */
+  onRetryWithModel?: (model: string) => void;
+  /** CF0：没有别的可用模型时，跳到设置页「模型接入」。 */
+  onOpenModelSettings?: () => void;
 }) {
   const tasks = tasksOf(m.meta);
   const proposedTodos = proposedOf(m.meta);
@@ -192,6 +270,15 @@ export function AskMessage({
   const steps = Array.isArray(m.meta['steps'])
     ? (m.meta['steps'] as Array<{ round: number; tool: string; ok: boolean; detail: string }>)
     : [];
+  // CF0：只有「没有可用渠道 / 模型不存在」这一类失败才给换模型重问的小控件；
+  // 超时、429、别的 5xx 照旧只显示说明，不出现这个控件。
+  const modelUnavailable =
+    m.role === 'assistant' && m.status === 'failed' && m.errorMessage !== null
+      ? isModelUnavailable(m.errorMessage)
+      : null;
+  const failedModel = modelUnavailable
+    ? (modelUnavailable.model ?? m.modelName ?? chatModelName ?? null)
+    : null;
   return (
     <article
       className={`ask-msg ask-msg-${m.role} ask-msg-${m.status}`}
@@ -205,6 +292,15 @@ export function AskMessage({
       >
         {m.status === 'streaming' && <Spinner label={waitLabel ?? '正在回答…'} />}
         {m.status === 'failed' && <p className="warn">失败：{m.errorMessage ?? '未知错误'}</p>}
+        {modelUnavailable && savedModels !== undefined ? (
+          <RetryWithModel
+            failedModel={failedModel}
+            savedModels={savedModels}
+            disabled={retryDisabled}
+            onRetryWithModel={onRetryWithModel}
+            onOpenModelSettings={onOpenModelSettings}
+          />
+        ) : null}
         {m.status === 'cancelled' && <p className="warn">已取消</p>}
         {shownContent ? <pre className="answer-text">{shownContent}</pre> : null}
         {reportTaskId && (

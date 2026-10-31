@@ -25,6 +25,8 @@ const api: IxaIpcApi = {
   createProjects: (inputs) => ipcRenderer.invoke('ixaeon:createProjects', inputs),
   updateProjectStatus: (input) => ipcRenderer.invoke('ixaeon:updateProjectStatus', input),
   deleteProject: (id) => ipcRenderer.invoke('ixaeon:deleteProject', id),
+  previewProjectImport: (input) => ipcRenderer.invoke('ixaeon:previewProjectImport', input),
+  applyProjectImport: (input) => ipcRenderer.invoke('ixaeon:applyProjectImport', input),
   pickFiles: (kind) => ipcRenderer.invoke('ixaeon:pickFiles', kind),
   pickSaveZip: (defaultName) => ipcRenderer.invoke('ixaeon:pickSaveZip', defaultName),
   pickRestoreZip: () => ipcRenderer.invoke('ixaeon:pickRestoreZip'),
@@ -84,6 +86,15 @@ const api: IxaIpcApi = {
   acceptTodo: (id) => ipcRenderer.invoke('ixaeon:acceptTodo', id),
   rejectTodo: (id) => ipcRenderer.invoke('ixaeon:rejectTodo', id),
   completeTodo: (id) => ipcRenderer.invoke('ixaeon:completeTodo', id),
+  // G1e：Goals 页只读
+  listGoals: () => ipcRenderer.invoke('ixaeon:listGoals'),
+  getGoalDetail: (id) => ipcRenderer.invoke('ixaeon:getGoalDetail', id),
+  // K2：驾驶舱快照（只读）
+  getCockpitSnapshot: () => ipcRenderer.invoke('ixaeon:getCockpitSnapshot'),
+  // K3：设置页保存驾驶舱读队列用的仓库路径
+  saveCockpitSettings: (input) => ipcRenderer.invoke('ixaeon:saveCockpitSettings', input),
+  // K5：设置页保存手机只读页的开关与端口
+  saveMobileSettings: (input) => ipcRenderer.invoke('ixaeon:saveMobileSettings', input),
   deleteConversation: (id) => ipcRenderer.invoke('ixaeon:deleteConversation', id),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
   markFindingsSeen: () => ipcRenderer.invoke('ixaeon:markFindingsSeen'),

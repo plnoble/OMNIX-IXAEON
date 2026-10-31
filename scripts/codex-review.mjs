@@ -95,8 +95,16 @@ const git = (args) =>
 const orderDir = join(root, 'docs', '委派');
 const orderOf = (taskId) =>
   readdirSync(orderDir).find((f) => f.startsWith(`${taskId}-`) && f.endsWith('.md'));
-// 拆出来的第二支（U3b）没有自己的规格：用第一支的（U3）
-const order = orderOf(id) ?? (/\d[a-z]$/.test(id) ? orderOf(id.slice(0, -1)) : undefined);
+// 拆出来的第二支（U3b / G1eb）没有自己的规格：往前退字母，用第一支的（U3 / G1e / G1）
+const findOrder = (taskId) => {
+  for (let t = taskId; t.length > 0; t = t.slice(0, -1)) {
+    const hit = orderOf(t);
+    if (hit) return hit;
+    if (!/[a-z]$/.test(t)) return undefined;
+  }
+  return undefined;
+};
+const order = findOrder(id);
 if (!order) {
   console.error(`在 docs/委派/ 下找不到 ${id}-*.md（委派单或规格）`);
   process.exit(2);

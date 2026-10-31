@@ -290,7 +290,8 @@ const readmeChange = (line: string) => ({
   claimedSuccess: true,
 });
 
-const MODEL_M1: CodingSetting = { executor: 'model', modelName: 'm1' };
+// 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言
+const MODEL_M1 = { executor: 'model', modelName: 'm1' } as const satisfies CodingSetting;
 
 describe('条件 2、3：配置与保存', () => {
   it('旧配置没有 coding 这段：照常读出来，默认交给 Codex；不认的执行器不收', () => {

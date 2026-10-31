@@ -83,6 +83,14 @@ results.push(
   ]),
 );
 
+// Q3（2026-10-29）：tsconfig.json 把验收测试整个排除了、vitest 又不查类型，这一步补上。
+// 排队中任务的测试不查（实现还没并入），`acceptance.mjs done` 之后自动纳入。
+results.push(
+  run('typecheck-acceptance（已完成任务的验收测试也过 tsc）', [
+    resolve(root, 'scripts', 'typecheck-acceptance.mjs'),
+  ]),
+);
+
 // 构建放在测试之前：有的集成测试会真的拉起构建产物（比如 Hermes 拉起 apps/mcp/dist 的
 // 记忆桥），放在后面就是拿上一次留下的旧产物去测（2026-10-02 本机恒失败的根因）。
 results.push(run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]));

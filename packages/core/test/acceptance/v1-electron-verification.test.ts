@@ -134,7 +134,7 @@ describe('V1 条件 2：普通 node 不注入；验证照常执行、退出码�
 
 describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
   it('正常退出写「本地服务已停止」；数据恢复写「（数据恢复）」', async () => {
-    const { AppRuntime } = await import('../../../../../apps/desktop/src/main/appRuntime.js');
+    const { AppRuntime } = await import('../../../../apps/desktop/src/main/appRuntime.js');
     const logCalls: string[] = [];
     const logger = {
       info: (m: string) => logCalls.push(m),
@@ -144,7 +144,7 @@ describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
         return this;
       },
     };
-    const runtime = Object.create(AppRuntime.prototype) as InstanceType<typeof AppRuntime>;
+    const runtime = Object.create(AppRuntime.prototype) as typeof AppRuntime.prototype;
     Object.assign(runtime, { fastify: { close: async () => undefined }, logger });
     await (
       runtime as unknown as {
@@ -165,7 +165,7 @@ describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
     // 走 stop() 真实调用链：jobs.stop → idle → stopServer()（不传原因）
     // → invalidateContext → db.close → 「运行时已停止」。stop() 不显式传
     // 'normal'，靠 stopServer 默认值——把默认值改成 restore 文案这里就红。
-    const { AppRuntime } = await import('../../../../../apps/desktop/src/main/appRuntime.js');
+    const { AppRuntime } = await import('../../../../apps/desktop/src/main/appRuntime.js');
     const logCalls: string[] = [];
     const logger = {
       info: (m: string) => logCalls.push(m),
@@ -175,7 +175,7 @@ describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
         return this;
       },
     };
-    const runtime = Object.create(AppRuntime.prototype) as InstanceType<typeof AppRuntime>;
+    const runtime = Object.create(AppRuntime.prototype) as typeof AppRuntime.prototype;
     Object.assign(runtime, {
       fastify: { close: async () => undefined },
       logger,
@@ -193,7 +193,7 @@ describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
     // restoreData 第一行调用 stopServer('restore')，随后校验凭证（伪造
     // 凭证会抛错）——只要第一行日志是「（数据恢复）」即证明调用路径
     // 存在；把该参数删掉就会打出普通文案，本测试变红。
-    const { AppRuntime } = await import('../../../../../apps/desktop/src/main/appRuntime.js');
+    const { AppRuntime } = await import('../../../../apps/desktop/src/main/appRuntime.js');
     const logCalls: string[] = [];
     const logger = {
       info: (m: string) => logCalls.push(m),
@@ -203,7 +203,7 @@ describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
         return this;
       },
     };
-    const runtime = Object.create(AppRuntime.prototype) as InstanceType<typeof AppRuntime>;
+    const runtime = Object.create(AppRuntime.prototype) as typeof AppRuntime.prototype;
     Object.assign(runtime, {
       fastify: { close: async () => undefined },
       logger,
@@ -222,7 +222,7 @@ describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
   });
 
   it('服务没启动时不写日志（与旧行为一致）', async () => {
-    const { AppRuntime } = await import('../../../../../apps/desktop/src/main/appRuntime.js');
+    const { AppRuntime } = await import('../../../../apps/desktop/src/main/appRuntime.js');
     const logger = {
       info: vi.fn(),
       warn: vi.fn(),
@@ -231,7 +231,7 @@ describe('V1 条件 4：stopServer 日志文案按原因区分', () => {
         return this;
       },
     };
-    const runtime = Object.create(AppRuntime.prototype) as InstanceType<typeof AppRuntime>;
+    const runtime = Object.create(AppRuntime.prototype) as typeof AppRuntime.prototype;
     Object.assign(runtime, { fastify: null, logger });
     await (
       runtime as unknown as {

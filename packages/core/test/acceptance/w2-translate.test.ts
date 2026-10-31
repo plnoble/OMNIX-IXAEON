@@ -305,7 +305,10 @@ function checkerWith(
     undefined,
     {},
     () => ({
+      provider: 'brave' as const, // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言（检查器不读这个字段）
       search: async () => ({
+        provider: 'brave' as const,
+        query: '',
         hits: hits.map((h, i) => ({
           url: `https://example.com/cand/${i}`,
           title: h.title,

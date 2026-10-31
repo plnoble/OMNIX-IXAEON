@@ -58,9 +58,13 @@ function setup(daily: number | null, cap: number) {
   const clock = { current: localNoon(2026, 9, 20) };
   const searches: string[] = [];
   const checker = new ResearchChecker(db, { now: () => clock.current }, {}, () => ({
+    provider: 'brave' as const, // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言（检查器不读这个字段）
     search: async () => {
       searches.push('searched');
-      return { hits: [{ url: 'https://example.com/g07', title: '合成结果', snippet: '摘要' }] };
+      return {
+        provider: 'brave' as const,
+        query: '',
+        hits: [{ url: 'https://example.com/g07', title: '合成结果', snippet: '摘要' }] };
     },
   }));
   return {

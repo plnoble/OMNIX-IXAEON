@@ -10,6 +10,7 @@ import {
 } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 import { MODEL_EXECUTOR_SENDS, executorLabel } from '@ixaeon/contracts';
+import { QuotaSettingsCard } from './QuotaSettings.js';
 
 /** 恢复预览状态（含所选 ZIP 路径）。 */
 type RestorePreviewState = RestorePreview & { zipPath: string };
@@ -340,7 +341,12 @@ function savedCodingOf(v: SettingsView | null): { executor: 'codex' | 'model'; m
   };
 }
 
-export function SettingsPage() {
+export function SettingsPage({
+  focus,
+}: {
+  /** CF0：从聊天里点「去设置」时滚到「模型接入」。at 让同一处再点一次也能触发。 */
+  focus?: { section: 'model'; at: number } | null;
+} = {}) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -372,6 +378,13 @@ export function SettingsPage() {
     busy: boolean;
     result: string | null;
   }>({ busy: false, result: null });
+  // K3：驾驶舱读队列用的 IXAEON 仓库路径
+  const [repoPath, setRepoPath] = useState('');
+  // K5：手机只读页（默认关，端口 43192）
+  const [mobileEnabled, setMobileEnabled] = useState(false);
+  const [mobilePort, setMobilePort] = useState('43192');
+  // CF0：同一次「去设置」只滚一次；之后保存别的设置重读 view 不再把页面拽回模型接入。
+  const appliedFocusAt = useRef<number | null>(null);
 
   const reload = useCallback(async (): Promise<SettingsView | null> => {
     try {
@@ -392,6 +405,9 @@ export function SettingsPage() {
         provider: v.config.webSearchProvider ?? 'none',
         apiKey: '',
       });
+      setRepoPath(v.cockpit?.ixaeonRepo ?? '');
+      setMobileEnabled(v.cockpit?.mobileEnabled ?? false);
+      setMobilePort(String(v.cockpit?.mobilePort ?? 43192));
       return v;
     } catch (err) {
       setError(errMsg(err));
@@ -402,6 +418,39 @@ export function SettingsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // CF0：从聊天里点「去设置」过来时，等设置读出来、卡片在页面上，再滚到「模型接入」。
+  useEffect(() => {
+    if (!focus || focus.section !== 'model' || view === null) return;
+    if (appliedFocusAt.current === focus.at) return;
+    appliedFocusAt.current = focus.at;
+    const card = document.querySelector('[data-testid="settings-model"]');
+    (card as HTMLElement | null)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  }, [focus, view]);
+
+  /** K3：只保存仓库路径；留空 = 驾驶舱不读队列。 */
+  const saveCockpitRepo = async () => {
+    try {
+      const value = repoPath.trim();
+      await api.saveCockpitSettings({ ixaeonRepo: value });
+      setRepoPath(value);
+      setNotice('IXAEON 仓库路径已保存。');
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+
+  /** K5：保存手机查看的开关与端口；端口不合法时由主进程拒绝。 */
+  const saveMobile = async () => {
+    try {
+      const port = Number(mobilePort);
+      await api.saveMobileSettings({ enabled: mobileEnabled, port });
+      setMobilePort(String(port));
+      setNotice('手机查看设置已保存。');
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
 
   // M2：勾选清单与下拉框的计算状态
   const savedSet = useMemo(() => new Set(view?.config.savedModels ?? []), [view]);
@@ -711,6 +760,79 @@ export function SettingsPage() {
       {notice && <div className="ok-banner">{notice}</div>}
 
       <UpdateCard />
+
+      <Card title="驾驶舱" testId="settings-cockpit">
+        <Field
+          label="IXAEON 仓库路径"
+          hint="驾驶舱从这里读队列；留空表示不读队列（只记路径，不读别的文件）"
+        >
+          <input
+            value={repoPath}
+            onChange={(e) => setRepoPath(e.target.value)}
+            placeholder="D:\\…\\IXAEON"
+            data-testid="settings-cockpit-repo"
+          />
+        </Field>
+        <Button
+          kind="primary"
+          onClick={() => void saveCockpitRepo()}
+          testId="settings-cockpit-save"
+        >
+          保存
+        </Button>
+      </Card>
+
+      <QuotaSettingsCard />
+      <Card title="手机查看" testId="settings-mobile">
+        <p className="muted" data-testid="settings-mobile-scope">
+          在手机上只读查看驾驶舱。默认关闭；打开后本机另起一个只绑 127.0.0.1 的只读端口，
+          桌面上能看什么，手机上就只看得到什么，不能做任何操作。
+        </p>
+        <Field label="打开手机查看（只读）">
+          <input
+            type="checkbox"
+            checked={mobileEnabled}
+            onChange={(e) => setMobileEnabled(e.target.checked)}
+            data-testid="settings-mobile-enabled"
+          />
+        </Field>
+        <Field label="端口" hint="默认 43192；改完保存才生效">
+          <input
+            type="number"
+            min={1}
+            max={65535}
+            value={mobilePort}
+            onChange={(e) => setMobilePort(e.target.value)}
+            data-testid="settings-mobile-port"
+          />
+        </Field>
+        {mobileEnabled && (
+          <div data-testid="settings-mobile-command">
+            <p className="muted">
+              这条命令由你自己在电脑上执行一次（IXAEON 不改 Tailscale 配置），把这个端口发布到自己的
+              tailnet：
+            </p>
+            <code>tailscale serve --bg {mobilePort}</code>
+          </div>
+        )}
+        {mobileEnabled && (
+          <div className="muted" data-testid="settings-mobile-notes">
+            <p>
+              怎么关：<code>tailscale serve status</code> 看现在发布了什么；
+              <code>tailscale serve reset</code> 会清掉<strong>全部</strong> serve
+              配置，别的服务也经 serve 发布时要注意。
+            </p>
+            <p>
+              tailnet 里的所有设备都能打开这个页面；如果把设备共享给了别人，先在 Tailscale
+              里限制访问。
+            </p>
+            <p>不要用 funnel：那是把服务暴露到公网。</p>
+          </div>
+        )}
+        <Button kind="primary" onClick={() => void saveMobile()} testId="settings-mobile-save">
+          保存
+        </Button>
+      </Card>
 
       <Card title="Agent 运行时（Hermes）" testId="settings-hermes">
         <p className={view.hermesFound ? 'note' : 'warn'} data-testid="settings-hermes-notice">

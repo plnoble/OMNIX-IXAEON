@@ -35,6 +35,8 @@ import {
   SearchService,
   SourceStore,
   TodoStore,
+  GoalStore,
+  PlanStore,
   explainModelFailure,
   extractSuggestedTodos,
   parseUserTodo,
@@ -77,6 +79,8 @@ import {
   type CoreDatabase,
   type ModelProvider,
   type WebSearchExecutor,
+  type GoalEvent,
+  type PlanStep,
 } from '@ixaeon/core';
 import {
   ErrorCodes,
@@ -102,9 +106,15 @@ import {
   type UnbindProjectFolderPreview,
   type UnbindProjectFolderResult,
   type RevokeSourceReadingPreview,
+  type GoalDetailView,
+  type GoalLinkView,
+  type GoalPlanView,
+  type GoalStepView,
+  type GoalSummaryView,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
+import { MobileServer } from './server/mobileServer.js';
 import { bridgeBlockedReason, bridgeEntry, writeHermesBridgeEntry } from './hermesBridge.js';
 import { decryptApiKey, decodeLegacyPlainApiKey, encryptApiKey } from './ipc.js';
 import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './researchFetch.js';
@@ -136,6 +146,8 @@ export class AppRuntime {
   todos: TodoStore;
   readonly logger: Logger;
   readonly localServer: LocalServer;
+  /** K5：手机只读页（独立端口；默认关，按设置项起停）。 */
+  readonly mobileServer: MobileServer;
   private readonly fakeProvider = new FakeProvider('fake-model-v1');
   /** 测试模型响应脚本是否已加载（IXAEON_FAKE_MODEL_SCRIPT，仅一次） */
   private fakeScriptLoaded = false;
@@ -209,6 +221,7 @@ export class AppRuntime {
     jobs: JobQueue;
     logger: Logger;
     localServer: LocalServer;
+    mobileServer: MobileServer;
   }) {
     this.dataDir = deps.dataDir;
     this.configFile = deps.configFile;
@@ -227,6 +240,7 @@ export class AppRuntime {
     this.jobs = deps.jobs;
     this.logger = deps.logger;
     this.localServer = deps.localServer;
+    this.mobileServer = deps.mobileServer;
     this.conversations = new ConversationStore(deps.db);
     this.todos = new TodoStore(deps.db);
     this.semanticIndex = createSemanticIndex(deps.db);
@@ -350,6 +364,9 @@ export class AppRuntime {
       },
     });
 
+    // K5：手机只读页的独立监听，接着同一个库；默认关，startServer 时按设置起停。
+    const mobileServer = new MobileServer({ db });
+
     const runtime = new AppRuntime({
       dataDir: resolved.dataDir,
       configFile: layout.configFile,
@@ -368,6 +385,7 @@ export class AppRuntime {
       jobs,
       logger,
       localServer,
+      mobileServer,
     });
     runtimeRef.current = runtime;
     runtime.registerJobHandlers();
@@ -2296,6 +2314,126 @@ export class AppRuntime {
     return this.todos.complete(id);
   }
 
+  /**
+   * G1e：Goals 列表只读数据。用户 2026-10-30 定界面只读——这里只 SELECT，
+   * 不调任何写接口；写操作归 G1f。
+   */
+  listGoals(): GoalSummaryView[] {
+    const goals = new GoalStore(this.db).list();
+    const plans = new PlanStore(this.db);
+    return goals
+      .filter((g) => g.status !== 'abandoned')
+      .map((g) => {
+        const current = plans.plansOf(g.id).find((p) => p.status === 'current');
+        const steps = current ? plans.stepsOf(g.id, current.version) : [];
+        const byId = new Map(steps.map((s) => [s.id, s]));
+        const next = steps.find(
+          (s) =>
+            s.status === 'pending' &&
+            plans
+              .depsOf(s.id)
+              .every((d) => ['done', 'skipped'].includes(byId.get(d)?.status ?? '')),
+        );
+        return {
+          id: g.id,
+          title: g.title,
+          description: g.description,
+          status: g.status,
+          origin: g.origin,
+          confirmation: g.confirmation,
+          priority: g.priority,
+          progress: g.progress,
+          progressMode: g.progress_mode,
+          nextReviewAt: g.next_review_at,
+          targetDate: g.target_date,
+          blockedReason: g.blocked_reason,
+          watch: g.watch === 1,
+          watchReason: g.watch_reason,
+          parentGoalId: g.parent_goal_id,
+          createdAt: g.created_at,
+          updatedAt: g.updated_at,
+          children: goals
+            .filter((c) => c.parent_goal_id === g.id && c.status !== 'abandoned')
+            .map((c) => ({
+              id: c.id,
+              title: c.title,
+              status: c.status,
+              progress: c.progress,
+            })),
+          nextStep: next ? { id: next.id, seq: next.seq, title: next.title } : null,
+        };
+      });
+  }
+
+  /** G1e 详情：描述、子目标、当前 / 历史方案及步骤、关联任务、事件；只读。 */
+  getGoalDetail(id: string): GoalDetailView {
+    const summary = this.listGoals().find((g) => g.id === id);
+    if (!summary) throw new IxaError(ErrorCodes.NOT_FOUND, `目标不存在: ${id}`);
+    const plans = new PlanStore(this.db);
+    const plansView: GoalPlanView[] = plans.plansOf(id).map((p) => ({
+      version: p.version,
+      status: p.status,
+      reason: p.reason,
+      createdAt: p.created_at,
+      steps: plans.stepsOf(id, p.version).map((s) => this.goalStepView(s, plans)),
+    }));
+    const links = this.db
+      .prepare(
+        'SELECT kind, ref_id FROM goal_links WHERE goal_id = ? ORDER BY created_at, kind, ref_id',
+      )
+      .all(id) as Array<{ kind: string; ref_id: string }>;
+    const events = this.db
+      .prepare('SELECT * FROM goal_events WHERE goal_id = ? ORDER BY at, rowid')
+      .all(id) as GoalEvent[];
+    return {
+      ...summary,
+      plans: plansView,
+      links: links.map((l) => this.goalLinkView(l.kind, l.ref_id)),
+      events: events.map((e) => ({
+        id: e.id,
+        at: e.at,
+        kind: e.kind,
+        decidedBy: e.decided_by,
+        summary: e.summary,
+      })),
+    };
+  }
+
+  private goalStepView(s: PlanStep, plans: PlanStore): GoalStepView {
+    const linked =
+      s.linked_kind && s.linked_id ? this.goalLinkView(s.linked_kind, s.linked_id) : null;
+    return {
+      id: s.id,
+      seq: s.seq,
+      title: s.title,
+      status: s.status,
+      deps: plans.depsOf(s.id),
+      linkedKind: s.linked_kind,
+      linkedTitle: linked?.title ?? null,
+      linkedStatus: linked?.status ?? null,
+    };
+  }
+
+  private goalLinkView(kind: string, refId: string): GoalLinkView {
+    const view = (title: string, status: string): GoalLinkView => ({ kind, refId, title, status });
+    if (kind === 'todo' || kind === 'coding_task') {
+      const table = kind === 'todo' ? 'todos' : 'coding_tasks';
+      const col = kind === 'todo' ? 'title' : 'goal';
+      const row = this.db
+        .prepare(`SELECT ${col} AS title, status FROM ${table} WHERE id = ?`)
+        .get(refId) as { title: string; status: string } | undefined;
+      return view(row?.title ?? '（任务已删除）', row?.status ?? 'missing');
+    }
+    if (kind === 'research_topic') {
+      const row = this.db
+        .prepare('SELECT question, enabled, paused FROM research_topics WHERE id = ?')
+        .get(refId) as { question: string; enabled: number; paused: number } | undefined;
+      if (!row) return view('（话题已删除）', 'missing');
+      return view(row.question, row.paused ? 'paused' : row.enabled ? 'enabled' : 'off');
+    }
+    return view('（未知关联）', 'missing');
+  }
+
   getSemanticIndexStatus(): {
     enabled: boolean;
     model: string | null;
@@ -2634,6 +2772,8 @@ export class AppRuntime {
       sources,
       vault,
     });
+    // K5：手机只读页也要换成新库（照 localServer.rebindDeps）。
+    this.mobileServer?.rebindDeps({ db });
     this.registerJobHandlers();
     const requeued = jobs.requeueNetworkFailures();
     if (requeued > 0) {
@@ -2656,6 +2796,12 @@ export class AppRuntime {
       await fastify.listen({ port: LOCAL_HTTP_PORT, host: '127.0.0.1' });
       this.fastify = fastify;
       this.logger.info('本地服务已启动', { host: '127.0.0.1', port: LOCAL_HTTP_PORT });
+      // K5：按设置起停手机只读页；端口被占等失败只记日志，不挡住桌面版。
+      try {
+        await this.mobileServer?.apply();
+      } catch (err) {
+        this.logger.warn('手机查看没有起来（不影响桌面版）', { error: String(err) });
+      }
     } catch (err) {
       this.logger.error('本地服务启动失败', { error: String(err) });
       throw err;
@@ -2763,6 +2909,8 @@ export class AppRuntime {
       this.fastify = null;
       this.logger.info(reason === 'restore' ? '本地服务已停止（数据恢复）' : '本地服务已停止');
     }
+    // K5：退出/恢复前一并关掉手机只读页，不让它拿着即将失效的库继续对外。
+    await this.mobileServer?.stop();
   }
 
   get state() {

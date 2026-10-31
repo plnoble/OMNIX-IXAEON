@@ -111,7 +111,11 @@ afterEach(() => {
 
 async function render(): Promise<void> {
   await act(async () => {
-    root.render(createElement(AskPage, { projects: [PROJECT_A, PROJECT_B] }));
+    root.render(
+      createElement(AskPage, {
+        projects: [PROJECT_A, PROJECT_B],
+      } as unknown as Parameters<typeof AskPage>[0]), // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言
+    );
   });
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0));

@@ -6,6 +6,7 @@ import type {
   Job,
   Permission,
   Project,
+  ProjectImportPlan,
   ProjectRelation,
   ResearchFinding,
   ResearchRun,
@@ -26,6 +27,8 @@ import type {
 } from './entities.js';
 import { z } from 'zod';
 import { itemTypeSchema } from './entities.js';
+import type { CockpitSnapshot, ManualQuota } from './cockpit.js';
+import { manualQuotaSchema } from './cockpit.js';
 
 export type OverviewMatchedFindingView = {
   id: string;
@@ -425,6 +428,25 @@ export const settingsViewSchema = z.object({
     webSearchKeyPresent: z.boolean().default(false),
   }),
   dataDir: z.string(),
+  /** K3：驾驶舱读队列用的 IXAEON 仓库路径（设置页填；空串 = 不读队列）。 */
+  cockpit: z
+    .object({
+      ixaeonRepo: z.string(),
+      /** K4：QuotaHub 地址（空串 = 关闭；只认本机 http + 端口）。 */
+      quotahubUrl: z.string().default(''),
+      /** K4：手动登记的额度（每项一个窗口）。 */
+      manualQuotas: z.array(manualQuotaSchema).default([]),
+      /** K5：手机只读页（默认关）与端口（默认 43192）。 */
+      mobileEnabled: z.boolean().default(false),
+      mobilePort: z.number().int().default(43192),
+    })
+    .default({
+      ixaeonRepo: '',
+      quotahubUrl: '',
+      manualQuotas: [],
+      mobileEnabled: false,
+      mobilePort: 43192,
+    }),
   /** A03（审核 2026-09-13）：桌面问答存档授权状态（enabled / revoked） */
   askCaptureStatus: z.enum(['enabled', 'revoked']).default('enabled'),
   mcp: z.object({
@@ -452,6 +474,54 @@ export const exportResultSchema = z.object({
 });
 export type ExportResult = z.infer<typeof exportResultSchema>;
 
+// --- G1e：Goals 列表（只读；用户 2026-10-30 定，写操作归 G1f） ---
+
+export type GoalSummaryView = {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  origin: string;
+  confirmation: string;
+  priority: number;
+  progress: number;
+  progressMode: string;
+  nextReviewAt: string | null;
+  targetDate: string | null;
+  blockedReason: string | null;
+  watch: boolean;
+  watchReason: string | null;
+  parentGoalId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  children: Array<{ id: string; title: string; status: string; progress: number }>;
+  nextStep: { id: string; seq: number; title: string } | null;
+};
+
+export type GoalStepView = {
+  id: string;
+  seq: number;
+  title: string;
+  status: string;
+  deps: string[];
+  linkedKind: string | null;
+  linkedTitle: string | null;
+  linkedStatus: string | null;
+};
+export type GoalPlanView = {
+  version: number;
+  status: string;
+  reason: string;
+  createdAt: string;
+  steps: GoalStepView[];
+};
+export type GoalLinkView = { kind: string; refId: string; title: string; status: string };
+export type GoalDetailView = GoalSummaryView & {
+  plans: GoalPlanView[];
+  links: GoalLinkView[];
+  events: Array<{ id: string; at: string; kind: string; decidedBy: string; summary: string }>;
+};
+
 /** window.ixaeon 的完整形状（preload 暴露的最小 API）。 */
 export interface IxaIpcApi {
   // 应用状态
@@ -466,6 +536,17 @@ export interface IxaIpcApi {
     status: 'active' | 'paused' | 'archived';
   }): Promise<Project>;
   deleteProject(id: string): Promise<DeleteProjectResult>;
+  /**
+   * K1：从清单导入项目。先选 JSON 文件（`pickFiles('documents')` 的票据），
+   * 预览只算不写；确认后用返回的 token 真正写入。
+   */
+  previewProjectImport(input: { ticket: string }): Promise<{
+    token: string;
+    preview: ProjectImportPlan;
+    /** 已有项目的清单备注，按项目名查（note 不入库，只在预览里显示）。 */
+    notes: Record<string, string>;
+  }>;
+  applyProjectImport(input: { token: string }): Promise<{ created: number; updated: number }>;
   // 导入（文件选择必须经过原生对话框；渲染进程只持有一次性票据）
   pickFiles(kind: 'documents' | 'chatgptExport' | 'directory'): Promise<PickResult | null>;
   pickSaveZip(defaultName: string): Promise<PickResult | null>;
@@ -652,6 +733,22 @@ export interface IxaIpcApi {
   deleteConversation(id: string): Promise<{ deleted: true }>;
   /** T3：待办列表（带底下编码任务的实时状态）；不传 status = 全部 */
   listTodos(input?: { status?: TodoStatus[] }): Promise<TodoView[]>;
+  /** G1e：Goals 列表 / 详情（只读；故意没有写通道）。 */
+  listGoals(): Promise<GoalSummaryView[]>;
+  getGoalDetail(id: string): Promise<GoalDetailView>;
+  /** K2：驾驶舱快照（relay、队列、项目汇总；只读）。K3 的页面用它。 */
+  getCockpitSnapshot(): Promise<CockpitSnapshot>;
+  /**
+   * K3：设置页保存 IXAEON 仓库路径（驾驶舱读队列用；空串 = 不读队列）。
+   * K4 起同一个通道保存额度设置：只写传入的键，没传的不动。
+   */
+  saveCockpitSettings(input: {
+    ixaeonRepo?: string;
+    quotahubUrl?: string;
+    manualQuotas?: ManualQuota[];
+  }): Promise<{ ok: true }>;
+  /** K5：保存手机只读页开关与端口；存完立刻按新设置起停。 */
+  saveMobileSettings(input: { enabled: boolean; port: number }): Promise<{ ok: true }>;
   addTodo(input: { title: string }): Promise<Todo>;
   acceptTodo(id: string): Promise<Todo>;
   rejectTodo(id: string): Promise<Todo>;

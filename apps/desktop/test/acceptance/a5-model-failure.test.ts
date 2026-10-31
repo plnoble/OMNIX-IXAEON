@@ -49,6 +49,7 @@ import {
   migrate,
   openDatabase,
   type AgentSession,
+  type AgentSessionResult,
   type AskResult,
   type CoreDatabase,
 } from '@ixaeon/core';
@@ -80,7 +81,7 @@ afterEach(() => {
 function messageResult(
   answer: string,
   steps: Array<{ round: number; tool: string; ok: boolean; detail?: string }>,
-): AskResult {
+): AgentSessionResult {
   return {
     answer,
     citations: [],
@@ -89,7 +90,8 @@ function messageResult(
     modelName: 'fake-model',
     engine: 'core-bounded' as const,
     runId: 'run-1',
-    steps,
+    // 整合方改（Q3，2026-10-29）：真实的 AskResult 每一步都有 detail（字符串）；替身里省略的补成空串，只为过类型检查
+    steps: steps.map((s) => ({ ...s, detail: s.detail ?? '' })),
     memoryUsed: [],
   };
 }
@@ -124,7 +126,11 @@ function setup(results: AskResult[]) {
     getEngineSessionId: () => 's-a5',
   } as unknown as AgentSession;
 
-  const captureAsk = vi.fn(() => ({ created: true as const, source: { id: 'src-ask' } }));
+  // 整合方改（Q3）：替身声明收一个参数（原来写成不收参数，调用时传的 input 在类型上「多余」，运行时一样记录）
+  const captureAsk = vi.fn((_input: { answer: string }) => ({
+    created: true as const,
+    source: { id: 'src-ask' },
+  }));
   const captured = new Array<string>();
   const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
   Object.assign(runtime, {
@@ -198,7 +204,7 @@ describe('A5 模型出错的轮记成失败（后端）', () => {
       cancel: () => undefined,
       getEngineSessionId: () => 's-a5',
     } as unknown as AgentSession;
-    (runtime as Record<string, unknown>)['askSessions'] = new Map([[conv.id, fake]]);
+    (runtime as unknown as Record<string, unknown>)['askSessions'] = new Map([[conv.id, fake]]);
     await runtime.ask({ conversationId: conv.id, projectId: null, question: 'A5 触发失败' });
     const messages = conversations.messages(conv.id);
     const last = messages[messages.length - 1]!;

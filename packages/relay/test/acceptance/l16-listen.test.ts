@@ -230,7 +230,9 @@ describe('条件 2：relay listen', () => {
     expect(`${p.stdout()}${p.stderr()}`).not.toContain(SECRET);
   }, 60_000);
 
-  it('整合方补：「收到」后面只带原话的前 50 个字', async () => {
+  // 整合方改（2026-10-31，用户定）：截断了就用「……」接「下一棒交给整合方」，免得回执像话没说完
+  // （原来是「…这块需要参。下一棒…」）；正好 50 个字、没截断的照旧用句号。按字算，不按 UTF-16 码元算。
+  it('整合方补：「收到」后面只带原话的前 50 个字；截断了加「……」，没截断照旧', async () => {
     const fake = await fakeFeishu();
     const { dataDir } = setup({ chatId: 'oc_bound', ownerOpenId: 'ou_owner' });
     writeFileSync(
@@ -239,16 +241,27 @@ describe('条件 2：relay listen', () => {
       'utf8',
     );
     const long = `${'甲'.repeat(50)}乙乙乙`;
+    const exact = '丙'.repeat(50);
+    const emoji = `${'😀'.repeat(50)}丁`;
     const p = listen(
       dataDir,
       ['listen'],
-      eventsFile([msgEvent({ id: 'om_long', text: `@_user_1 ${long}` })]),
+      eventsFile([
+        msgEvent({ id: 'om_long', text: `@_user_1 ${long}` }),
+        msgEvent({ id: 'om_exact', text: `@_user_1 ${exact}` }),
+        msgEvent({ id: 'om_emoji', text: `@_user_1 ${emoji}` }),
+      ]),
     );
     expect(await p.done(), p.stdout() + p.stderr()).not.toBe('timeout');
     expect(inboxLines(dataDir)[0]).toMatchObject({ id: 'om_long', text: long }); // 记全文
-    expect(fake.texts).toHaveLength(1);
-    expect(fake.texts[0]).toContain(`收到：${'甲'.repeat(50)}。下一棒交给整合方。`);
-    expect(fake.texts[0]).not.toContain('乙');
+    expect(fake.texts).toHaveLength(3);
+    const byText = (s: string) => fake.texts.find((t) => t.includes(s)) ?? '';
+    expect(byText('甲')).toContain(`收到：${'甲'.repeat(50)}……下一棒交给整合方。`);
+    expect(byText('甲')).not.toContain('乙');
+    expect(byText('丙')).toContain(`收到：${exact}。下一棒交给整合方。`);
+    expect(byText('丙')).not.toContain('……');
+    expect(byText('😀')).toContain(`收到：${'😀'.repeat(50)}……下一棒交给整合方。`);
+    expect(byText('😀')).not.toContain('丁');
   }, 60_000);
 
   it('--bind：文件里多了 chatId、ownerOpenId，appId/appSecret 原样，退出码 0', async () => {

@@ -104,6 +104,39 @@ export type Segment = z.infer<typeof segmentSchema>;
 // ---------------------------------------------------------------------------
 
 export const projectStatusSchema = z.enum(['active', 'paused', 'archived']);
+export type ProjectStatus = z.infer<typeof projectStatusSchema>;
+
+/**
+ * K1：从清单批量登记项目。清单是用户拿着的 JSON 文件；这里只定义形状，
+ * 解析时逐条校验（一条不合法不影响别的条目）。
+ * - `name` 1..80 字，清单内按 name 不重复（大小写不敏感，和 ProjectService 一致）；
+ * - `root_path` 只登记，不读目录内容；
+ * - `note` 只在预览里显示，不入库；
+ * - 未知字段丢弃（zod 默认 strip）。
+ */
+export const projectImportEntrySchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  root_path: z.string().min(1).optional(),
+  status: projectStatusSchema,
+  description: z.string().optional(),
+  note: z.string().optional(),
+});
+export type ProjectImportEntry = z.infer<typeof projectImportEntrySchema>;
+
+/** 清单文件的整体形状（version 必须是 1）。 */
+export const projectImportListSchema = z.object({
+  version: z.literal(1),
+  projects: z.array(projectImportEntrySchema),
+});
+export type ProjectImportList = z.infer<typeof projectImportListSchema>;
+
+/** K1：一条清单条目算出来的结果（只在预览里用，不写库）。 */
+export type ProjectImportPlan = {
+  create: ProjectImportEntry[];
+  update: Array<{ project: Project; status: ProjectStatus }>;
+  unchanged: Project[];
+  invalid: Array<{ index: number; name?: string; reason: string }>;
+};
 
 export const projectSchema = z.object({
   id: uuidSchema,

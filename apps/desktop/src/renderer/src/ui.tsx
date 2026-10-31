@@ -155,7 +155,7 @@ export function projectStatusLabel(status: string): string {
     case 'paused':
       return '暂停';
     case 'archived':
-      return '归档';
+      return '放弃';
     default:
       return status;
   }
