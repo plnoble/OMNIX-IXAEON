@@ -31,6 +31,12 @@ export const recentEventSchema = z.object({
   text: z.string(),
 });
 export type RecentEvent = z.infer<typeof recentEventSchema>;
+export const projectActivitySchema = z.object({
+  lastCommitAt: z.string().nullable(),
+  commits7d: z.number().int().nullable(),
+  readable: z.boolean(),
+});
+export type ProjectActivity = z.infer<typeof projectActivitySchema>;
 export const projectCardSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -38,14 +44,46 @@ export const projectCardSchema = z.object({
   description: z.string().nullable(),
   currentState: z.string().nullable(),
   updatedAt: z.string(),
+  // K4：可选——K3 已锁定的页面测试用契约类型拼模拟快照时没有这个字段。
+  activity: projectActivitySchema.optional(),
 });
 export type ProjectCard = z.infer<typeof projectCardSchema>;
+export const quotaWindowSchema = z.object({
+  name: z.string(),
+  usedPercent: z.number().nullable(),
+  resetAt: z.string().nullable(),
+});
+export type QuotaWindow = z.infer<typeof quotaWindowSchema>;
+/** K4：一个账号一张卡。只含规格契约列出的字段，QuotaHub 返回里别的字段一律不进快照。 */
+export const quotaCardSchema = z.object({
+  source: z.enum(['quotahub', 'manual']),
+  provider: z.string(),
+  account: z.string(),
+  status: z.string(),
+  plan: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  windows: z.array(quotaWindowSchema),
+  collectedAt: z.string(),
+});
+export type QuotaCard = z.infer<typeof quotaCardSchema>;
+/** K4：设置页手动登记的一条额度（每项一个窗口）；核心层用同一份 zod 校验。 */
+export const manualQuotaSchema = z.object({
+  account: z.string().min(1),
+  window: z.string().min(1),
+  resetAt: z.string().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
+  registeredAt: z.string().min(1),
+  note: z.string().optional(),
+});
+export type ManualQuota = z.infer<typeof manualQuotaSchema>;
 export const cockpitSnapshotSchema = z.object({
   generatedAt: z.string(),
   sources: z.object({
     relay: sourceHealthSchema,
     queue: sourceHealthSchema,
     projects: sourceHealthSchema,
+    // K4：可选——K3 已锁定的页面测试用契约类型拼模拟快照时没有这一项；快照运行时总会给。
+    quotas: sourceHealthSchema.optional(),
   }),
   attention: z.array(attentionItemSchema),
   running: z.array(runningItemSchema),
@@ -56,5 +94,7 @@ export const cockpitSnapshotSchema = z.object({
   }),
   recent: z.array(recentEventSchema).max(20),
   today: z.object({ finishedTurns: z.number().int() }),
+  // K4：可选（同上）；没配额度来源时实现返回空数组。
+  quotas: z.array(quotaCardSchema).optional(),
 });
 export type CockpitSnapshot = z.infer<typeof cockpitSnapshotSchema>;
