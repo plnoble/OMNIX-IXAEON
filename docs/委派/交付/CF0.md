@@ -104,6 +104,9 @@
   一次 34.7s（上限 30s；单独跑 5.7s）、relay `l5/l9` 的 `relay init` 一次到 120s 超时（单独跑
   11/11 过，单个 init 19–34s）；清掉测试留下的临时 worktree 后最后一次全绿。这两处都不在 CF0
   改动范围内。
+- 并入后又在 ops（main 的检出）里跑了一次 `node scripts/verify.mjs`：**全部通过，退出码 0**，
+  acceptance 166 个文件 1288 条（CF0 的 17 条进门禁）、acceptance-lock 90 个任务 177 个锁定
+  测试没被改；日志在 CF0 工作目录的 `.logs/verify-ops.log`。
 - GitHub 上的 verify：**本棒看不到**。接力指令写明「这一棒的推送由调度器替你做：你只提交，不要
   git push」，分支要等本棒结束后才由调度器推上去；本棒按 L15 的做法先在本机跑同一条 `verify.mjs`。
 
