@@ -27,7 +27,8 @@ import type {
 } from './entities.js';
 import { z } from 'zod';
 import { itemTypeSchema } from './entities.js';
-import type { CockpitSnapshot } from './cockpit.js';
+import type { CockpitSnapshot, ManualQuota } from './cockpit.js';
+import { manualQuotaSchema } from './cockpit.js';
 
 export type OverviewMatchedFindingView = {
   id: string;
@@ -428,7 +429,15 @@ export const settingsViewSchema = z.object({
   }),
   dataDir: z.string(),
   /** K3：驾驶舱读队列用的 IXAEON 仓库路径（设置页填；空串 = 不读队列）。 */
-  cockpit: z.object({ ixaeonRepo: z.string() }).default({ ixaeonRepo: '' }),
+  cockpit: z
+    .object({
+      ixaeonRepo: z.string(),
+      /** K4：QuotaHub 地址（空串 = 关闭；只认本机 http + 端口）。 */
+      quotahubUrl: z.string().default(''),
+      /** K4：手动登记的额度（每项一个窗口）。 */
+      manualQuotas: z.array(manualQuotaSchema).default([]),
+    })
+    .default({ ixaeonRepo: '', quotahubUrl: '', manualQuotas: [] }),
   /** A03（审核 2026-09-13）：桌面问答存档授权状态（enabled / revoked） */
   askCaptureStatus: z.enum(['enabled', 'revoked']).default('enabled'),
   mcp: z.object({
@@ -720,8 +729,15 @@ export interface IxaIpcApi {
   getGoalDetail(id: string): Promise<GoalDetailView>;
   /** K2：驾驶舱快照（relay、队列、项目汇总；只读）。K3 的页面用它。 */
   getCockpitSnapshot(): Promise<CockpitSnapshot>;
-  /** K3：设置页保存 IXAEON 仓库路径（驾驶舱读队列用；空串 = 不读队列）。 */
-  saveCockpitSettings(input: { ixaeonRepo: string }): Promise<{ ok: true }>;
+  /**
+   * K3：设置页保存 IXAEON 仓库路径（驾驶舱读队列用；空串 = 不读队列）。
+   * K4 起同一个通道保存额度设置：只写传入的键，没传的不动。
+   */
+  saveCockpitSettings(input: {
+    ixaeonRepo?: string;
+    quotahubUrl?: string;
+    manualQuotas?: ManualQuota[];
+  }): Promise<{ ok: true }>;
   addTodo(input: { title: string }): Promise<Todo>;
   acceptTodo(id: string): Promise<Todo>;
   rejectTodo(id: string): Promise<Todo>;

@@ -10,6 +10,7 @@ import {
 } from '../api.js';
 import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
 import { MODEL_EXECUTOR_SENDS, executorLabel } from '@ixaeon/contracts';
+import { QuotaSettingsCard } from './QuotaSettings.js';
 
 /** 恢复预览状态（含所选 ZIP 路径）。 */
 type RestorePreviewState = RestorePreview & { zipPath: string };
@@ -747,6 +748,8 @@ export function SettingsPage() {
           保存
         </Button>
       </Card>
+
+      <QuotaSettingsCard />
 
       <Card title="Agent 运行时（Hermes）" testId="settings-hermes">
         <p className={view.hermesFound ? 'note' : 'warn'} data-testid="settings-hermes-notice">

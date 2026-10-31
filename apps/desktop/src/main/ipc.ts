@@ -28,11 +28,13 @@ import {
   IxaError,
   MODEL_EXECUTOR_SENDS,
   executorLabel,
+  manualQuotaSchema,
   toApiError,
   type AppState,
   type IxaIpcApi,
   type Item,
   type Job,
+  type ManualQuota,
   type Permission,
   type PickResult,
   type Project,
@@ -41,6 +43,17 @@ import {
   type Source,
   type SourceListItem,
 } from '@ixaeon/contracts';
+
+/** K4：设置页读回手动额度；坏了的 JSON / 形状不当没有（核心层同样当没有并记 error）。 */
+function savedManualQuotas(raw: string | undefined): ManualQuota[] {
+  if (!raw) return [];
+  try {
+    const parsed = manualQuotaSchema.array().safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * IPC 处理器注册：实现 IxaIpcApi 的全部方法。
@@ -747,6 +760,8 @@ export function registerIpc(runtime: AppRuntime): void {
         dataDir: runtime.state.dataDir,
         cockpit: {
           ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
+          quotahubUrl: getSetting(runtime.db, 'cockpit.quotahub_url')?.value ?? '',
+          manualQuotas: savedManualQuotas(getSetting(runtime.db, 'cockpit.manual_quotas')?.value),
         },
         askCaptureStatus: runtime.askCaptureStatus(),
         mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
@@ -761,9 +776,18 @@ export function registerIpc(runtime: AppRuntime): void {
     },
     saveModelSettings: async (input) => runtime.saveModelSettings(input),
     saveCodingSettings: async (input) => runtime.saveCodingSettings(input),
-    // K3：驾驶舱要读的仓库路径（只存设置项；快照结构不变）
+    // K3：驾驶舱要读的仓库路径（只存设置项；快照结构不变）。K4：同一通道保存额度设置，
+    // 只写传入的键。
     saveCockpitSettings: async (input) => {
-      setSetting(runtime.db, 'cockpit.ixaeon_repo', input.ixaeonRepo.trim());
+      if (input.ixaeonRepo !== undefined) {
+        setSetting(runtime.db, 'cockpit.ixaeon_repo', input.ixaeonRepo.trim());
+      }
+      if (input.quotahubUrl !== undefined) {
+        setSetting(runtime.db, 'cockpit.quotahub_url', input.quotahubUrl.trim());
+      }
+      if (input.manualQuotas !== undefined) {
+        setSetting(runtime.db, 'cockpit.manual_quotas', JSON.stringify(input.manualQuotas));
+      }
       return { ok: true as const };
     },
     // 记忆桥（F1）：状态与开关（开之前查 HTTPS；改 Hermes 配置前先备份）
