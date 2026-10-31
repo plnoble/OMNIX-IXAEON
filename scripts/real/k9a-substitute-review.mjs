@@ -161,6 +161,9 @@ try {
       process.exitCode = 1;
     }
   }
+} catch (e) {
+  console.error(mask(e instanceof Error ? (e.stack ?? e.message) : String(e)));
+  process.exitCode = 1;
 } finally {
   rmSync(work, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 }

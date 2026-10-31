@@ -18,13 +18,13 @@
 改动文件与行数（`git diff --stat origin/main...HEAD` 原样）：
 
 ```
- docs/委派/交付/K9a.md                              | 120 ++++++
+ docs/委派/交付/K9a.md                              | 122 ++++++
  packages/relay/README.md                           |  23 +-
  packages/relay/config.example.json                 |  14 +
  .../test/acceptance/k9a-substitute-review.test.ts  | 455 +++++++++++++++++++++
  scripts/codex-review.mjs                           | 267 +++++++++---
- scripts/real/k9a-substitute-review.mjs             | 166 ++++++++
- 6 files changed, 979 insertions(+), 66 deletions(-)
+ scripts/real/k9a-substitute-review.mjs             | 169 ++++++++
+ 6 files changed, 984 insertions(+), 66 deletions(-)
 ```
 
 源码只有 `scripts/codex-review.mjs` 一处（+202 / -65，净 +137 行）；其余是验收测试、真机检查脚本、配置示例、README 和交付说明，按 AGENTS.md 不计入 300 行。
@@ -73,6 +73,8 @@
   ```
 
   L17 的 16 条用例红、2 条绿，详见「已知缺口」第 1 条。
+
+  这次 verify 之后只又改了 `scripts/real/k9a-substitute-review.mjs` 3 行（出错时也遮住本机路径），单独跑过 eslint、prettier 和脚本本身（还是「没跑：等用户建补丁、选模型」）；其余文件没动，没再整套重跑 verify。
 - GitHub 上的 verify：**没看**（调度器替推，还没推上去）。
 
 ## 真机通过
