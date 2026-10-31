@@ -77,6 +77,7 @@ export function QuotaSection({ cards, health }: { cards: QuotaCard[]; health?: S
                 key={`${q.source}-${q.account}`}
                 className="work-run"
                 data-testid="cockpit-quota-card"
+                style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}
               >
                 <strong>{q.account}</strong>
                 <span className="badge">{STATUS_ZH[q.status] ?? q.status}</span>

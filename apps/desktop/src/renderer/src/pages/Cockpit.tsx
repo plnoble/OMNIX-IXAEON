@@ -183,7 +183,8 @@ export function CockpitPage() {
   const now = Date.now();
   const bad = SOURCE_ORDER.filter((k) => snap.sources[k].status !== 'ok');
   const quotaHealth = snap.sources.quotas;
-  const quotaCount = snap.quotas?.length ?? 0;
+  // 同一账号手动登记了多个窗口时页面合成一张卡，计数也按合并后的卡片数。
+  const quotaCount = new Set((snap.quotas ?? []).map((q) => `${q.source}:${q.account}`)).size;
   const readAts = SOURCE_ORDER.map((k) => Date.parse(snap.sources[k].readAt)).filter((t) =>
     Number.isFinite(t),
   );
