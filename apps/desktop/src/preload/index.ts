@@ -137,7 +137,6 @@ const api: IxaIpcApi = {
   listWorkRuns: (input) => ipcRenderer.invoke('ixaeon:listWorkRuns', input),
   getSettings: () => ipcRenderer.invoke('ixaeon:getSettings'),
   saveModelSettings: (input) => ipcRenderer.invoke('ixaeon:saveModelSettings', input),
-  setChatModel: (input) => ipcRenderer.invoke('ixaeon:setChatModel', input),
   saveCodingSettings: (input) => ipcRenderer.invoke('ixaeon:saveCodingSettings', input),
   saveWebSearchSettings: (input) => ipcRenderer.invoke('ixaeon:saveWebSearchSettings', input),
   getPersonalMemoryToChat: () => ipcRenderer.invoke('ixaeon:getPersonalMemoryToChat'),

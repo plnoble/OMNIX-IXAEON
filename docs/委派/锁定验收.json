@@ -802,9 +802,8 @@
       "title": "CF0 聊天先能用：模型没渠道时说清是哪个模型、能在聊天里换个已保存的模型重问",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/cf0-model-errors.test.ts": "8ce0d2f8831a18563c721eff9404c3446e39922ea79ffdfe3697967726742692",
-        "apps/desktop/test/acceptance/cf0-chat-retry.test.ts": "ecaba02ba5ec627f1fe782db32ae71ed1fe442a37dfdbd09085b42d9feb7b94a",
-        "apps/desktop/test/acceptance/cf0-set-chat-model.test.ts": "5f532fdbd88268106667d1984e1d453d0ea6c77f2cf8f3c591c702a28e9400ad"
+        "packages/core/test/acceptance/cf0-model-errors.test.ts": "6d0ec719099493e1c51b0c879ca8a47aa91e3d1e954feb084d7111ef62c700c5",
+        "apps/desktop/test/acceptance/cf0-chat-retry.test.ts": "59f8097b0149a1c167b97bec9e82602fa87a612c00c29dc7a4f4ca123ca3a9d1"
       }
     }
   ]

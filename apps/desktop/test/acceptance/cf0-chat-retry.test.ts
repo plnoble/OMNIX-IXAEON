@@ -33,6 +33,7 @@ const harness = vi.hoisted(() => {
     failure: '',
     saved: [] as string[],
     chatModel: '',
+    analysisModel: 'demo-a',
     asked: 0,
     question: '原话问题',
   };
@@ -138,14 +139,15 @@ const harness = vi.hoisted(() => {
     getConversation,
     getSettings: vi.fn(async () => ({
       config: {
-        modelName: state.chatModel,
+        modelName: state.analysisModel,
         chatModelName: state.chatModel,
         savedModels: [...state.saved],
       },
     })),
-    setChatModel: vi.fn(async (input: { model: string }) => {
-      state.chatModel = input.model;
-      return { ok: true as const };
+    saveModelSettings: vi.fn(async (input: { modelName: string; chatModelName?: string }) => {
+      state.analysisModel = input.modelName;
+      if (input.chatModelName !== undefined) state.chatModel = input.chatModelName;
+      return { ok: true as const, keyCleared: false };
     }),
     askQuestion: vi.fn(async (input: { conversationId: string; question: string }) => {
       state.asked += 1;
@@ -164,7 +166,7 @@ vi.mock('../../src/renderer/src/api.js', () => ({
     listConversations: harness.listConversations,
     getConversation: harness.getConversation,
     getSettings: harness.getSettings,
-    setChatModel: harness.setChatModel,
+    saveModelSettings: harness.saveModelSettings,
     askQuestion: harness.askQuestion,
     listTodos: harness.listTodos,
     onAskProgress: harness.onAskProgress,
@@ -185,10 +187,11 @@ beforeEach(() => {
   harness.state.failure = DEMO_FAILURE;
   harness.state.saved = ['demo-a', 'demo-b', 'demo-c'];
   harness.state.chatModel = 'demo-a';
+  harness.state.analysisModel = 'demo-a';
   harness.state.asked = 0;
   harness.getConversation.mockClear();
   harness.getSettings.mockClear();
-  harness.setChatModel.mockClear();
+  harness.saveModelSettings.mockClear();
   harness.askQuestion.mockClear();
   onOpenModelSettings.mockClear();
   host = document.createElement('div');
@@ -258,8 +261,11 @@ describe('CF0 在聊天里换个已保存的模型重问（聊天页）', () => 
     await act(async () => setSelectValue(select, 'demo-b'));
     await click('model-retry-run');
 
-    expect(harness.setChatModel).toHaveBeenCalledTimes(1);
-    expect(harness.setChatModel).toHaveBeenCalledWith({ model: 'demo-b' });
+    expect(harness.saveModelSettings).toHaveBeenCalledTimes(1);
+    expect(harness.saveModelSettings).toHaveBeenCalledWith({
+      modelName: 'demo-a',
+      chatModelName: 'demo-b',
+    });
     expect(harness.askQuestion).toHaveBeenCalledTimes(1);
     expect(harness.askQuestion.mock.calls[0]![0]).toMatchObject({
       conversationId: 'conv-1',
@@ -268,6 +274,7 @@ describe('CF0 在聊天里换个已保存的模型重问（聊天页）', () => 
     });
 
     expect(harness.state.chatModel).toBe('demo-b');
+    expect(harness.state.analysisModel).toBe('demo-a');
     // 失败的那条照旧留着、状态还是 failed
     const failed = document.querySelector('[data-status="failed"]');
     expect(failed).not.toBeNull();

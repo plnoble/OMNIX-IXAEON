@@ -51,6 +51,23 @@ describe('CF0 模型没渠道时说清是哪个模型（核心层）', () => {
     expect(isModelUnavailable(detail)).toEqual({ model: 'demo-c' });
   });
 
+  it('条件 2（两种说法同时出现）：The model … does not exist + model_not_found 也取到名字', () => {
+    const detail =
+      'HTTP 400: {"message":"The model `demo-d` does not exist","code":"model_not_found"}';
+    expect(isModelUnavailable(detail)).toEqual({ model: 'demo-d' });
+    const text = explainModelFailure(detail);
+    expect(text).toContain('demo-d');
+    expect(text).toContain('没有可用渠道');
+    expect(text).not.toContain('稍后再试');
+  });
+
+  it('条件 2（说明被截短）：从本任务自己的说明句里仍能认出模型', () => {
+    const detail =
+      '网关里「demo-e」现在没有可用渠道（常见原因是那条渠道的套餐或额度失效了）。' +
+      '（原始错误：HTTP 503: No avail…）';
+    expect(isModelUnavailable(detail)).toEqual({ model: 'demo-e' });
+  });
+
   it('条件 3：502 的说明和改之前逐字一样，不认成没渠道', () => {
     const detail = 'HTTP 502: Bad Gateway';
     expect(explainModelFailure(detail)).toBe(

@@ -941,11 +941,6 @@ export interface IxaIpcApi {
      * → keyCleared=true（本来就没有 Key 的不算）。
      */
   }): Promise<{ ok: true; keyCleared: boolean }>;
-  /**
-   * CF0：聊天里换个已保存的模型重问——只改 `chatModelName`（和「设置 → 模型接入 →
-   * 聊天模型」同一个），模型必须在 `savedModels` 里，不在就拒绝、设置不变。
-   */
-  setChatModel(input: { model: string }): Promise<{ ok: true }>;
   /** D7b：编码任务交给谁（executor: 'codex' | 'model'；modelName 从已保存清单里选）。 */
   saveCodingSettings(input: { executor: 'codex' | 'model'; modelName: string }): Promise<{
     ok: true;

@@ -778,8 +778,6 @@ export function registerIpc(runtime: AppRuntime): void {
       };
     },
     saveModelSettings: async (input) => runtime.saveModelSettings(input),
-    // CF0：聊天里换个已保存的模型重问（只改 chatModelName；不在清单里被拒）
-    setChatModel: async (input) => runtime.setChatModel(input),
     saveCodingSettings: async (input) => runtime.saveCodingSettings(input),
     // K3：驾驶舱要读的仓库路径（只存设置项；快照结构不变）。K4：同一通道保存额度设置，
     // 只写传入的键。

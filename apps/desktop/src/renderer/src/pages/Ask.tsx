@@ -77,6 +77,8 @@ export function AskPage({
   // 失败消息下面的换模型控件先不出现（免得闪一下「还没有别的模型」）。
   const [savedModels, setSavedModels] = useState<string[] | undefined>(undefined);
   const [chatModelName, setChatModelName] = useState<string | null>(null);
+  // 现有保存设置通道要求带上分析模型（modelName）；换聊天模型时原样传回，不动它。
+  const [modelName, setModelName] = useState<string | null>(null);
   const [expandedRef, setExpandedRef] = useState<string | null>(null);
   // 列表里直接改名。不能用 window.prompt：Electron 不支持，调用会直接抛错
   //（9-07 的 ea7c721 因此改掉过归档的 prompt，D6 又把它带了回来，9-17 用户实测改名无反应）。
@@ -121,6 +123,7 @@ export function AskPage({
       const view = await api.getSettings();
       setSavedModels(view.config.savedModels ?? []);
       setChatModelName(view.config.chatModelName || view.config.modelName || null);
+      setModelName(view.config.modelName || null);
     } catch {
       // 设置读不到就不出换模型控件；不影响聊天本身
     }
@@ -412,10 +415,13 @@ export function AskPage({
    * 对话里重发原话。失败的那条消息不删、不改写。
    */
   const retryWithModel = async (message: ConversationMessage, model: string) => {
+    // 正在答另一轮时不能悄悄改模型又什么都不发：按钮也会禁用，这里再兜一道。
+    if (busy) return;
     const original = questionBefore(message.id);
-    if (original === null || !api.setChatModel) return;
+    if (original === null || modelName === null) return;
     try {
-      await api.setChatModel({ model });
+      // 复用设置页同一条保存通道（只传已保存的聊天模型，Key / 地址 / 分析模型原样带回去）
+      await api.saveModelSettings({ modelName, chatModelName: model });
       setChatModelName(model);
     } catch (err) {
       setError(errMsg(err));
@@ -586,6 +592,7 @@ export function AskPage({
                   onOpenTask={onOpenTask}
                   savedModels={savedModels}
                   chatModelName={chatModelName}
+                  retryDisabled={busy}
                   onRetryWithModel={(model) => {
                     void retryWithModel(m, model);
                   }}

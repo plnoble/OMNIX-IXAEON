@@ -117,11 +117,13 @@ function MemoryUsedList({ items }: { items: MemoryUsedItem[] }) {
 function RetryWithModel({
   failedModel,
   savedModels,
+  disabled,
   onRetryWithModel,
   onOpenModelSettings,
 }: {
   failedModel: string | null;
   savedModels: string[];
+  disabled?: boolean;
   onRetryWithModel?: (model: string) => void;
   onOpenModelSettings?: () => void;
 }) {
@@ -160,7 +162,7 @@ function RetryWithModel({
       <Button
         kind="default"
         testId="model-retry-run"
-        disabled={selected.length === 0}
+        disabled={disabled === true || selected.length === 0}
         onClick={() => onRetryWithModel?.(selected)}
       >
         用这个模型重问
@@ -217,6 +219,7 @@ export function AskMessage({
   onOpenTask,
   savedModels,
   chatModelName,
+  retryDisabled,
   onRetryWithModel,
   onOpenModelSettings,
 }: {
@@ -240,8 +243,10 @@ export function AskMessage({
   onOpenTask?: (taskId: string) => void;
   /** CF0：设置里已检测并保存的模型（没读到设置前不传，控件先不出现）。 */
   savedModels?: string[];
-  /** CF0：当前聊天模型（失败原文没给模型名时用它当失败的那个）。 */
+  /** CF0：当前聊天模型（失败原文没给模型名时，退回这条消息自己记录的模型）。 */
   chatModelName?: string | null;
+  /** CF0：正在回答/准备中时不许再点「用这个模型重问」。 */
+  retryDisabled?: boolean;
   /** CF0：用选中的模型在同一个对话里重问原话。 */
   onRetryWithModel?: (model: string) => void;
   /** CF0：没有别的可用模型时，跳到设置页「模型接入」。 */
@@ -272,7 +277,7 @@ export function AskMessage({
       ? isModelUnavailable(m.errorMessage)
       : null;
   const failedModel = modelUnavailable
-    ? (modelUnavailable.model ?? chatModelName ?? m.modelName)
+    ? (modelUnavailable.model ?? m.modelName ?? chatModelName ?? null)
     : null;
   return (
     <article
@@ -291,6 +296,7 @@ export function AskMessage({
           <RetryWithModel
             failedModel={failedModel}
             savedModels={savedModels}
+            disabled={retryDisabled}
             onRetryWithModel={onRetryWithModel}
             onOpenModelSettings={onOpenModelSettings}
           />
