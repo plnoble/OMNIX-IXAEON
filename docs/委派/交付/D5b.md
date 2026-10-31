@@ -1,117 +1,111 @@
-﻿# D5b 锁定前核心模型核测试 交付（第一支：只推测试）
+# D5b 锁定前核心模型核测试 交付（第一支：纯核心 `testReview.ts`）
 
-- 分支：`dev/D5b`，基于 main `8b2456f`；档位 **B**
+- 分支：`dev/D5b`，从 `origin/dev2/D5b`（66771dc）起，先 merge `origin/main`（e955572）；档位 **B**
 - 执行方：dev
+- 第二支：[`dev/D5c`](D5c.md)（基于本支）——`executor.ts` 接线、桌面两处构造、25 条验收测试、真机脚本
 
-**这一支按 B 档只交验收测试**：新增 `packages/core/test/acceptance/d5b-review-tests.test.ts`（1073 行、25 个 `it`），`packages/*/src`、`apps/*/src` **源码改动 0 行**。实现还没写，测试现在应当是红的；等整合方看过、在 main 上锁定之后，再写实现那一支。
+## 为什么拆
 
-## 已实现（这一支改了什么）
+整合方 2026-10-30 退回：整份实现源码约 354 行（`executor.ts` +220、`testReview.ts` +128、桌面 +6），超过 AGENTS.md 的 300 行上限。拆法照退回意见：
 
-| 文件                                                     | 行数   | 说明                                                                                                                                    |
-| -------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/core/test/acceptance/d5b-review-tests.test.ts` | 1073   | 规格 14 条验收条件逐条写成 25 个 `it`；真的 `CodingOrchestrator`、真的零依赖档验证、真的 `node:test` 测试文件，执行器和核心模型都是替身 |
-| `docs/委派/交付/D5b.md`                                  | 本文件 | 交付说明                                                                                                                                |
+- **本支（D5b）**：`packages/core/src/execution/testReview.ts`——发给核心模型的提示词、`user` 的拼装与截断、把模型回答筛成问题列表、补测试的交代、两次失败的失败原因。**纯函数，没有编排状态机**。
+- **D5c**：`executor.ts` 的接线（什么时候核、最多两次、补测试、失败时写报告）与桌面 `appRuntime.ts` 两行；验收测试和真机脚本也在那支。
 
-源码：`git diff --stat origin/main...HEAD -- 'packages/*/src' 'apps/*/src'` 为空（0 行）。
+两支的源码行数：本支 **128 行**；D5c 约 241 行。各自都在 300 行以内。契约、验收条件一个字没改。
 
-为了让测试能跑、也为了证明测试不是「实现写对了也过不了」，我在工作目录里写了一份**一次性**参考实现（`executor.ts` +167 行、新文件 `testReview.ts`），跑通 25/25 后已全部撤销，没有提交；过程和输出留在 `.logs/`（不进仓库）。参考实现第一次跑时被测试抓出两处实现错误，见下面「自动化通过」。
+## 已实现（本支改了什么）
 
-## 验收测试（条件 → 测试）
+| 文件                                              | 行数   | 说明                                                                                                                                                                                   |
+| ------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src/execution/testReview.ts`       | 128    | 契约第 3、4、5 条：`REVIEW_SYSTEM` 原文、`reviewUser()`、`cleanProblems()`、`fixTestsBrief()`、`twiceProblemsReason()`                                                                   |
+| `packages/core/test/unit/d5b-test-review.test.ts` | 166    | 本支另加的单元测试（12 条）：原文逐字、20000/60000 字上限、越界与空白问题丢掉、两段交代的原文                                                                                          |
+| `docs/委派/交付/D5b.md`                           | 本文件 | 交付说明                                                                                                                                                                               |
 
-测试文件开头注释逐条对应规格条件。25 个 `it` 的对应关系：
+`git diff --stat origin/main...HEAD`（本支提交后补，不含第二支）：
 
-| 条件 | 测试                                 | 钉住什么                                                                                                                                                                                                                                                                                                                     |
-| ---- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | 不传 `testReviewer`                  | 照 D5a 锁定；`acceptanceTests` 里没有 `review` 字段；`testReviewer` 0 次、模型 0 次                                                                                                                                                                                                                                          |
-| 2    | `testReviewer` 返回 `null`           | 锁定；`review` 逐字为 `{ status: 'skipped', rounds: 0, problems: [], note: '没有配置核心模型' }`                                                                                                                                                                                                                             |
-| 3    | 第 1 次核没问题                      | 锁定；`review` 逐字为 `{ passed, rounds: 1, problems: [], note: null }`；执行器 2 次；核在「实现前跑一遍」之后、「写实现」之前                                                                                                                                                                                               |
-| 4    | 发给模型的内容                       | `system` 与契约第 3 条逐字相等；`user` 有原任务的 goal（不是派发时拼了范围/背景的那份）、编号条件、每个测试文件的路径和内容；测试里写的副本绝对路径换成 `<副本>`                                                                                                                                                             |
-| 5    | 第 1 次有问题、补过之后第 2 次没问题 | 锁定；`rounds 2`、`passed`；执行器 3 次；第 2 次的 goal 含契约第 4 条的「只改」「要做的事」「验收条件」「检查的人说」「怎么改 + D5a 怎么写那一段原样」；`scope_json` 只有测试目录、原批准范围是只读；第 2 次核的 `user` 里有新补的 `add.test.mjs`；另有一条断言锁定的是补过之后的文件（写实现时改它 → `实现时改了验收测试`） |
-| 6    | 两次都有问题                         | `failed`；`error` 与契约第 5 条逐字对得上（每个问题一行）；写实现没被调；`executor_report_json` 里有 `review.status === 'failed'`、`rounds: 2`、`problems` 是第二次那几条                                                                                                                                                    |
-| 7    | 补测试时改了测试目录以外的文件       | `failed`，原因逐字 `写验收测试时改了别的文件：calc.mjs`；不再核；另有一条断言补过之后**跑测试**时改了项目文件 → `验收测试改了项目里的文件：…`                                                                                                                                                                                |
-| 8    | 补过之后实现前全部通过               | 不锁定、不再核，原因照 D5a；模型只被调 1 次；另有一条：补过之后沙箱拒跑 → 不锁定、不再核、照样写实现                                                                                                                                                                                                                         |
-| 9    | 补测试时执行器抛错                   | `failed`，原因逐字以 `补验收测试时执行器出错：` 开头；不写实现                                                                                                                                                                                                                                                               |
-| 10   | 核的时候模型抛错                     | 第 1 次抛错：锁定原来的测试，`error`、`rounds: 0`、`problems: []`、`note` 是错误的话；第 1 次有问题、补过、第 2 次抛错：锁定补过之后的测试，`rounds: 1`、`problems` 是上次的；抛错后不重试                                                                                                                                   |
-| 11   | 越界 / 空 detail                     | `condition` 0、超过条件数、`detail` 全空白 → 全丢掉，照第 3 条锁定；另有混合用例：只留合法的，补测试的交代里没有 0、3 和空 detail                                                                                                                                                                                            |
-| 12   | 测试内容大小上限                     | 单个文件 > 20000 字：截断并带 `…（后面截掉了）`，尾部标记确实没发；5 个文件合计 > 60000 字：最后一个只出现路径和 `（太长，没有发）`，内容标记没发                                                                                                                                                                            |
-| 13   | 取消                                 | 核的时候取消：`cancelled`，不再调模型、不再调执行器；补测试的时候取消：`cancelled`，不再核第 2 次                                                                                                                                                                                                                            |
-| 14   | 走不到「要锁定」                     | 没写出测试、实现前全过、沙箱拒跑、带验证命令、没有验收条件 五种：模型 0 次、`testReviewer` 0 次、没有 `review`，结果照 D5a                                                                                                                                                                                                   |
+```
+ .../交付/D5b.md                                 |  73 +++++
+ packages/core/src/execution/testReview.ts       | 128 +++++++++
+ packages/core/test/unit/d5b-test-review.test.ts | 172 ++++++++++
+ 3 files changed, 373 insertions(+)
+```
+
+（源码只有 `testReview.ts` 的 **128 行**；单元测试与交付说明按 AGENTS.md 不计入。）
+
+和整份实现（66771dc）相比，本支只把 `testReview.ts` 与测试拿出来；`executor.ts`、`appRuntime.ts` 和那份 25 条的验收测试文件**在本支的最终树上没有**（它们随 D5c 加回）。中间那一个提交是从 66771dc 的快照里剔除它们，好让第一支单独审、单独量行数。
+
+没有新接口改名、没有新增设置项、没有迁移。`testReview.ts` 不碰数据库、不碰网络、不碰文件系统。
+
+## 验收测试
+
+- 任务的 14 条验收条件写成 25 个 `it`，文件是 `packages/core/test/acceptance/d5b-review-tests.test.ts`，**在第二支 D5c**。那支要接线才跑得动；本支只有纯函数，跑那份会 19 条红。
+- 本支的 12 条单元测试只钉 `testReview.ts`：契约第 3 条 `system` 逐字（条件 4 的前半）、`user` 的拼法与 20000/60000 字上限（条件 4、12）、越界/空白 `detail`/不认识的 `kind` 都丢掉（条件 11）、契约第 4 条补测试交代与第 5 条失败原因的原文。
+- 本支没有锁任何验收测试：B 档的 `acceptance.mjs lock` 是整合方的关卡。
 
 ## 自动化通过
 
-- `node scripts/acceptance.mjs run D5b`：**没跑 / 跑不了**。B 档测试还没由整合方锁定，`docs/委派/锁定验收.json` 里没有 D5b 这一条，脚本会报「没有登记的任务」。锁定后由整合方登记，实现那一支再跑。
-- 直接跑本文件（实现还没写）：`node node_modules/vitest/vitest.mjs run --project acceptance packages/core/test/acceptance/d5b-review-tests.test.ts` → **25 tests | 19 failed / 6 passed**。红的 19 条是实现还没有；绿的 6 条是「不传 `testReviewer`」和条件 14 五种本来就不进核这一步的分支——它们在 D5a 的现有代码上就该绿。
-- **一次性参考实现验证**（没提交；`.logs/d5b-reference-implementation.diff`、`.logs/d5b-testReview-reference.ts`）：同一份测试 **25/25 通过**（约 23 秒）。参考实现第一次跑时被测试抓出两处：
-  1. 不传 `testReviewer` 时也写了一个 `skipped` 的 `review`——条件 1 的「没有 `review` 字段」变红；
-  2. 补过测试之后报告里的 `acceptanceTests.files` 还是补之前那份——条件 5、8、10 变红；
-     修好这两处后 25/25。说明这些断言不是「实现怎么写都过」。
-- D5a 基线（保证没碰既有行为）：`node scripts/acceptance.mjs run D5a` → **2 个文件、44 条全过**；`apps/desktop/test/acceptance/d5a-executor-options.test.ts` → **4 条全过**。
-- `node scripts/verify.mjs`：**全过**（lint / format / local-user / typecheck / build / unit / integration / acceptance-lock / 已完成的锁定验收 / 所有 review 套件；末尾「全部通过（IXAEON v0.2 验证完成）」）。因为这一支没有源码改动，verify 本来就不受新文件影响；跑它是为了本机 `local-user` 与 `acceptance-lock` 两道关。
-- GitHub 上的 verify：没看（这一棒由调度器替推，见最后一行之前的 `RELAY-PUSH`）。
+- 本支单元测试：`node node_modules/vitest/vitest.mjs run --project unit packages/core/test/unit/d5b-test-review.test.ts` → **12/12 过**。
+- `node scripts/acceptance.mjs run D5b`：**跑不了**。`docs/委派/锁定验收.json` 里还没有 D5b 这一条（25 条验收测试未锁定，本周例外：整合方 11-05 凌晨 4:30 之后才复审合并）。锁定后由整合方登记。
+- `node scripts/verify.mjs`：见下面「verify 输出」，本机**全过**。
+- 第二支（D5c）上的 25 条验收测试 25/25 过、真机检查甲通过——见 [D5c 交付说明](D5c.md)。
+
+### verify 输出
+
+```
+  ✓ lint（ESLint） — 9.0s
+  ✓ format:check（Prettier） — 3.8s
+  ✓ local-user（提交的文件里没有本机的账户名） — 0.3s
+  ✓ typecheck（tsc --noEmit） — 7.8s
+  ✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 7.2s
+  ✓ build（desktop / mcp / extension） — 8.6s
+  ✓ unit（Vitest 单元测试） — 4.2s
+  ✓ integration（Vitest 集成测试） — 25.9s
+  ✓ acceptance-lock（锁定的验收测试没被改） — 0.1s
+  ✓ acceptance（已完成任务的锁定验收测试） — 291.0s
+  ✓ review（二次验收独立业务测试 11 项，修复 R1-R9 回归） — 3.5s
+  ✓ review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归） — 4.5s
+  ✓ review-round4（四次验收连续性 7 项，修复 F1-F4 回归） — 2.8s
+  ✓ review-v02（v0.2 验收 15 项，修复 G1-G8 回归） — 3.1s
+  ✓ review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归） — 3.7s
+  ✓ review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归） — 3.2s
+  ✓ review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项） — 4.4s
+  ✓ review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项） — 3.0s
+  ✓ review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项） — 2.4s
+  ✓ review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项） — 2.7s
+  ✓ review-p2（P2 受控实验与安全回滚 5 项） — 2.3s
+  ✓ review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项） — 2.4s
+  ✓ review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项） — 2.4s
+  ✓ review-direction-merged（方向质量/复审/二轮复审合并套件 44 项） — 6.1s
+  ✓ review-project-audit（全项目审核 15 项，修复 C01-C13 回归） — 2.9s
+  ✓ review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归） — 3.6s
+  ✓ review-recheck-round2（二次复审 10 项，修复 F01-F03 回归） — 3.0s
+  ✓ review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归） — 2.4s
+  ✓ review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界） — 2.3s
+  ✓ review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron） — 7.5s
+  ✓ review-understanding-ui（理解页 UND01-UND02，真实 Electron） — 6.1s
+  ✓ review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron） — 6.8s
+  ✓ review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron） — 6.9s
+全部通过（IXAEON v0.2 验证完成）
+```
 
 ## 真机通过
 
-**没跑。** 规格的真机检查属于**实现**那一支：
-
-- 甲 `scripts/real/d5b-review-tests.mjs`（替身执行器 + 替身模型，不花钱）要能驱动「核出一条太松 → 补 → 核过 → 锁定 → 实现 → 通过」和「两次都有问题 → 失败」；现在没有实现，脚本也还没写。
-- 乙（真模型网关，花钱）由整合方合并前跑。
-
-这一支按 B 档只推测试，所以没有可跑的真机检查；实现那一支会补上甲并把原样输出贴进来。
-
-## 规格「冲突风险」那两份
-
-- `apps/desktop/e2e/d5a-acceptance-first.spec.ts`：**试图跑了，起不来**。第一次是被宿主带进来的 `ELECTRON_RUN_AS_NODE=1` 弄成 `bad option: --remote-debugging-port=0`；去掉之后仍然是 Electron 启动失败（exitCode `2147483651`，即 0x80000003），一条 D5a 断言都没走到。原因是接力里的 DSH 给工作区打了低完整性标签，而这份 e2e 的 `electron.launch` 没有像 `verify.mjs` 的界面套件那样用 `electronArgs` / 低完整性临时目录。**不是我改红的，也没有改它**（按规格「撞红了写进交付说明，不改」）。同一环境下 `verify.mjs` 里的 4 套真 Electron 界面复审全过，说明是这份 e2e 自己的启动方式在接力环境里起不来，与本任务测试无关。
-- `apps/desktop/test/acceptance/d5a-executor-options.test.ts`：**4 条全过**。
-- 真正会「核这一步吃掉 FakeProvider 预置响应」的风险要等实现写出来才出现；这一支没实现，所以还验不到。交付说明留给实现那一支复核。
+**本支没跑真机检查，也没法跑。** 规格的真机检查 `scripts/real/d5b-review-tests.ts` 要驱动真的 `CodingOrchestrator`（核 → 补 → 再核 → 锁定 → 实现），要有接线；本支只有纯函数。脚本与甲的输出在 [D5c 交付说明](D5c.md)。乙（真模型网关，花钱）由整合方合并前跑。
 
 ## 已知缺口
 
-1. **桌面接线没有验收测试**：契约第 1 条要求 `appRuntime.ts` 两处 `new CodingOrchestrator(` 传 `testReviewer`，但规格的 14 条验收条件都在核心层，测试只覆盖「构造参数注入后怎么核」。这属于实现那一支要自查的接缝，建议整合方锁定测试时决定要不要补一份桌面侧测试。
-2. **错误话里不带 Key / 地址**（契约第 6 条末句）没有测试：现在 `ModelError` 的 message 本来就不带；测试替身抛的是合成错误，只能验「note 是错误的话」，验不了「真实错误里不会夹 Key / 网关地址」。实现那一支要照契约核一遍。
-3. **条件 12 的 60000 字边界**：测试只断言第 5 个文件一定被写成「路径 +（太长，没有发）」，没有钉死第 4 个文件是发内容还是被截——规格只说「后面的文件」，第 4 个在边界上，两种读法都过；如果整合方要更严，锁定前可以补死。
-4. **补过之后一个 `.test.mjs` 都没写**、以及**补测试时 `condition` 不是整数**（schema 直接抛错）没单独写用例：规格的 14 条条件没要求，属于契约边角。
-5. 测试没有断言 `review.note` 在 `failed` 时是什么；规格只写了 `failed` 出现在两次都有问题的失败里，没写 `note`。实现可以填 `null`。
+1. 契约第 4 条「副本绝对路径换成 `<副本>`」发生在调用方（`executor.ts` 的 `askOnce` 用了 `hideWorkspacePath`），本支测不到；它的验收测试在 D5c 条件 4 里。
+2. 契约第 6 条末句「错误的话里不带 Key / 地址」也没法在本支测：`testReview.ts` 不接触错误。D5c 交付说明里核过 `ModelError` 的 message 不带 Key / 网关地址。
+3. `reviewUser()` 的 60000 字上限按「正文长度」累加，段与段之间的两个换行不计入；规格只写「所有文件合起来超过 60000 字」，差这几个字不影响「后面的文件只写路径」的判定，验收测试条件 12 过。要更严可以改成按最终整段长度算——留给整合方审测试时定。
 
 ## 用户接受
 
-未发生。等实现并入、用户在用的时候试过再写。
+未发生。等第二支并入、用户在用的时候试过再写。
 
 ---
 
-# 实现那一支（dev2，2026-10-25）
+## 沿革（不改历史，只记一笔）
 
-- 分支：`dev2/D5b`，基于 `dev/D5b`（上面的测试）；执行方：dev2
-- 背景：用户 2026-10-25 定「做 D5b」，所以照 B 档规格把实现写了。**测试的锁定仍然是整合方的关卡，我没有 `acceptance.mjs lock`。**
-
-## 已实现（契约 1–8，源码约 +270 行）
-
-**新文件 `packages/core/src/execution/testReview.ts`**（约 120 行）：`REVIEW_SYSTEM`（契约第 3 条 system 原文）、`reviewUser()`（`要做的事 + 验收条件 + 测试文件`；单文件超 20000 字截断并加「…（后面截掉了）」，总量超 60000 字之后只写路径和「（太长，没有发）」）、`cleanProblems()`（条件号不在 1..N 丢掉、`detail` 空白丢掉）、`fixTestsBrief()`（契约第 4 条「只改测试」的交代）、`twiceProblemsReason()`（契约第 5 条，截到 2000 字）。
-
-**`packages/core/src/execution/executor.ts`**：
-
-- 构造函数第 5 个可选参数 `testReviewer?: () => ModelProvider | null`。**每次要核时现调一次**——第 2 次核之前也重新调（第一版漏了这点，被条件 5 的测试抓出来）。
-- 只在 D5a「要锁定」那一刻（`reason === null`）核。
-- 第 1 次有问题 → 让执行器只改测试目录补（`scope_json` 只有测试目录、原批准范围只读）→ 照 D5a 第 1、2 步重查（越界 / 重新列文件 / 实现前跑一遍 / 跑的时候改文件）→ 再核第 2 次。
-- 两次还有问题 → `failNow`，原因逐条列。
-- `testReviewer` 返回 null → `review.skipped`；模型抛错 → `review.error`，都照 D5a 锁定、不挡任务。
-- 新字段 `ExecutorReport.acceptanceTests.review`（`status/rounds/problems/note`）；失败时也用新增的 `failNowWithReview` 把带 `review` 的报告写进 `executor_report_json`。
-- 发给模型的测试内容过 `hideWorkspacePath`。
-
-**`apps/desktop/src/main/appRuntime.ts`**：两处 `new CodingOrchestrator(` 补 `testReviewer`（第 4 参 `runCheck` 传 `undefined` 用默认）。
-
-**小重构**：`writeTestsBrief` 里「怎么写：」那段抽成 `howToWriteTests(testDir)` 供 D5b 复用，**D5a 提示词措辞一字未改**。
-
-## 自动化通过
-
-- `packages/core/test/acceptance/d5b-review-tests.test.ts`：**25/25 过**
-- `node scripts/verify.mjs`：**全部通过**
-
-## 真机通过
-
-规格没要求单独的真机脚本；行为由 25 条测试覆盖（取消、模型抛错、越界、两次失败等分支都在里面）。
-
-## 已知缺口（如实记）
-
-- **测试没有锁定**（B 档是整合方的关卡）。
-- 规格「冲突风险」说：`IXAEON_FAKE_MODEL=1` 下 FakeProvider 的结构化队列可能被核这一步吃掉预置响应。`apps/desktop/e2e/d5a-acceptance-first.spec.ts` 和 `d5a-executor-options` **我没跑**（要先 build 桌面，本轮没跑），撞红留给整合方审测试时处理。
-- `review` 只写进报告数据，界面没显示（规格说等用户试过再定）。
+- 6126923（dev/D5b）：25 条验收测试，B 档先只推测试。
+- 66771dc（dev2/D5b）：照用户 2026-10-25 定的「做 D5b」把整份实现写了；源码约 354 行，2026-10-30 被整合方退回拆支。
+- 本支从 66771dc 起，只留 `testReview.ts`；实现接线与验收测试见 [D5c](D5c.md)。旧的两份交付说明在 git 历史里（`git show 66771dc:docs/委派/交付/D5b.md`）。
