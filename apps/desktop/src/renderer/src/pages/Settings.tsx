@@ -341,7 +341,12 @@ function savedCodingOf(v: SettingsView | null): { executor: 'codex' | 'model'; m
   };
 }
 
-export function SettingsPage() {
+export function SettingsPage({
+  focus,
+}: {
+  /** CF0：从聊天里点「去设置」时滚到「模型接入」。at 让同一处再点一次也能触发。 */
+  focus?: { section: 'model'; at: number } | null;
+} = {}) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -378,6 +383,8 @@ export function SettingsPage() {
   // K5：手机只读页（默认关，端口 43192）
   const [mobileEnabled, setMobileEnabled] = useState(false);
   const [mobilePort, setMobilePort] = useState('43192');
+  // CF0：同一次「去设置」只滚一次；之后保存别的设置重读 view 不再把页面拽回模型接入。
+  const appliedFocusAt = useRef<number | null>(null);
 
   const reload = useCallback(async (): Promise<SettingsView | null> => {
     try {
@@ -411,6 +418,15 @@ export function SettingsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // CF0：从聊天里点「去设置」过来时，等设置读出来、卡片在页面上，再滚到「模型接入」。
+  useEffect(() => {
+    if (!focus || focus.section !== 'model' || view === null) return;
+    if (appliedFocusAt.current === focus.at) return;
+    appliedFocusAt.current = focus.at;
+    const card = document.querySelector('[data-testid="settings-model"]');
+    (card as HTMLElement | null)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  }, [focus, view]);
 
   /** K3：只保存仓库路径；留空 = 驾驶舱不读队列。 */
   const saveCockpitRepo = async () => {
