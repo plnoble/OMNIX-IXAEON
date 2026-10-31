@@ -608,7 +608,7 @@
       "status": "done",
       "files": {
         "packages/relay/test/acceptance/l16-accept.test.ts": "7c2122059f717b223aa352fb8e552ac9c07684aae3a8e6d922c133b86db7d8ea",
-        "packages/relay/test/acceptance/l16-listen.test.ts": "0d0d24869599ccd8340ddd46c5c13b746fd71d356a1343243fa4de2eafd2a65c",
+        "packages/relay/test/acceptance/l16-listen.test.ts": "dc01fe5b1fb19a7b726d1f88733f2a6d4787cf5793ab6259b21e8912ac1f540f",
         "packages/relay/test/acceptance/l16-dispatch.test.ts": "25846f52f5fb4dd59094b920d6d3ab2df46035ff00dc9d4b70a81d8947479270",
         "packages/relay/test/acceptance/l16-prompt.test.ts": "7e1fe263dece6ee4fa69d6c3eee835485f7eeff1b5e366ce60d2ecfc63df4794",
         "packages/relay/test/acceptance/l16-inbox-turn.test.ts": "0e361f79e6cd4a35e5f8b0a4836b6019100faff26098b54ae1c776f7f8676908",
@@ -763,7 +763,7 @@
     {
       "id": "K4",
       "title": "额度与项目活动",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/k4-quota.test.ts": "3a7e23c7d45be4ef132105e717c906ca2efec33608aa234b5e70adf3fdb33f42",
         "packages/core/test/acceptance/k4-project-activity.test.ts": "bce9d4f08d491c6c526fa9548fe62af6a9fc3df19c63474ee85ab228aac1500c",
@@ -784,6 +784,17 @@
       "status": "queued",
       "files": {
         "apps/desktop/test/acceptance/k4c-quota-settings.test.ts": "09c4bbdbf3d677bbff2bf6aa7d78ca8139954b8979906effd3176f872e408afa"
+      }
+    },
+    {
+      "id": "K5",
+      "title": "手机只读页",
+      "status": "done",
+      "files": {
+        "apps/desktop/test/acceptance/k5-mobile-server.test.ts": "0cb6bf1851b38a7cecb8ce647eb5601ffceedc7589298bcbe820c8e5a6af5731",
+        "apps/desktop/test/acceptance/k5-mobile-page.test.ts": "7aa6eaae068e2167b619ef48d2e4b2359a63f7f0709280b2ecd6e4ca539eeb37",
+        "apps/desktop/test/acceptance/k5-mobile-settings.test.ts": "6300b62c5aae2859b08a834bed8e290446985c561bc869bf0c022147a2e970f1",
+        "apps/desktop/test/acceptance/k5-mobile-settings-ipc.test.ts": "7bd85538085761e5b5064c5720450eaebd3208322e03e612b5f0455ac55dd5ff"
       }
     }
   ]

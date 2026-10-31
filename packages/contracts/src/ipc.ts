@@ -436,8 +436,17 @@ export const settingsViewSchema = z.object({
       quotahubUrl: z.string().default(''),
       /** K4：手动登记的额度（每项一个窗口）。 */
       manualQuotas: z.array(manualQuotaSchema).default([]),
+      /** K5：手机只读页（默认关）与端口（默认 43192）。 */
+      mobileEnabled: z.boolean().default(false),
+      mobilePort: z.number().int().default(43192),
     })
-    .default({ ixaeonRepo: '', quotahubUrl: '', manualQuotas: [] }),
+    .default({
+      ixaeonRepo: '',
+      quotahubUrl: '',
+      manualQuotas: [],
+      mobileEnabled: false,
+      mobilePort: 43192,
+    }),
   /** A03（审核 2026-09-13）：桌面问答存档授权状态（enabled / revoked） */
   askCaptureStatus: z.enum(['enabled', 'revoked']).default('enabled'),
   mcp: z.object({
@@ -738,6 +747,8 @@ export interface IxaIpcApi {
     quotahubUrl?: string;
     manualQuotas?: ManualQuota[];
   }): Promise<{ ok: true }>;
+  /** K5：保存手机只读页开关与端口；存完立刻按新设置起停。 */
+  saveMobileSettings(input: { enabled: boolean; port: number }): Promise<{ ok: true }>;
   addTodo(input: { title: string }): Promise<Todo>;
   acceptTodo(id: string): Promise<Todo>;
   rejectTodo(id: string): Promise<Todo>;

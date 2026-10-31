@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { AppRuntime } from './appRuntime.js';
 import { getMcpSnippet } from './mcpSnippet.js';
 import { executorGapText } from './codingExecutor.js';
+import { readMobileSettings } from './server/mobileServer.js';
 import {
   addRequirement,
   applyProjectImport,
@@ -762,6 +763,8 @@ export function registerIpc(runtime: AppRuntime): void {
           ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
           quotahubUrl: getSetting(runtime.db, 'cockpit.quotahub_url')?.value ?? '',
           manualQuotas: savedManualQuotas(getSetting(runtime.db, 'cockpit.manual_quotas')?.value),
+          mobileEnabled: readMobileSettings(runtime.db).enabled,
+          mobilePort: readMobileSettings(runtime.db).port,
         },
         askCaptureStatus: runtime.askCaptureStatus(),
         mcp: getMcpSnippet(app.getPath('exe'), config.localToken),
@@ -788,6 +791,16 @@ export function registerIpc(runtime: AppRuntime): void {
       if (input.manualQuotas !== undefined) {
         setSetting(runtime.db, 'cockpit.manual_quotas', JSON.stringify(input.manualQuotas));
       }
+      return { ok: true as const };
+    },
+    // K5：存手机查看开关与端口，存完立刻按新设置起停（端口不合法/被占用时报错，不崩主进程）
+    saveMobileSettings: async (input) => {
+      if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '端口要填 1 到 65535 之间的整数');
+      }
+      setSetting(runtime.db, 'mobile.enabled', input.enabled ? 'true' : 'false');
+      setSetting(runtime.db, 'mobile.port', String(input.port));
+      await runtime.mobileServer.apply();
       return { ok: true as const };
     },
     // 记忆桥（F1）：状态与开关（开之前查 HTTPS；改 Hermes 配置前先备份）

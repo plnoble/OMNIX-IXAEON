@@ -93,6 +93,8 @@ const api: IxaIpcApi = {
   getCockpitSnapshot: () => ipcRenderer.invoke('ixaeon:getCockpitSnapshot'),
   // K3：设置页保存驾驶舱读队列用的仓库路径
   saveCockpitSettings: (input) => ipcRenderer.invoke('ixaeon:saveCockpitSettings', input),
+  // K5：设置页保存手机只读页的开关与端口
+  saveMobileSettings: (input) => ipcRenderer.invoke('ixaeon:saveMobileSettings', input),
   deleteConversation: (id) => ipcRenderer.invoke('ixaeon:deleteConversation', id),
   getPersonalOverview: () => ipcRenderer.invoke('ixaeon:getPersonalOverview'),
   markFindingsSeen: () => ipcRenderer.invoke('ixaeon:markFindingsSeen'),

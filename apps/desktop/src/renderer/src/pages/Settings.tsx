@@ -375,6 +375,9 @@ export function SettingsPage() {
   }>({ busy: false, result: null });
   // K3：驾驶舱读队列用的 IXAEON 仓库路径
   const [repoPath, setRepoPath] = useState('');
+  // K5：手机只读页（默认关，端口 43192）
+  const [mobileEnabled, setMobileEnabled] = useState(false);
+  const [mobilePort, setMobilePort] = useState('43192');
 
   const reload = useCallback(async (): Promise<SettingsView | null> => {
     try {
@@ -396,6 +399,8 @@ export function SettingsPage() {
         apiKey: '',
       });
       setRepoPath(v.cockpit?.ixaeonRepo ?? '');
+      setMobileEnabled(v.cockpit?.mobileEnabled ?? false);
+      setMobilePort(String(v.cockpit?.mobilePort ?? 43192));
       return v;
     } catch (err) {
       setError(errMsg(err));
@@ -414,6 +419,18 @@ export function SettingsPage() {
       await api.saveCockpitSettings({ ixaeonRepo: value });
       setRepoPath(value);
       setNotice('IXAEON 仓库路径已保存。');
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  };
+
+  /** K5：保存手机查看的开关与端口；端口不合法时由主进程拒绝。 */
+  const saveMobile = async () => {
+    try {
+      const port = Number(mobilePort);
+      await api.saveMobileSettings({ enabled: mobileEnabled, port });
+      setMobilePort(String(port));
+      setNotice('手机查看设置已保存。');
     } catch (err) {
       setError(errMsg(err));
     }
@@ -750,6 +767,56 @@ export function SettingsPage() {
       </Card>
 
       <QuotaSettingsCard />
+      <Card title="手机查看" testId="settings-mobile">
+        <p className="muted" data-testid="settings-mobile-scope">
+          在手机上只读查看驾驶舱。默认关闭；打开后本机另起一个只绑 127.0.0.1 的只读端口，
+          桌面上能看什么，手机上就只看得到什么，不能做任何操作。
+        </p>
+        <Field label="打开手机查看（只读）">
+          <input
+            type="checkbox"
+            checked={mobileEnabled}
+            onChange={(e) => setMobileEnabled(e.target.checked)}
+            data-testid="settings-mobile-enabled"
+          />
+        </Field>
+        <Field label="端口" hint="默认 43192；改完保存才生效">
+          <input
+            type="number"
+            min={1}
+            max={65535}
+            value={mobilePort}
+            onChange={(e) => setMobilePort(e.target.value)}
+            data-testid="settings-mobile-port"
+          />
+        </Field>
+        {mobileEnabled && (
+          <div data-testid="settings-mobile-command">
+            <p className="muted">
+              这条命令由你自己在电脑上执行一次（IXAEON 不改 Tailscale 配置），把这个端口发布到自己的
+              tailnet：
+            </p>
+            <code>tailscale serve --bg {mobilePort}</code>
+          </div>
+        )}
+        {mobileEnabled && (
+          <div className="muted" data-testid="settings-mobile-notes">
+            <p>
+              怎么关：<code>tailscale serve status</code> 看现在发布了什么；
+              <code>tailscale serve reset</code> 会清掉<strong>全部</strong> serve
+              配置，别的服务也经 serve 发布时要注意。
+            </p>
+            <p>
+              tailnet 里的所有设备都能打开这个页面；如果把设备共享给了别人，先在 Tailscale
+              里限制访问。
+            </p>
+            <p>不要用 funnel：那是把服务暴露到公网。</p>
+          </div>
+        )}
+        <Button kind="primary" onClick={() => void saveMobile()} testId="settings-mobile-save">
+          保存
+        </Button>
+      </Card>
 
       <Card title="Agent 运行时（Hermes）" testId="settings-hermes">
         <p className={view.hermesFound ? 'note' : 'warn'} data-testid="settings-hermes-notice">

@@ -33,7 +33,14 @@ type SourceModule = {
 };
 
 const BIND_REPLY = '绑好了：以后只听你在这个群里 @ 我说的话。';
-const replyText = (text: string): string => `收到：${text.slice(0, 50)}。下一棒交给整合方。`;
+// 按字（不是 UTF-16 码元）取前 50 个；截断了用「……」接下文，免得回执像话没说完（用户 2026-10-31 定）。
+const replyText = (text: string): string => {
+  const chars = [...text];
+  const head = chars.slice(0, 50).join('');
+  return chars.length > 50
+    ? `收到：${head}……下一棒交给整合方。`
+    : `收到：${head}。下一棒交给整合方。`;
+};
 
 export async function listenCommand(opts: {
   dataDir: string;
