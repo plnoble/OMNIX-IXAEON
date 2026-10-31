@@ -766,7 +766,24 @@
       "status": "queued",
       "files": {
         "packages/core/test/acceptance/k4-quota.test.ts": "3a7e23c7d45be4ef132105e717c906ca2efec33608aa234b5e70adf3fdb33f42",
-        "packages/core/test/acceptance/k4-project-activity.test.ts": "bce9d4f08d491c6c526fa9548fe62af6a9fc3df19c63474ee85ab228aac1500c"
+        "packages/core/test/acceptance/k4-project-activity.test.ts": "bce9d4f08d491c6c526fa9548fe62af6a9fc3df19c63474ee85ab228aac1500c",
+        "packages/core/test/acceptance/k4-redirect.test.ts": "72a015e3a853b89387d2ed9125d9d57e998667298f044e75a408c44cff1e4aa6"
+      }
+    },
+    {
+      "id": "K4b",
+      "title": "驾驶舱额度区与项目活动",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/k4b-cockpit-quota.test.ts": "231ee7f34a418bf92367ec12f2e0966d63772393721a835431d0f5f91d4957c5"
+      }
+    },
+    {
+      "id": "K4c",
+      "title": "设置页额度来源",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/k4c-quota-settings.test.ts": "09c4bbdbf3d677bbff2bf6aa7d78ca8139954b8979906effd3176f872e408afa"
       }
     }
   ]

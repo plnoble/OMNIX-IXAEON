@@ -10,7 +10,11 @@ import { Button, Card } from '../ui.js';
 const WINDOWS = ['5 小时', '每周', '其他'];
 const BLANK = { account: '', window: '5 小时', other: '', resetAt: '', expiresAt: '', note: '' };
 const iso = (v: string): string | null => (v ? new Date(v).toISOString() : null);
-const fmt = (v?: string | null): string => (v ? v.slice(0, 16).replace('T', ' ') : '—');
+// 存的是 UTC 时刻，显示按本机时间（直接截字符串会差出时区那几个小时）。
+const fmt = (v?: string | null): string => {
+  const t = v ? new Date(v) : null;
+  return t && !Number.isNaN(t.getTime()) ? t.toLocaleString() : '—';
+};
 
 export function QuotaSettingsCard() {
   const [view, setView] = useState<SettingsView | null>(null);

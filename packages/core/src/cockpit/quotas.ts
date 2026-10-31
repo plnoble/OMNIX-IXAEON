@@ -50,7 +50,7 @@ function mapAccounts(body: unknown, now: Date): C.QuotaCard[] {
     return {
       source: 'quotahub' as const,
       provider: text(a.provider) ?? '',
-      account: text(a.account_name) ?? text(a.account) ?? '',
+      account: text(a.account_name) ?? '',
       status: text(a.status) ?? 'unknown',
       plan: text(plan.name),
       expiresAt: text(plan.expires_at),
@@ -78,6 +78,8 @@ async function readQuotaHub(
     const res = await fetch(`${base}/api/snapshots`, {
       method: 'GET',
       headers: { accept: 'application/json' },
+      // 不跟跳转：本机服务回一个 30x 指到外网，跟过去就是一次外发。
+      redirect: 'error',
       signal: controller.signal,
     });
     if (!res.ok) return { cards: [], error: `QuotaHub 返回 HTTP ${res.status}` };
