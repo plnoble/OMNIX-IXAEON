@@ -768,6 +768,17 @@
         "packages/core/test/acceptance/k4-quota.test.ts": "3a7e23c7d45be4ef132105e717c906ca2efec33608aa234b5e70adf3fdb33f42",
         "packages/core/test/acceptance/k4-project-activity.test.ts": "bce9d4f08d491c6c526fa9548fe62af6a9fc3df19c63474ee85ab228aac1500c"
       }
+    },
+    {
+      "id": "K5",
+      "title": "手机只读页",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/k5-mobile-server.test.ts": "0cb6bf1851b38a7cecb8ce647eb5601ffceedc7589298bcbe820c8e5a6af5731",
+        "apps/desktop/test/acceptance/k5-mobile-page.test.ts": "7aa6eaae068e2167b619ef48d2e4b2359a63f7f0709280b2ecd6e4ca539eeb37",
+        "apps/desktop/test/acceptance/k5-mobile-settings.test.ts": "6300b62c5aae2859b08a834bed8e290446985c561bc869bf0c022147a2e970f1",
+        "apps/desktop/test/acceptance/k5-mobile-settings-ipc.test.ts": "7bd85538085761e5b5064c5720450eaebd3208322e03e612b5f0455ac55dd5ff"
+      }
     }
   ]
 }
