@@ -37,7 +37,27 @@ K4 的设置页部分。源码 206 行，界面测试另算。
 - `node scripts/acceptance.mjs run K3`：16 passed；`run K3b`：5 passed（K3 设置页与页面回归）。
 - `corepack pnpm exec tsc --noEmit -p tsconfig.json`：退出码 0。
 - `node scripts/acceptance.mjs run K4`：19 passed；`run K2`：21 passed；`run P3`：6 passed；`run G02`：5 passed。
-- `node scripts/verify.mjs`：见下方原样输出。
+- `node scripts/verify.mjs`：**全部通过，退出码 0**（日志 `.logs/verify-k4c-2.log`，不进仓库）。原样摘要：
+
+  ```text
+  全部通过（IXAEON v0.2 验证完成）
+    ✓ lint（ESLint） — 9.5s
+    ✓ format:check（Prettier） — 4.7s
+    ✓ local-user（提交的文件里没有本机的账户名） — 0.3s
+    ✓ typecheck（tsc --noEmit） — 8.1s
+    ✓ typecheck-acceptance（已完成任务的验收测试也过 tsc） — 7.4s
+    ✓ build（desktop / mcp / extension） — 8.8s
+    ✓ unit（Vitest 单元测试） — 4.0s
+    ✓ integration（Vitest 集成测试） — 24.2s
+    ✓ acceptance-lock（锁定的验收测试没被改） — 0.1s（86 个任务、167 个文件）
+    ✓ acceptance（已完成任务的锁定验收测试） — 275.7s（156 files / 1237 tests）
+    ✓ review… 全部通过
+  VERIFY_EXIT=0
+  ```
+
+  第一次 verify 在 `packages/relay/test/acceptance/l5-init.test.ts` 条件 2 红过一次
+  （`r.status` 为 `null`：满载时子进程被超时杀掉，不是断言失败），单跑 `run L5` 4/4 通过；
+  与 K4 无关，属于 Q2 那一类偶发。最终重跑全绿。
 - GitHub 上的 verify：等调度器推分支后看。
 
 ## 真机通过
