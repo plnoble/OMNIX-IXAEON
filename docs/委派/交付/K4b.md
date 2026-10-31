@@ -19,8 +19,8 @@ K4 的页面部分：驾驶舱的额度卡与项目卡片上的最近活动。�
 - `scripts/real/k4-cockpit-quota.mjs`（新增，真机检查脚本）：临时数据目录 + 合成 QuotaHub HTTP
   服务 + 两条合成手动登记，启动应用截驾驶舱额度区，输出只有卡片数、窗口数与布尔值。
 
-**为什么拆成 K4b / K4c**：规格写「源码超 300 行就把页面部分拆成 K4b」。K4 核心已经 284 行
-（`git diff --stat origin/main...dev/K4 -- apps packages`），驾驶舱页 191 行、设置页 206 行，
+**为什么拆成 K4b / K4c**：规格写「源码超 300 行就把页面部分拆成 K4b」。K4 核心已经 283 行
+（`git diff --shortstat origin/main...dev/K4 -- apps packages`），驾驶舱页 189 行、设置页 206 行，
 合在一起会过 300。按硬规矩拆成两支：本支只做驾驶舱，设置页在 `dev/K4c`（基于本支）。
 
 ## 验收测试（v2 规格任务）
