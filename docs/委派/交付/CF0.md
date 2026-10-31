@@ -7,10 +7,10 @@
 
 - `packages/contracts/src/modelErrors.ts`（新）：`isModelUnavailable(detail)` 认规格列的四种说法
   （`No available channel for model <名字>`、`The model \`<名字>\` does not exist`、
-  `model <名字> not found`、`model_not_found`，不分大小写），尽量取模型名，取不到回
-  `{ model: null }`。三条带名字的规则先跑，最后才认 `model_not_found`——网关常见的
-  `{"message":"The model \`x\` does not exist","code":"model_not_found"}` 两种说法同时出现时，
-  名字照样取得到。另外也认本任务自己的说明句（`网关里「…」现在没有可用渠道`）：失败说明的
+`model <名字> not found`、`model_not_found`，不分大小写），尽量取模型名，取不到回
+`{ model: null }`。三条带名字的规则先跑，最后才认 `model_not_found`——网关常见的
+`{"message":"The model \`x\` does not exist","code":"model_not_found"}` 两种说法同时出现时，
+名字照样取得到。另外也认本任务自己的说明句（`网关里「…」现在没有可用渠道`）：失败说明的
   「原始错误」被截短时，界面仍认得出是哪个模型。
 - `packages/core/src/runtime/modelErrors.ts`：`explainModelFailure` 在这类失败时改说
   「网关里「<模型名>」现在没有可用渠道（常见原因是那条渠道的套餐或额度失效了）。去网关后台给它
@@ -32,11 +32,33 @@
 改动文件与行数（提交后 `git diff --stat origin/main...HEAD` 原样贴）：
 
 ```
-（见下）
+ apps/desktop/src/renderer/src/App.tsx              |  13 +-
+ apps/desktop/src/renderer/src/pages/Ask.tsx        |  72 +++-
+ apps/desktop/src/renderer/src/pages/AskMessage.tsx |  96 ++++++
+ apps/desktop/src/renderer/src/pages/Settings.tsx   |  18 +-
+ apps/desktop/src/renderer/src/styles.css           |  17 +
+ .../desktop/test/acceptance/cf0-chat-retry.test.ts | 316 ++++++++++++++++++
+ .../交付/CF0-Codex审查.md                          |  18 +
+ .../交付/CF0.md                                    | 161 ++++++++
+ .../交付/cf0-1-model-unavailable.png               | Bin 0 -> 236556 bytes
+ .../交付/cf0-2-retry-answered.png                  | Bin 0 -> 298119 bytes
+ docs/委派/锁定验收.json                            |   9 +
+ packages/contracts/src/index.ts                    |   1 +
+ packages/contracts/src/modelErrors.ts              |  47 +++
+ packages/core/src/index.ts                         |   2 +-
+ packages/core/src/runtime/modelErrors.ts           |  17 +
+ .../core/test/acceptance/cf0-model-errors.test.ts  | 107 ++++++
+ scripts/real/cf0-chat-retry.mjs                    | 364 +++++++++++++++++++++
+ 17 files changed, 1251 insertions(+), 7 deletions(-)
 ```
 
-源码改动以 stat 为准（`apps/*/src` + `packages/*/src`），在 300 行以内；验收测试、真机脚本、
-交付说明、锁定清单不计入。
+（上面这份 stat 取自本轮整改提交；交付说明里这段统计文字是在它之后补的，只让 `CF0.md` 自己
+再多几行，不进源码行数。）
+
+源码改动 283 行（`apps/*/src` + `packages/*/src`：`AskMessage.tsx` +96、`Ask.tsx` +72、
+`Settings.tsx` +18、`styles.css` +17、`App.tsx` +13/−1、`contracts/modelErrors.ts` +47、
+`contracts/index.ts` +1、`core/runtime/modelErrors.ts` +17、`core/index.ts` +1/−1），在 300 行以内；
+验收测试、真机脚本、交付说明、锁定清单不计入。
 
 和规格不一样的一处：`isModelUnavailable` 的实现放在 `packages/contracts`（core 里再导出）。
 原因是聊天页（渲染进程）不能引 `@ixaeon/core`：那会把 better-sqlite3 等主进程依赖打进渲染包。
@@ -53,8 +75,8 @@
   条件 1 逐字断言 demo-a / 没有可用渠道 / 换一个模型 / 不含稍后再试，`isModelUnavailable` 回
   `{ model: 'demo-a' }`；条件 2 的 `model_not_found`（取不到名字写「这个模型」）与
   `The model \`demo-b\` does not exist`，另加规格要求 1 里列的 `model demo-c not found`、
-  两种说法同时出现（取到 demo-d）、说明被截短仍从说明句取到 demo-e；条件 3 对 502 / 429 /
-  超时 / 401 逐字比对改前的说明，并断言 `isModelUnavailable` 回 null。
+两种说法同时出现（取到 demo-d）、说明被截短仍从说明句取到 demo-e；条件 3 对 502 / 429 /
+超时 / 401 逐字比对改前的说明，并断言 `isModelUnavailable` 回 null。
 - `apps/desktop/test/acceptance/cf0-chat-retry.test.ts`（5 条）——条件 4、5、6、7：
   失败消息下面出现下拉框且选项正好 demo-b、demo-c；选 demo-b 重问后设置改成 demo-b（分析模型
   仍是 demo-a）、同一个对话多出一问一答、问的是原话、失败消息还是 failed；只有失败的那个模型时
