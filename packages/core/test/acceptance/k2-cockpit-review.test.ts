@@ -68,7 +68,7 @@ function commit(repo: string, md: string, message: string): void {
 }
 
 describe('K2 驾驶舱快照（整合方复审补充）', () => {
-  it('条件 5：本地提交了、没推到 origin/main 的那一行不出现', () => {
+  it('条件 5：本地提交了、没推到 origin/main 的那一行不出现', async () => {
     const repo = tempDir('ixaeon-k2r-repo-');
     mkdirSync(join(repo, 'docs', '委派'), { recursive: true });
     execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
@@ -80,11 +80,14 @@ describe('K2 驾驶舱快照（整合方复审补充）', () => {
     });
     commit(
       repo,
-      queueMarkdown([onMain, { no: '140', task: 'Z5c 本地提交的行', status: '等用户：本地那一行' }]),
+      queueMarkdown([
+        onMain,
+        { no: '140', task: 'Z5c 本地提交的行', status: '等用户：本地那一行' },
+      ]),
       '本地提交，没推',
     );
     const relay = tempDir('ixaeon-k2r-relay-');
-    const snap = buildCockpitSnapshot(freshDb(), {
+    const snap = await buildCockpitSnapshot(freshDb(), {
       relayDir: relay,
       ixaeonRepo: repo,
       now: new Date('2026-10-31T12:00:00+08:00'),
@@ -95,7 +98,7 @@ describe('K2 驾驶舱快照（整合方复审补充）', () => {
     expect(JSON.stringify(snap)).not.toContain('本地那一行');
   });
 
-  it('today.finishedTurns 按北京时间的当天数（北京 0–8 点 UTC 还是前一天）', () => {
+  it('today.finishedTurns 按北京时间的当天数（北京 0–8 点 UTC 还是前一天）', async () => {
     const relay = tempDir('ixaeon-k2r-relay-');
     const row = (turn: number, endedAt: string) => ({
       turn,
@@ -120,7 +123,7 @@ describe('K2 驾驶舱快照（整合方复审补充）', () => {
         .join(''),
       'utf8',
     );
-    const snap = buildCockpitSnapshot(freshDb(), {
+    const snap = await buildCockpitSnapshot(freshDb(), {
       relayDir: relay,
       ixaeonRepo: '',
       now: new Date('2026-10-31T01:00:00+08:00'),

@@ -64,7 +64,8 @@ interface CockpitSnapshot {
 type BuildCockpitSnapshot = (
   db: CoreDatabase,
   opts: { relayDir: string; ixaeonRepo: string; now?: Date },
-) => CockpitSnapshot;
+  // 整合方 2026-10-31（K4）：K4 要等 QuotaHub 的 HTTP 回答，快照改成异步；这里两种都认，并入前后都能过。
+) => CockpitSnapshot | Promise<CockpitSnapshot>;
 
 const NOW = new Date('2026-10-31T12:00:00+08:00');
 
@@ -198,7 +199,7 @@ describe('K2 驾驶舱快照（projects 分组 + IPC，条件 8）', () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     try {
-      const direct = directFn!(db, { relayDir, ixaeonRepo: repo, now: NOW });
+      const direct = await directFn!(db, { relayDir, ixaeonRepo: repo, now: NOW });
       const call = ipc();
       const viaIpc = await call<CockpitSnapshot>('getCockpitSnapshot');
 

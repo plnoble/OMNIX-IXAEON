@@ -737,9 +737,9 @@
       "title": "驾驶舱快照（核心）",
       "status": "done",
       "files": {
-        "packages/core/test/acceptance/k2-cockpit-snapshot.test.ts": "63e1265591a13b1e29e32cb2f8bb30a1f0fb1ec57c651aab151ee678e1a9d571",
-        "apps/desktop/test/acceptance/k2-cockpit-ipc.test.ts": "40611342273d6b275abdf86adf46847251888166525c48dad34c3ff25989b38e",
-        "packages/core/test/acceptance/k2-cockpit-review.test.ts": "4c2ba8ae47658d6625647d23286662f20f28606e8ef41107bf969129d45d7c70"
+        "packages/core/test/acceptance/k2-cockpit-snapshot.test.ts": "d075f260983865ab6df1da5f9306dd834581650d4d7f3b4d422108178e9103b1",
+        "apps/desktop/test/acceptance/k2-cockpit-ipc.test.ts": "b278ad17f3ef9d8f401df5d6861a90fed4d2bcb3fe619bd1be8bf4301aabb99e",
+        "packages/core/test/acceptance/k2-cockpit-review.test.ts": "8d65f75f7cf41e0465df4e8c737881888538932d929786e3e049b5da712b2f43"
       }
     },
     {
@@ -758,6 +758,15 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/k3b-cockpit-projects.test.ts": "1ead65b861e847141add145c3b9042a66bce7ed72780f82318d45ad9d28ffb6f"
+      }
+    },
+    {
+      "id": "K4",
+      "title": "额度与项目活动",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/k4-quota.test.ts": "3a7e23c7d45be4ef132105e717c906ca2efec33608aa234b5e70adf3fdb33f42",
+        "packages/core/test/acceptance/k4-project-activity.test.ts": "bce9d4f08d491c6c526fa9548fe62af6a9fc3df19c63474ee85ab228aac1500c"
       }
     }
   ]

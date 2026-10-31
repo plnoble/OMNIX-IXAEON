@@ -13,7 +13,11 @@
  * 约束（规格「约束」最后两条）：手动额度 JSON 坏了（不是 JSON / 形状不对）→ 当没有、quotas
  *         来源记 error 写原因、不抛错；没配 URL 时也不抛错。
  *
- * 实现接缝：`buildCockpitSnapshot(db, { relayDir, ixaeonRepo, now? })` 照 K2 不变；K4 新加的两个
+ * 整合方审测试时（2026-10-31）：快照改成异步（`Promise<CockpitSnapshot>`，同步等不到同进程合成服务的回答）；
+ * 请求经全局 fetch 发；被拒的地址记 error；补了别的主机带端口、https、没端口、500、两边都有等几条。
+ * 详见规格末尾「整合方审测试时的改正与补充」。
+ *
+ * 实现接缝：`buildCockpitSnapshot(db, { relayDir, ixaeonRepo, now? })` 参数照 K2 不变；K4 新加的两个
  * 设置项从 `app_settings` 读（设置页写的就是这两个键）：`cockpit.quotahub_url`、`cockpit.manual_quotas`。
  * 手动额度的 JSON 是一个数组，每项照设置页表单：
  *   { account, window, resetAt, expiresAt, registeredAt, note? }
@@ -87,10 +91,12 @@ interface CockpitSnapshot {
   quotas: QuotaCard[];
 }
 
+// 整合方审测试时改（2026-10-31）：快照要等 QuotaHub 的 HTTP 回答，改成异步。同步实现在这里跑不通——
+// 合成服务和快照在同一个进程，同步等待会卡住事件循环，服务永远回不了话。
 type BuildCockpitSnapshot = (
   db: CoreDatabase,
   opts: { relayDir: string; ixaeonRepo: string; now?: Date },
-) => CockpitSnapshot;
+) => Promise<CockpitSnapshot>;
 
 let buildSnapshot: BuildCockpitSnapshot | null = null;
 
@@ -144,8 +150,21 @@ function noRelayDir(): string {
   return join(tempDir('ixaeon-k4-relay-'), '根本没有这个目录');
 }
 
-function snapshotOf(db: CoreDatabase): CockpitSnapshot {
+function snapshotOf(db: CoreDatabase): Promise<CockpitSnapshot> {
   return build()(db, { relayDir: noRelayDir(), ixaeonRepo: '', now: NOW });
+}
+
+/**
+ * 整合方补：请求一律经全局 `fetch` 发（条件 2 里钉住），条件 3 拦 `fetch` 才证明得了「没发请求」——
+ * 不然实现换成 node:http 发到 example.com，替身一次也没被调，测试照样绿。
+ */
+function blockFetch(): unknown[] {
+  const calls: unknown[] = [];
+  vi.stubGlobal('fetch', (...args: unknown[]) => {
+    calls.push(args[0]);
+    return Promise.reject(new Error('被拒绝的地址不该发请求'));
+  });
+  return calls;
 }
 
 afterEach(async () => {
@@ -178,15 +197,21 @@ interface TestServer {
   url: string;
   port: number;
   requests: Array<{ method: string; url: string }>;
+  /** 连上来的 TCP 连接数：https、坏请求这类到不了 request 事件的也算（整合方补）。 */
+  connections: { count: number };
 }
 
 async function startQuotaHub(
   handler: (req: IncomingMessage, res: ServerResponse) => void,
 ): Promise<TestServer> {
   const requests: Array<{ method: string; url: string }> = [];
+  const connections = { count: 0 };
   const server = createServer((req, res) => {
     requests.push({ method: req.method ?? '', url: req.url ?? '' });
     handler(req, res);
+  });
+  server.on('connection', () => {
+    connections.count += 1;
   });
   servers.push(server);
   await new Promise<void>((resolve, reject) => {
@@ -195,7 +220,7 @@ async function startQuotaHub(
   });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('合成服务没拿到端口');
-  return { url: `http://127.0.0.1:${address.port}`, port: address.port, requests };
+  return { url: `http://127.0.0.1:${address.port}`, port: address.port, requests, connections };
 }
 
 function jsonHandler(body: unknown): (req: IncomingMessage, res: ServerResponse) => void {
@@ -268,11 +293,11 @@ const VOLC_ACCOUNT = {
 // ---------------------------------------------------------------------------
 
 describe('K4 额度（验收条件 1–6、8）', () => {
-  it('条件 1：没配 quotahub_url → quotas 来源 missing，note「未连接 QuotaHub」，其他部分正常', () => {
+  it('条件 1：没配 quotahub_url → quotas 来源 missing，note「未连接 QuotaHub」，其他部分正常', async () => {
     const db = freshDb();
     new ProjectService(db).create({ name: 'K4 合成项目', rootPath: null, description: null });
 
-    const without = snapshotOf(db);
+    const without = await snapshotOf(db);
     expect(without.sources.quotas.status).toBe('missing');
     expect(without.sources.quotas.note).toBe('未连接 QuotaHub');
     expect(without.quotas).toEqual([]);
@@ -283,7 +308,7 @@ describe('K4 额度（验收条件 1–6、8）', () => {
 
     // 空串也是「没配」：默认空表示关闭。
     setSetting(db, QUOTA_URL, '');
-    const empty = snapshotOf(db);
+    const empty = await snapshotOf(db);
     expect(empty.sources.quotas.status).toBe('missing');
     expect(empty.sources.quotas.note).toBe('未连接 QuotaHub');
     expect(empty.quotas).toEqual([]);
@@ -300,12 +325,20 @@ describe('K4 额度（验收条件 1–6、8）', () => {
     );
     const db = freshDb();
     setSetting(db, QUOTA_URL, service.url);
+    // 整合方补：经全局 fetch 发（照转给真 fetch），条件 3 拦 fetch 才算数。
+    const realFetch = globalThis.fetch;
+    const fetched: string[] = [];
+    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
+      fetched.push(input instanceof Request ? input.url : String(input));
+      return realFetch(input, init);
+    });
 
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
 
     expect(snap.sources.quotas.status).toBe('ok');
     expect(Number.isNaN(Date.parse(snap.sources.quotas.readAt))).toBe(false);
     expect(service.requests).toEqual([{ method: 'GET', url: '/api/snapshots' }]);
+    expect(fetched).toEqual([`${service.url}/api/snapshots`]);
     expect(snap.quotas).toHaveLength(2);
 
     const byAccount = new Map(snap.quotas.map((q) => [q.account, q]));
@@ -339,19 +372,17 @@ describe('K4 额度（验收条件 1–6、8）', () => {
     expect(Date.parse(resetAt)).toBe(Date.parse('2026-10-31T07:00:00.000Z'));
   });
 
-  it('条件 3：quotahub_url 是别的机器（http://example.com）→ 拒绝，没有发出请求', () => {
+  it('条件 3：quotahub_url 是别的机器（http://example.com）→ 拒绝，没有发出请求', async () => {
     const db = freshDb();
     setSetting(db, QUOTA_URL, 'http://example.com');
-    const calls: unknown[] = [];
-    vi.stubGlobal('fetch', (...args: unknown[]) => {
-      calls.push(args[0]);
-      throw new Error('别的机器不该被请求');
-    });
+    const calls = blockFetch();
 
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
     expect(calls).toEqual([]);
     expect(snap.quotas).toEqual([]);
-    expect(snap.sources.quotas.status).not.toBe('ok');
+    // 整合方改严：配了却被拒，是 error（写原因），不是「没配」的 missing。
+    expect(snap.sources.quotas.status).toBe('error');
+    expect(snap.sources.quotas.note).toBeTruthy();
   });
 
   it('条件 4：合成服务 5 秒才响应 → 3 秒超时，来源 error，快照照常返回', async () => {
@@ -371,7 +402,7 @@ describe('K4 额度（验收条件 1–6、8）', () => {
     setSetting(db, QUOTA_URL, service.url);
 
     const started = Date.now();
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
     const elapsed = Date.now() - started;
 
     expect(elapsed).toBeGreaterThanOrEqual(2_900);
@@ -409,7 +440,7 @@ describe('K4 额度（验收条件 1–6、8）', () => {
     const db = freshDb();
     setSetting(db, QUOTA_URL, service.url);
 
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
     const json = JSON.stringify(snap);
 
     expect(json).not.toContain('COOKIE-XYZ');
@@ -436,7 +467,7 @@ describe('K4 额度（验收条件 1–6、8）', () => {
     expect(card.windows[0]!.usedPercent).toBe(42.5);
   });
 
-  it('条件 6：手动登记一条 Claude 额度 → 出现在 quotas，source = manual', () => {
+  it('条件 6：手动登记一条 Claude 额度 → 出现在 quotas，source = manual', async () => {
     const db = freshDb();
     setSetting(
       db,
@@ -453,7 +484,7 @@ describe('K4 额度（验收条件 1–6、8）', () => {
       ]),
     );
 
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
     expect(snap.quotas).toHaveLength(1);
     const card = snap.quotas[0]!;
     expect(card).toMatchObject({
@@ -482,25 +513,85 @@ describe('K4 额度（验收条件 1–6、8）', () => {
   it('条件 8：地址带路径（/api/refresh）或用户名密码 → 拒绝，没发请求', async () => {
     const service = await startQuotaHub(jsonHandler({ accounts: [] }));
     const db = freshDb();
-    const calls: unknown[] = [];
-    vi.stubGlobal('fetch', (...args: unknown[]) => {
-      calls.push(args[0]);
-      throw new Error('被拒绝的地址不该发请求');
-    });
+    const calls = blockFetch();
 
     const rejected = [
       `${service.url}/api/refresh`,
+      `${service.url}/api/snapshots`,
       `${service.url}/?x=1`,
+      `${service.url}#x`,
       `http://user:pw@127.0.0.1:${service.port}`,
+      `http://user@127.0.0.1:${service.port}`,
+      // 整合方补：只认 http，https 也拒（规格「只认 http://127.0.0.1:<端口> 或 http://localhost:<端口>」）。
+      `https://127.0.0.1:${service.port}`,
+      // 整合方补：没写端口的也拒（规格要「<端口>」；不写就是 80 端口上别的服务）。
+      'http://127.0.0.1',
+      'http://localhost',
+      // 整合方补（变异检查：去掉主机判断，只靠「没写端口」也拒得掉 example.com）：别的主机带上端口照样拒。
+      `http://example.com:${service.port}`,
+      `http://192.168.1.10:${service.port}`,
+      `http://127.0.0.2:${service.port}`,
     ];
     for (const url of rejected) {
       setSetting(db, QUOTA_URL, url);
-      const snap = snapshotOf(db);
+      const snap = await snapshotOf(db);
       expect(service.requests, url).toEqual([]);
+      expect(service.connections.count, url).toBe(0);
       expect(snap.quotas, url).toEqual([]);
-      expect(snap.sources.quotas.status, url).not.toBe('ok');
+      expect(snap.sources.quotas.status, url).toBe('error');
+      expect(snap.sources.quotas.note, url).toBeTruthy();
     }
     expect(calls).toEqual([]);
+  });
+
+  it('整合方补：QuotaHub 回 500 或回的不是 JSON → 来源 error，不抛错，快照照常', async () => {
+    // 500 那次回的是一份像样的快照（变异检查：只靠「解析失败」拦不住不看状态码的实现）。
+    const cases = [
+      { code: 500, body: JSON.stringify({ accounts: [CODEX_ACCOUNT] }) },
+      { code: 200, body: '{不是 JSON' },
+    ];
+    for (const { code, body } of cases) {
+      const service = await startQuotaHub((_req, res) => {
+        res.writeHead(code, { 'content-type': 'application/json' });
+        res.end(body);
+      });
+      const db = freshDb();
+      new ProjectService(db).create({ name: 'K4 坏回答项目', rootPath: null, description: null });
+      setSetting(db, QUOTA_URL, service.url);
+
+      const snap = await snapshotOf(db);
+      expect(service.requests, body).toHaveLength(1);
+      expect(snap.sources.quotas.status, body).toBe('error');
+      expect(snap.sources.quotas.note, body).toBeTruthy();
+      expect(snap.quotas, body).toEqual([]);
+      expect(snap.projects.active, body).toHaveLength(1);
+    }
+  });
+
+  it('整合方补：QuotaHub 和手动登记都有 → 两边的卡都在，手动的那张 source = manual', async () => {
+    const service = await startQuotaHub(jsonHandler({ accounts: [CODEX_ACCOUNT] }));
+    const db = freshDb();
+    setSetting(db, QUOTA_URL, service.url);
+    setSetting(
+      db,
+      MANUAL_QUOTAS,
+      JSON.stringify([
+        {
+          account: 'Claude 合成账号',
+          window: '每周',
+          resetAt: '2026-11-05T04:00:00.000Z',
+          expiresAt: '2026-11-30T00:00:00.000Z',
+          registeredAt: '2026-10-30T12:00:00.000Z',
+        },
+      ]),
+    );
+
+    const snap = await snapshotOf(db);
+    expect(snap.sources.quotas.status).toBe('ok');
+    expect(snap.quotas.map((q) => [q.source, q.account]).sort()).toEqual([
+      ['manual', 'Claude 合成账号'],
+      ['quotahub', '合成 Codex 账号'],
+    ]);
   });
 });
 
@@ -509,12 +600,12 @@ describe('K4 额度（验收条件 1–6、8）', () => {
 // ---------------------------------------------------------------------------
 
 describe('K4 额度（约束：手动额度坏了不抛错）', () => {
-  it('不是 JSON：当没有、quotas 来源 error 写原因，其他来源照常', () => {
+  it('不是 JSON：当没有、quotas 来源 error 写原因，其他来源照常', async () => {
     const db = freshDb();
     new ProjectService(db).create({ name: 'K4 坏 JSON 项目', rootPath: null, description: null });
     setSetting(db, MANUAL_QUOTAS, '{这不是 JSON');
 
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
     expect(snap.sources.quotas.status).toBe('error');
     expect(snap.sources.quotas.note).toBeTruthy();
     expect(snap.quotas).toEqual([]);
@@ -522,7 +613,7 @@ describe('K4 额度（约束：手动额度坏了不抛错）', () => {
     expect(snap.projects.active).toHaveLength(1);
   });
 
-  it('形状不对（字段类型错）：zod 校验不通过，同样记 error，不抛错', () => {
+  it('形状不对（字段类型错）：zod 校验不通过，同样记 error，不抛错', async () => {
     const db = freshDb();
     setSetting(
       db,
@@ -530,7 +621,7 @@ describe('K4 额度（约束：手动额度坏了不抛错）', () => {
       JSON.stringify([{ account: 123, window: ['不是字符串'], resetAt: '不是时间' }]),
     );
 
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
     expect(snap.sources.quotas.status).toBe('error');
     expect(snap.sources.quotas.note).toBeTruthy();
     expect(snap.quotas).toEqual([]);

@@ -13,6 +13,9 @@
  * 「能不能读」照 packages/core/src/runtime/projectBrief.ts 的判断（规格要求抽成一个函数两处共用）：
  * 有 project_snapshot 来源、对应授权 active、且项目的 root_path 在授权目录里面（含子目录）。
  *
+ * 整合方审测试时（2026-10-31）：快照改成异步；「现在」取整到秒（git 的提交时间只到秒）；补了只导过别的资料、
+ * 暂缓那组两条。详见规格末尾「整合方审测试时的改正与补充」。
+ *
  * 先测试后实现：`packages/core/src/cockpit/snapshot.ts` 现在没有 activity 那块，整合方锁定这些测试之后才写。
  */
 import { execFileSync } from 'node:child_process';
@@ -68,7 +71,8 @@ interface CockpitSnapshot {
 type BuildCockpitSnapshot = (
   db: CoreDatabase,
   opts: { relayDir: string; ixaeonRepo: string; now?: Date },
-) => CockpitSnapshot;
+  // 整合方审测试时改（2026-10-31）：快照要等 QuotaHub 的 HTTP 回答，改成异步（见 k4-quota）。
+) => Promise<CockpitSnapshot>;
 
 let buildSnapshot: BuildCockpitSnapshot | null = null;
 
@@ -94,8 +98,11 @@ function build(): BuildCockpitSnapshot {
   return buildSnapshot;
 }
 
-/** 用真实的「现在」：git 的 `--since=7.days` 按它自己的时钟算，提交也按这个时钟往前推。 */
-const NOW = new Date();
+/**
+ * 用真实的「现在」：git 的 `--since=7.days` 按它自己的时钟算，提交也按这个时钟往前推。
+ * 整合方改：取整到秒——git 的提交时间只到秒，带毫秒的「1 天前」和 git 读回来的永远差几百毫秒。
+ */
+const NOW = new Date(Math.floor(Date.now() / 1000) * 1000);
 
 const dirs: string[] = [];
 const dbs: CoreDatabase[] = [];
@@ -117,7 +124,7 @@ function noRelayDir(): string {
   return join(tempDir('ixaeon-k4-act-relay-'), '根本没有这个目录');
 }
 
-function snapshotOf(db: CoreDatabase): CockpitSnapshot {
+function snapshotOf(db: CoreDatabase): Promise<CockpitSnapshot> {
   return build()(db, { relayDir: noRelayDir(), ixaeonRepo: '', now: NOW });
 }
 
@@ -191,10 +198,11 @@ function insertSnapshotSource(
   db: CoreDatabase,
   projectId: string,
   permissionId: string,
+  kind: 'project_snapshot' | 'document' = 'project_snapshot',
 ): void {
   new SourceStore(db).insertParsed(
     {
-      kind: 'project_snapshot',
+      kind,
       provider: 'project',
       accountNamespace: 'local',
       externalId: randomUUID(),
@@ -221,10 +229,10 @@ function insertSnapshotSource(
 }
 
 /** 一个项目，连同目录读取登记的来源和授权；`revoked` 时把授权撤掉。 */
-function seedProject(opts: {
-  root: string;
-  snapshot: 'active' | 'revoked' | 'none';
-}): { db: CoreDatabase; projectId: string } {
+function seedProject(opts: { root: string; snapshot: 'active' | 'revoked' | 'none' }): {
+  db: CoreDatabase;
+  projectId: string;
+} {
   const db = freshDb();
   const project = new ProjectService(db).create({
     name: 'K4 合成项目',
@@ -248,11 +256,12 @@ function tracePath(): string {
   return join(tempDir('ixaeon-k4-trace-'), 'git-trace.log');
 }
 
-function withGitTrace<T>(file: string, fn: () => T): T {
+/** 整合方改：等快照真的出来再恢复环境变量（快照是异步的，git 可能在 await 之后才跑）。 */
+async function withGitTrace<T>(file: string, fn: () => Promise<T>): Promise<T> {
   const previous = process.env.GIT_TRACE;
   process.env.GIT_TRACE = file;
   try {
-    return fn();
+    return await fn();
   } finally {
     if (previous === undefined) delete process.env.GIT_TRACE;
     else process.env.GIT_TRACE = previous;
@@ -270,13 +279,13 @@ function gitRan(file: string): boolean {
 // ---------------------------------------------------------------------------
 
 describe('K4 项目最近活动（验收条件 7、9）', () => {
-  it('条件 7：登记的 git 项目 → commits7d 3、lastCommitAt 最近一次；没登记的项目 readable=false 且没跑 git', () => {
+  it('条件 7：登记的 git 项目 → commits7d 3、lastCommitAt 最近一次；没登记的项目 readable=false 且没跑 git', async () => {
     const repo = seedRepo();
     const oneDayAgo = daysAgo(1);
 
     const registered = seedProject({ root: repo, snapshot: 'active' });
     const registeredTrace = tracePath();
-    const withActivity = withGitTrace(registeredTrace, () => snapshotOf(registered.db));
+    const withActivity = await withGitTrace(registeredTrace, () => snapshotOf(registered.db));
     const card = withActivity.projects.active[0]!;
     expect(card.activity.readable).toBe(true);
     expect(card.activity.commits7d).toBe(3);
@@ -287,18 +296,18 @@ describe('K4 项目最近活动（验收条件 7、9）', () => {
     // 同一个 git 仓库，但没登记读取：不跑 git（GIT_TRACE 空），也不给活动数字。
     const bare = seedProject({ root: repo, snapshot: 'none' });
     const bareTrace = tracePath();
-    const without = withGitTrace(bareTrace, () => snapshotOf(bare.db));
+    const without = await withGitTrace(bareTrace, () => snapshotOf(bare.db));
     const bareCard = without.projects.active[0]!;
     expect(bareCard.activity).toEqual({ lastCommitAt: null, commits7d: null, readable: false });
     expect(gitRan(bareTrace), '没登记读取的项目不许跑 git').toBe(false);
   });
 
-  it('条件 9：授权被撤销的项目 → readable=false，没跑 git', () => {
+  it('条件 9：授权被撤销的项目 → readable=false，没跑 git', async () => {
     const repo = seedRepo();
     const revoked = seedProject({ root: repo, snapshot: 'revoked' });
     const trace = tracePath();
 
-    const snap = withGitTrace(trace, () => snapshotOf(revoked.db));
+    const snap = await withGitTrace(trace, () => snapshotOf(revoked.db));
     const card = snap.projects.active[0]!;
     expect(card.activity).toEqual({ lastCommitAt: null, commits7d: null, readable: false });
     expect(gitRan(trace), '授权撤销之后不许跑 git').toBe(false);
@@ -310,7 +319,7 @@ describe('K4 项目最近活动（验收条件 7、9）', () => {
 // ---------------------------------------------------------------------------
 
 describe('K4 项目最近活动（和 projectBrief 同一个判断）', () => {
-  it('项目根目录在授权文件夹的子目录里 → 照样可读（不是要求路径相等）', () => {
+  it('项目根目录在授权文件夹的子目录里 → 照样可读（不是要求路径相等）', async () => {
     const repo = seedRepo();
     const inner = join(repo, 'packages', 'app');
     mkdirSync(inner, { recursive: true });
@@ -318,14 +327,14 @@ describe('K4 项目最近活动（和 projectBrief 同一个判断）', () => {
     db.prepare('UPDATE projects SET root_path = ? WHERE name = ?').run(inner, 'K4 合成项目');
 
     const trace = tracePath();
-    const snap = withGitTrace(trace, () => snapshotOf(db));
+    const snap = await withGitTrace(trace, () => snapshotOf(db));
     const card = snap.projects.active[0]!;
     expect(card.activity.readable).toBe(true);
     expect(card.activity.commits7d).toBe(3);
     expect(gitRan(trace)).toBe(true);
   });
 
-  it('项目根目录跑到授权范围外 → readable=false，没跑 git', () => {
+  it('项目根目录跑到授权范围外 → readable=false，没跑 git', async () => {
     const repo = seedRepo();
     const outside = tempDir('ixaeon-k4-outside-');
     mkdirSync(outside, { recursive: true });
@@ -333,25 +342,50 @@ describe('K4 项目最近活动（和 projectBrief 同一个判断）', () => {
     db.prepare('UPDATE projects SET root_path = ? WHERE name = ?').run(outside, 'K4 合成项目');
 
     const trace = tracePath();
-    const snap = withGitTrace(trace, () => snapshotOf(db));
+    const snap = await withGitTrace(trace, () => snapshotOf(db));
     const card = snap.projects.active[0]!;
     expect(card.activity).toEqual({ lastCommitAt: null, commits7d: null, readable: false });
     expect(gitRan(trace)).toBe(false);
   });
 
-  it('7 天内没有提交 → commits7d 是 0，lastCommitAt 仍是最后一次（20 天前）', () => {
+  it('整合方补：授权有效、但只导过别的资料（不是目录登记读取）→ readable=false，没跑 git', async () => {
+    const repo = seedRepo();
+    const { db, projectId } = seedProject({ root: repo, snapshot: 'none' });
+    const perm = new PermissionService(db).grantFolder(repo);
+    insertSnapshotSource(db, projectId, perm.id, 'document');
+
+    const trace = tracePath();
+    const snap = await withGitTrace(trace, () => snapshotOf(db));
+    const card = snap.projects.active[0]!;
+    expect(card.activity).toEqual({ lastCommitAt: null, commits7d: null, readable: false });
+    expect(gitRan(trace)).toBe(false);
+  });
+
+  it('7 天内没有提交 → commits7d 是 0，lastCommitAt 仍是最后一次（20 天前）', async () => {
     const repo = tempDir('ixaeon-k4-quiet-repo-');
     initRepo(repo);
     commitAt(repo, 'old1.txt', '30 天前', daysAgo(30));
     commitAt(repo, 'old2.txt', '20 天前', daysAgo(20));
     const { db } = seedProject({ root: repo, snapshot: 'active' });
 
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
     const card = snap.projects.active[0]!;
     expect(card.activity.readable).toBe(true);
     expect(card.activity.commits7d).toBe(0);
     expect(card.activity.lastCommitAt).not.toBeNull();
     expect(Date.parse(card.activity.lastCommitAt!)).toBe(Date.parse(daysAgo(20)));
+  });
+
+  it('整合方补：暂缓的项目卡片也带活动（「项目卡片加一行」不只进行中那组）', async () => {
+    const repo = seedRepo();
+    const { db, projectId } = seedProject({ root: repo, snapshot: 'active' });
+    new ProjectService(db).updateStatus(projectId, 'paused');
+
+    const snap = await snapshotOf(db);
+    expect(snap.projects.active).toEqual([]);
+    const card = snap.projects.paused[0]!;
+    expect(card.activity.readable).toBe(true);
+    expect(card.activity.commits7d).toBe(3);
   });
 });
 
@@ -360,12 +394,12 @@ describe('K4 项目最近活动（和 projectBrief 同一个判断）', () => {
 // ---------------------------------------------------------------------------
 
 describe('K4 项目最近活动（读不了也不抛错）', () => {
-  it('登记过但根目录不是 git 仓库 → readable 照判断，活动数字为空，快照照常返回', () => {
+  it('登记过但根目录不是 git 仓库 → readable 照判断，活动数字为空，快照照常返回', async () => {
     const notRepo = tempDir('ixaeon-k4-notrepo-');
     writeFileSync(join(notRepo, 'README.md'), '合成目录', 'utf8');
     const { db } = seedProject({ root: notRepo, snapshot: 'active' });
 
-    const snap = snapshotOf(db);
+    const snap = await snapshotOf(db);
     const card = snap.projects.active[0]!;
     expect(card.activity.readable).toBe(true);
     expect(card.activity.commits7d).toBeNull();
