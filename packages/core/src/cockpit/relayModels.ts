@@ -133,6 +133,25 @@ function gatewayOptions(lines: string[], range: Range): string[] {
   return out;
 }
 
+/**
+ * 整合方复审补（2026-11-01，照规格「DSH 桌面版配置里登记的全部网关」）：DG1 起接力每棒从桌面版取
+ * `llm-pi-ai` 网关段、排在最后整段盖住接力补丁里的旧副本，所以可选的「网关 / 模型」照桌面版列。
+ * 桌面版配置不在、读不懂或没有网关段 → `null`（退回接力补丁里的）。只取名字，别的不读出来。
+ */
+function desktopGatewayOptions(): string[] | null {
+  const dshHome = process.env.DSH_HOME?.trim();
+  const path = join(dshHome || join(homedir(), '.dsh'), 'profiles', 'desktop', 'cordis.patch.yml');
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+  const lines = raw.split('\n');
+  const range = itemRange(lines, 'llm-pi-ai');
+  return range ? gatewayOptions(lines, range) : null;
+}
+
 function readPatch(patchPath: string): Patch {
   let raw: string;
   try {
@@ -144,7 +163,7 @@ function readPatch(patchPath: string): Patch {
   const defRange = itemRange(lines, 'agent-default-model');
   const current = defRange ? defaultModel(lines, defRange) : null;
   const gwRange = itemRange(lines, 'llm-pi-ai');
-  const options = gwRange ? gatewayOptions(lines, gwRange) : [];
+  const options = desktopGatewayOptions() ?? (gwRange ? gatewayOptions(lines, gwRange) : []);
   if (!current) {
     return {
       current: null,

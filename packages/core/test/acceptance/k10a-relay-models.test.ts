@@ -14,10 +14,10 @@
  *
  * 另外按「约束」补：报错里也不出现补丁里的密钥与网关地址。
  */
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readRelayModels, setRelayModel } from '@ixaeon/core';
 
 const dirs: string[] = [];
@@ -27,6 +27,18 @@ function tempDir(): string {
   dirs.push(dir);
   return dir;
 }
+
+// 整合方复审补（2026-11-01）：可选的「网关 / 模型」以 DSH 桌面版配置为准（DG1：接力每棒取它的网关段、
+// 排在最后盖住接力补丁里的旧副本）。测试一律把 DSH_HOME 指到临时目录，绝不读到本机真实的桌面版配置；
+// 默认是空目录（没有桌面版配置 → 退回接力补丁里的网关段）。
+const savedDshHome = process.env.DSH_HOME;
+beforeEach(() => {
+  process.env.DSH_HOME = tempDir();
+});
+afterEach(() => {
+  if (savedDshHome === undefined) delete process.env.DSH_HOME;
+  else process.env.DSH_HOME = savedDshHome;
+});
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -292,5 +304,54 @@ describe('审查那一行写 review.codexModel', () => {
     expect(rowOf(readRelayModels({ relayDir: dir }), 'reviewer').current).toBe(
       '跟 Codex 自己的设置',
     );
+  });
+});
+
+describe('整合方补：可选的「网关 / 模型」以 DSH 桌面版为准（DG1）', () => {
+  it('DSH_HOME 下有桌面版配置 → 选项照桌面版的网关段列，接力补丁里的旧副本不算；密钥地址不外露', () => {
+    const { dir } = makeRelay();
+    const dshHome = process.env.DSH_HOME!;
+    const desk = join(dshHome, 'profiles', 'desktop');
+    mkdirSync(desk, { recursive: true });
+    writeFileSync(
+      join(desk, 'cordis.patch.yml'),
+      [
+        '- id: mcp-servers',
+        '  config:',
+        '    servers: [chrome-devtools]',
+        '- id: llm-pi-ai',
+        '  config:',
+        '    providers:',
+        '      sub2api:',
+        '        apiKeyEnv: SECRET-XYZ',
+        '        baseURL: https://gw.example.invalid',
+        '        models:',
+        '          - id: opus-x',
+        '      gw-b:',
+        '        apiKeyEnv: SECRET-XYZ',
+        '        models:',
+        '          - id: model-b1',
+        '      magpie:',
+        '        baseURL: http://127.0.0.1:3425/v1',
+        '        models:',
+        '          - id: auto/sonnet-x',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const models = readRelayModels({ relayDir: dir });
+    const dev = rowOf(models, 'developer');
+    expect(dev.current).toBe('gw-b / model-b1');
+    expect([...dev.options].sort()).toEqual(
+      ['gw-b / model-b1', 'magpie / auto/sonnet-x', 'sub2api / opus-x'].sort(),
+    );
+    const json = JSON.stringify(models);
+    expect(json).not.toContain('SECRET-XYZ');
+    expect(json).not.toContain('gw.example.invalid');
+    expect(json).not.toContain('127.0.0.1:3425');
+    expect(json).not.toContain('chrome-devtools');
+    // 改成桌面版独有的组合也认（接力每棒会从桌面版取到这个网关）
+    setRelayModel({ relayDir: dir }, { role: 'developer', value: 'sub2api / opus-x' });
+    expect(rowOf(readRelayModels({ relayDir: dir }), 'developer').current).toBe('sub2api / opus-x');
   });
 });

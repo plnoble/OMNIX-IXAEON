@@ -806,6 +806,17 @@
         "apps/desktop/test/acceptance/cf0-chat-retry.test.ts": "6bf7a49a9ef4880b063cb138b2b2f725ab4ae46fdc5d4290d626af40323e461a",
         "apps/desktop/test/acceptance/cf0-chat-model-switch.test.ts": "7acb568e2b6dfb9514ef759269e1db669ed37fa8985675ca890f9d0af1e22665"
       }
+    },
+    {
+      "id": "K10a",
+      "title": "调度器面板：看得见每个角色用什么模型、在界面上选",
+      "status": "done",
+      "files": {
+        "apps/desktop/test/acceptance/k10a-cockpit-models.test.ts": "5a9b5d271f1b73e5474e79d24b5f4038bb965de62d0bbfa0d3dcdf3e0d4dfc96",
+        "apps/desktop/test/acceptance/k10a-relay-models-ipc.test.ts": "f235311c4ff9e866aa73c30c845ca5235331a86f4ae2a13dfd8cc2bbac914d26",
+        "packages/core/test/acceptance/k10a-relay-models.test.ts": "efa4d1168691182fb8808d3d1f99914f4e240f149f862279aa3e904a78d1345a",
+        "packages/relay/test/acceptance/k10a-codex-review.test.ts": "430dda7055acde0540df96823aee0d35fa8dd1cd9734c1c34642ae0b5a0f0314"
+      }
     }
   ]
 }
