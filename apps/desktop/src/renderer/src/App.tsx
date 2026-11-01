@@ -36,7 +36,8 @@ type Page =
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState<Page>('cockpit');
+  // CF1：聊天做首页——启动默认页是聊天，驾驶舱挪到导航第二。
+  const [page, setPage] = useState<Page>('ask');
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
@@ -134,6 +135,18 @@ export default function App() {
         <nav className="nav" data-testid="main-nav">
           <button
             type="button"
+            className={page === 'ask' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              // 从侧栏进聊天是「照常打开」：不再跳回上次从待办点过去的那个对话
+              setOpenConversationId(null);
+              setPage('ask');
+            }}
+            data-testid="nav-ask"
+          >
+            聊天
+          </button>
+          <button
+            type="button"
             className={page === 'cockpit' ? 'nav-item active' : 'nav-item'}
             onClick={() => setPage('cockpit')}
             data-testid="nav-cockpit"
@@ -163,18 +176,6 @@ export default function App() {
             data-testid="nav-inbox"
           >
             待讨论
-          </button>
-          <button
-            type="button"
-            className={page === 'ask' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              // 从侧栏进聊天是「照常打开」：不再跳回上次从待办点过去的那个对话
-              setOpenConversationId(null);
-              setPage('ask');
-            }}
-            data-testid="nav-ask"
-          >
-            问答
           </button>
           <button
             type="button"

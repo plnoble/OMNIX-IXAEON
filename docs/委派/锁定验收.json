@@ -747,7 +747,7 @@
       "title": "K3 驾驶舱页面（导航第一位、启动默认页；设置页填仓库路径）",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/k3-cockpit-page.test.ts": "458efff409a3bf0eaa15d8e2ea0290897f0b7063209615ee35bed657fdb6280e",
+        "apps/desktop/test/acceptance/k3-cockpit-page.test.ts": "711ef81298d61212f0e9519f9dd450cd4c4012f8ed798cf955a4e6941a6312eb",
         "apps/desktop/test/acceptance/k3-cockpit-settings.test.ts": "01eba6d5d1ff05ea8f95fb87f574ab2924f3ba9b4b24828e40cc48ca3f95ef4c",
         "apps/desktop/test/acceptance/k3-cockpit-settings-ipc.test.ts": "c4eae8e6875373fac3f84436d096090826091f94b001c9debec5a764ab915851"
       }
@@ -824,6 +824,14 @@
       "status": "done",
       "files": {
         "packages/relay/test/acceptance/dg1-desktop-gateway.test.ts": "eefd5da0545e03d003d0628f5a56dbf7c5bf1a42a5f326fab44957d3afd1161c"
+      }
+    },
+    {
+      "id": "CF1",
+      "title": "CF1 聊天做首页、驾驶舱放第二",
+      "status": "done",
+      "files": {
+        "apps/desktop/test/acceptance/cf1-chat-first-nav.test.ts": "22861842acb02476516944944bd6a399de6479372486a516d133441899224646"
       }
     }
   ]

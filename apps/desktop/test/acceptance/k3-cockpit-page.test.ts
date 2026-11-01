@@ -277,13 +277,18 @@ describe('第一次读取失败：显示报错条，刷新按钮还能点', () =
 });
 
 describe('条件 6：导航第一项与默认页', () => {
-  it('导航第一项是「驾驶舱」，启动后默认打开驾驶舱，总览还在导航里', async () => {
+  // 整合方改（2026-11-01，CF1 并入时）：用户 10-31 定 Chat First——启动默认页改成聊天、导航第一项「聊天」，
+  // 驾驶舱挪到第二项（改掉 10-30「驾驶舱放第一、默认打开」那条）。驾驶舱照旧在导航里、点得开。
+  it('导航第二项是「驾驶舱」、点得开；第一项和默认页是聊天（CF1）；总览还在导航里', async () => {
     await render(createElement(App));
-    expect($('page-cockpit')).not.toBeNull();
+    expect($('page-ask')).not.toBeNull();
     const nav = $('main-nav')!;
-    expect(nav.firstElementChild!.textContent).toContain('驾驶舱');
+    expect(nav.firstElementChild!.textContent).toContain('聊天');
+    expect(nav.children[1]!.textContent).toContain('驾驶舱');
     expect($('nav-cockpit')).not.toBeNull();
     expect($('nav-overview')).not.toBeNull();
+    await click($('nav-cockpit'));
+    expect($('page-cockpit')).not.toBeNull();
   });
 });
 
