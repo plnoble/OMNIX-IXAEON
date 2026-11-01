@@ -100,7 +100,8 @@ afterEach(() => {
   container.remove();
 });
 
-const $ = (id: string) => container.querySelector(`[data-testid="${id}"]`);
+const $ = <T extends Element = Element>(id: string) =>
+  container.querySelector<T>(`[data-testid="${id}"]`);
 
 describe('SUB1b 设置页额度来源', () => {
   it('条件 8：没有 QuotaHub 地址，改成 magpie 地址；手动登记照旧出现', async () => {
