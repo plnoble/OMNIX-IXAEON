@@ -433,8 +433,8 @@ export const settingsViewSchema = z.object({
   cockpit: z
     .object({
       ixaeonRepo: z.string(),
-      /** K4：QuotaHub 地址（空串 = 关闭；只认本机 http + 端口）。 */
-      quotahubUrl: z.string().default(''),
+      /** SUB1b：magpie 地址（空串 = 默认 http://127.0.0.1:3425；只认本机 http + 端口）。 */
+      magpieUrl: z.string().default(''),
       /** K4：手动登记的额度（每项一个窗口）。 */
       manualQuotas: z.array(manualQuotaSchema).default([]),
       /** K5：手机只读页（默认关）与端口（默认 43192）。 */
@@ -443,7 +443,7 @@ export const settingsViewSchema = z.object({
     })
     .default({
       ixaeonRepo: '',
-      quotahubUrl: '',
+      magpieUrl: '',
       manualQuotas: [],
       mobileEnabled: false,
       mobilePort: 43192,
@@ -739,6 +739,8 @@ export interface IxaIpcApi {
   getGoalDetail(id: string): Promise<GoalDetailView>;
   /** K2：驾驶舱快照（relay、队列、项目汇总；只读）。K3 的页面用它。 */
   getCockpitSnapshot(): Promise<CockpitSnapshot>;
+  /** SUB1b：驾驶舱额度区的「刷新」→ 主进程让 magpie 再读一次（30 秒内连点只发一次）。 */
+  refreshMagpieQuotas(): Promise<{ ok: true }>;
   /** K10a：调度器每个角色用的模型（只读名字，不含密钥与网关地址）。 */
   getRelayModels(): Promise<RelayModels>;
   /** K10a：改调度器配置 / 接力补丁里这个角色用的模型（下一棒生效）。 */
@@ -749,7 +751,7 @@ export interface IxaIpcApi {
    */
   saveCockpitSettings(input: {
     ixaeonRepo?: string;
-    quotahubUrl?: string;
+    magpieUrl?: string;
     manualQuotas?: ManualQuota[];
   }): Promise<{ ok: true }>;
   /** K5：保存手机只读页开关与端口；存完立刻按新设置起停。 */

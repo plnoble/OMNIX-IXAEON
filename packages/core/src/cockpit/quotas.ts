@@ -1,18 +1,22 @@
 /**
- * K4：驾驶舱的额度来源（规格 docs/委派/K4-额度与项目活动.md）。
- * QuotaHub 只在用户填了 `cockpit.quotahub_url` 时启用：只认「http + 本机主机 + 端口」，
- * 路径写死 `/api/snapshots`，超时 3 秒；带路径、查询、用户名密码、别的主机、https、
- * 没写端口的一律拒绝且不发请求。手动登记坏了当没有、记 error、不抛错。
+ * SUB1b：驾驶舱额度从本机 magpie 的 `GET /v1/magpie/quotas/cards` 读（默认
+ * http://127.0.0.1:3425，设置项 `cockpit.magpie_url` 可改）：只认 http + 本机主机 + 端口，
+ * 路径写死，超时 3 秒；别的主机、https、带路径 / 查询 / 用户名密码、没写端口的一律拒绝且不发请求。
+ * 连不上记 missing（note「没连上 magpie」），其它错误记 error；手动登记照留、坏了不抛错。
  */
 import { z } from 'zod';
 import type * as C from '@ixaeon/contracts';
-import { manualQuotaSchema } from '@ixaeon/contracts';
+import { ErrorCodes, IxaError, manualQuotaSchema } from '@ixaeon/contracts';
 import type { CoreDatabase } from '../db/database.js';
 import { getSetting } from '../settings.js';
 
-const QUOTA_URL = 'cockpit.quotahub_url';
+const MAGPIE_URL = 'cockpit.magpie_url';
 const MANUAL_QUOTAS = 'cockpit.manual_quotas';
+const DEFAULT_MAGPIE = 'http://127.0.0.1:3425';
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost']);
+const READ_TIMEOUT_MS = 3_000;
+const REFRESH_TIMEOUT_MS = 10_000;
+const REFRESH_MIN_GAP_MS = 30_000;
 
 /** 手动登记表单的序列化形状与设置页共用（契约里的 `manualQuotaSchema`）。 */
 const manualQuotasSchema = z.array(manualQuotaSchema);
@@ -22,77 +26,91 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const record = (v: unknown): Record<string, unknown> =>
   v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 
-/** 只接受「协议 + 本机主机 + 端口」，且不许带路径、查询、片段、用户名密码。 */
-export function checkQuotaHubUrl(raw: string): { base?: string; reason?: string } {
+/** 只接受「协议 + 本机主机 + 端口」，且不许带路径、查询、片段、用户名密码。空 = 默认地址。 */
+export function checkMagpieUrl(raw: string): { base?: string; reason?: string } {
+  if (!raw.trim()) return { base: DEFAULT_MAGPIE };
   let url: URL;
   try {
-    url = new URL(raw);
+    url = new URL(raw.trim());
   } catch {
-    return { reason: 'QuotaHub 地址不是合法网址' };
+    return { reason: 'magpie 地址不是合法网址' };
   }
-  if (url.protocol !== 'http:') return { reason: 'QuotaHub 地址只认 http://' };
-  if (!LOCAL_HOSTS.has(url.hostname)) return { reason: 'QuotaHub 地址只认本机' };
-  if (!url.port) return { reason: 'QuotaHub 地址要写端口' };
-  if (url.username || url.password) return { reason: 'QuotaHub 地址不能带用户名密码' };
+  if (url.protocol !== 'http:') return { reason: 'magpie 地址只认 http://' };
+  if (!LOCAL_HOSTS.has(url.hostname)) return { reason: 'magpie 地址只认本机' };
+  if (!url.port) return { reason: 'magpie 地址要写端口' };
+  if (url.username || url.password) return { reason: 'magpie 地址不能带用户名密码' };
   if (url.pathname !== '/' || url.search || url.hash)
-    return { reason: 'QuotaHub 地址不能带路径、查询或片段' };
+    return { reason: 'magpie 地址不能带路径、查询或片段' };
   return { base: `http://${url.hostname}:${url.port}` };
 }
 
-/** 把 `accounts[]` 映射成契约字段；cookie / token / remaining_percent 等都不取。 */
-function mapAccounts(body: unknown, now: Date): C.QuotaCard[] {
-  const accounts = record(body).accounts;
-  if (!Array.isArray(accounts)) throw new Error('返回里没有 accounts 列表');
-  return accounts.map((item) => {
-    const a = record(item);
-    const plan = record(a.plan);
-    const windows = Array.isArray(a.quota_windows) ? a.quota_windows : [];
+/** 窗口用量百分比：`unit` 是 `%` 时就是 used；有 limit（>0）时按比例；都没有 = null。 */
+function usedPercentOf(win: Record<string, unknown>): number | null {
+  const used = num(win.used);
+  if (used === null) return null;
+  if (text(win.unit) === '%') return used;
+  const limit = num(win.limit);
+  return limit !== null && limit > 0 ? (used / limit) * 100 : null;
+}
+
+/**
+ * 映射到 K4 的 `QuotaCard`（只含规格列出的字段）。`user`、`icon`、`daily` 不进快照：
+ * `user` 多半是邮箱，快照还会经 K5 发到手机。
+ */
+function mapCards(body: unknown, now: Date): C.QuotaCard[] {
+  const cards = record(body).data;
+  if (!Array.isArray(cards)) throw new Error('返回里没有卡片列表');
+  return cards.map((item) => {
+    const card = record(item);
+    const windows = Array.isArray(card.windows) ? card.windows : [];
     return {
-      source: 'quotahub' as const,
-      provider: text(a.provider) ?? '',
-      account: text(a.account_name) ?? '',
-      status: text(a.status) ?? 'unknown',
-      plan: text(plan.name),
-      expiresAt: text(plan.expires_at),
+      source: 'magpie' as const,
+      provider: text(card.provider) ?? '',
+      account: text(card.name) ?? '',
+      status: 'ok',
+      plan: text(card.plan),
+      expiresAt: null,
       windows: windows.map((w) => {
         const win = record(w);
         return {
           name: text(win.name) ?? '',
-          usedPercent: num(win.used),
-          resetAt: text(win.reset_at),
+          usedPercent: usedPercentOf(win),
+          resetAt: text(win.resetsAt),
+          display: text(win.display),
         };
       }),
-      collectedAt: text(a.collected_at) ?? now.toISOString(),
+      collectedAt: text(card.readAt) ?? now.toISOString(),
     };
   });
 }
 
-async function readQuotaHub(
-  base: string,
-  now: Date,
-): Promise<{ cards: C.QuotaCard[]; error: string | null }> {
+interface MagpieRead {
+  cards: C.QuotaCard[];
+  error: string | null;
+  /** 请求发出去了、但 magpie 没回好（HTTP / JSON 错误）——false 表示没连上。 */
+  reachable: boolean;
+}
+
+async function readMagpie(base: string, now: Date): Promise<MagpieRead> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 3_000);
+  const timer = setTimeout(() => controller.abort(), READ_TIMEOUT_MS);
   timer.unref?.();
   try {
-    const res = await fetch(`${base}/api/snapshots`, {
+    const res = await fetch(`${base}/v1/magpie/quotas/cards`, {
       method: 'GET',
-      headers: { accept: 'application/json' },
+      headers: { accept: 'application/json', authorization: 'Bearer magpie' },
       // 不跟跳转：本机服务回一个 30x 指到外网，跟过去就是一次外发。
       redirect: 'error',
       signal: controller.signal,
     });
-    if (!res.ok) return { cards: [], error: `QuotaHub 返回 HTTP ${res.status}` };
+    if (!res.ok) return { cards: [], error: `magpie 返回 HTTP ${res.status}`, reachable: true };
     try {
-      return { cards: mapAccounts(await res.json(), now), error: null };
+      return { cards: mapCards(await res.json(), now), error: null, reachable: true };
     } catch {
-      return { cards: [], error: 'QuotaHub 返回的不是 JSON' };
+      return { cards: [], error: 'magpie 返回的不是 JSON 或格式不对', reachable: true };
     }
-  } catch (err) {
-    return {
-      cards: [],
-      error: `读不到 QuotaHub：${err instanceof Error ? err.message : String(err)}`,
-    };
+  } catch {
+    return { cards: [], error: '没连上 magpie', reachable: false };
   } finally {
     clearTimeout(timer);
   }
@@ -121,7 +139,7 @@ function readManual(raw: string): { cards: C.QuotaCard[]; error: string | null }
       status: 'manual',
       plan: null,
       expiresAt: e.expiresAt ?? null,
-      windows: [{ name: e.window, usedPercent: null, resetAt: e.resetAt ?? null }],
+      windows: [{ name: e.window, usedPercent: null, resetAt: e.resetAt ?? null, display: null }],
       collectedAt: e.registeredAt,
     })),
     error: null,
@@ -133,7 +151,7 @@ export async function readQuotas(
   now: Date,
 ): Promise<{ health: C.SourceHealth; cards: C.QuotaCard[] }> {
   const readAt = now.toISOString();
-  const rawUrl = (getSetting(db, QUOTA_URL)?.value ?? '').trim();
+  const rawUrl = (getSetting(db, MAGPIE_URL)?.value ?? '').trim();
   const manual = readManual(getSetting(db, MANUAL_QUOTAS)?.value ?? '');
   const health = (status: C.SourceHealth['status'], note: string | null): C.SourceHealth => ({
     status,
@@ -142,23 +160,63 @@ export async function readQuotas(
     note,
   });
 
-  if (!rawUrl) {
-    return {
-      health: health(manual.error ? 'error' : 'missing', manual.error ?? '未连接 QuotaHub'),
-      cards: manual.cards,
-    };
-  }
-  const checked = checkQuotaHubUrl(rawUrl);
+  const checked = checkMagpieUrl(rawUrl);
   if (!checked.base) {
     return {
-      health: health('error', manual.error ?? checked.reason ?? 'QuotaHub 地址被拒绝'),
+      health: health('error', checked.reason ?? 'magpie 地址被拒绝'),
       cards: manual.cards,
     };
   }
-  const hub = await readQuotaHub(checked.base, now);
-  const notes = [manual.error, hub.error].filter(Boolean).join('；');
+  const magpie = await readMagpie(checked.base, now);
+  const notes = [manual.error, magpie.error].filter(Boolean).join('；');
+  const status: C.SourceHealth['status'] = !magpie.error
+    ? manual.error
+      ? 'error'
+      : 'ok'
+    : magpie.reachable
+      ? 'error'
+      : 'missing';
   return {
-    health: health(notes ? 'error' : 'ok', notes || null),
-    cards: [...hub.cards, ...manual.cards],
+    health: health(status, notes || null),
+    cards: [...magpie.cards, ...manual.cards],
   };
+}
+
+/** 上一次真的发出刷新请求的时刻（模块级，30 秒内连点只发一次）。 */
+let lastRefreshAt = 0;
+
+export async function refreshMagpieQuotas(
+  db: CoreDatabase,
+  now: Date = new Date(),
+): Promise<{ ok: true }> {
+  const rawUrl = (getSetting(db, MAGPIE_URL)?.value ?? '').trim();
+  const checked = checkMagpieUrl(rawUrl);
+  if (!checked.base) throw new IxaError(ErrorCodes.VALIDATION_FAILED, checked.reason!);
+  if (now.getTime() - lastRefreshAt < REFRESH_MIN_GAP_MS) return { ok: true };
+  lastRefreshAt = now.getTime();
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS);
+  timer.unref?.();
+  try {
+    const res = await fetch(`${checked.base}/v1/magpie/quotas/refresh`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        authorization: 'Bearer magpie',
+      },
+      body: '{}',
+      redirect: 'error',
+      signal: controller.signal,
+    });
+    if (!res.ok)
+      throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, `magpie 返回 HTTP ${res.status}`);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof IxaError) throw err;
+    throw new IxaError(ErrorCodes.SERVER_UNAVAILABLE, '没连上 magpie');
+  } finally {
+    clearTimeout(timer);
+  }
 }

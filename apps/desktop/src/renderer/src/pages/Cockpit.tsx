@@ -307,7 +307,7 @@ export function CockpitPage() {
       {/* K10a：每个角色用的模型、在界面上换（下一棒生效）。 */}
       <RelayModelsSection running={snap.running} />
 
-      <QuotaSection cards={snap.quotas ?? []} health={quotaHealth} />
+      <QuotaSection cards={snap.quotas ?? []} health={quotaHealth} onRefresh={load} />
 
       <Card title="项目" testId="cockpit-projects">
         {totalProjects === 0 ? (

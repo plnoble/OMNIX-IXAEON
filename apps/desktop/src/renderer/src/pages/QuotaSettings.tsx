@@ -1,6 +1,6 @@
 /**
- * K4：设置页的额度来源。QuotaHub 地址（空串 = 关闭）与手动登记（每项一个窗口）。
- * 只写 `cockpit.quotahub_url` / `cockpit.manual_quotas`；校验和快照里的 status 在核心层。
+ * SUB1b：设置页的额度来源。magpie 地址（留空 = 默认 http://127.0.0.1:3425）与手动登记
+ * （每项一个窗口）。只写 `cockpit.magpie_url` / `cockpit.manual_quotas`；校验在核心层。
  */
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
 import type { ManualQuota, SettingsView } from '@ixaeon/contracts';
@@ -25,7 +25,7 @@ export function QuotaSettingsCard() {
     try {
       const v = await api.getSettings();
       setView(v);
-      setUrl(v.cockpit?.quotahubUrl ?? '');
+      setUrl(v.cockpit?.magpieUrl ?? '');
     } catch (err) {
       setMsg({ ok: false, text: errMsg(err) });
     }
@@ -33,7 +33,7 @@ export function QuotaSettingsCard() {
   useEffect(() => {
     void load();
   }, [load]);
-  const save = async (input: { quotahubUrl?: string; manualQuotas?: ManualQuota[] }) => {
+  const save = async (input: { magpieUrl?: string; manualQuotas?: ManualQuota[] }) => {
     try {
       await api.saveCockpitSettings(input);
       await load();
@@ -75,26 +75,27 @@ export function QuotaSettingsCard() {
         </p>
       )}
       <label className="field">
-        <span className="field-label">QuotaHub 地址</span>
+        <span className="field-label">magpie 地址</span>
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="http://127.0.0.1:8787"
-          data-testid="settings-quotahub-url"
+          placeholder="http://127.0.0.1:3425"
+          data-testid="settings-magpie-url"
         />
         <span className="field-hint">
-          只填 http://127.0.0.1:端口 或 http://localhost:端口；留空 = 关闭
+          只填 http://127.0.0.1:端口 或 http://localhost:端口（不写 /v1）； 留空就用本机默认
+          http://127.0.0.1:3425
         </span>
       </label>
       <Button
         kind="primary"
-        onClick={() => void save({ quotahubUrl: url.trim() })}
-        testId="settings-quotahub-save"
+        onClick={() => void save({ magpieUrl: url.trim() })}
+        testId="settings-magpie-url-save"
       >
         保存地址
       </Button>
       <h3>手动额度</h3>
-      <p className="muted">QuotaHub 还不支持的（比如 Claude）先手动登记；每项一个窗口。</p>
+      <p className="muted">magpie 管不到的订阅（比如有些手动套餐）先手动登记；每项一个窗口。</p>
       <ul className="work-run-list">
         {entries.map((e, i) => (
           <li key={i} className="work-run" data-testid="settings-manual-quota">
