@@ -1427,6 +1427,26 @@ export class AppRuntime {
   }
 
   /**
+   * SUB1：聊天（Hermes）连哪个网关。只从「模型接入」里已保存的地址和 Key 取——
+   * 聊天模型是从这个网关的模型清单里选的，Hermes 还连别的网关就会「模型没有可用渠道」。
+   * 地址为空时不干预（官方默认 / Hermes 自己的 config.yaml）；Key 解不开时不传 Key，
+   * 由 Hermes 按它自己的无 Key 本地端点处理（会如实报 401，不静默换网关）。
+   * 只用于启动参数，不写回 Hermes 配置文件。
+   */
+  private chatLaunchOptions(): {
+    chatModel: string | null;
+    chatBaseUrl: string | null;
+    chatApiKey: string | null;
+  } {
+    const m = this.config.model;
+    const chatModel = this.chatModelName();
+    const chatBaseUrl = m.apiBaseUrl?.trim() || null;
+    if (!chatModel || !chatBaseUrl) return { chatModel, chatBaseUrl: null, chatApiKey: null };
+    const apiKey = m.apiKeyPresent && m.apiKeyEncrypted ? decryptApiKey(m.apiKeyEncrypted) : null;
+    return { chatModel, chatBaseUrl, chatApiKey: apiKey };
+  }
+
+  /**
    * 保存模型设置（M2 起从 ipc.ts 迁进这里，便于验收测试直接钉住）。
    * - savedModels 传入时：勾选清单以此为准；modelsCheckedAt 是上次**检测**
    *   时间，由 listAvailableModels 记，这里不碰。不传时清单保持原值。
@@ -1741,7 +1761,7 @@ export class AppRuntime {
       this.getWebSearchExecutor() ?? undefined,
     );
     const adapter = new HermesRuntimeAdapter(broker, undefined, () => ({
-      chatModel: this.chatModelName(),
+      ...this.chatLaunchOptions(),
       bridgeToken: this.hermesBridgeToken(),
     }));
     const bridged = this.hermesBridgeToken() !== null;

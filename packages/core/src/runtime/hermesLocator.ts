@@ -118,10 +118,22 @@ export const HERMES_TUI_TOOLSETS = 'web,ixaeon';
  * _env_model_seed() 优先于 config.yaml 的 model:，且这个启动种子按其设计不会被
  * 同步回配置文件（server.py 注释写明「避免被当成 /model 切换而全局持久化」）。
  * 所以 IXAEON 决定聊天用哪个模型，不改用户的 Hermes 配置。空值 = 不干预。
+ *
+ * SUB1：聊天还要跟着「模型接入」里保存的网关走，光传模型名会出现「模型没有可用渠道」。
+ * Hermes 的 stdio 网关（tui_gateway.entry）没有命令行参数，只能用环境变量。选
+ * `lmstudio` 这一档（LM_BASE_URL / LM_API_KEY）：它是 Hermes 里唯一的本机
+ * OpenAI 兼容端点 api_key 提供方，走 chat_completions；带斜杠的 `provider/model`
+ * 原样发出去（magpie 认的就是这个名字）。只走环境变量，不写回 config.yaml。
+ * chatBaseUrl 为空（官方默认 / 没配地址）时不干预网关，沿用 Hermes 自己的配置。
  */
 export function hermesSpawnEnv(
   locator: HermesLocator,
-  opts: { chatModel?: string | null; bridgeToken?: string | null } = {},
+  opts: {
+    chatModel?: string | null;
+    chatBaseUrl?: string | null;
+    chatApiKey?: string | null;
+    bridgeToken?: string | null;
+  } = {},
 ): Record<string, string> {
   const env: Record<string, string> = {};
   if (locator.home) env.HERMES_HOME = locator.home;
@@ -136,6 +148,15 @@ export function hermesSpawnEnv(
   if (chatModel) {
     env.HERMES_MODEL = chatModel;
     env.HERMES_INFERENCE_MODEL = chatModel;
+  }
+  // 网关跟模型一起交：只有模型、没有地址时 Hermes 还是连 config.yaml 里的网关，
+  // 就会出现「模型没有可用渠道」。地址为空不干预（官方默认 / Hermes 自己的配置）。
+  const chatBaseUrl = opts.chatBaseUrl?.trim();
+  if (chatModel && chatBaseUrl) {
+    env.HERMES_TUI_PROVIDER = 'lmstudio';
+    env.LM_BASE_URL = chatBaseUrl;
+    const chatApiKey = opts.chatApiKey?.trim();
+    if (chatApiKey) env.LM_API_KEY = chatApiKey;
   }
   // 记忆桥（F1）：只在开着时传。Hermes 配置里的 ${IXAEON_HERMES_BRIDGE_TOKEN} 由它展开，
   // 关着时占位符原样保留，MCP 服务拿着一串占位符去连桌面端，必然被拒。
