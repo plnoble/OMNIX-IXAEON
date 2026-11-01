@@ -134,6 +134,31 @@ const claude =
 // 没有就照旧跟 Codex 自己的设置。
 const codexModel =
   typeof relayConfig?.review?.codexModel === 'string' ? relayConfig.review.codexModel.trim() : '';
+// MG2：审查那行选了 magpie 的模型 / 分组 → 照 magpie 的 Codex 接法带 OpenAI 兼容地址和 Key magpie；
+// 空 = 默认（照旧跟 Codex 自己的设置）。只在这一条命令的环境变量 / 参数里带，不碰 ~/.codex/config.toml。
+const magpieModel =
+  typeof relayConfig?.review?.magpieModel === 'string' ? relayConfig.review.magpieModel.trim() : '';
+const magpieBase = magpieModel ? localMagpieBase(relayConfig?.review?.magpieUrl) : null;
+if (magpieModel && !magpieBase) {
+  console.error(
+    '审查选了 magpie 的模型，但 magpie 地址不是本机：分支先等着，改回默认或改地址后重跑。',
+  );
+  process.exit(2);
+}
+
+/** 只认 http + 本机主机 + 端口（magpie 只在本机）；别的地址不拿来起审查。 */
+function localMagpieBase(raw) {
+  const text = (typeof raw === 'string' ? raw.trim() : '') || 'http://127.0.0.1:3425';
+  try {
+    const url = new URL(text);
+    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)) return null;
+    if (!url.port || url.username || url.password) return null;
+    if (url.pathname !== '/' || url.search || url.hash) return null;
+    return `http://${url.hostname}:${url.port}`;
+  } catch {
+    return null;
+  }
+}
 const quotaPatterns = Array.isArray(integrator?.quotaPatterns)
   ? integrator.quotaPatterns.filter((p) => typeof p === 'string' && p.length > 0)
   : ['usage_limit_reached', 'session limit'];
@@ -194,6 +219,21 @@ if (dryRun) {
 const scratch = join(tmpdir(), `ixaeon-codex-review-${id}-${process.pid}`);
 mkdirSync(scratch, { recursive: true });
 const lastMessage = join(scratch, 'last.md');
+// MG2：Codex 0.130 只支持 responses API，默认 provider 会走系统代理 / ChatGPT 登录；这里显式换成
+// magpie 的 OpenAI 兼容 provider，全部写在这一次命令的 -c 里（不改 ~/.codex/config.toml）。
+const magpieArgs = magpieModel
+  ? [
+      '--ignore-user-config',
+      '-c',
+      'model_provider=magpie',
+      '-c',
+      'model_providers.magpie.name=magpie',
+      '-c',
+      `model_providers.magpie.base_url=${magpieBase}/v1`,
+      '-c',
+      'model_providers.magpie.env_key=MAGPIE_KEY',
+    ]
+  : [];
 const r = runBin(
   codex,
   [
@@ -204,7 +244,8 @@ const r = runBin(
     root,
     '-o',
     lastMessage,
-    ...(codexModel ? ['-m', codexModel] : []),
+    ...magpieArgs,
+    ...(magpieModel ? ['-m', magpieModel] : codexModel ? ['-m', codexModel] : []),
     prompt,
   ],
   {
@@ -212,6 +253,17 @@ const r = runBin(
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
     timeout: 45 * 60 * 1000,
+    ...(magpieModel
+      ? {
+          env: {
+            ...process.env,
+            MAGPIE_KEY: 'magpie',
+            // 本机系统代理会拦住连 magpie 的请求（实测回 502）：本机地址不进代理。
+            NO_PROXY: ['127.0.0.1', 'localhost', process.env.NO_PROXY].filter(Boolean).join(','),
+            no_proxy: ['127.0.0.1', 'localhost', process.env.no_proxy].filter(Boolean).join(','),
+          },
+        }
+      : {}),
   },
 );
 const log = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
