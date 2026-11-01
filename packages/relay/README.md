@@ -27,6 +27,7 @@
    - 数据目录以前在 `<工作目录根>/relay`，**旧位置的文件不会自动搬**：跑一次 `relay status`，它会提醒你「旧的数据目录里还有文件」。
 
 3. **（可选）定接力的 DSH 用哪个 plan、什么权限**。DSH 的 `headless` 配置自己不带模型设置，默认走 DeepSeek 官方 API，而且关在沙箱里（装不了依赖、跑不了测试）。2026-10-23 起的做法：在 `~/.dsh/ixaeon-relay.patch.yml` 写一层 DSH 补丁（选哪个 provider / model、要不要完全权限），在 `config.json` 开发的命令里 `--profile headless` 后面加 `--patch <这个文件>`。**换 plan 只改这个文件**，下一棒就生效；你平时用的 DSH 桌面版不读它。`relay init` 找得到这个文件就自动加上；生成配置之后才建的这个文件，要自己补。
+   - **网关在 DSH 桌面版里管，接力每棒自动取**（DG1）：接力起 DSH 时，会从桌面版配置（`~/.dsh/profiles/desktop/cordis.patch.yml`；`DSH_HOME` 有值时用它下面的 `profiles/desktop/cordis.patch.yml`）里**只取顶层 `- id: llm-pi-ai` 那一项**，写成一次性临时补丁，排在接力补丁前面。桌面版里新加、换掉的网关（sub2api、magpie 等）下一棒就能用，不用再往接力补丁里抄副本；桌面版的 MCP、界面设置不跟着进来。桌面版配置不存在或没有网关段时，照原来的参数起，并打一行「没找到 DSH 桌面版的网关配置，接力用自己补丁里的」。接力补丁里旧的那份网关副本可以删掉（只剩权限、默认模型）。
 4. **确认开发那份工作目录**。开发的 `cwd` 是 `<工作目录根>`（就是 `Worktrees/IXAEON` 这一层），因为开发要照 `AGENTS.md` 在它底下用 `git worktree` 建自己的活儿目录；整合方的 `cwd` 是它自己的 `relay-int`，**不和开发共用**。
 
 ## 日常怎么使
