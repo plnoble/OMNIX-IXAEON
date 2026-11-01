@@ -101,7 +101,7 @@ const FAKE_CLI = [
   'else {',
   '  const patches = [];',
   "  for (let i = 0; i < args.length; i++) if (args[i] === '--patch' && args[i + 1]) patches.push(args[i + 1]);",
-  '  if (patches[0] && process.env.DG1_CAPTURE) fs.copyFileSync(patches[0], process.env.DG1_CAPTURE);',
+  '  const last = patches[patches.length - 1]; if (patches.length > 0 && process.env.DG1_CAPTURE) fs.copyFileSync(last, process.env.DG1_CAPTURE);',
   "  process.stdout.write(JSON.stringify({ args }) + '\\n');",
   '}',
   '',
@@ -259,11 +259,13 @@ describe('条件 1：只取 llm-pi-ai 那一项，插在接力补丁前面', () 
     expect(result.exitCode, result.stderrPath).toBe(0);
 
     const args = seenArgs(s);
+    // 整合方复审改（2026-11-01）：网关段排在接力补丁**后面**——DSH 后面的补丁盖前面的，
+    // 接力补丁里还留着旧的网关副本，网关段放最后才盖得住它。
     expect(args.slice(0, 2)).toEqual(['--profile', 'headless']);
     expect(args[2]).toBe('--patch');
-    const temp = args[3]!;
+    expect(resolve(args[3]!)).toBe(resolve(s.relayPatch));
     expect(args[4]).toBe('--patch');
-    expect(resolve(args[5]!)).toBe(resolve(s.relayPatch));
+    const temp = args[5]!;
     expect(args[6]).toBe('--json');
     expect(args.at(-1)).toBe(`读 ${result.promptPath}，照里面做。`);
 
@@ -283,7 +285,7 @@ describe('条件 2：正常、崩溃、超时三种结束后 A 都不在', () =>
     const s = makeScene('dg1-normal');
     setEnv(sceneEnv(s));
     await runTurnOnce(s);
-    const temp = seenArgs(s)[3]!;
+    const temp = seenArgs(s)[5]!;
     expect(existsSync(temp)).toBe(false);
   });
 
@@ -292,7 +294,7 @@ describe('条件 2：正常、崩溃、超时三种结束后 A 都不在', () =>
     setEnv({ ...sceneEnv(s), [FAKE_MODE]: 'crash' });
     const result = await runTurnOnce(s);
     expect(result.exitCode).toBe(7);
-    const temp = seenArgs(s)[3]!;
+    const temp = seenArgs(s)[5]!;
     expect(existsSync(temp)).toBe(false);
   });
 
@@ -301,7 +303,7 @@ describe('条件 2：正常、崩溃、超时三种结束后 A 都不在', () =>
     setEnv({ ...sceneEnv(s), [FAKE_MODE]: 'hang' });
     const result = await runTurnOnce(s, { timeoutMs: 1_500 });
     expect(result.timedOut).toBe(true);
-    const temp = seenArgs(s)[3]!;
+    const temp = seenArgs(s)[5]!;
     expect(existsSync(temp)).toBe(false);
   }, 30_000);
 });
@@ -324,10 +326,8 @@ describe('条件 3：桌面版配置不存在 / 没有 llm-pi-ai 项', () => {
       `读 ${result.promptPath}，照里面做。`,
     ]);
     expect(logs).toContain(GATEWAY_NOT_FOUND_LINE);
-    // 替身抄的是第一个 --patch，也就是接力补丁自己（没有加临时网关补丁）。
-    expect(readFileSync(s.capture, 'utf8')).toBe(
-      readFileSync(s.relayPatch, 'utf8'),
-    );
+    // 替身抄的是最后一个 --patch；没加临时网关补丁时就是接力补丁自己。
+    expect(readFileSync(s.capture, 'utf8')).toBe(readFileSync(s.relayPatch, 'utf8'));
   });
 
   it('有桌面版配置但没有 llm-pi-ai 项 → 同样不加、同样提示', async () => {
@@ -383,7 +383,10 @@ describe('条件 5：记账、日志、飞书通知里都没有合成网关地�
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
 
-      const w = makeWorld({ queueStatus: '待领', feishu: { url: `http://127.0.0.1:${port}/hook` } });
+      const w = makeWorld({
+        queueStatus: '待领',
+        feishu: { url: `http://127.0.0.1:${port}/hook` },
+      });
       dirs.push(w.root);
       const cfgPath = join(w.dataDir, 'config.json');
       const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as RelayConfig;

@@ -4,7 +4,9 @@
  * 每一棒起 DSH 之前，从桌面版的补丁（`~/.dsh/profiles/desktop/cordis.patch.yml`，
  * `DSH_HOME` 有值时用 `<DSH_HOME>/profiles/desktop/cordis.patch.yml`）里**只取顶层
  * `- id: llm-pi-ai` 那一项**（到下一个顶层 `- id:` 之前），原样写进一个一次性临时补丁；
- * 参数里它排在接力自己的补丁前面（网关在前、权限与默认模型在后）。
+ * 参数里它排在接力自己的补丁**后面**（整合方复审改，2026-11-01）：DSH 叠补丁是后面的盖前面的，
+ * 接力补丁里还留着 10-23 抄的旧网关副本；网关段放最后才能盖住它，用户不用手动去删 YAML。
+ * 接力补丁里的权限、默认模型是别的条目，不受影响。
  *
  * 不整份叠桌面版：10-31 实测，整份叠会把桌面版的 MCP 服务（比如 chrome-devtools）带进每一棒。
  * 临时文件放系统临时目录、文件名随机；内容里有网关地址和 `apiKeyEnv`，所以不打印、不记录，
@@ -58,8 +60,8 @@ export function isDshLauncher(argv: readonly string[]): boolean {
 }
 
 /**
- * 有网关段就写成临时补丁，并把它插到参数里：紧跟在 `headless` 后面、接力补丁前面
- * （原本有 `--patch` 就插在第一个 `--patch` 之前；没有就插在 `--profile headless` 后面）。
+ * 有网关段就写成临时补丁，并把它插到参数里：接力补丁后面
+ * （原本有 `--patch` 就插在最后一个 `--patch <文件>` 之后；没有就插在 `--profile headless` 后面）。
  * 桌面版配置不存在、没有网关段、或者参数里找不到该插的位置 → 回 `null`。
  */
 export function prepareGatewayPatch(
@@ -74,9 +76,14 @@ export function prepareGatewayPatch(
     item = null;
   }
   if (!item) return null;
-  const firstPatch = argv.indexOf('--patch');
+  const lastPatch = argv.lastIndexOf('--patch');
   const headless = argv.findIndex((a, i) => a === 'headless' && argv[i - 1] === '--profile');
-  const insertAt = firstPatch >= 0 ? firstPatch : headless >= 0 ? headless + 1 : -1;
+  const insertAt =
+    lastPatch >= 0 && lastPatch + 1 < argv.length
+      ? lastPatch + 2
+      : headless >= 0
+        ? headless + 1
+        : -1;
   if (insertAt < 0) return null;
   const file = join(tmpdir(), `ixa-dg1-${randomBytes(8).toString('hex')}.yml`);
   try {

@@ -9,7 +9,7 @@ v2 规格：先把验收条件写成测试（`packages/relay/test/acceptance/dg1
 每一棒起 DSH 时：
 
 1. 从桌面版配置（默认 `~/.dsh/profiles/desktop/cordis.patch.yml`；`DSH_HOME` 有值时用 `<DSH_HOME>/profiles/desktop/cordis.patch.yml`）里**只取顶层 `- id: llm-pi-ai` 那一项**（到下一个顶层 `- id:` 之前），原样写进一个临时补丁文件；
-2. DSH 的参数变成 `--profile headless --patch <临时网关补丁> --patch <接力补丁> …`：网关在前，接力补丁在后（接力补丁只管权限、默认模型）；
+2. DSH 的参数变成 `--profile headless --patch <接力补丁> --patch <临时网关补丁> …`：**网关在后**（整合方复审改，11-01：DSH 后面的补丁盖前面的，接力补丁里的旧网关副本才会被盖住；接力补丁的权限、默认模型是别的条目，不受影响）；
 3. 棒结束删掉临时文件。
 
 **不能整份叠桌面版**：10-31 实测，整份叠进来会把桌面版的 MCP 服务（比如能操作浏览器的 chrome-devtools）一起带进每一棒。
