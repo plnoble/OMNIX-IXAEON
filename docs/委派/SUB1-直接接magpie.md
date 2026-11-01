@@ -19,7 +19,7 @@ v2 规格：先把验收条件写成测试（`*/test/acceptance/sub1-*.test.ts`�
 ## SUB1b：驾驶舱额度改读 magpie，拿掉 QuotaHub
 
 1. 额度来源换成 magpie：`packages/core/src/cockpit/quotas.ts` 读 `GET <magpie>/v1/magpie/quotas/cards`（`<magpie>` 默认 `http://127.0.0.1:3425`，设置项 `cockpit.magpie_url` 可改，只认本机 `http://127.0.0.1` / `localhost` + 端口，沿用 K4 的地址校验），3 秒超时。默认就开（用户要直接接）；连不上 → 额度来源记 `missing`，note「没连上 magpie」，驾驶舱照常。
-2. 字段映射到 K4 的 `QuotaCard`：`source: 'magpie'`；`provider`←`provider`；`account`←`name`；`plan`←`plan`；`collectedAt`←`readAt`；每个窗口 `name`←`name`、`resetAt`←`resetsAt`、`usedPercent`：`unit` 是 `%` 时就是 `used`，有 `limit`（>0）时 `used / limit × 100`，否则 `null`；窗口另加 `display: string | null`←`display`（magpie 给人看的那句，原样显示）。**`user`、`icon`、`daily` 不进快照**（`user` 多半是邮箱；快照还会经 K5 发到手机）。
+2. 字段映射到 K4 的 `QuotaCard`：`source: 'magpie'`；`provider`←`provider`；`account`←`name`；`plan`←`plan`；`collectedAt`←`readAt`；每个窗口 `name`←`name`、`resetAt`←`resetsAt`、`usedPercent` = `used`（**magpie 的 `used` 本身就是百分比**——11-01 整合方对照本机实测更正：workbuddy 卡 `used: 10.13`、`limit: 6900`、`display: "699.25 / 6900"`，699.25 / 6900 = 10.13%；不要再拿 `limit` 去除）；`used` 不是数就 `null`；窗口另加 `display: string | null`←`display`（magpie 给人看的那句，原样显示）。**`user`、`icon`、`daily` 不进快照**（`user` 多半是邮箱；快照还会经 K5 发到手机）。
 3. 驾驶舱额度区加「刷新」按钮 → 主进程调 `POST <magpie>/v1/magpie/quotas/refresh`（照 magpie 文档带参数），再重读卡片；30 秒内连点只发一次。
 4. **拿掉 QuotaHub**：设置里的 QuotaHub 地址、`cockpit.quotahub_url` 的读取、`quotas.ts` 里请求 QuotaHub 的代码都删掉；「手动登记」照留（magpie 管不到的订阅还能手填）。K4 锁定测试里测 QuotaHub 的那几条会撞红：执行方不改，交付说明里列出（文件、用例名），整合方合并时改。
 
@@ -42,7 +42,7 @@ v2 规格：先把验收条件写成测试（`*/test/acceptance/sub1-*.test.ts`�
 3. 聊天：保存 magpie 预设、聊天模型选 `prov/m1` → 起 Hermes（替身）时它收到的网关地址是合成 magpie 的、Key 是 `magpie`、模型是 `prov/m1`（或执行方查明做不到，交付说明写清、转整合方）。
 
 **SUB1b**
-4. 合成 magpie 的 `quotas/cards` 回 2 张卡（一个窗口 `unit:'%'`、一个有 `limit`、一个都没有）→ 快照 `quotas` 来源 `ok`、2 张卡，三种 `usedPercent` 各自对，`display` 原样；快照 JSON 里找不到合成卡片的 `user` 值（`someone@example.invalid`）。
+4. 合成 magpie 的 `quotas/cards` 回 2 张卡（窗口里 `used` 分别是 `10.13`（带 `limit: 6900`）、`0`、缺）→ 快照 `quotas` 来源 `ok`、2 张卡，`usedPercent` 分别是 10.13、0、null（**不拿 limit 去除**），`display` 原样；快照 JSON 里找不到合成卡片的 `user` 值（`someone@example.invalid`）。
 5. 合成服务没起 → 来源 `missing`、note 含「没连上 magpie」，快照其余照常。
 6. `cockpit.magpie_url` 设成 `http://example.com:3425` → 拒绝、不发请求。
 7. 点刷新 → 合成服务收到一次 `POST /v1/magpie/quotas/refresh`；30 秒内再点 → 不再发。
