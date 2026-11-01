@@ -817,6 +817,14 @@
         "packages/core/test/acceptance/k10a-relay-models.test.ts": "efa4d1168691182fb8808d3d1f99914f4e240f149f862279aa3e904a78d1345a",
         "packages/relay/test/acceptance/k10a-codex-review.test.ts": "430dda7055acde0540df96823aee0d35fa8dd1cd9734c1c34642ae0b5a0f0314"
       }
+    },
+    {
+      "id": "DG1",
+      "title": "接力的 DSH 网关跟 DSH 桌面版走",
+      "status": "done",
+      "files": {
+        "packages/relay/test/acceptance/dg1-desktop-gateway.test.ts": "eefd5da0545e03d003d0628f5a56dbf7c5bf1a42a5f326fab44957d3afd1161c"
+      }
     }
   ]
 }

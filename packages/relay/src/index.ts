@@ -17,6 +17,15 @@ export {
   type PushResult,
 } from './push.js';
 export { runTurn, type TurnResult } from './run-turn.js';
+export {
+  desktopGatewayConfigPath,
+  extractDesktopGateway,
+  GATEWAY_NOT_FOUND_LINE,
+  isDshLauncher,
+  prepareGatewayPatch,
+  removeGatewayPatch,
+  type GatewayPatch,
+} from './gateway.js';
 export { nextWeeklyReset } from './weekly.js';
 export { ensureDeps } from './deps.js';
 export { updateCodeCheckout, relayCodeHash, RESTART_EXIT_CODE } from './selfupdate.js';
