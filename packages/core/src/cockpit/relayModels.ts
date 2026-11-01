@@ -33,6 +33,10 @@ const ROLES: C.RelayModelRole[] = [
 const INTEGRATOR_OPTIONS = ['默认', 'opus', 'sonnet', 'haiku'];
 const DEFAULT_INTEGRATOR = '默认';
 const DEFAULT_REVIEWER = '跟 Codex 自己的设置';
+/** 桌面版网关段里 magpie 那一节的名字；开发选 magpie 的模型 / 分组时写这个 provider。 */
+const MAGPIE_PROVIDER = 'magpie';
+/** MG2：面板上现取的 magpie 模型 / 分组，以及连不上时给人看的那一句。 */
+export type MagpieModels = { models: string[]; error: string | null };
 
 function invalid(message: string): never {
   throw new IxaError(ErrorCodes.VALIDATION_FAILED, message);
@@ -152,7 +156,7 @@ function desktopGatewayOptions(): string[] | null {
   return range ? gatewayOptions(lines, range) : null;
 }
 
-function readPatch(patchPath: string): Patch {
+function readPatch(patchPath: string, magpie: MagpieModels | undefined): Patch {
   let raw: string;
   try {
     raw = readFileSync(patchPath, 'utf8');
@@ -164,6 +168,8 @@ function readPatch(patchPath: string): Patch {
   const current = defRange ? defaultModel(lines, defRange) : null;
   const gwRange = itemRange(lines, 'llm-pi-ai');
   const options = desktopGatewayOptions() ?? (gwRange ? gatewayOptions(lines, gwRange) : []);
+  // MG2：magpie 的清单是现取的（桌面版那一节是手抄的，看不到后来建的分组）。
+  for (const model of magpie?.models ?? []) options.push(`${MAGPIE_PROVIDER} / ${model}`);
   if (!current) {
     return {
       current: null,
@@ -206,6 +212,7 @@ function dshRow(
   role: C.RelayModelRole,
   key: string,
   missing: string,
+  magpie: MagpieModels | undefined,
 ): C.RelayModelRow {
   const path = patchPath(argvOf(config, key));
   if (!path)
@@ -217,18 +224,26 @@ function dshRow(
       false,
       key === 'developer' ? '命令行里没有 --patch' : missing,
     );
-  const p = readPatch(path);
+  const p = readPatch(path, magpie);
   return row(
     role,
     'dsh',
     p.current ? `${p.current.provider} / ${p.current.model}` : null,
     p.options,
     p.ok,
-    p.note,
+    p.note ?? (p.ok ? (magpie?.error ?? null) : null),
   );
 }
 
-export function readRelayModels(opts: { relayDir: string }): C.RelayModels {
+export function readRelayModels(opts: {
+  relayDir: string;
+  magpieModels?: string[];
+  magpieError?: string | null;
+}): C.RelayModels {
+  const magpie: MagpieModels = {
+    models: opts.magpieModels ?? [],
+    error: opts.magpieError ?? null,
+  };
   const config = loadJson(join(dirOf(opts.relayDir), 'config.json'));
   if (!config) {
     return {
@@ -249,21 +264,27 @@ export function readRelayModels(opts: { relayDir: string }): C.RelayModels {
   const at = argv ? argv.indexOf('--model') : -1;
   const model =
     argv && at >= 0 && typeof argv[at + 1] === 'string' ? (argv[at + 1] as string) : null;
+  const integratorMagpie = str(rec(rec(config.roles)?.integrator)?.magpieModel);
   const codex = str(rec(config.review)?.codexModel);
+  const reviewerMagpie = str(rec(config.review)?.magpieModel);
+  const reviewerCurrent = reviewerMagpie ?? codex ?? DEFAULT_REVIEWER;
+  const reviewerOptions = magpie.models.length ? ['默认', ...magpie.models] : codex ? [codex] : [];
+  if (magpie.models.length && !reviewerOptions.includes(reviewerCurrent))
+    reviewerOptions.push(reviewerCurrent);
   return {
     roles: [
-      dshRow(config, 'developer', 'developer', '没配开发角色'),
+      dshRow(config, 'developer', 'developer', '没配开发角色', magpie),
       row(
         'integrator',
         'claude',
-        Array.isArray(integratorArgv) ? (model ?? DEFAULT_INTEGRATOR) : null,
-        INTEGRATOR_OPTIONS,
+        Array.isArray(integratorArgv) ? (integratorMagpie ?? model ?? DEFAULT_INTEGRATOR) : null,
+        [...INTEGRATOR_OPTIONS, ...magpie.models],
         Array.isArray(integratorArgv),
-        Array.isArray(integratorArgv) ? null : '调度器配置里没有整合方角色',
+        Array.isArray(integratorArgv) ? magpie.error : '调度器配置里没有整合方角色',
       ),
-      row('reviewer', 'codex', codex ?? DEFAULT_REVIEWER, codex ? [codex] : [], true, null),
-      dshRow(config, 'reviewerSubstitute', 'reviewer', '没配'),
-      dshRow(config, 'integratorSubstitute', 'integratorSubstitute', '没配'),
+      row('reviewer', 'codex', reviewerCurrent, reviewerOptions, true, magpie.error),
+      dshRow(config, 'reviewerSubstitute', 'reviewer', '没配', magpie),
+      dshRow(config, 'integratorSubstitute', 'integratorSubstitute', '没配', magpie),
     ],
   };
 }
@@ -309,7 +330,12 @@ function replaceLineValue(raw: string, key: string, value: string): string | nul
   return m ? `${m[1]}${value}${m[3]}${cr}` : null;
 }
 
-function setDsh(config: Json, role: C.RelayModelRole, value: string | null): void {
+function setDsh(
+  config: Json,
+  role: C.RelayModelRole,
+  value: string | null,
+  magpie: MagpieModels,
+): void {
   const key =
     role === 'developer'
       ? 'developer'
@@ -318,7 +344,7 @@ function setDsh(config: Json, role: C.RelayModelRole, value: string | null): voi
         : 'integratorSubstitute';
   const path = patchPath(argvOf(config, key));
   if (!path || !existsSync(path)) invalid('这个角色的补丁文件读不懂');
-  const patch = readPatch(path);
+  const patch = readPatch(path, magpie);
   const [provider, model] = (value ?? '').split(' / ');
   if (!patch.ok || !provider || !model || !patch.options.includes(value!))
     invalid('这个选项不在补丁登记的模型里');
@@ -350,45 +376,105 @@ function setDsh(config: Json, role: C.RelayModelRole, value: string | null): voi
   writeAtomic(path, next);
 }
 
-function setIntegrator(config: Json, path: string, value: string | null): void {
+function setIntegrator(
+  config: Json,
+  path: string,
+  value: string | null,
+  magpie: MagpieModels,
+  magpieBase: string | null,
+): void {
   const integrator = rec(rec(config.roles)?.integrator);
   const argv = integrator?.argv;
   if (!Array.isArray(argv)) invalid('读不懂调度器配置里的整合方命令行');
-  const model = value === null || value === DEFAULT_INTEGRATOR ? null : value;
-  if (model !== null && !INTEGRATOR_OPTIONS.includes(model))
-    invalid('整合方只能选 默认 / opus / sonnet / haiku');
+  const isDefault = value === null || value === '' || value === DEFAULT_INTEGRATOR;
+  const isAlias = value !== null && INTEGRATOR_OPTIONS.includes(value);
+  const isMagpie = value !== null && magpie.models.includes(value);
+  if (!isDefault && !isAlias && !isMagpie)
+    invalid('整合方只能选 默认 / opus / sonnet / haiku，或 magpie 清单里的模型 / 分组');
   const next = [...(argv as unknown[])];
   const at = next.indexOf('--model');
   const insertAt = at >= 0 ? at : next.length;
   if (at >= 0) next.splice(at, at + 1 < next.length ? 2 : 1);
-  if (model !== null) next.splice(insertAt, 0, '--model', model);
-  if (JSON.stringify(next) === JSON.stringify(argv)) return;
+  if (value !== null && isAlias && value !== DEFAULT_INTEGRATOR)
+    next.splice(insertAt, 0, '--model', value);
+  let changed = JSON.stringify(next) !== JSON.stringify(argv);
   integrator!.argv = next;
+  // MG2：选了 magpie 的模型 / 分组就记在 magpieModel，起棒时由调度器加环境变量和 --model；
+  // 选「默认」/ Claude 自己的别名时把它清掉。
+  if (isMagpie) {
+    if (integrator!.magpieModel !== value) {
+      integrator!.magpieModel = value;
+      changed = true;
+    }
+    if (magpieBase && integrator!.magpieUrl !== magpieBase) {
+      integrator!.magpieUrl = magpieBase;
+      changed = true;
+    }
+  } else if (isDefault || isAlias) {
+    if ('magpieModel' in integrator!) {
+      delete integrator!.magpieModel;
+      changed = true;
+    }
+    if ('magpieUrl' in integrator!) {
+      delete integrator!.magpieUrl;
+      changed = true;
+    }
+  }
+  if (!changed) return;
   saveConfig(path, config);
 }
 
-function setReviewer(config: Json, path: string, value: string | null): void {
+function setReviewer(
+  config: Json,
+  path: string,
+  value: string | null,
+  magpie: MagpieModels,
+  magpieBase: string | null,
+): void {
   const review = rec(config.review) ?? {};
-  const next = value === null || value === '' ? null : value;
-  if (next !== null && !/^[A-Za-z0-9._-]+$/.test(next))
+  const isDefault = value === null || value === '' || value === '默认';
+  const isMagpie = value !== null && magpie.models.includes(value);
+  const next = isDefault ? null : value;
+  if (!isDefault && !isMagpie && !/^[A-Za-z0-9._-]+$/.test(next!))
     invalid('Codex 模型名只能用字母、数字、.、-、_');
-  if (str(review.codexModel) === next) return;
-  if (next === null) delete review.codexModel;
-  else review.codexModel = next;
+  const before = JSON.stringify(review);
+  if (isMagpie) {
+    review.magpieModel = value;
+    if (magpieBase) review.magpieUrl = magpieBase;
+    delete review.codexModel;
+  } else if (isDefault) {
+    delete review.codexModel;
+    delete review.magpieModel;
+    delete review.magpieUrl;
+  } else {
+    review.codexModel = next!;
+    delete review.magpieModel;
+    delete review.magpieUrl;
+  }
+  if (JSON.stringify(review) === before) return;
   config.review = review;
   saveConfig(path, config);
 }
 
 /** 改一个角色用的模型；值必须在 readRelayModels 的 options 里（审查按字符规则）。 */
 export function setRelayModel(
-  opts: { relayDir: string },
+  opts: {
+    relayDir: string;
+    /** MG2：面板刚取到的 magpie 清单；没传就只认原来的选项。 */
+    magpieModels?: string[];
+    /** MG2：清单是从哪个本机地址取的，选 magpie 时记下来给调度器起角色用。 */
+    magpieBase?: string | null;
+  },
   input: { role: C.RelayModelRole; value: string | null },
 ): void {
   if (!ROLES.includes(input.role)) invalid('不认识的角色');
   const path = join(dirOf(opts.relayDir), 'config.json');
   const config = loadJson(path);
   if (!config) invalid('读不到调度器配置');
-  if (input.role === 'integrator') setIntegrator(config!, path, input.value);
-  else if (input.role === 'reviewer') setReviewer(config!, path, input.value);
-  else setDsh(config!, input.role, input.value);
+  const magpie: MagpieModels = { models: opts.magpieModels ?? [], error: null };
+  if (input.role === 'integrator')
+    setIntegrator(config!, path, input.value, magpie, opts.magpieBase ?? null);
+  else if (input.role === 'reviewer')
+    setReviewer(config!, path, input.value, magpie, opts.magpieBase ?? null);
+  else setDsh(config!, input.role, input.value, magpie);
 }

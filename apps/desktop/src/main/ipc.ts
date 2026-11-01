@@ -13,9 +13,11 @@ import {
   buildCockpitSnapshot,
   getSetting,
   listAuditEvents,
+  listMagpieModels,
   listMatchedFindings,
   listRequirements,
   MATCH_WINDOW_DAYS,
+  magpieUrlFromSettings,
   markMatchedFindingsSeen,
   planProjectImport,
   readTaskChanges,
@@ -100,6 +102,19 @@ function realPath(p: string): string {
   } catch {
     return p;
   }
+}
+
+/** MG2：面板取 magpie 清单。没有库（测试里的替身 runtime）就不去连，免得碰本机真实服务。 */
+async function magpieForPanel(runtime: AppRuntime): Promise<{
+  models: string[];
+  error: string | null;
+  base: string | null;
+}> {
+  if (!runtime.db) return { models: [], error: null, base: null };
+  const where = magpieUrlFromSettings(runtime.db);
+  if (!where.base) return { models: [], error: where.reason, base: null };
+  const listed = await listMagpieModels(where.base);
+  return { ...listed, base: where.base };
 }
 
 export function registerIpc(runtime: AppRuntime): void {
@@ -561,9 +576,18 @@ export function registerIpc(runtime: AppRuntime): void {
         ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
       }),
     // K10a：调度器与模型（只读名字；改的是调度器配置 / 接力补丁，下一棒生效）。relayDir 空串 = 用环境变量/默认目录。
-    getRelayModels: async () => readRelayModels({ relayDir: '' }),
+    // MG2：整合方 / 审查 / 开发的可选里加上 magpie 现取的模型和分组（连不上就只列原来的、带一句说明）。
+    getRelayModels: async () => {
+      const magpie = await magpieForPanel(runtime);
+      return readRelayModels({
+        relayDir: '',
+        magpieModels: magpie.models,
+        magpieError: magpie.error,
+      });
+    },
     setRelayModel: async (input) => {
-      setRelayModel({ relayDir: '' }, input);
+      const magpie = await magpieForPanel(runtime);
+      setRelayModel({ relayDir: '', magpieModels: magpie.models, magpieBase: magpie.base }, input);
       return { ok: true as const };
     },
     deleteConversation: async (id) => {

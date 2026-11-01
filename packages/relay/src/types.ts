@@ -29,6 +29,13 @@ export interface RoleConfig {
   weeklyQuotaPatterns?: string[];
   /** L6 契约第 2 条：这一棒跑完之后，调度器替它推它写出来的那些分支（开发用）。 */
   pushByRelay?: boolean;
+  /**
+   * MG2：整合方在面板上选的 magpie 模型 / 分组（空 = 默认，不加环境变量、不加 `--model`）。
+   * 选了就照 magpie 的 Claude Code 接法起：`ANTHROPIC_BASE_URL` + Key `magpie` + `--model <id>`。
+   */
+  magpieModel?: string;
+  /** MG2：选 magpie 时记下的本机地址；没记就用 `http://127.0.0.1:3425`。 */
+  magpieUrl?: string;
 }
 
 /** L6 契约第 4 条：一条替推记录（写进记账的 `pushes`）。 */
