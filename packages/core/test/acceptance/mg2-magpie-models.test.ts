@@ -197,6 +197,18 @@ describe('条件 4：开发选 magpie 的模型 → 只改默认模型那两行�
     const models = readRelayModels({ relayDir: dir });
     expect(rowOf(models, 'integrator').current).toBe('group/rot');
     expect(rowOf(models, 'reviewer').current).toBe('a/m1');
+    // 整合方复审补：这次没连上 magpie，选过的值也还在下拉里（不会显示成「默认」）。
+    expect(rowOf(models, 'integrator').options).toContain('group/rot');
+  });
+
+  it('整合方复审补：桌面版那一节手抄过的同名模型只列一次', () => {
+    const { dir } = makeRelay();
+    const options = rowOf(
+      readRelayModels({ relayDir: dir, magpieModels: ['local-a', 'group/rot'] }),
+      'developer',
+    ).options;
+    expect(options.filter((o) => o === 'magpie / local-a')).toHaveLength(1);
+    expect(options).toContain('magpie / group/rot');
   });
 });
 

@@ -169,7 +169,11 @@ function readPatch(patchPath: string, magpie: MagpieModels | undefined): Patch {
   const gwRange = itemRange(lines, 'llm-pi-ai');
   const options = desktopGatewayOptions() ?? (gwRange ? gatewayOptions(lines, gwRange) : []);
   // MG2：magpie 的清单是现取的（桌面版那一节是手抄的，看不到后来建的分组）。
-  for (const model of magpie?.models ?? []) options.push(`${MAGPIE_PROVIDER} / ${model}`);
+  // 整合方复审补：桌面版那一节手抄过同名模型时不重复列。
+  for (const model of magpie?.models ?? []) {
+    const value = `${MAGPIE_PROVIDER} / ${model}`;
+    if (!options.includes(value)) options.push(value);
+  }
   if (!current) {
     return {
       current: null,
@@ -271,6 +275,10 @@ export function readRelayModels(opts: {
   const reviewerOptions = magpie.models.length ? ['默认', ...magpie.models] : codex ? [codex] : [];
   if (magpie.models.length && !reviewerOptions.includes(reviewerCurrent))
     reviewerOptions.push(reviewerCurrent);
+  // 整合方复审补：选过的 magpie 分组这次没连上 / 已被删，也留在下拉里（不然下拉显示成「默认」）。
+  const integratorOptions = [...INTEGRATOR_OPTIONS, ...magpie.models];
+  if (integratorMagpie && !integratorOptions.includes(integratorMagpie))
+    integratorOptions.push(integratorMagpie);
   return {
     roles: [
       dshRow(config, 'developer', 'developer', '没配开发角色', magpie),
@@ -278,7 +286,7 @@ export function readRelayModels(opts: {
         'integrator',
         'claude',
         Array.isArray(integratorArgv) ? (integratorMagpie ?? model ?? DEFAULT_INTEGRATOR) : null,
-        [...INTEGRATOR_OPTIONS, ...magpie.models],
+        integratorOptions,
         Array.isArray(integratorArgv),
         Array.isArray(integratorArgv) ? magpie.error : '调度器配置里没有整合方角色',
       ),

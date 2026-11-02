@@ -110,6 +110,9 @@ export async function runTurn(
     env = { ...process.env, ANTHROPIC_BASE_URL: base, ANTHROPIC_AUTH_TOKEN: 'magpie' };
     // 用户自己的 Anthropic Key 不能带到 magpie 上（magpie 只认字面量 magpie）。
     delete env.ANTHROPIC_API_KEY;
+    // 整合方复审补（照 MG2b 审查脚本的实测）：本机地址不进代理，免得系统代理拦住连 magpie 的请求。
+    env.NO_PROXY = ['127.0.0.1', 'localhost', process.env.NO_PROXY].filter(Boolean).join(',');
+    env.no_proxy = ['127.0.0.1', 'localhost', process.env.no_proxy].filter(Boolean).join(',');
   }
   // DG1 契约第 1、3 条：DSH 那一棒先从桌面版配置取网关段，插在接力补丁前面；
   // 取不到（配置不存在 / 没有 llm-pi-ai）就照原来的参数起，打一行提示。临时补丁在下面 finally 删。

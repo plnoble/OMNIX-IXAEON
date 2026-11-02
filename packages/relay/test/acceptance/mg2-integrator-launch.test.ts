@@ -18,6 +18,7 @@ const savedEnv = {
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  NO_PROXY: process.env.NO_PROXY,
 };
 const mkTmp = (): string => {
   const d = mkdtempSync(join(tmpdir(), 'ixaeon-mg2-integrator-'));
@@ -50,6 +51,7 @@ if (marker) writeFileSync(marker, JSON.stringify({
     base: process.env.ANTHROPIC_BASE_URL ?? null,
     token: process.env.ANTHROPIC_AUTH_TOKEN ?? null,
     key: process.env.ANTHROPIC_API_KEY ?? null,
+    noProxy: process.env.NO_PROXY ?? null,
   },
 }), 'utf8');
 console.log('RELAY-DONE MG2 待复审（整合方）');
@@ -90,6 +92,7 @@ function clearAgentEnv(): void {
   delete process.env.ANTHROPIC_BASE_URL;
   delete process.env.ANTHROPIC_AUTH_TOKEN;
   delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.NO_PROXY;
 }
 
 const turn: Turn = {
@@ -113,7 +116,7 @@ describe('条件 2：整合方起 Claude Code 时按 magpie 的接法带上', ()
     }
     const got = JSON.parse(readFileSync(marker, 'utf8')) as {
       argv: string[];
-      env: { base: string | null; token: string | null; key: string | null };
+      env: { base: string | null; token: string | null; key: string | null; noProxy: string | null };
     };
     expect(got.argv.slice(-2)).toEqual(['--model', 'group/rot']);
     // 原来的参数还在、顺序不变（prompt_file 换成了真路径）。
@@ -122,6 +125,8 @@ describe('条件 2：整合方起 Claude Code 时按 magpie 的接法带上', ()
     expect(got.env.token).toBe('magpie');
     // 用户自己的 Anthropic Key 不带到 magpie 上。
     expect(got.env.key).toBeNull();
+    // 整合方复审补：本机地址不进代理（系统代理会拦住连 magpie 的请求）。
+    expect(got.env.noProxy).toContain('127.0.0.1');
   });
 
   it('默认 → 参数和环境变量和原来逐字一样（没有 --model 和这几个环境变量）', async () => {
@@ -135,9 +140,9 @@ describe('条件 2：整合方起 Claude Code 时按 magpie 的接法带上', ()
     }
     const got = JSON.parse(readFileSync(marker, 'utf8')) as {
       argv: string[];
-      env: { base: string | null; token: string | null; key: string | null };
+      env: { base: string | null; token: string | null; key: string | null; noProxy: string | null };
     };
     expect(got.argv).not.toContain('--model');
-    expect(got.env).toEqual({ base: null, token: null, key: null });
+    expect(got.env).toEqual({ base: null, token: null, key: null, noProxy: null });
   });
 });
