@@ -57,6 +57,20 @@ function agentNoise(line: string): boolean {
   }
 }
 
+/** MG2：magpie 就在本机；只认 http + 本机主机 + 端口，别的地址不拿来起角色（免得把内容发到别处）。 */
+function localMagpieBase(raw: string | undefined): string | null {
+  const text = (raw ?? '').trim() || 'http://127.0.0.1:3425';
+  try {
+    const url = new URL(text);
+    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)) return null;
+    if (!url.port || url.username || url.password) return null;
+    if (url.pathname !== '/' || url.search || url.hash) return null;
+    return `http://${url.hostname}:${url.port}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function runTurn(
   turn: Turn,
   config: RelayConfig,
@@ -83,6 +97,20 @@ export async function runTurn(
   let argv = role.argv.map((a) =>
     a.split('{prompt_file}').join(promptPath).split('{relay_root}').join(RELAY_ROOT),
   );
+  // MG2：整合方选了 magpie 的模型 / 分组 → 照 magpie 的 Claude Code 接法带上网关地址、Key 和 --model。
+  // 没选就一个都不加（参数和环境变量和原来逐字一样）。
+  let env: NodeJS.ProcessEnv | undefined;
+  const magpieModel = turn.role === 'integrator' ? role.magpieModel?.trim() : '';
+  if (magpieModel) {
+    const base = localMagpieBase(role.magpieUrl);
+    if (!base) throw new Error('整合方选了 magpie 的模型，但 magpie 地址不是本机');
+    const at = argv.indexOf('--model');
+    if (at >= 0) argv.splice(at, at + 1 < argv.length ? 2 : 1);
+    argv.push('--model', magpieModel);
+    env = { ...process.env, ANTHROPIC_BASE_URL: base, ANTHROPIC_AUTH_TOKEN: 'magpie' };
+    // 用户自己的 Anthropic Key 不能带到 magpie 上（magpie 只认字面量 magpie）。
+    delete env.ANTHROPIC_API_KEY;
+  }
   // DG1 契约第 1、3 条：DSH 那一棒先从桌面版配置取网关段，插在接力补丁前面；
   // 取不到（配置不存在 / 没有 llm-pi-ai）就照原来的参数起，打一行提示。临时补丁在下面 finally 删。
   let gateway: GatewayPatch | null = null;
@@ -101,6 +129,7 @@ export async function runTurn(
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
+      ...(env ? { env } : {}),
     });
     child.stdout?.on('data', (d: Buffer) => {
       out += d.toString('utf8');
