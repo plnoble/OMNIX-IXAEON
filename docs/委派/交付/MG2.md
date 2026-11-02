@@ -65,3 +65,61 @@ magpie 的分组：3 个
 ## 用户接受
 
 未发生（用户用过并认可之后才写）。
+
+## 整合方复审（2026-11-02，第 84、85 棒）
+
+结论：**MG2 + MG2b 并入 main**，测试锁定并 `done`（MG2：`mg2-magpie-models` + `mg2-integrator-launch`；MG2b：`mg2-panel` + `mg2-codex-launch`）。
+
+### 整合方改了什么
+
+- 第 84 棒（`6f67f0c`）：整合方选过的 magpie 值这次没连上 / 已被删时仍留在下拉里（不然显示成「默认」）；整合方走 magpie 时 `NO_PROXY/no_proxy` 加本机（照 MG2b 审查脚本的实测，系统代理会拦住连 magpie 的请求）；补测试。
+- 第 85 棒（`932c503`）：去掉第 84 棒在开发那行加的去重——`row()` 本来就按 `Set` 去重，那几行是死代码；测试改严两处：`mg2-integrator-launch` 先设一个合成的 `ANTHROPIC_API_KEY` 再查它被去掉（原来没设，「被去掉」等于没测）；`mg2-magpie-models` 先手填一个 Codex 模型再改选 magpie，查 `codexModel` 被清掉（原来本来就没有，等于没测）。
+
+### 变异检查
+
+逐处改坏 `run-turn.ts`、`magpie.ts`、`relayModels.ts`、`codex-review.mjs`、`CockpitRelayModels.tsx` 共 37 处（每条条件、Key、地址、`/v1`、`NO_PROXY`、`--ignore-user-config`、`-m` 的来源、清字段、界面上的说明和下拉），跑 MG2/MG2b 四份验收测试：**37 处全红**，没有漏的。另 2 处是第 85 棒删掉的去重代码，不再适用。
+
+### 自动化通过
+
+- `node scripts/acceptance.mjs run MG2`：2 个文件 10 条通过；`run MG2b`：2 个文件 5 条通过。
+- `node scripts/verify.mjs`（锁定 + `done` 之后、带着整合方的改动）：**全部通过**，退出码 0（lint、format、local-user、typecheck、typecheck-acceptance、build、unit、integration、acceptance-lock、acceptance 246.8s、各 review 套件含真实 Electron 的界面套件）。
+
+### 真机通过（整合方在最终版本上亲手跑，先 `node scripts/build.mjs`）
+
+```
+magpie 的分组：3 个
+== 乙（整合方）真的 relay once + 真的 Claude Code，模型 group/group-ixaeon-integrator
+   relay once 退出码：0｜用时 18.4s
+   第 1 棒 integrator integrator-review 行 70 → 待复审（整合方）
+   记账：turn=1 role=integrator 行=70 → 待复审（整合方）｜退出码 0｜RELAY-DONE RELAY-DONE 70 已完成（2026-11-01）
+== 结论：通过
+```
+
+```
+magpie 的分组：3 个
+== 甲（审查）真的 codex-review.mjs + 真的 Codex，模型 group/group-ixaeon-review
+   codex-review.mjs 退出码：0
+   结论：可以合并
+   结论文件开头：
+   # demo Codex 审查
+   - Codex：0.166.0；上下文由脚本喂入（不让 Codex 跑命令）
+   没有发现问题
+   结论：可以合并
+== 结论：通过
+```
+
+脚本当代码读过：整合方那份只在记账里有 `role=integrator` 且有 `RELAY-DONE` 时才写「通过」，分组不在、出错都是退出码 1；临时目录和账户名都遮掉了；不碰用户真实的 relay 目录和 `~/.codex/config.toml`。
+
+**没跑**：面板没在真 Electron 里点过（只有 jsdom 验收测试）。
+
+### 已知缺口 / 留给后面
+
+- K9a / K9b（没额度换 DSH 顶班）：整合方建议**不再并**——整合方、审查都能选 magpie 分组，额度用完由分组自动换下一个，顶班的需求被这单覆盖了。这一棒只做 161 这一行，K9a/K9b 那两行的状态没动，下次复审它们时照这条定。
+- 分组里所有成员都没额度时，照旧走撞额度处理（`pausedUntil`），这一单没改那条路径，也没有真机复现过。
+
+### 四样分开
+
+- 已实现：是（MG2 + MG2b）。
+- 自动化通过：是（上面的验收测试和 verify）。
+- 真机通过：调度器起整合方、审查脚本起 Codex 两条通过；面板界面没跑。
+- 用户接受：未发生。

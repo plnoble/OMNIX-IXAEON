@@ -854,6 +854,24 @@
         "apps/desktop/test/acceptance/sub1b-cockpit-quotas.test.ts": "9980f7206c902f6d6ba9852003e437f5913cc81de4c8ea05577eecd56b46c334",
         "apps/desktop/test/acceptance/sub1b-quota-settings.test.ts": "3ead0072742a6dd883a512d46b990fac7c3051f7cece867aedef41a397da6c98"
       }
+    },
+    {
+      "id": "MG2",
+      "title": "MG2 整合方走 magpie：清单进面板、配置读写、起 Claude Code 带 magpie 接法",
+      "status": "done",
+      "files": {
+        "packages/core/test/acceptance/mg2-magpie-models.test.ts": "6bae544c6fba1e78c8348e3d5be572941b8791e049aaed264901c7c5bd36b68b",
+        "packages/relay/test/acceptance/mg2-integrator-launch.test.ts": "3098a303e78a129ca6651f5fbec6c1313d5882565c50f2b13765d8894985fd34"
+      }
+    },
+    {
+      "id": "MG2b",
+      "title": "MG2b 面板选 magpie、审查脚本按 magpie 的 Codex 接法起 Codex",
+      "status": "done",
+      "files": {
+        "apps/desktop/test/acceptance/mg2-panel.test.ts": "a8e219010508f8acdbbaf553c42b48e8ef9c5e0e9ca649253000b37c0fba1b6a",
+        "packages/relay/test/acceptance/mg2-codex-launch.test.ts": "137f39536a51c92c29a7d43d92040ecfee6fdfbaef12952e083c37a5cbb6e2f5"
+      }
     }
   ]
 }
