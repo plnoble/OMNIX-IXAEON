@@ -490,6 +490,8 @@ describe('条件 5：第 1 次有问题、补过之后第 2 次没问题', () =>
     expect(row(t.id).verify_status).toBe('passed');
     expect(h.calls).toHaveLength(3);
     expect(model.calls).toHaveLength(2);
+    // 契约第 1 条：每次要核时现调一次 testReviewer
+    expect(h.reviewerCalls).toBe(2);
     // 第 2 次核的是补过之后的那份：新补的 add.test.mjs 也在里面
     expect(model.calls[1]!.user).toContain(`--- ${testDir}/add.test.mjs ---`);
     expect(model.calls[1]!.user).toContain('条件 2：原来的 add 不变');
@@ -566,6 +568,24 @@ describe('条件 5：第 1 次有问题、补过之后第 2 次没问题', () =>
     expect(h.calls).toHaveLength(3);
     expect(model.calls).toHaveLength(2);
   });
+
+  it('第 2 次核用第 2 次现取的核心模型（契约第 1 条）', async () => {
+    const first = new ReviewModel().enqueue({
+      problems: [{ condition: 2, kind: 'missing', detail: '没有测试检查原来的 add 不变' }],
+    });
+    const second = new ReviewModel().enqueue({ problems: [] });
+    const providers = [first, second];
+    const h = setup([writeMulTest, writeAddTest, implementMultiply], {
+      reviewer: () => providers.shift() ?? null,
+    });
+    const t = await h.create({});
+    const done = await h.coding.dispatch(t.id);
+
+    expect(done.status).toBe('pending_accept');
+    expect(reviewOf(t.id)).toEqual({ status: 'passed', rounds: 2, problems: [], note: null });
+    expect(first.calls).toHaveLength(1);
+    expect(second.calls).toHaveLength(1);
+  });
 });
 
 describe('条件 6：两次都有问题', () => {
@@ -599,6 +619,12 @@ describe('条件 6：两次都有问题', () => {
     expect(acceptance.review?.status).toBe('failed');
     expect(acceptance.review?.rounds).toBe(2);
     expect(acceptance.review?.problems).toEqual(secondProblems);
+    // 失败时的报告照样列出核的是哪几个测试文件
+    expect(acceptance.locked).toBe(false);
+    expect(acceptance.files).toEqual([
+      `${testDirOf(t)}/add.test.mjs`,
+      `${testDirOf(t)}/mul.test.mjs`,
+    ]);
   });
 });
 
@@ -961,6 +987,8 @@ describe('条件 13：核的时候、补的时候取消', () => {
     expect(h.calls).toHaveLength(2);
     expect(model.calls).toHaveLength(1);
     expect(h.log).not.toContain('核 2');
+    // 补完一回来就查取消：不再跑测试
+    expect(h.log).toEqual(['执行器 1', '跑 mul.test.mjs', '核 1', '执行器 2']);
   });
 });
 

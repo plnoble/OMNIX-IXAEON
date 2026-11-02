@@ -1,6 +1,6 @@
 /**
  * D5a 端到端（随实现一起交，不锁定；规格 docs/委派/D5a-验收先行-先写测试再写实现.md）。
- * 假模型加响应脚本（两次：先写测试的、再写实现的）、IXAEON_CODEX_EXE=none、
+ * 假模型加响应脚本（三次：先写测试的、D5b 锁定前核测试的、再写实现的）、IXAEON_CODEX_EXE=none、
  * 设置里选「我的模型」、合成的小 git 项目（calc.mjs 只有 add）。
  * 带验收条件的任务造不出来（假模型的 propose_task 带验证命令）：照
  * scripts/real/d3-auto-dispatch.ts 的做法直接写进临时库，再在界面上点「要做」。
@@ -214,6 +214,8 @@ test.describe('D5a 验收先行（端到端）', () => {
             summary: '写了一个测试',
             claimedSuccess: true,
           },
+          // D5b：锁定之前核心模型核一遍（getProvider() 在假模型下是同一个队列）
+          { problems: [] },
           // 第 2 步：写实现
           {
             changes: [
@@ -269,11 +271,18 @@ test.describe('D5a 验收先行（端到端）', () => {
       .toMatchObject({ status: 'pending_accept', verify_status: 'passed' });
     const db3 = new Database(dbPath);
     const wsRow = db3
-      .prepare('SELECT workspace_path FROM coding_tasks WHERE id = ?')
-      .get(taskId) as { workspace_path: string };
+      .prepare('SELECT workspace_path, executor_report_json FROM coding_tasks WHERE id = ?')
+      .get(taskId) as { workspace_path: string; executor_report_json: string };
     db3.close();
     expect(existsSync(join(wsRow.workspace_path, testDir, 'mul.test.mjs'))).toBe(true);
     expect(readFileSync(join(wsRow.workspace_path, 'calc.mjs'), 'utf8')).toContain('multiply');
+    // D5b：桌面端把核心模型接给了执行器——锁定之前真的核过一次
+    expect(JSON.parse(wsRow.executor_report_json).acceptanceTests.review).toEqual({
+      status: 'passed',
+      rounds: 1,
+      problems: [],
+      note: null,
+    });
 
     // 接受：分支里有测试文件和实现
     await taskCard.getByRole('button', { name: '接受' }).click();

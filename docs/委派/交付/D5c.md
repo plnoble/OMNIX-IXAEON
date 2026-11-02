@@ -162,3 +162,59 @@ B 档，不跑 Codex 审查；整合方复审。
 - 66771dc（dev2/D5b）：整份实现（源码约 354 行），2026-10-30 被整合方退回拆支。
 - c3cf3fc（dev/D5b，第一支）：从 66771dc 只留 `testReview.ts` + 12 条单元测试。
 - 本支（dev/D5c）：把 `executor.ts` 接线、桌面两处、25 条验收测试和真机脚本加回来。两支一起才是一份完整实现。
+
+---
+
+## 整合方复审（2026-11-02，第 86 棒）
+
+**结论：通过，两支依次并入 main，D5b 锁定并标为已完成。** 改正与补充也记在规格末尾「整合方审测试时的改正与补充」。
+
+### 整合方改了什么
+
+- `executor.ts`：第 2 次核用第 2 次现调 `testReviewer()` 拿到的那个 provider（原来只看是不是 null，核的还是第 1 次那个，不合契约第 1 条「每次要核时现调一次」）。`askOnce` 改成接 provider 参数。
+- `executor.ts`：`failNowWithReview` 写进 `executor_report_json` 的 `acceptanceTests.files` 原来是空列表，改成核过的那几个文件。
+- `testReview.ts`：删掉没人用的 `REVIEW_ANSWER_SHAPE`。
+- `d5b-review-tests.test.ts`（锁定前补，现在 26 条）：条件 5 补一条「第 2 次核用第 2 次现取的核心模型」，原来那条加 `reviewerCalls === 2`；条件 6 加 `locked === false` 和 `files`；条件 13「补的时候取消」加执行器 / 跑测试 / 核的先后顺序断言。
+- `apps/desktop/e2e/d5a-acceptance-first.spec.ts`（不在锁定清单里）：假模型队列在写测试、写实现之间补一条 `{ problems: [] }`，加断言 `executor_report_json` 里 `review` 是 `{ passed, rounds: 1, problems: [], note: null }`。这也补上了「桌面两处接了 `testReviewer`」没有自动化测试的缺口（已知缺口 2、3）。
+- 已知缺口 5（`failed` 的字面口径）：照现在的实现放行，理由见规格末尾。
+
+### 变异检查
+
+一次性脚本逐处改坏 `executor.ts` / `testReview.ts`（29 处），每处跑 D5b 验收测试：除下面两类外都变红。
+
+- `round <= 2` 改成 `<= 3`：没变红，是等价改动（第 2 轮总是先 return 或 break）。
+- 补完之后去掉取消检查：原来没变红，加条件 13 的顺序断言后变红。
+- 两处提示词字符串（`（太长，没有发）`、`…（后面截掉了）`）在注释里也出现，脚本没改；单元测试逐字钉着。
+
+### 自动化通过（最终版本）
+
+- D5b 验收 26 条 + D5a 核心 40 条 + `d5a-executor-options` 4 条：**70/70 过**。
+- `node scripts/verify.mjs`：本机**全过**（acceptance 184 个文件 1382 条，含 D5b）。分支 CI（含桌面 e2e）：`integrate/D5b`，合并前看过是绿的才推 main。
+
+### 真机通过（最终版本，`node scripts/build.mjs` 之后）
+
+命令 `node scripts/real/run-batch.mjs scripts/real/d5b-review-tests.ts -- --real`，退出码 0，输出原样：
+
+```
+=== 甲 1：核出一条太松 → 补 → 核过 → 锁定 → 实现 → 通过
+结果 {"status":"pending_accept","verify":"passed","acceptanceTests":{"files":["ixaeon-acceptance/30bc50cb/add.test.mjs","ixaeon-acceptance/30bc50cb/mul.test.mjs"],"locked":true,"reason":null,"review":{"status":"passed","rounds":2,"problems":[],"note":null}},"executorCalls":3,"modelCalls":2}
+补测试的交代里有那条问题 true
+副本里的 calc.mjs 有 multiply true
+
+=== 甲 2：两次都有问题 → 失败
+结果 {"status":"failed","verify":null,"review":{"status":"failed","rounds":2,"problems":[{"condition":1,"kind":"loose","detail":"还是只查函数存在，没查乘出来的值"},{"condition":2,"kind":"missing","detail":"没有测试检查原来的 add 不变"}],"note":null},"executorCalls":2,"modelCalls":2}
+失败原因 "核心模型核了两次，验收测试还有问题，没有写实现：\n- 条件 1（太松）：还是只查函数存在，没查乘出来的值\n- 条件 2（漏了）：没有测试检查原来的 add 不变"
+
+=== 乙：真核心模型
+结果 {"status":"pending_accept","verify":"passed","review":{"status":"passed","rounds":2,"problems":0},"executorCalls":3,"modelCalls":2,"error":null}
+第 1 次核出 [{"condition":2,"kind":"missing"}]
+第 2 次核出 []
+
+RESULT 通过：甲 1、甲 2 都照规格走完；乙 真模型核出条件 2 漏了并在第 2 次通过
+```
+
+输出里没有 Key、网关地址、模型名。
+
+### 用户接受
+
+未发生。「核心模型核过」界面上不显示，等用户用过再定。

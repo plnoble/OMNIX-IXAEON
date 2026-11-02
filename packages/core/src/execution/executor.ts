@@ -692,14 +692,18 @@ export class CodingOrchestrator {
        * D5b 契约第 7 条：核不过而失败时，带 `review` 的报告也要写进 `executor_report_json`。
        * 所以先写一份最小的报告（只有 acceptanceTests.review），再按 D5a 的 failNow 收尾。
        */
-      const failNowWithReview = (error: string, review: AcceptanceReview): CodingTask => {
+      const failNowWithReview = (
+        error: string,
+        review: AcceptanceReview,
+        files: string[],
+      ): CodingTask => {
         const report: ExecutorReport = {
           changedPaths: [],
           summary: '',
           claimedSuccess: false,
           testsModified: false,
           raw: '',
-          acceptanceTests: { files: [], locked: false, reason: error, review },
+          acceptanceTests: { files, locked: false, reason: error, review },
         };
         const failed = this.store.setStatus(taskId, 'failed', {
           executorName: executorNameAtStart,
@@ -803,7 +807,7 @@ export class CodingOrchestrator {
               let rounds = 0;
               let lastProblems: TestReviewProblem[] = [];
               // 契约第 3 条：问一次。返回 null 表示「模型出错」，调用方照 D5a 锁定（若补过就锁补过的）
-              const askOnce = async (): Promise<TestReviewProblem[] | null> => {
+              const askOnce = async (p: ReviewProvider): Promise<TestReviewProblem[] | null> => {
                 try {
                   const read = files.map((rel) => ({
                     path: rel,
@@ -812,7 +816,7 @@ export class CodingOrchestrator {
                       workspace,
                     ),
                   }));
-                  const raw = await provider.chatStructured({
+                  const raw = await p.chatStructured({
                     system: REVIEW_SYSTEM,
                     user: reviewUser(task.goal, conditions, read),
                     schema: reviewSchema(conditions.length) as never,
@@ -830,12 +834,13 @@ export class CodingOrchestrator {
                 }
               };
               for (let round = 1; round <= 2; round++) {
-                // 契约第 1 条：「每次要核时现调一次」——第 2 次核也要重新问一遍有没有 provider
-                if (round > 1 && !this.testReviewer()) {
+                // 契约第 1 条：「每次要核时现调一次」——第 2 次核用第 2 次拿到的那个
+                const current = round === 1 ? provider : this.testReviewer();
+                if (!current) {
                   review = { status: 'skipped', rounds, problems: [], note: '没有配置核心模型' };
                   break;
                 }
-                const answer = await askOnce();
+                const answer = await askOnce(current);
                 if (cancelledMid()) return settleCancelled();
                 if (answer === null) break; // 契约第 6 条：模型出错不挡任务
                 if (answer.length === 0) {
@@ -847,7 +852,7 @@ export class CodingOrchestrator {
                 if (round === 2) {
                   // 契约第 5 条：两次还有问题 → 停下，不写实现
                   review = { status: 'failed', rounds, problems: answer, note: null };
-                  return failNowWithReview(twiceProblemsReason(answer), review);
+                  return failNowWithReview(twiceProblemsReason(answer), review, files);
                 }
                 // ---- 契约第 4 条：让执行器只补测试 ----
                 try {
@@ -870,7 +875,7 @@ export class CodingOrchestrator {
                 } catch (err) {
                   review = { status: 'failed', rounds, problems: answer, note: null };
                   const note = err instanceof Error ? err.message : String(err);
-                  return failNowWithReview(`补验收测试时执行器出错：${clip(note)}`, review);
+                  return failNowWithReview(`补验收测试时执行器出错：${clip(note)}`, review, files);
                 }
                 if (cancelledMid()) return settleCancelled();
                 // 补完照 D5a 第 1、2 步原样核
@@ -878,7 +883,11 @@ export class CodingOrchestrator {
                 const stray = changedBetween(before, afterFix).filter((p) => !inTestDir(p));
                 if (stray.length > 0) {
                   review = { status: 'failed', rounds, problems: answer, note: null };
-                  return failNowWithReview(`写验收测试时改了别的文件：${stray.join('、')}`, review);
+                  return failNowWithReview(
+                    `写验收测试时改了别的文件：${stray.join('、')}`,
+                    review,
+                    files,
+                  );
                 }
                 files = [...afterFix.keys()]
                   .filter((p) => inTestDir(p) && p.endsWith('.test.mjs'))
@@ -901,6 +910,7 @@ export class CodingOrchestrator {
                   return failNowWithReview(
                     `验收测试改了项目里的文件：${touchedFiles.join('、')}`,
                     review,
+                    files,
                   );
                 }
                 const refusedAgain = again.find((r) => !r.ran);

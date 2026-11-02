@@ -872,6 +872,14 @@
         "apps/desktop/test/acceptance/mg2-panel.test.ts": "a8e219010508f8acdbbaf553c42b48e8ef9c5e0e9ca649253000b37c0fba1b6a",
         "packages/relay/test/acceptance/mg2-codex-launch.test.ts": "137f39536a51c92c29a7d43d92040ecfee6fdfbaef12952e083c37a5cbb6e2f5"
       }
+    },
+    {
+      "id": "D5b",
+      "title": "D5b 验收测试锁定之前，让核心模型对照验收条件核一遍（最多两次）",
+      "status": "done",
+      "files": {
+        "packages/core/test/acceptance/d5b-review-tests.test.ts": "30ac002c6011692561a72ad6b05bdaa78bac3e8b37ed5b3ccb02163011f836b5"
+      }
     }
   ]
 }

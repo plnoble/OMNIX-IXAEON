@@ -113,16 +113,5 @@ export function twiceProblemsReason(problems: TestReviewProblem[]): string {
     .slice(0, 2000);
 }
 
-/** 契约第 3 条的 schema 形状（给调用方包成 zod 用；这里只描述）。 */
-export const REVIEW_ANSWER_SHAPE = {
-  problems: [
-    {
-      condition: 0,
-      kind: 'missing',
-      detail: '',
-    },
-  ],
-} as const;
-
-/** 契约第 3 条要用的 zod schema 由 executor 建（那边已经 import 了 zod）；这里只给形状说明。 */
+/** 契约第 3 条要用的 zod schema 由 executor 建（那边已经 import 了 zod）。 */
 export type ReviewProvider = ModelProvider;
