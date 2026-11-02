@@ -174,6 +174,8 @@ describe('条件 4：开发选 magpie 的模型 → 只改默认模型那两行�
 
   it('整合方 / 审查选 magpie 的值 → 记进 config 的 magpieModel，起棒时才带参数和环境变量', () => {
     const { dir, config } = makeRelay();
+    // 先手填过一个 Codex 模型：改选 magpie 后它要被清掉（不然 -m 两个来源打架）。
+    setRelayModel({ relayDir: dir }, { role: 'reviewer', value: 'gpt-synthetic' });
     setRelayModel(
       { relayDir: dir, magpieModels: ['group/rot'], magpieBase: 'http://127.0.0.1:3425' },
       { role: 'integrator', value: 'group/rot' },

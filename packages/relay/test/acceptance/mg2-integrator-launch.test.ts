@@ -106,6 +106,8 @@ const turn: Turn = {
 describe('条件 2：整合方起 Claude Code 时按 magpie 的接法带上', () => {
   it('选 group/rot → --model group/rot、ANTHROPIC_BASE_URL 和 Key magpie', async () => {
     clearAgentEnv();
+    // 合成的「用户自己的 Key」：起 magpie 时要被去掉。
+    process.env.ANTHROPIC_API_KEY = 'sk-synthetic-not-a-key';
     const base = 'http://127.0.0.1:4321';
     const { marker, config, dataDir } = setup({ model: 'group/rot', url: base });
     process.env.MG2_MARKER = marker;

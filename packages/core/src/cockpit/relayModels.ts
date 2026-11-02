@@ -169,11 +169,7 @@ function readPatch(patchPath: string, magpie: MagpieModels | undefined): Patch {
   const gwRange = itemRange(lines, 'llm-pi-ai');
   const options = desktopGatewayOptions() ?? (gwRange ? gatewayOptions(lines, gwRange) : []);
   // MG2：magpie 的清单是现取的（桌面版那一节是手抄的，看不到后来建的分组）。
-  // 整合方复审补：桌面版那一节手抄过同名模型时不重复列。
-  for (const model of magpie?.models ?? []) {
-    const value = `${MAGPIE_PROVIDER} / ${model}`;
-    if (!options.includes(value)) options.push(value);
-  }
+  for (const model of magpie?.models ?? []) options.push(`${MAGPIE_PROVIDER} / ${model}`);
   if (!current) {
     return {
       current: null,
