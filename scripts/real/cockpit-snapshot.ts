@@ -7,8 +7,8 @@
  * 不输出任何文本内容，也不打印临时目录（本机账户名只在路径里）。项目分组用临时空库 + 3 个
  * 合成项目（active / paused / archived 各一），不碰用户的应用数据库。
  *
- * K4：设了 `IXAEON_QUOTAHUB_URL` 时把它写进临时库的 `cockpit.quotahub_url`，走真的本机
- * QuotaHub（没设就照旧只报 quotas=missing）；输出仍只有数字。
+ * SUB1b：额度默认就从本机 magpie 读；设了 `IXAEON_MAGPIE_URL` 时写进临时库的
+ * `cockpit.magpie_url` 换一个本机地址。输出仍只有数字（卡片数、窗口数），不打印账号名。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,9 +26,9 @@ import { relayDir } from '../../packages/relay/src/datadir.js';
 const dir = mkdtempSync(join(tmpdir(), 'ixaeon-k2-real-'));
 const db = openDatabase(join(dir, 'ixaeon.db'));
 migrate(db);
-// K4：真机检查可以显式指向本机 QuotaHub；默认不动，保持 K2 的「没配 = missing」。
-const quotaUrl = process.env.IXAEON_QUOTAHUB_URL?.trim();
-if (quotaUrl) setSetting(db, 'cockpit.quotahub_url', quotaUrl);
+// SUB1b：真机检查可以显式指向本机 magpie；不设就用默认 http://127.0.0.1:3425。
+const magpieUrl = process.env.IXAEON_MAGPIE_URL?.trim();
+if (magpieUrl) setSetting(db, 'cockpit.magpie_url', magpieUrl);
 try {
   const projects = new ProjectService(db);
   projects.create({ name: 'K2 真机 active', rootPath: null, description: null });

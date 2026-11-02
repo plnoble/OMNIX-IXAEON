@@ -52,11 +52,14 @@ export const quotaWindowSchema = z.object({
   name: z.string(),
   usedPercent: z.number().nullable(),
   resetAt: z.string().nullable(),
+  /** SUB1b：magpie 给人看的那句（如「564 / 4800 credits」），原样显示；手动登记没有 = null。 */
+  display: z.string().nullable(),
 });
 export type QuotaWindow = z.infer<typeof quotaWindowSchema>;
-/** K4：一个账号一张卡。只含规格契约列出的字段，QuotaHub 返回里别的字段一律不进快照。 */
+/** K4：一个账号一张卡。只含规格契约列出的字段，上游返回里别的字段一律不进快照。 */
 export const quotaCardSchema = z.object({
-  source: z.enum(['quotahub', 'manual']),
+  // SUB1b：额度来源改成 magpie（旧的额度转发服务已拿掉）；手动登记照留。
+  source: z.enum(['magpie', 'manual']),
   provider: z.string(),
   account: z.string(),
   status: z.string(),

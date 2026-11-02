@@ -1,9 +1,11 @@
 /**
- * K4：驾驶舱的额度区。数据来自 K2 快照的 `quotas`（可选：K3 的模拟快照没有）。
- * 每个账号一张卡；手动登记同一账号的多条窗口合成一张。倒计时按 `resetAt` 现算。
+ * K4 驾驶舱额度区（数据来自 K2 快照的 `quotas`）。SUB1b：来源改成 magpie；窗口 `display`
+ * 原样显示，「刷新」让主进程调 magpie 再读一次（30 秒内连点只发一次）。同一账号的多条窗口合成一张。
  */
+import { useState } from 'react';
 import type { QuotaCard, SourceHealth } from '@ixaeon/contracts';
-import { Card, Empty } from '../ui.js';
+import { api, errMsg } from '../api.js';
+import { Button, Card, Empty } from '../ui.js';
 
 const STATUS_ZH: Record<string, string> = {
   ok: '正常',
@@ -50,17 +52,58 @@ function mergeCards(cards: QuotaCard[]): QuotaCard[] {
   return [...byKey.values()];
 }
 
-export function QuotaSection({ cards, health }: { cards: QuotaCard[]; health?: SourceHealth }) {
+export function QuotaSection({
+  cards,
+  health,
+  onRefresh,
+}: {
+  cards: QuotaCard[];
+  health?: SourceHealth;
+  onRefresh?: () => void | Promise<void>;
+}) {
   const now = Date.now();
   const list = mergeCards(cards);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      await api.refreshMagpieQuotas();
+      await onRefresh?.();
+    } catch (err) {
+      setRefreshError(errMsg(err));
+    } finally {
+      setRefreshing(false);
+    }
+  };
   return (
-    <Card title="额度" testId="cockpit-quotas">
+    <Card
+      title="额度"
+      testId="cockpit-quotas"
+      actions={
+        <Button
+          kind="ghost"
+          disabled={refreshing}
+          onClick={() => void refresh()}
+          testId="cockpit-quota-refresh"
+        >
+          {refreshing ? '刷新中…' : '刷新'}
+        </Button>
+      }
+    >
+      {refreshError && (
+        <p className="warn" data-testid="cockpit-quota-refresh-error">
+          {refreshError}
+        </p>
+      )}
       {health && health.status !== 'ok' && (
         <p
           className={health.status === 'error' ? 'warn' : 'muted'}
           data-testid="cockpit-quota-note"
         >
-          {health.note ?? (health.status === 'missing' ? '未连接 QuotaHub' : '额度来源不正常')}
+          {health.note ?? (health.status === 'missing' ? '没连上 magpie' : '额度来源不正常')}
         </p>
       )}
       {list.length === 0 ? (
@@ -68,7 +111,7 @@ export function QuotaSection({ cards, health }: { cards: QuotaCard[]; health?: S
       ) : (
         <ul className="work-run-list">
           {list.map((q) => {
-            const stale = q.source === 'quotahub' && now - Date.parse(q.collectedAt) > 15 * 60_000;
+            const stale = q.source === 'magpie' && now - Date.parse(q.collectedAt) > 15 * 60_000;
             const resetPassed =
               q.source === 'manual' &&
               q.windows.some((w) => w.resetAt !== null && Date.parse(w.resetAt) <= now);
@@ -98,6 +141,11 @@ export function QuotaSection({ cards, health }: { cards: QuotaCard[]; health?: S
                       <span className="muted">
                         {w.usedPercent === null ? '用量未知' : `已用 ${w.usedPercent}%`}
                       </span>{' '}
+                      {w.display && (
+                        <span className="muted" data-testid="cockpit-quota-display">
+                          {w.display}
+                        </span>
+                      )}{' '}
                       {w.usedPercent !== null && (
                         <span
                           className="update-progress-track"

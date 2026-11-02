@@ -229,6 +229,7 @@ export { JsonRpcStdio } from './runtime/jsonrpcStdio.js';
 export { readRelaySnapshot } from './cockpit/relay.js';
 export { buildCockpitSnapshot } from './cockpit/snapshot.js';
 export { readRelayModels, setRelayModel } from './cockpit/relayModels.js';
+export { checkMagpieUrl, refreshMagpieQuotas } from './cockpit/quotas.js';
 export { buildProjectBrief, type ProjectBriefCounts } from './runtime/projectBrief.js';
 export { CoreToolBroker, CORE_TOOL_NAMES, type CoreToolName } from './runtime/broker.js';
 export {

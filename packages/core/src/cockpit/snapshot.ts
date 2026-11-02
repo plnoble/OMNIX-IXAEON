@@ -135,7 +135,7 @@ function readProjects(db: CoreDatabase, now: Date) {
  * `ixaeonRepo` 只认参数（设置项是 IPC 那一层的事，空串 = 没设）；`relayDir` 空串时用
  * `IXAEON_RELAY_DIR`、默认 `~/.ixaeon/relay`。
  *
- * K4 起返回 Promise：额度要等 QuotaHub 的 HTTP 回答，同步等会卡住事件循环（同进程的
+ * K4 起返回 Promise：额度要等 magpie 的 HTTP 回答，同步等会卡住事件循环（同进程的
  * 合成服务回不了话）。项目活动仍是同步跑 git。
  */
 export async function buildCockpitSnapshot(

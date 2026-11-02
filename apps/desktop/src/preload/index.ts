@@ -91,6 +91,8 @@ const api: IxaIpcApi = {
   getGoalDetail: (id) => ipcRenderer.invoke('ixaeon:getGoalDetail', id),
   // K2：驾驶舱快照（只读）
   getCockpitSnapshot: () => ipcRenderer.invoke('ixaeon:getCockpitSnapshot'),
+  // SUB1b：驾驶舱额度区的「刷新」
+  refreshMagpieQuotas: () => ipcRenderer.invoke('ixaeon:refreshMagpieQuotas'),
   // K10a：调度器与模型（只读 / 改调度器配置，下一棒生效）
   getRelayModels: () => ipcRenderer.invoke('ixaeon:getRelayModels'),
   setRelayModel: (input) => ipcRenderer.invoke('ixaeon:setRelayModel', input),

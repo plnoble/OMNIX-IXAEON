@@ -21,6 +21,7 @@ import {
   readTaskChanges,
   readRelayModels,
   recordAudit,
+  refreshMagpieQuotas,
   removeRequirement,
   requeueFailedExtractions,
   setRelayModel,
@@ -554,12 +555,14 @@ export function registerIpc(runtime: AppRuntime): void {
     listGoals: async () => runtime.listGoals(),
     getGoalDetail: async (id) => runtime.getGoalDetail(id),
     // K2：驾驶舱快照（只读）。ixaeonRepo 只认设置项；relayDir 空串 = 用环境变量/默认目录。
-    // K4：快照改成异步（额度要等 QuotaHub 的 HTTP 回答）。
+    // K4：快照改成异步（额度要等 magpie 的 HTTP 回答）。
     getCockpitSnapshot: async () =>
       await buildCockpitSnapshot(runtime.db, {
         relayDir: '',
         ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
       }),
+    // SUB1b：驾驶舱额度区的「刷新」→ 主进程让 magpie 再读一次（30 秒内连点只发一次）。
+    refreshMagpieQuotas: async () => await refreshMagpieQuotas(runtime.db),
     // K10a：调度器与模型（只读名字；改的是调度器配置 / 接力补丁，下一棒生效）。relayDir 空串 = 用环境变量/默认目录。
     getRelayModels: async () => readRelayModels({ relayDir: '' }),
     setRelayModel: async (input) => {
@@ -769,7 +772,7 @@ export function registerIpc(runtime: AppRuntime): void {
         dataDir: runtime.state.dataDir,
         cockpit: {
           ixaeonRepo: getSetting(runtime.db, 'cockpit.ixaeon_repo')?.value ?? '',
-          quotahubUrl: getSetting(runtime.db, 'cockpit.quotahub_url')?.value ?? '',
+          magpieUrl: getSetting(runtime.db, 'cockpit.magpie_url')?.value ?? '',
           manualQuotas: savedManualQuotas(getSetting(runtime.db, 'cockpit.manual_quotas')?.value),
           mobileEnabled: readMobileSettings(runtime.db).enabled,
           mobilePort: readMobileSettings(runtime.db).port,
@@ -793,8 +796,8 @@ export function registerIpc(runtime: AppRuntime): void {
       if (input.ixaeonRepo !== undefined) {
         setSetting(runtime.db, 'cockpit.ixaeon_repo', input.ixaeonRepo.trim());
       }
-      if (input.quotahubUrl !== undefined) {
-        setSetting(runtime.db, 'cockpit.quotahub_url', input.quotahubUrl.trim());
+      if (input.magpieUrl !== undefined) {
+        setSetting(runtime.db, 'cockpit.magpie_url', input.magpieUrl.trim());
       }
       if (input.manualQuotas !== undefined) {
         setSetting(runtime.db, 'cockpit.manual_quotas', JSON.stringify(input.manualQuotas));
