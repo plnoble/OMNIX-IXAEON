@@ -3,10 +3,8 @@ import type { RelayModelRole, RelayModels, RelayModelRow, RunningItem } from '@i
 import { api, errMsg } from '../api.js';
 import { Card, ErrorBanner } from '../ui.js';
 
-/**
- * K10a（第二支）：驾驶舱「调度器与模型」。只显示 provider / model 名字与角色；
- * 改的是调度器配置 / 接力补丁，下一棒生效。
- */
+/** K10a（第二支）：驾驶舱「调度器与模型」。只显示 provider / model 名字与角色；
+ * 改的是调度器配置 / 接力补丁，下一棒生效。MG2：整合方 / 审查 / 开发也能选 magpie 的模型和分组。 */
 const LABEL: Record<RelayModelRole, string> = {
   developer: '开发（DSH）',
   integrator: '整合方（Claude）',
@@ -14,12 +12,17 @@ const LABEL: Record<RelayModelRole, string> = {
   reviewerSubstitute: '替补审查',
   integratorSubstitute: '替补整合方',
 };
+const DEFAULT_REVIEWER = '跟 Codex 自己的设置';
 const RUN_LABEL: Record<string, string> = {
   developer: '开发',
   integrator: '整合方',
   reviewer: '审查',
   'integrator-substitute': '替补整合方',
 };
+
+/** 审查那行选「默认」时，值写 `默认`（服务端会同时清掉 codexModel 和 magpieModel）。 */
+const reviewerValue = (current: string | null): string =>
+  !current || current === DEFAULT_REVIEWER ? '默认' : current;
 
 /** 「网关 / 模型」按网关分组；没有分隔符的整条当一组。 */
 function groups(options: string[]): Array<[string, string[]]> {
@@ -64,7 +67,11 @@ export function RelayModelsSection({ running }: { running: RunningItem[] }) {
       setModels(next);
       const reviewer = next.roles.find((r) => r.role === 'reviewer');
       setDraft(
-        reviewer?.current && reviewer.current !== '跟 Codex 自己的设置' ? reviewer.current : '',
+        reviewer?.current &&
+          reviewer.current !== DEFAULT_REVIEWER &&
+          !reviewer.current.includes('/')
+          ? reviewer.current
+          : '',
       );
       setError(null);
     } catch (err) {
@@ -117,6 +124,15 @@ export function RelayModelsSection({ running }: { running: RunningItem[] }) {
       )}
     </select>
   );
+  /** MG2：连不上 magpie 时在行旁边写一句（不挡原来的选项）。 */
+  const note = (role: RelayModelRole) => {
+    const text = rowOf(role)?.note;
+    return text ? (
+      <span className="muted" data-testid={`relay-model-note-${role}`}>
+        {text}
+      </span>
+    ) : null;
+  };
   const dsh = (role: RelayModelRole) => {
     const r = rowOf(role);
     return !r?.configured ? (
@@ -126,7 +142,7 @@ export function RelayModelsSection({ running }: { running: RunningItem[] }) {
     ) : (
       <>
         <span data-testid={`relay-model-current-${role}`}>{r.current ?? '—'}</span>{' '}
-        {picker(role, r.current, r.options)}
+        {picker(role, r.current, r.options)} {note(role)}
       </>
     );
   };
@@ -151,7 +167,7 @@ export function RelayModelsSection({ running }: { running: RunningItem[] }) {
               <span data-testid="relay-model-current-integrator">
                 {integrator.current ?? '默认'}
               </span>{' '}
-              {picker('integrator', integrator.current, integrator.options)}
+              {picker('integrator', integrator.current, integrator.options)} {note('integrator')}
             </>
           ) : (
             <span className="muted" data-testid="relay-model-current-integrator">
@@ -163,6 +179,10 @@ export function RelayModelsSection({ running }: { running: RunningItem[] }) {
         <li className="work-run" data-testid="relay-model-row-reviewer">
           <span className="badge">{LABEL.reviewer}</span>{' '}
           <span data-testid="relay-model-current-reviewer">{reviewer?.current ?? '—'}</span>{' '}
+          {reviewer && reviewer.options.length > 0
+            ? picker('reviewer', reviewerValue(reviewer.current), reviewer.options)
+            : null}{' '}
+          {note('reviewer')}
           <input
             type="text"
             value={draft}
