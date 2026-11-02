@@ -38,7 +38,7 @@
 
 ## 验收测试
 
-- 任务的 14 条验收条件写成 25 个 `it`，文件是 `packages/core/test/acceptance/d5b-review-tests.test.ts`，**在第二支 D5c**。那支要接线才跑得动；本支只有纯函数，跑那份会 19 条红。
+- 任务的 14 条验收条件写成 25 个 `it`，文件是 `packages/core/test/acceptance/d5b-review-tests.test.ts`，**在第二支 D5c**（本支没有这份文件）。那支要接线才跑得动；把接线拿掉、只留本支的纯函数，那 25 条会红 19 条。
 - 本支的 12 条单元测试只钉 `testReview.ts`：契约第 3 条 `system` 逐字（条件 4 的前半）、`user` 的拼法与 20000/60000 字上限（条件 4、12）、越界/空白 `detail`/不认识的 `kind` 都丢掉（条件 11）、契约第 4 条补测试交代与第 5 条失败原因的原文。
 - 本支没有锁任何验收测试：B 档的 `acceptance.mjs lock` 是整合方的关卡。
 
