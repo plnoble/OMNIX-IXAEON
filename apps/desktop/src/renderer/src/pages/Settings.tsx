@@ -15,6 +15,11 @@ import { QuotaSettingsCard } from './QuotaSettings.js';
 /** 恢复预览状态（含所选 ZIP 路径）。 */
 type RestorePreviewState = RestorePreview & { zipPath: string };
 
+/** SUB1：本机 magpie 的固定地址与 Key（magpie 本机网关的默认值，用户也可手改）。 */
+const MAGPIE_BASE = 'http://127.0.0.1:3425/v1';
+const MAGPIE_KEY = 'magpie';
+const MAGPIE_UNREACHABLE = '没连上本机 magpie（127.0.0.1:3425），先把 magpie 打开';
+
 /**
  * 应用更新卡片（GitHub 发版）：检查新版本、显示下载状态、
  * 下载完成后由用户点击安装（不自动重启）。开发运行时能力不存在 → 不显示。
@@ -365,6 +370,8 @@ export function SettingsPage({
   const [modelFilter, setModelFilter] = useState('');
   /** M3：这次保存因换地址把已保存的 Key 清掉了（且现在确实没 Key）→ 卡片里提示。 */
   const [keyClearedNotice, setKeyClearedNotice] = useState(false);
+  /** SUB1：「用本机 magpie」没连上时的提示；连上了或用户改了地址就清掉。 */
+  const [magpieError, setMagpieError] = useState<string | null>(null);
   // D7b：编码任务交给谁（照 getSettings 回传的两项初始化）
   const [codingExec, setCodingExec] = useState<'codex' | 'model'>('codex');
   const [codingModel, setCodingModel] = useState('');
@@ -545,6 +552,50 @@ export function SettingsPage({
       setError(errMsg(err));
     } finally {
       setFetchingModels(false);
+    }
+  };
+
+  /**
+   * SUB1：用本机 magpie 一键预设。走现有检测通道（`listAvailableModels`），不另开写配置的
+   * IPC；检测用的是预设的地址与 Key，**连上了才把预设填进表单**——连不上时表单不动，
+   * 只在按钮下面说清怎么把 magpie 打开。
+   */
+  const useMagpie = async () => {
+    const seq = ++fetchSeqRef.current;
+    setFetchingModels(true);
+    setError(null);
+    setNotice(null);
+    setMagpieError(null);
+    try {
+      const result = await api.listAvailableModels({
+        apiBaseUrl: MAGPIE_BASE,
+        apiKey: MAGPIE_KEY,
+      });
+      if (seq !== fetchSeqRef.current) return;
+      setForm((f) => ({ ...f, apiBaseUrl: MAGPIE_BASE, apiKey: MAGPIE_KEY }));
+      setModels(result.models);
+      // 勾选重建与 fetchModels 同一套规则：已保存的默认打勾，重检不撤销用户尚未保存的选择。
+      try {
+        const fresh = await api.getSettings();
+        setView(fresh);
+        const upstreamIds = new Set(result.models.map((m) => m.id));
+        setChecked((prev) => {
+          const next = new Set<string>(fresh.config.savedModels ?? []);
+          for (const id of prev) {
+            if (!next.has(id) && upstreamIds.has(id)) next.add(id);
+          }
+          for (const id of uncheckedRef.current) next.delete(id);
+          return [...next];
+        });
+      } catch {
+        /* 拿不到最新清单：勾选保持现状，保存时的过滤兜底 */
+      }
+      setNotice(`检测到 ${result.models.length} 个 magpie 模型，勾选要保存的，再点「保存选择」`);
+    } catch {
+      if (seq !== fetchSeqRef.current) return;
+      setMagpieError(MAGPIE_UNREACHABLE);
+    } finally {
+      if (seq === fetchSeqRef.current) setFetchingModels(false);
     }
   };
 
@@ -962,6 +1013,9 @@ export function SettingsPage({
           就是留空，启动引擎时传过去，不会改写你的 Hermes config.yaml。保存后下一次提问生效。
         </p>
         <div className="wizard-nav">
+          <Button disabled={fetchingModels} onClick={useMagpie} testId="settings-magpie">
+            用本机 magpie
+          </Button>
           <Button disabled={fetchingModels} onClick={fetchModels} testId="settings-fetch-models">
             {fetchingModels ? '检测中…' : '检测模型'}
           </Button>
@@ -969,6 +1023,11 @@ export function SettingsPage({
             保存选择
           </Button>
         </div>
+        {magpieError && (
+          <p className="warn" data-testid="settings-magpie-error">
+            {magpieError}
+          </p>
+        )}
       </Card>
 
       <Card title="编码任务交给谁" testId="settings-coding">

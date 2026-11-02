@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ErrorCodes, IxaError } from '@ixaeon/contracts';
 import { locateHermes, hermesSpawnEnv, type HermesLocator } from './hermesLocator.js';
 import {
@@ -63,6 +64,28 @@ export interface HermesRunResult {
 }
 
 /**
+ * 起 Hermes 网关时由 IXAEON 决定的启动参数。网关地址与 Key 是 SUB1 加的：
+ * 聊天模型来自「模型接入」，如果只传模型名、不传网关，Hermes 还是连自己
+ * config.yaml 里的网关，会出现「模型没有可用渠道」。
+ */
+export interface HermesLaunchOptions {
+  chatModel: string | null;
+  chatBaseUrl?: string | null;
+  chatApiKey?: string | null;
+  bridgeToken: string | null;
+}
+
+/** 启动参数指纹：模型、网关地址、Key、记忆桥令牌任何一个变了都要重开进程。Key 只留哈希。 */
+function launchKeyOf(launch: HermesLaunchOptions): string {
+  return JSON.stringify([
+    launch.chatModel ?? '',
+    launch.chatBaseUrl ?? '',
+    launch.chatApiKey ? createHash('sha256').update(launch.chatApiKey).digest('hex') : '',
+    launch.bridgeToken ?? '',
+  ]);
+}
+
+/**
  * Hermes 适配器：能力以实测为准。本机未装时所有会话能力为 false。
  * 找到可执行文件后走官方 TUI gateway JSON-RPC（stdio），不假装单轮问答就是 Agent。
  */
@@ -75,7 +98,7 @@ export class HermesRuntimeAdapter {
    */
   private resident = new Map<string, TuiGatewaySession>();
 
-  /** contextRef → 该长驻会话的启动参数指纹（聊天模型、记忆桥令牌；变了必须重开进程）。 */
+  /** contextRef → 该长驻会话的启动参数指纹（聊天模型、网关、记忆桥令牌；变了必须重开进程）。 */
   private residentLaunchKey = new Map<string, string>();
 
   constructor(
@@ -87,12 +110,9 @@ export class HermesRuntimeAdapter {
     ) => TuiTransport,
     /**
      * 启动网关时由 IXAEON 决定的参数：聊天模型（空 = 用 Hermes 自己 config.yaml 里的）、
-     * 记忆桥令牌（空 = 记忆桥关着）。
+     * 聊天网关地址与 Key（空 = 沿用 Hermes 自己的 config.yaml）、记忆桥令牌（空 = 记忆桥关着）。
      */
-    private readonly getLaunchOptions?: () => {
-      chatModel: string | null;
-      bridgeToken: string | null;
-    },
+    private readonly getLaunchOptions?: () => HermesLaunchOptions,
   ) {}
 
   probe(): RuntimeCapabilities {
@@ -131,7 +151,7 @@ export class HermesRuntimeAdapter {
       );
     }
     const launch = this.getLaunchOptions?.() ?? { chatModel: null, bridgeToken: null };
-    const launchKey = JSON.stringify([launch.chatModel ?? '', launch.bridgeToken ?? '']);
+    const launchKey = launchKeyOf(launch);
     let session = this.reusableResident(input, launchKey);
     if (session) {
       // 复用长驻进程内已有 session_id（含预热建好的会话）；调用方传来的 resumeSessionId 与之一致。
@@ -170,7 +190,7 @@ export class HermesRuntimeAdapter {
     const caps = this.probe();
     if (!caps.locator.found || !caps.locator.exe) return false;
     const launch = this.getLaunchOptions?.() ?? { chatModel: null, bridgeToken: null };
-    const launchKey = JSON.stringify([launch.chatModel ?? '', launch.bridgeToken ?? '']);
+    const launchKey = launchKeyOf(launch);
     if (this.reusableResident(input, launchKey)) return true;
     const session = this.spawnSession(caps.locator, input, launch, []);
     this.resident.set(input.contextRef, session);
@@ -195,7 +215,7 @@ export class HermesRuntimeAdapter {
     const resident = this.resident.get(contextRef);
     if (!resident) return false;
     const launch = this.getLaunchOptions?.() ?? { chatModel: null, bridgeToken: null };
-    const launchKey = JSON.stringify([launch.chatModel ?? '', launch.bridgeToken ?? '']);
+    const launchKey = launchKeyOf(launch);
     return (
       !resident.isDead &&
       resident.permissionVersion === permissionVersion &&
@@ -229,7 +249,7 @@ export class HermesRuntimeAdapter {
   private spawnSession(
     locator: HermesLocator,
     input: RuntimeRunInput,
-    launch: { chatModel: string | null; bridgeToken: string | null },
+    launch: HermesLaunchOptions,
     mcpBridgedTools: string[],
   ): TuiGatewaySession {
     const args = hermesGatewayArgs();
