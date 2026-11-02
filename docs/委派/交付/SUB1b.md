@@ -140,3 +140,57 @@ B 档，不跑 Codex 审查。
 ## 用户接受
 
 未发生（用户用过并认可之后才写）。
+
+## 整合方复审（2026-11-02，接力第 83 棒）
+
+结论：**并入 main**。两支在 `integrate/SUB1` 上（基于 main，`--no-ff` 先并 `dev/SUB1` 再并 `dev/SUB1b`），加上下面的修改。第一支的复审结论也写在这里（[SUB1](SUB1.md) 末尾指过来）。
+
+**逐行读过的**：两支源码 diff（`hermesLocator.ts` / `adapter.ts` 的启动环境与启动指纹、`appRuntime.ts` 交 Key、`Settings.tsx` 预设按钮、`quotas.ts`、IPC / preload、驾驶舱额度区、设置页额度来源、契约）、7 份新验收测试、真机脚本。
+
+**整合方已改（源码 2 处）：**
+
+1. `packages/core/src/cockpit/quotas.ts`：
+   - `usedPercent` 原来「有 `limit` 就 `used / limit × 100`」，是规格更正前的旧口径（真机截图里 workbuddy 显示「已用 0.1468…%」就是它）。改成 `used` 原值（规格 SUB1b 第 2 条）；本机 magpie 只读核对：各家 `used` 都在 0–100，workbuddy `used 10.134 / limit 6900 / display "699.25 / 6900"`。`sub1b-magpie-quotas` 条件 4 的测试也是按旧口径写的，照规格条件 4 改了合成数据和期望。
+   - 原来任何 `fetch` 抛错都记 `missing`（「没连上」），超时、被跳转也算——`k4-redirect` 因此红。改成只有 `ECONNREFUSED` / `EHOSTUNREACH` / `ENETUNREACH` / `EADDRNOTAVAIL` 记 `missing`，其余记 `error`。
+   - 手动登记坏了时，原来会被「magpie 没开」的 `missing` 盖住；改成手动坏了一律 `error`。
+2. `apps/desktop/src/renderer/src/pages/CockpitQuotas.tsx`：「已用 x%」最多留一位小数（真机上 qoder 一个窗口显示成 `20.142857142857142%`）。补界面测试。
+
+**K4 锁定测试改写（规格第 4 条交给整合方的）**：`k4-quota.test.ts` 的 11 条全部改成对合成 magpie（同样的条件：没开 → missing、空地址走默认 `127.0.0.1:3425`、超时 → error、只取列出的字段、`user` / `icon` / `daily` / 夹带的 cookie 都不进快照、HTTP 500 / 非 JSON / 缺 data → error、手动登记）；没设地址的用例原来会打到本机真 magpie，改成「起一个服务再关掉」拿确定没人听的端口。`k4-redirect` 改成 magpie 路径。`k4b` / `k4c` 改 `source: 'magpie'`、`magpieUrl`。删 `scripts/real/k4-cockpit-quota.mjs`（造 QuotaHub 的旧脚本，没别处引用）。
+
+**补的测试（变异检查发现没测到的）**：刷新回 302 不跟过去（`sub1b-magpie-quotas`）；换 Key 也重开 Hermes 进程（`sub1-hermes-gateway`）。
+
+**变异检查**：39 处逐一改坏实现（地址校验 4 项、Key、跳转、超时、限流、字段映射、状态分类、刷新方法、Hermes 环境 4 项、启动指纹 2 项、交 Key、预设地址 / Key / 提示 / 填表、清单、display、刷新调 IPC 与重读、保存只写一个键、百分比取整），补测试后 39 处全红。
+
+**锁定**：K4 重锁（3 个文件）仍 `done`；K4b、K4c 更新指纹，仍 `queued`；SUB1（4 个文件）、SUB1b（3 个文件）锁定并 `done`。
+
+**自动化**：K4 三份、K4b、K4c、SUB1 四份、SUB1b 三份，12 个文件 55 条全过；`node scripts/verify.mjs` 全过（含 `acceptance-lock`、`local-user`）。
+
+**真机（整合方在最终代码上亲手跑，先 `node scripts/build.mjs`；用户本机真 magpie）**：`scripts/real/sub1-magpie.mjs` 原来写死聊天模型 `auto/deepseek-v4.1-flash`，本机 magpie 今天已没有这个模型，脚本因此失败；改成优先它、没有就取清单里第一个 `*/deepseek-v4.1-flash`。重跑输出（模型清单从略）：
+
+```text
+MAGPIE models=22
+CHAT_MODEL opencode-go/deepseek-v4.1-flash
+HERMES_ENV given
+HERMES found=true
+PRESET base=http://127.0.0.1:3425/v1 key=magpie
+SAVED models+chat model
+ANSWER OK 本轮经 Hermes TUI gateway（stdio JSON-RPC）。…… 引擎 hermes · 模型 opencode-go/deepseek-v4.1-flash
+QUOTAS cards=5 windows=45 note=（无）
+shots=true models=true quotas=true
+RESULT 通过：magpie 预设与模型清单一致、聊天真的走 magpie 答出 OK、驾驶舱额度区读到卡片；两张截图已落盘
+```
+
+两张截图重拍、覆盖 `docs/委派/附件/SUB1-magpie-models.png`、`SUB1-cockpit-quotas.png`（看过：模型图只有模型名；额度图账号名已涂黑，百分比是一位小数）。
+
+**四件事分开说：**
+
+- 已实现：规格 SUB1 条件 1–3、SUB1b 条件 4–8。
+- 自动化通过：见上。
+- 真机通过：甲项（整合方重跑）通过；乙项待用户实测。
+- 用户接受：未发生。
+
+**缺口（如实）：**
+
+- 任务行第 ③ 项「调度器与模型的开发、两个替补默认从 magpie 的模型里选」：两支都没做，规格也没有这条验收条件。它和第 161 行 MG2（面板从 magpie 的模型和分组里选、调度器按 magpie 接法起角色）是同一件事，归 MG2 复审时一起看；不替用户改真实调度器配置。
+- 额度卡 `status` 固定 `ok`、`expiresAt` 固定 null（magpie 卡片没有对应字段）。
+- 真机里 Hermes 的位置由运行环境里的 `IXAEON_HERMES_HOME` / `IXAEON_HERMES_EXE` / `HERMES_HOME` 给出（脚本只检查给到、不打印路径），跑的是开发用过的同一套环境；用户真实桌面版待用户实测。

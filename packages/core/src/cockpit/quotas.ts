@@ -44,13 +44,12 @@ export function checkMagpieUrl(raw: string): { base?: string; reason?: string } 
   return { base: `http://${url.hostname}:${url.port}` };
 }
 
-/** 窗口用量百分比：`unit` 是 `%` 时就是 used；有 limit（>0）时按比例；都没有 = null。 */
+/**
+ * 窗口用量百分比：magpie 的 `used` 本身就是百分比（本机实测 `used: 10.13, limit: 6900,
+ * display: "699.25 / 6900"`，699.25 / 6900 = 10.13%），不拿 `limit` 去除；不是数 = null。
+ */
 function usedPercentOf(win: Record<string, unknown>): number | null {
-  const used = num(win.used);
-  if (used === null) return null;
-  if (text(win.unit) === '%') return used;
-  const limit = num(win.limit);
-  return limit !== null && limit > 0 ? (used / limit) * 100 : null;
+  return num(win.used);
 }
 
 /**
@@ -109,11 +108,22 @@ async function readMagpie(base: string, now: Date): Promise<MagpieRead> {
     } catch {
       return { cards: [], error: 'magpie 返回的不是 JSON 或格式不对', reachable: true };
     }
-  } catch {
-    return { cards: [], error: '没连上 magpie', reachable: false };
+  } catch (err) {
+    // 只有「连不上」（端口上没人听、主机不可达）才算 magpie 没开 = missing；
+    // 超时、被跳转（redirect: 'error'）、对面中途断开都是「连上了但不对劲」= error。
+    return refused(err)
+      ? { cards: [], error: '没连上 magpie', reachable: false }
+      : { cards: [], error: 'magpie 没有正常回答（超时、被跳转或中途断开）', reachable: true };
   } finally {
     clearTimeout(timer);
   }
+}
+
+const NOT_LISTENING = new Set(['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'EADDRNOTAVAIL']);
+
+function refused(err: unknown): boolean {
+  const code = (err as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return typeof code === 'string' && NOT_LISTENING.has(code);
 }
 
 function readManual(raw: string): { cards: C.QuotaCard[]; error: string | null } {
@@ -169,13 +179,9 @@ export async function readQuotas(
   }
   const magpie = await readMagpie(checked.base, now);
   const notes = [manual.error, magpie.error].filter(Boolean).join('；');
-  const status: C.SourceHealth['status'] = !magpie.error
-    ? manual.error
-      ? 'error'
-      : 'ok'
-    : magpie.reachable
-      ? 'error'
-      : 'missing';
+  // 手动登记坏了是配置错误，不能被「magpie 没开」的 missing 盖住。
+  const status: C.SourceHealth['status'] =
+    manual.error || (magpie.error && magpie.reachable) ? 'error' : magpie.error ? 'missing' : 'ok';
   return {
     health: health(status, notes || null),
     cards: [...magpie.cards, ...manual.cards],

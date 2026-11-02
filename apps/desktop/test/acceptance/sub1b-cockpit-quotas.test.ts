@@ -116,6 +116,19 @@ describe('SUB1b 驾驶舱额度区（magpie）', () => {
     expect(container.textContent).toContain('重置');
   });
 
+  it('百分比最多一位小数：20.142857142857142 → 已用 20.1%（整合方 11-02 补，真机见原始浮点）', async () => {
+    state.snapshot = snap({
+      quotas: [
+        card({
+          windows: [{ name: '额外', usedPercent: 20.142857142857142, resetAt: null, display: null }],
+        }),
+      ],
+    });
+    await render();
+    expect(container.textContent).toContain('已用 20.1%');
+    expect(container.textContent).not.toContain('20.14');
+  });
+
   it('条件 5 界面段：没连上 magpie 的 note 照实显示，不报错', async () => {
     state.snapshot = snap({
       sources: {

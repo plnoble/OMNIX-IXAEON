@@ -2,7 +2,7 @@
 /**
  * K4c 界面测试（设置页的额度来源；实现阶段补的，B 档新测试，等整合方锁定）。
  *
- * 规格「要什么 / 手动登记」：设置页能填 QuotaHub 地址（空串 = 关闭），手动登记
+ * 规格「要什么 / 手动登记」：设置页能填 magpie 地址（空串 = 默认本机地址；SUB1b 起代替 QuotaHub 地址），手动登记
  * 账号显示名、窗口名、下次重置、订阅到期、备注，用 `setSetting` 存进
  * `cockpit.manual_quotas`；核心层的 schema 校验读得回来。
  */
@@ -17,13 +17,13 @@ import type { SettingsView } from '@ixaeon/contracts';
 const NOW = new Date('2026-10-31T12:00:00+08:00');
 const state = vi.hoisted(() => ({
   view: null as unknown,
-  saved: [] as Array<{ quotahubUrl?: string; manualQuotas?: unknown[] }>,
+  saved: [] as Array<{ magpieUrl?: string; manualQuotas?: unknown[] }>,
 }));
 
 vi.mock('../../src/renderer/src/api.js', () => ({
   api: {
     getSettings: async () => state.view,
-    saveCockpitSettings: async (input: { quotahubUrl?: string; manualQuotas?: unknown[] }) => {
+    saveCockpitSettings: async (input: { magpieUrl?: string; manualQuotas?: unknown[] }) => {
       state.saved.push(input);
       return { ok: true as const };
     },
@@ -63,9 +63,9 @@ async function render(): Promise<void> {
   });
 }
 
-function view(over: { quotahubUrl?: string; manualQuotas?: unknown[] } = {}): SettingsView {
+function view(over: { magpieUrl?: string; manualQuotas?: unknown[] } = {}): SettingsView {
   return {
-    cockpit: { ixaeonRepo: '', quotahubUrl: '', manualQuotas: [], ...over },
+    cockpit: { ixaeonRepo: '', magpieUrl: '', manualQuotas: [], ...over },
   } as unknown as SettingsView;
 }
 
@@ -81,7 +81,7 @@ async function fill(id: string, value: string): Promise<void> {
 describe('K4 设置页的额度来源', () => {
   it('读回已保存的地址与手动条目', async () => {
     state.view = view({
-      quotahubUrl: 'http://127.0.0.1:8787',
+      magpieUrl: 'http://127.0.0.1:3425',
       manualQuotas: [
         {
           account: 'Claude 合成',
@@ -94,19 +94,19 @@ describe('K4 设置页的额度来源', () => {
     });
     await render();
 
-    expect($<HTMLInputElement>('settings-quotahub-url')!.value).toBe('http://127.0.0.1:8787');
+    expect($<HTMLInputElement>('settings-magpie-url')!.value).toBe('http://127.0.0.1:3425');
     expect($$('settings-manual-quota')).toHaveLength(1);
     expect(container.textContent).toContain('Claude 合成');
   });
 
-  it('保存地址 → 传 quotahubUrl（只写这一个键）', async () => {
+  it('保存地址 → 传 magpieUrl（只写这一个键）', async () => {
     state.view = view();
     await render();
-    await fill('settings-quotahub-url', 'http://localhost:8787');
+    await fill('settings-magpie-url', 'http://localhost:3425');
     await act(async () => {
-      $<HTMLButtonElement>('settings-quotahub-save')!.click();
+      $<HTMLButtonElement>('settings-magpie-url-save')!.click();
     });
-    expect(state.saved).toEqual([{ quotahubUrl: 'http://localhost:8787' }]);
+    expect(state.saved).toEqual([{ magpieUrl: 'http://localhost:3425' }]);
   });
 
   it('登记一条手动额度 → manualQuotas 里多一项，带登记时刻与窗口名', async () => {

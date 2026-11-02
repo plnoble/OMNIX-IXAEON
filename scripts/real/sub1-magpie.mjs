@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const MAGPIE = 'http://127.0.0.1:3425';
-const CHAT_MODEL = 'auto/deepseek-v4.1-flash';
+const PREFERRED_CHAT_MODEL = 'auto/deepseek-v4.1-flash';
 const QUESTION = '只回复两个字母：OK';
 
 const maskOut = (v) => {
@@ -82,6 +82,13 @@ try {
   process.exit(1);
 }
 console.log(`MAGPIE models=${magpieModels.length}`);
+// magpie 的模型清单会变（11-02 起没有 auto/deepseek-v4.1-flash 了）：优先它，没有就取清单里第一个
+// deepseek-v4.1-flash（便宜、快）。
+const CHAT_MODEL =
+  magpieModels.find((m) => m === PREFERRED_CHAT_MODEL) ??
+  magpieModels.find((m) => m.endsWith('/deepseek-v4.1-flash')) ??
+  PREFERRED_CHAT_MODEL;
+console.log(`CHAT_MODEL ${CHAT_MODEL}`);
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');

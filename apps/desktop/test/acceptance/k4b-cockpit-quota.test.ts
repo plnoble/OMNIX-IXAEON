@@ -75,19 +75,21 @@ const snap = (over: Partial<CockpitSnapshot> = {}): CockpitSnapshot => ({
 });
 
 const card = (over: Partial<QuotaCard>): QuotaCard => ({
-  source: 'quotahub',
+  source: 'magpie',
   provider: 'codex',
   account: '合成账号',
   status: 'ok',
   plan: 'Plus',
   expiresAt: null,
-  windows: [{ name: '5 小时', usedPercent: 40, resetAt: '2026-10-31T05:00:00.000Z' }],
+  windows: [
+    { name: '5 小时', usedPercent: 40, resetAt: '2026-10-31T05:00:00.000Z', display: null },
+  ],
   collectedAt: '2026-10-31T03:55:00.000Z',
   ...over,
 });
 
 describe('K4 驾驶舱额度区与项目活动', () => {
-  it('QuotaHub 的收集时间超过 15 分钟 → 数据旧了；用量条与倒计时都在', async () => {
+  it('magpie 的读取时间超过 15 分钟 → 数据旧了；用量条与倒计时都在', async () => {
     state.snapshot = snap({ quotas: [card({ collectedAt: '2026-10-31T03:00:00.000Z' })] });
     await render();
 
@@ -107,7 +109,7 @@ describe('K4 驾驶舱额度区与项目活动', () => {
         plan: null,
         account: 'Claude 合成',
         collectedAt: '2026-10-29T04:00:00.000Z',
-        windows: [{ name: window, usedPercent: null, resetAt }],
+        windows: [{ name: window, usedPercent: null, resetAt, display: null }],
       });
     state.snapshot = snap({
       quotas: [
@@ -157,15 +159,15 @@ describe('K4 驾驶舱额度区与项目活动', () => {
     expect($('cockpit-project-activity-p2')!.textContent).toBe('未授权读取');
   });
 
-  it('没配 QuotaHub、也没手动条目 → 空状态，不报错', async () => {
+  it('没连上 magpie、也没手动条目 → 空状态，不报错', async () => {
     state.snapshot = snap({
       sources: {
         ...snap().sources,
-        quotas: health({ status: 'missing', note: '未连接 QuotaHub' }),
+        quotas: health({ status: 'missing', note: '没连上 magpie' }),
       },
     });
     await render();
-    expect($('cockpit-quota-note')!.textContent).toContain('未连接 QuotaHub');
+    expect($('cockpit-quota-note')!.textContent).toContain('没连上 magpie');
     expect($('cockpit-quotas-empty')).toBeTruthy();
   });
 });

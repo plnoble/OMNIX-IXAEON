@@ -205,4 +205,29 @@ describe('SUB1 聊天走 magpie（条件 3）', () => {
     expect(spawns[1]!.env.LM_BASE_URL).toBe('http://127.0.0.1:3999/v1');
     adapter.disposeAll();
   });
+
+  it('换了 Key → 下一问也必须重开网关进程（整合方 11-02 补）', async () => {
+    process.env.IXAEON_HERMES_EXE = fakeHermesExe();
+    const { spawns, factory } = spawnRecorder();
+    let apiKey = 'magpie';
+    const adapter = new HermesRuntimeAdapter(undefined, factory as never, () => ({
+      chatModel: 'prov/m1',
+      chatBaseUrl: 'http://127.0.0.1:3425/v1',
+      chatApiKey: apiKey,
+      bridgeToken: null,
+    }));
+
+    const first = adapter.start(runInput('run-1'));
+    await completeTurn(spawns[0]!, 's1');
+    await first;
+
+    apiKey = 'other-key';
+    const second = adapter.start(runInput('run-2'));
+    await completeTurn(spawns[1]!, 's2');
+    await second;
+
+    expect(spawns).toHaveLength(2);
+    expect(spawns[1]!.env.LM_API_KEY).toBe('other-key');
+    adapter.disposeAll();
+  });
 });

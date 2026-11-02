@@ -1,9 +1,10 @@
 /**
  * SUB1b 验收（核心：驾驶舱额度改读 magpie；规格 docs/委派/SUB1-直接接magpie.md 条件 4–8）。
  *
- * 条件 4：合成 magpie 的 `quotas/cards` 回 2 张卡（一个窗口 `unit:'%'`、一个有 `limit`、
- *         一个都没有）→ 快照 quotas 来源 ok、2 张卡，三种 usedPercent 各自对，display 原样；
- *         快照 JSON 里找不到合成卡片的 user 值。
+ * 条件 4：合成 magpie 的 `quotas/cards` 回 2 张卡（窗口 `used` 分别是 10.13（带 `limit: 6900`）、
+ *         0、缺）→ 快照 quotas 来源 ok、2 张卡，usedPercent 分别是 10.13、0、null（不拿 limit 去除），
+ *         display 原样；快照 JSON 里找不到合成卡片的 user 值。
+ *         （整合方 11-02 改：原测试按「有 limit 就除」的旧口径写，与规格更正相反。）
  * 条件 5：合成服务没起 → 来源 missing、note 含「没连上 magpie」，快照其余照常。
  * 条件 6：`cockpit.magpie_url` 设成 `http://example.com:3425` → 拒绝、不发请求。
  * 条件 7：刷新 → 合成服务收到一次 `POST /v1/magpie/quotas/refresh`；30 秒内再点 → 不再发。
@@ -141,15 +142,17 @@ const CARD_TWO = {
   kind: 'plan',
   readAt: '2026-11-01T03:50:00.000Z',
   windows: [
+    // 11-01 本机实测的 workbuddy 卡：used 本身就是百分比，不拿 limit 去除。
     {
       name: '按量',
-      used: 10,
-      limit: 40,
+      used: 10.13,
+      limit: 6900,
       unit: 'credits',
       resetsAt: null,
-      display: '10 / 40 credits',
+      display: '699.25 / 6900',
     },
-    { name: '没有上限', used: 7, resetsAt: null, display: null },
+    { name: '零用量', used: 0, limit: 100, unit: 'credits', resetsAt: null, display: '0 / 100' },
+    { name: '没有 used', resetsAt: null, display: null },
   ],
 };
 
@@ -190,8 +193,9 @@ describe('SUB1b 驾驶舱额度从 magpie 读（条件 4、5、6、8 核心半�
       collectedAt: '2026-11-01T03:55:00.000Z',
     });
     const second = byAccount.get('合成卡二')!;
-    expect(second.windows.map((w) => w.usedPercent)).toEqual([25, null]);
-    expect(second.windows.map((w) => w.display)).toEqual(['10 / 40 credits', null]);
+    // 10.13（带 limit: 6900，不除）、0、缺 → null
+    expect(second.windows.map((w) => w.usedPercent)).toEqual([10.13, 0, null]);
+    expect(second.windows.map((w) => w.display)).toEqual(['699.25 / 6900', '0 / 100', null]);
     expect(second.plan).toBeNull();
     expect(second.collectedAt).toBe('2026-11-01T03:50:00.000Z');
 
@@ -312,6 +316,21 @@ describe('SUB1b 刷新（条件 7）', () => {
     const second = await refreshMagpieQuotas(db, new Date(NOW.getTime() + 10_000));
     expect(second).toEqual({ ok: true });
     expect(magpie.requests).toHaveLength(1);
+  });
+
+  it('刷新回 30x 指到别处 → 不跟过去，报错（整合方 11-02 补）', async () => {
+    const elsewhere = await startMagpie((_req, res) => json(res, { ok: true }));
+    const magpie = await startMagpie((_req, res) => {
+      res.writeHead(302, { location: `${elsewhere.url}/v1/magpie/quotas/refresh` });
+      res.end();
+    });
+    const db = freshDb();
+    setSetting(db, 'cockpit.magpie_url', magpie.url);
+
+    // 上一条测试刚刷过：隔一小时再点，避开 30 秒限流。
+    await expect(refreshMagpieQuotas(db, new Date(NOW.getTime() + 3_600_000))).rejects.toThrow();
+    expect(magpie.requests).toHaveLength(1);
+    expect(elsewhere.requests).toEqual([]);
   });
 
   it('地址不合法 → 抛校验错误、不发请求', async () => {

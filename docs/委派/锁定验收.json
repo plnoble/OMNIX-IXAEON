@@ -765,9 +765,9 @@
       "title": "额度与项目活动",
       "status": "done",
       "files": {
-        "packages/core/test/acceptance/k4-quota.test.ts": "3a7e23c7d45be4ef132105e717c906ca2efec33608aa234b5e70adf3fdb33f42",
+        "packages/core/test/acceptance/k4-quota.test.ts": "f79282b28fe522e5c42f4f006027f212dd92700eb900d16c1fc4ede0334e3048",
         "packages/core/test/acceptance/k4-project-activity.test.ts": "bce9d4f08d491c6c526fa9548fe62af6a9fc3df19c63474ee85ab228aac1500c",
-        "packages/core/test/acceptance/k4-redirect.test.ts": "72a015e3a853b89387d2ed9125d9d57e998667298f044e75a408c44cff1e4aa6"
+        "packages/core/test/acceptance/k4-redirect.test.ts": "fd33985e0d0ad6857c76e07c321f097f47b4bda215ae592c191c8e2538852509"
       }
     },
     {
@@ -775,7 +775,7 @@
       "title": "驾驶舱额度区与项目活动",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/k4b-cockpit-quota.test.ts": "231ee7f34a418bf92367ec12f2e0966d63772393721a835431d0f5f91d4957c5"
+        "apps/desktop/test/acceptance/k4b-cockpit-quota.test.ts": "e4e55d3f14f011b37f9ebcc8bcd10f901c32e54a9f36144116a887efc1bc4c6e"
       }
     },
     {
@@ -783,7 +783,7 @@
       "title": "设置页额度来源",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/k4c-quota-settings.test.ts": "09c4bbdbf3d677bbff2bf6aa7d78ca8139954b8979906effd3176f872e408afa"
+        "apps/desktop/test/acceptance/k4c-quota-settings.test.ts": "862c1816034714cc3a28a34faf0617df94e3c39ddbcf97898b51d75dc062e945"
       }
     },
     {
@@ -832,6 +832,27 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/cf1-chat-first-nav.test.ts": "22861842acb02476516944944bd6a399de6479372486a516d133441899224646"
+      }
+    },
+    {
+      "id": "SUB1",
+      "title": "模型接入加magpie预设、聊天走magpie",
+      "status": "done",
+      "files": {
+        "packages/core/test/acceptance/sub1-hermes-gateway.test.ts": "09dcea18b3b2ecbaea43ce534ae884a962dc2b3d896738d8d2b198db79beea49",
+        "packages/core/test/acceptance/sub1-magpie-models.test.ts": "7fcef5dcc1b9857fdac00e735539c4b61a2dfd027717bdfcbdf792c31e85134b",
+        "apps/desktop/test/acceptance/sub1-hermes-launch.test.ts": "4427c641a463173e39e75e05f7f74ee9eb7448666d4e70b93a037a1c600e1f91",
+        "apps/desktop/test/acceptance/sub1-magpie-preset.test.ts": "9abfb0b6659950bbc6ebf3a595195605dab45df7533fe3509d012372987afe69"
+      }
+    },
+    {
+      "id": "SUB1b",
+      "title": "驾驶舱额度改读magpie",
+      "status": "done",
+      "files": {
+        "packages/core/test/acceptance/sub1b-magpie-quotas.test.ts": "a7d77380defa16b1f268a1d209f296d13412988abb5bff9b4eeda1ad70bf5dec",
+        "apps/desktop/test/acceptance/sub1b-cockpit-quotas.test.ts": "9980f7206c902f6d6ba9852003e437f5913cc81de4c8ea05577eecd56b46c334",
+        "apps/desktop/test/acceptance/sub1b-quota-settings.test.ts": "3ead0072742a6dd883a512d46b990fac7c3051f7cece867aedef41a397da6c98"
       }
     }
   ]

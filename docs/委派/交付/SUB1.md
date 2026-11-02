@@ -84,3 +84,7 @@ B 档，不跑 Codex 审查。
 ## 用户接受
 
 未发生（用户用过并认可之后才写）。
+
+## 整合方复审（2026-11-02，接力第 83 棒）
+
+两支一起复审、一起并入 main，结论和改动写在 [SUB1b](SUB1b.md) 末尾。本支源码没改；补了一条测试（换 Key 也重开 Hermes 进程），`sub1-magpie-preset` 的界面数据改用 `magpieUrl`。真机甲项整合方在最终代码上重跑通过（聊天模型 `opencode-go/deepseek-v4.1-flash` 经 Hermes 答出 OK）。任务行第 ③ 项没做，归第 161 行 MG2。

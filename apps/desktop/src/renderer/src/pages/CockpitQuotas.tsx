@@ -24,6 +24,9 @@ function ago(iso: string | null, now: number): string {
   return `${Math.floor(mins / 1_440)} 天前`;
 }
 
+/** 百分比最多留一位小数（magpie 给的是 20.142857142857142 这种原始浮点）。 */
+const pct = (v: number): string => `${Math.round(v * 10) / 10}%`;
+
 /** 还有多久重置；已经过了给 null（手动那类改提示「可能已重置」）。 */
 function until(iso: string | null, now: number): string | null {
   const t = iso ? Date.parse(iso) : Number.NaN;
@@ -139,7 +142,7 @@ export function QuotaSection({
                     <li key={`${w.name}-${i}`} data-testid="cockpit-quota-window">
                       <span>{w.name}</span>{' '}
                       <span className="muted">
-                        {w.usedPercent === null ? '用量未知' : `已用 ${w.usedPercent}%`}
+                        {w.usedPercent === null ? '用量未知' : `已用 ${pct(w.usedPercent)}`}
                       </span>{' '}
                       {w.display && (
                         <span className="muted" data-testid="cockpit-quota-display">

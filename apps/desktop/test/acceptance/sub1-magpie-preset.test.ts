@@ -92,7 +92,7 @@ function view(over: { apiBaseUrl?: string; savedModels?: string[] } = {}): Setti
     dataDir: 'TMP',
     cockpit: {
       ixaeonRepo: '',
-      quotahubUrl: '',
+      magpieUrl: '',
       manualQuotas: [],
       mobileEnabled: false,
       mobilePort: 43192,
