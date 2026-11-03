@@ -1,4 +1,4 @@
-﻿/** CF3 直连聊天流式客户端（规格「要什么」第 1 条）。契约导出名与字段不改。 */
+/** CF3 直连聊天流式客户端（规格「要什么」第 1 条）。契约导出名与字段不改。 */
 import { ModelError } from '../extraction/model/provider.js';
 
 export interface ChatToolCall {
@@ -46,6 +46,14 @@ type Chunk = {
 /** 网关明确拒绝 tools（区别于别的 400）。 */
 class ToolsRejectedError extends Error {}
 const aborted = (): Error => new DOMException('已取消', 'AbortError');
+/** 等 signal 触发；与 reader.read() 竞速，超时/取消都能真的把挂起的读打断。 */
+function untilAbort(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    const fail = (): void => reject(aborted());
+    if (signal.aborted) fail();
+    else signal.addEventListener('abort', fail, { once: true });
+  });
+}
 
 export class OpenAIChatStreamClient implements StreamChatClient {
   readonly modelName: string;
@@ -97,6 +105,9 @@ export class OpenAIChatStreamClient implements StreamChatClient {
     const onAbort = (): void => ctrl.abort();
     input.signal?.addEventListener('abort', onAbort);
     const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    // 超时不是取消：只有 input.signal 被 abort 才算取消，超时按可重试的模型错误报。
+    const stopError = (): Error =>
+      input.signal?.aborted ? aborted() : new ModelError('聊天网关超时', true);
     try {
       const messages = input.messages.map((m) => {
         if (m.role === 'tool')
@@ -137,7 +148,7 @@ export class OpenAIChatStreamClient implements StreamChatClient {
       }
       return await this.readStream(res, input.onDelta ?? ((): void => undefined), ctrl);
     } catch (error) {
-      throw ctrl.signal.aborted ? aborted() : error;
+      throw ctrl.signal.aborted ? stopError() : error;
     } finally {
       clearTimeout(timer);
       input.signal?.removeEventListener('abort', onAbort);
@@ -150,6 +161,7 @@ export class OpenAIChatStreamClient implements StreamChatClient {
     onDelta: (text: string) => void,
     ctrl: AbortController,
   ): Promise<ChatStreamResult> {
+    // 这里只抛 AbortError；到底是取消还是超时，由 request() 按 input.signal 判定。
     if (!res.body) throw new ModelError('聊天网关没有返回流', false);
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -165,7 +177,7 @@ export class OpenAIChatStreamClient implements StreamChatClient {
     });
     for (;;) {
       if (ctrl.signal.aborted) throw aborted();
-      const { done, value } = await reader.read();
+      const { done, value } = await Promise.race([reader.read(), untilAbort(ctrl.signal)]);
       if (done) return snapshot();
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');

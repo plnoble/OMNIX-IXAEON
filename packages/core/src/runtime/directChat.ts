@@ -74,11 +74,9 @@ function parseArgs(raw: string): Record<string, unknown> {
   }
 }
 
+/** 只看错误的 name，不按报错文字猜：网关报错里写着 cancel 也不算取消。 */
 function isAbort(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const name = (error as { name?: string }).name ?? '';
-  const message = String((error as { message?: string }).message ?? '');
-  return /abort/i.test(name) || /abort|cancel|取消|终止/i.test(message);
+  return (error as { name?: string } | null)?.name === 'AbortError';
 }
 
 export async function runDirectChat(input: {

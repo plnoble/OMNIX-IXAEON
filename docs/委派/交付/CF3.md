@@ -229,3 +229,36 @@ Q5 状态=succeeded 工具=[search_memory, search_memory] 首字=5864ms 总计=6
 ### 用户接受
 
 **未取得。** 规格丙（用户自己连聊三轮）在实现合并后才能做，`待用户实测`。
+
+## 整合方 11-03 复审代码
+
+### 改了什么（三处 + 两条自有测试）
+
+1. **超时不再被当成取消。** `chatStream.ts` 的 `request()` 原来 `catch` 里只要 `ctrl.signal.aborted`
+   就抛 `AbortError`——超时也走这条，结果 `runDirectChat` 返回 `cancelled`。现在按触发源分开：
+   - `input.signal` 被 abort → 抛 `AbortError`（取消）；
+   - 超时触发 → 抛 `ModelError(聊天网关超时, true)`，`runDirectChat` 返回 `status: failed`、`failure` 里写着超时。
+     同时把读取改成 `Promise.race([reader.read(), untilAbort(signal)])`：网关那边不理会 abort 时，
+     超时也能真的把挂起的读打断（否则要等下一次 read 返回才醒）。
+2. **不按报错文字猜取消。** `directChat.ts` 的 `isAbort` 原来匹配 `abort|cancel|取消|终止`，
+   网关报错正文里带这几个词就会被误判成取消。现在只认 `error.name === AbortError`（或 `input.signal?.aborted`）。
+3. **去掉 `chatStream.ts` 开头的 BOM**（前 3 字节原是 EF BB BF，现为 `/`）。
+
+两条自有回归放 `packages/core/test/runtime/cf3-timeout-vs-cancel.test.ts`（**不是** acceptance，**未登记锁定**）：
+
+- 超时（`timeoutMs` 设 30ms、假流一直不结束）→ `failed`、`failure` 含「超时」、**不含**「取消」；
+- 网关 500 且正文写着 `cancelled` → `failed`，不算取消。
+
+为了让这两条真的被门禁执行，`vitest.config.ts` 的 unit project include 增加了
+`packages/*/test/runtime/**/*.test.ts`（原来只收 unit/integration/acceptance，放 runtime 不会被任何 project 跑到）。
+
+### 结果
+
+- 锁定的 `cf3-*.test.ts` **一行没改**，条件 1–9 仍然 **17/17 全过**；
+- 新增两条自有回归 **2/2 全过**；
+- `node scripts/verify.mjs` 全过。
+
+### 行数
+
+**整合方同意按 423 行审**：两份文件各管一件事、各自 <300 行，超出是规格估算偏低（规格写「约 250 行」），
+不再拆。此条按复审意见照记，不再提拆分方案。

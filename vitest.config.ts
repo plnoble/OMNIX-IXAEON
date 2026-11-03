@@ -7,7 +7,12 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
-          include: ['packages/*/test/unit/**/*.test.ts', 'apps/*/test/unit/**/*.test.ts'],
+          include: [
+            'packages/*/test/unit/**/*.test.ts',
+            'apps/*/test/unit/**/*.test.ts',
+            // CF3 复审：核心的自有回归（不是锁定验收）放 test/runtime/，也进门禁
+            'packages/*/test/runtime/**/*.test.ts',
+          ],
         },
       },
       {
