@@ -154,3 +154,111 @@ cf3b-engine-label.test.ts 1 test  | 1 failed
 6. 条件 11 补严：工具结果就是记忆桥 `search_memory` 那个对象（带 `today`、`items`），JSON 序列化后交回模型。条件 13 补测 `record_observation`。
 
 锁定后现状：27 条里 26 红 1 绿。红的全是「还没实现」（导出不存在、走的还是旧路径）；绿的是条件 17。没用原型实现验证过，写实现时发现测试本身有错，停下写进本文件交整合方，不要自己改。
+
+## 实现轮（2026-11-03，CF3 第一支：core，不接线）
+
+### 已实现
+
+- `packages/core/src/runtime/chatStream.ts`：`OpenAIChatStreamClient`（OpenAI 兼容 SSE、正文分段回调、
+  工具参数按 index 拼装、400 提到 tools 时同一轮去掉 tools 重发一次并标 `toolsUnsupported`、
+  总超时与 `AbortSignal` 取消）+ `FakeStreamChatClient`（按脚本回放并记下每次的 messages/tools）。
+- `packages/core/src/runtime/directChat.ts`：`runDirectChat`（messages 顺序 system→上下文→此前轮次→这一问；
+  6000 字上限丢最早；工具最多 6 轮、第 7 次不带 tools；每次工具调用记 `AgentStep`；`memoryUsed` 按 id 去重）
+  - `DIRECT_CHAT_SYSTEM_PROMPT` / `DIRECT_CHAT_PROMPT_VERSION`（值为 d1）/ `DIRECT_CHAT_TOOL_NAMES`（五个）。
+- 两者都从 `packages/core/src/index.ts` 导出；没有接线，没有改 `AgentSession` / Hermes 适配器 / Core 有界循环；没有加迁移。
+
+### 自动化通过
+
+- `packages/core/test/acceptance/cf3-*.test.ts` 三个文件 **17/17 全过**（条件 1–9）：
+
+```
+✓ cf3-chat-stream.test.ts (5 tests)
+✓ cf3-direct-chat.test.ts (5 tests)
+✓ cf3-prompt.test.ts (7 tests)
+Tests  17 passed (17)
+```
+
+- `node scripts/verify.mjs` **全过**（exit 0）。
+- `eslint` 与 `prettier --check` 干净。
+- **锁定测试一行没改**（`acceptance.mjs check` 随 verify 通过）。
+
+### 源码行数（如实：**超过 300 行指引**）
+
+| 文件                    | 行数    |
+| ----------------------- | ------- |
+| `runtime/chatStream.ts` | 231     |
+| `runtime/directChat.ts` | 175     |
+| `index.ts`（新增导出）  | +17     |
+| **合计**                | **423** |
+
+规格自己估的是「约 250 行源码」。我这版 423 行，**超了 300 行指引，也超了规格的估计**。
+压缩过三轮（内联线上格式转换、合并 SSE 快照、构造参数属性化），再压就要牺牲可读性或删契约要求的东西。
+给整合方的选择：
+
+1. 按现有 423 行审（逻辑集中在两个新文件，无旁支改动）；
+2. 让我把 `chatStream`（条件 1–4）/ `directChat`（条件 5–9）拆成两次提交——测试是同一批锁定的，拆分只为降低单次审查体量；
+3. 若坚持 300 行硬线，请指示，我照拆。
+
+### 真机通过
+
+**乙：已跑（真模型 + 合成数据）。** `node scripts/real/run-batch.mjs scripts/real/cf3-direct-chat.ts -- <模型名>`；
+网关用本机 magpie（Key 由脚本内置占位值或环境变量给，**不进仓库、不打印**），模型名由参数传入（**不写进仓库**）。
+合成库里放三条合成记忆，问 5 个合成问题：
+
+```
+Q1 状态=succeeded 工具=[]                          首字=2694ms 总计=2802ms
+     回答前 80 字：我是 IXAEON（析衍），你的个人助手，能记住你说过的话、查你的项目背景，也能联网查最新信息…
+Q2 状态=succeeded 工具=[search_memory, search_memory, get_evidence] 首字=6964ms 总计=7120ms
+     回答前 80 字：根据我的记忆，你偏好**简洁的回答，不喜欢长列表**——所以我会尽量短句直说、少堆清单…
+Q3 状态=succeeded 工具=[search_web, search_web]      首字=4179ms 总计=4379ms
+     回答前 80 字：搜不了：联网搜索功能没有配置，需要在设置里填搜索服务的 Key…
+Q4 状态=succeeded 工具=[]                          首字=3841ms 总计=5362ms
+     回答前 80 字：我刚才只提了一件事：配置搜索服务的 Key。没有给过多个功能的优先级排序…
+Q5 状态=succeeded 工具=[search_memory, search_memory] 首字=5864ms 总计=6661ms
+     回答前 80 字：查不到：我的记忆里没有任何你的消费、账单或记账记录…更别说精确到分。
+```
+
+覆盖到了「该触发工具的」与「不该触发工具的」：闲聊与追问不调工具；问个人偏好、答不了的问题才查记忆；
+问实时公开事实才查网且**按实说没配置**，没有假装搜过。
+
+**甲：未跑。** 甲要求起假网关 + 启动应用 + 配好聊天模型 + 四步截图。
+我查过：应用没有「用环境变量直接指定聊天模型与 Key」的入口（`IXAEON_CHAT_MODEL` 只出现在
+`scripts/real/hermes-ask.ts` 这类脚本里），要么驱动设置页写 Key（走 safeStorage 加密），
+要么用 `app.evaluate` 调运行时。本轮时间用在了实现与乙上，**甲没做**，不冒充。
+
+### 用户接受
+
+**未取得。** 规格丙（用户自己连聊三轮）在实现合并后才能做，`待用户实测`。
+
+## 整合方 11-03 复审代码
+
+### 改了什么（三处 + 两条自有测试）
+
+1. **超时不再被当成取消。** `chatStream.ts` 的 `request()` 原来 `catch` 里只要 `ctrl.signal.aborted`
+   就抛 `AbortError`——超时也走这条，结果 `runDirectChat` 返回 `cancelled`。现在按触发源分开：
+   - `input.signal` 被 abort → 抛 `AbortError`（取消）；
+   - 超时触发 → 抛 `ModelError(聊天网关超时, true)`，`runDirectChat` 返回 `status: failed`、`failure` 里写着超时。
+     同时把读取改成 `Promise.race([reader.read(), untilAbort(signal)])`：网关那边不理会 abort 时，
+     超时也能真的把挂起的读打断（否则要等下一次 read 返回才醒）。
+2. **不按报错文字猜取消。** `directChat.ts` 的 `isAbort` 原来匹配 `abort|cancel|取消|终止`，
+   网关报错正文里带这几个词就会被误判成取消。现在只认 `error.name === AbortError`（或 `input.signal?.aborted`）。
+3. **去掉 `chatStream.ts` 开头的 BOM**（前 3 字节原是 EF BB BF，现为 `/`）。
+
+两条自有回归放 `packages/core/test/runtime/cf3-timeout-vs-cancel.test.ts`（**不是** acceptance，**未登记锁定**）：
+
+- 超时（`timeoutMs` 设 30ms、假流一直不结束）→ `failed`、`failure` 含「超时」、**不含**「取消」；
+- 网关 500 且正文写着 `cancelled` → `failed`，不算取消。
+
+为了让这两条真的被门禁执行，`vitest.config.ts` 的 unit project include 增加了
+`packages/*/test/runtime/**/*.test.ts`（原来只收 unit/integration/acceptance，放 runtime 不会被任何 project 跑到）。
+
+### 结果
+
+- 锁定的 `cf3-*.test.ts` **一行没改**，条件 1–9 仍然 **17/17 全过**；
+- 新增两条自有回归 **2/2 全过**；
+- `node scripts/verify.mjs` 全过。
+
+### 行数
+
+**整合方同意按 423 行审**：两份文件各管一件事、各自 <300 行，超出是规格估算偏低（规格写「约 250 行」），
+不再拆。此条按复审意见照记，不再提拆分方案。
