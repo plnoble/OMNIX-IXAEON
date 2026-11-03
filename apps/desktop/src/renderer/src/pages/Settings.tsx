@@ -16,7 +16,7 @@ import {
   type SettingsView,
   type UpdateStatusView,
 } from '../api.js';
-import { Button, Card, ErrorBanner, Field, Spinner } from '../ui.js';
+import { Button, Card, ErrorBanner, Field } from '../ui.js';
 import { MODEL_EXECUTOR_SENDS, executorLabel } from '@ixaeon/contracts';
 import type { ModelProviderView } from '@ixaeon/contracts';
 
@@ -24,9 +24,6 @@ import type { ModelProviderView } from '@ixaeon/contracts';
 type RestorePreviewState = RestorePreview & { zipPath: string };
 
 /** SUB1：本机 magpie 的固定地址与 Key（magpie 本机网关的默认值，用户也可手改）。 */
-const MAGPIE_BASE = 'http://127.0.0.1:3425/v1';
-const MAGPIE_KEY = 'magpie';
-const MAGPIE_UNREACHABLE = '没连上本机 magpie（127.0.0.1:3425），先把 magpie 打开';
 
 /**
  * 应用更新卡片（GitHub 发版）：检查新版本、显示下载状态、
@@ -408,21 +405,9 @@ export function SettingsPage({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [fetchingModels, setFetchingModels] = useState(false);
-  const [form, setForm] = useState({
-    modelName: '',
-    chatModelName: '',
-    apiBaseUrl: '',
-    apiKey: '',
-  });
-  const [models, setModels] = useState<Array<{ id: string }> | null>(null);
   // M2：勾选保存的模型清单（初始=已保存的；检测不重置勾选，只有保存写盘）
-  const [checked, setChecked] = useState<string[]>([]);
-  const [modelFilter, setModelFilter] = useState('');
   /** M3：这次保存因换地址把已保存的 Key 清掉了（且现在确实没 Key）→ 卡片里提示。 */
-  const [keyClearedNotice, setKeyClearedNotice] = useState(false);
   /** SUB1：「用本机 magpie」没连上时的提示；连上了或用户改了地址就清掉。 */
-  const [magpieError, setMagpieError] = useState<string | null>(null);
   // D7b：编码任务交给谁（照 getSettings 回传的两项初始化）
   const [codingExec, setCodingExec] = useState<'codex' | 'model'>('codex');
   const [codingModel, setCodingModel] = useState('');
@@ -456,13 +441,6 @@ export function SettingsPage({
       }
       setView(v);
       setEvents(e);
-      setForm({
-        modelName: v.config.modelName,
-        chatModelName: v.config.chatModelName ?? '',
-        apiBaseUrl: v.config.apiBaseUrl,
-        apiKey: '',
-      });
-      setChecked(v.config.savedModels ?? []);
       const coding = savedCodingOf(v);
       setCodingExec(coding.executor);
       setCodingModel(coding.modelName);
@@ -536,177 +514,18 @@ export function SettingsPage({
   const savedCoding = useMemo(() => savedCodingOf(view), [view]);
   // 用户「取消勾选但还没保存」的意图：重检重建勾选时不能把刚取消的项又勾回来
   //（契约 5：重检只更新标记，不撤销用户尚未保存的选择）。保存成功后清空。
-  const uncheckedRef = useRef<Set<string>>(new Set());
-  const toggleChecked = (id: string): void => {
-    setChecked((prev) => {
-      if (prev.includes(id)) {
-        uncheckedRef.current.add(id);
-        return prev.filter((x) => x !== id);
-      }
-      uncheckedRef.current.delete(id);
-      return [...prev, id];
-    });
-  };
   // 勾选清单的全部行（未按名字筛选）：检测后 = 上游全部 + 已保存但上游没有的
   //（标「上游已没有」，不自动删）；没检测过时只显示已保存的。
-  const allRows = useMemo(() => {
-    const rows: Array<{ id: string; isNew: boolean; missing: boolean }> = [];
-    if (models !== null) {
-      const seen = new Set<string>();
-      for (const m of models) {
-        rows.push({ id: m.id, isNew: !savedSet.has(m.id), missing: false });
-        seen.add(m.id);
-      }
-      for (const id of savedSet) {
-        if (!seen.has(id)) rows.push({ id, isNew: false, missing: true });
-      }
-    } else {
-      for (const id of savedSet) rows.push({ id, isNew: false, missing: false });
-    }
-    return rows;
-  }, [models, savedSet]);
-  const listRows = useMemo(() => {
-    const q = modelFilter.trim().toLowerCase();
-    return q.length > 0 ? allRows.filter((r) => r.id.toLowerCase().includes(q)) : allRows;
-  }, [allRows, modelFilter]);
   // 下拉框：只从已保存清单选；当前在用的不在清单里就补上并标注（契约 4）
-  const modelOptions = useMemo(() => {
-    const opts = [...savedSet];
-    if (form.modelName && !savedSet.has(form.modelName)) opts.unshift(form.modelName);
-    return opts;
-  }, [savedSet, form.modelName]);
-  const chatOptions = useMemo(() => {
-    const opts = [...savedSet];
-    if (form.chatModelName && !savedSet.has(form.chatModelName)) opts.unshift(form.chatModelName);
-    return opts;
-  }, [savedSet, form.chatModelName]);
 
   // 检测会跨网络、可能很慢：每次发起检测代次 +1，保存（改 Key/地址）也让在途
   // 检测作废——迟到的旧响应（旧凭据对应的清单）不能盖到新配置上。
-  const fetchSeqRef = useRef(0);
-
-  const fetchModels = async () => {
-    const seq = ++fetchSeqRef.current;
-    // 输入框有 Key 就用它（仅本次请求）；留空则由主进程用已保存的 Key——
-    // 界面读不到已保存的 Key，但主进程能解密，且只在 API 地址没变时才复用。
-    setFetchingModels(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.listAvailableModels({
-        apiBaseUrl: form.apiBaseUrl.trim(),
-        apiKey: form.apiKey.trim(),
-      });
-      // 等待期间发起过更新的检测或保存过新配置：这笔旧响应作废
-      if (seq !== fetchSeqRef.current) return;
-      setModels(result.models);
-      // 勾选重建（不以无条件覆盖）：= 最新的已保存清单（检测期间用户可能刚保存过，
-      // 这里不用闭包里可能过期的 savedSet）+ 用户勾过还没保存、且这次上游仍列出的
-      // ——但用户刚取消勾选的项保持取消（契约 5：重检只更新标记，不撤销选择）。
-      // 勾了、还没保存、上游又不在了的模型退出勾选；保存时还有一道过滤兜底。
-      try {
-        const fresh = await api.getSettings();
-        setView(fresh);
-        const upstreamIds = new Set(result.models.map((m) => m.id));
-        setChecked((prev) => {
-          const next = new Set<string>(fresh.config.savedModels ?? []);
-          for (const id of prev) {
-            if (!next.has(id) && upstreamIds.has(id)) next.add(id);
-          }
-          for (const id of uncheckedRef.current) next.delete(id);
-          return [...next];
-        });
-      } catch {
-        /* 拿不到最新清单：勾选保持现状，保存时的过滤兜底 */
-      }
-      setNotice(`检测到 ${result.models.length} 个模型，勾选要保存的，再点「保存选择」`);
-    } catch (err) {
-      setError(errMsg(err));
-    } finally {
-      setFetchingModels(false);
-    }
-  };
 
   /**
    * SUB1：用本机 magpie 一键预设。走现有检测通道（`listAvailableModels`），不另开写配置的
    * IPC；检测用的是预设的地址与 Key，**连上了才把预设填进表单**——连不上时表单不动，
    * 只在按钮下面说清怎么把 magpie 打开。
    */
-  const useMagpie = async () => {
-    const seq = ++fetchSeqRef.current;
-    setFetchingModels(true);
-    setError(null);
-    setNotice(null);
-    setMagpieError(null);
-    try {
-      const result = await api.listAvailableModels({
-        apiBaseUrl: MAGPIE_BASE,
-        apiKey: MAGPIE_KEY,
-      });
-      if (seq !== fetchSeqRef.current) return;
-      setForm((f) => ({ ...f, apiBaseUrl: MAGPIE_BASE, apiKey: MAGPIE_KEY }));
-      setModels(result.models);
-      // 勾选重建与 fetchModels 同一套规则：已保存的默认打勾，重检不撤销用户尚未保存的选择。
-      try {
-        const fresh = await api.getSettings();
-        setView(fresh);
-        const upstreamIds = new Set(result.models.map((m) => m.id));
-        setChecked((prev) => {
-          const next = new Set<string>(fresh.config.savedModels ?? []);
-          for (const id of prev) {
-            if (!next.has(id) && upstreamIds.has(id)) next.add(id);
-          }
-          for (const id of uncheckedRef.current) next.delete(id);
-          return [...next];
-        });
-      } catch {
-        /* 拿不到最新清单：勾选保持现状，保存时的过滤兜底 */
-      }
-      setNotice(`检测到 ${result.models.length} 个 magpie 模型，勾选要保存的，再点「保存选择」`);
-    } catch {
-      if (seq !== fetchSeqRef.current) return;
-      setMagpieError(MAGPIE_UNREACHABLE);
-    } finally {
-      if (seq === fetchSeqRef.current) setFetchingModels(false);
-    }
-  };
-
-  const saveModel = async () => {
-    // 配置要变了：在途的检测（旧 Key/旧地址对应的清单）作废
-    ++fetchSeqRef.current;
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      // 保存只认清单里勾选的项：勾了但这次清单里没有的（上游中途消失）不进清单。
-      const rowIds = new Set(allRows.map((r) => r.id));
-      const submitted = checked.filter((id) => rowIds.has(id));
-      const result = await api.saveModelSettings({
-        modelName: form.modelName.trim(),
-        chatModelName: form.chatModelName.trim(),
-        apiBaseUrl: form.apiBaseUrl,
-        apiKey: form.apiKey.trim() || undefined,
-        savedModels: submitted,
-      });
-      setNotice(
-        view?.hermesFound === true
-          ? '模型设置已保存。聊天会在下一次提问时用新模型（正在进行的引擎会话已结束）。'
-          : '模型设置已保存',
-      );
-      // 保存落盘：勾选与新清单对齐，「取消勾选」的待保存意图随之作废
-      uncheckedRef.current.clear();
-      const fresh = await reload();
-      // M3：这次保存因为换地址清掉了 Key，且现在确实没有 Key → 提示用户。
-      // 补填 Key 再保存（fresh 显示有 Key）提示自然消失。
-      setKeyClearedNotice(
-        result.keyCleared === true && (fresh?.config.apiKeyPresent ?? false) === false,
-      );
-    } catch (err) {
-      setError(errMsg(err));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const saveCoding = async () => {
     setBusy(true);
