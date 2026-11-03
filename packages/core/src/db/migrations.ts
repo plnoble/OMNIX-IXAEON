@@ -1241,6 +1241,30 @@ CREATE TABLE goal_step_deps (
 );
 `,
   },
+  {
+    id: 42,
+    name: 'runtime-runs-direct-engine',
+    sql: `
+-- CF3（用户 2026-11-03 定）：聊天改用直连模型做主引擎，运行账本的 engine 多一种 direct。
+-- SQLite 改不了 CHECK，只能重建表；没有别的表引用 runtime_runs，旧行原样搬过去。
+CREATE TABLE runtime_runs_new (
+  id TEXT PRIMARY KEY,
+  goal TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  engine TEXT NOT NULL CHECK (engine IN ('hermes', 'core-bounded', 'direct', 'missing')),
+  status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'cancelled', 'blocked')),
+  events_json TEXT NOT NULL DEFAULT '[]',
+  notice TEXT,
+  created_at TEXT NOT NULL,
+  finished_at TEXT
+);
+INSERT INTO runtime_runs_new (id, goal, project_id, engine, status, events_json, notice, created_at, finished_at)
+  SELECT id, goal, project_id, engine, status, events_json, notice, created_at, finished_at FROM runtime_runs;
+DROP TABLE runtime_runs;
+ALTER TABLE runtime_runs_new RENAME TO runtime_runs;
+CREATE INDEX IF NOT EXISTS idx_runtime_runs_created ON runtime_runs(created_at);
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
