@@ -8,13 +8,13 @@
 
 全部是**新增测试文件**，没有改任何源码、没有改任何既有测试、没有加迁移：
 
-| 文件 | 行数 | it 数 | 覆盖的验收条件 |
-| --- | --- | --- | --- |
-| `packages/core/test/acceptance/cf3-chat-stream.test.ts` | 210 | 5 | 1、2、3（含反向）、4 |
-| `packages/core/test/acceptance/cf3-direct-chat.test.ts` | 230 | 5 | 5、6、7（含超限）、9 |
-| `packages/core/test/acceptance/cf3-prompt.test.ts` | 70 | 7 | 8（拆成 7 条断言）+ 提示词版本号 |
-| `apps/desktop/test/acceptance/cf3b-direct-chat.test.ts` | 542 | 9 | 10、11、12（两条）、13、14、15、16、17 |
-| `apps/desktop/test/acceptance/cf3b-engine-label.test.ts` | 81 | 1 | 18 |
+| 文件                                                     | 行数 | it 数 | 覆盖的验收条件                         |
+| -------------------------------------------------------- | ---- | ----- | -------------------------------------- |
+| `packages/core/test/acceptance/cf3-chat-stream.test.ts`  | 210  | 5     | 1、2、3（含反向）、4                   |
+| `packages/core/test/acceptance/cf3-direct-chat.test.ts`  | 230  | 5     | 5、6、7（含超限）、9                   |
+| `packages/core/test/acceptance/cf3-prompt.test.ts`       | 70   | 7     | 8（拆成 7 条断言）+ 提示词版本号       |
+| `apps/desktop/test/acceptance/cf3b-direct-chat.test.ts`  | 542  | 9     | 10、11、12（两条）、13、14、15、16、17 |
+| `apps/desktop/test/acceptance/cf3b-engine-label.test.ts` | 81   | 1     | 18                                     |
 
 合计 **1133 行 / 27 个 `it`**。18 条验收条件逐条落位，一条没删、没放宽；
 每个文件开头都有注释逐条对应条件编号。
@@ -45,6 +45,7 @@ cf3b-engine-label.test.ts 1 test  | 1 failed
 ```
 
 **红的原因全部是「契约里的导出还不存在」，不是测试写错**：
+
 - core 三个文件：`OpenAIChatStreamClient is not a constructor`、`FakeStreamChatClient is not a constructor` 等；
 - 桌面：`expected 'hermes' to be 'direct'`（现在还没走直连）、`expected '这条来自 Hermes 替身，不该出现' to contain '照常回答'` 等。
 
@@ -98,6 +99,35 @@ cf3b-engine-label.test.ts 1 test  | 1 failed
 3. **条件 11 的夹具**：用 `ItemService.createManual({ scope: 'personal', ... })` 造一条合成个人记忆，
    用 `setPersonalMemoryToChat(db, true/false)` 开关，断言工具结果里有/没有这条。
    并额外用「工具结果 = 记忆桥同一方法」的等价性来钉「不许抄第二份」这条要求。
+
+## ⚠️ 必须让整合方/用户知道：CF3 有两侧重复劳动
+
+推进到「改队列」这一步时才发现，同一行 CF3 已经被**接力第 87 棒**做过一遍，并且它把这个冲突挂给了用户：
+
+- 队列提交 `1ef01e3` 的原文：「等用户：CF3 同一行被窗口 agent 在 10-03 领走（窗口进行中，同名 dev/CF3）；
+  接力第 87 棒也已按规格写好 11 条测试（本机未推），两边只能留一边，哪边继续？」
+- 那批工作没有被丢弃，仍在**一处未被 git worktree 登记的独立副本**里：
+  `D:\Agent\Worktrees\IXAEON\dsh\CF3`（独立 clone，分支同为 `dev/CF3`，
+  本地提交 `8f8dae68`「CF3 测试：直连模型客户端与引擎循环 11 条验收测试（B 档先只交测试；因与窗口同一行撞车未推）」）；
+- 磁盘上再没有第三份 cf3 测试；`git stash list` 为空；主干与远程都没有那 11 条。
+
+两侧内容对比（**不是谁对谁错，是重复**）：
+
+|              | 接力第 87 棒（`dsh/CF3`，未推）           | 本次窗口（`dev/CF3`，已推） |
+| ------------ | ----------------------------------------- | --------------------------- |
+| 覆盖条件     | **1–9（仅 CF3，core）**                   | **1–18（CF3 + CF3b）**      |
+| 用例数       | 11                                        | 27                          |
+| 文件         | 1 个（`cf3-direct-chat.test.ts`，469 行） | 5 个（1133 行）             |
+| 桌面侧 10–18 | **没有**                                  | 有                          |
+
+我的处理：**没有删除、没有覆盖对方那份**，只是按用户在本窗口的直接指示（11-03 让我做 CF3、窗口里状态写「窗口进行中」）
+继续推进并把队列改成「测试待审（整合方）」。**请整合方/用户裁定最终保留哪一侧**：
+
+- 若要保留本侧：`dsh/CF3` 那份建议由整合方在本机删除或归档，避免将来误推；
+- 若要保留 `dsh/CF3` 那侧：本分支可整体丢弃，但**桌面侧 10–18 需要那边补写**（那侧没有覆盖）。
+- 若想取长补短：1–9 两边可逐条对照（本侧的 1–9 与它等价，多出的是 18 条断言的细分与反向用例）。
+
+这条我不自行决定——它已经挂过一次用户了，再自己咽下去就等于替用户做了选择。
 
 ## 已知缺口 / 交给整合方
 
