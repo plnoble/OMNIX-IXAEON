@@ -93,3 +93,62 @@ Tests  1 passed (1)
 - 第一版退回的 14 条都已改到位，主进程那三份照原样锁定。
 - 两处读法认可：magpie 地址来源取到端口为止（`http://127.0.0.1:39123`）；条件 6 只断言 `getProvider()` 的模型名。
 - MP2b 拿掉一条再锁：「聊天里换模型的下拉框」单独渲染 `AskMessage`、只给 `savedModels` 字符串，等于把组件入参写死，实现拿不到供应商名。它和条件 11 的「聊天入口落到模型页」（现在那条只测了按钮会调回调，今天就是绿的）一起，由 MP2b 实现时另写 `mp2b-entry.test.ts`，经 App 渲染，合并时整合方锁定。
+
+## 实现轮（2026-11-03，dev/MP2 第一支：配置 + 主进程 + IPC）
+
+### 已实现
+
+| 文件                                                | 新增行数（约） | 做了什么                                                                                                                                                                                                  |
+| --------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/contracts/src/config.ts`                  | +45            | `modelChoiceSchema` / `modelProviderSchema`；`appConfigSchema` 加 `providers`、`uses`（都有默认值，旧配置照样能读）；`model.providerName`                                                                 |
+| `packages/contracts/src/ipc.ts`                     | +35            | `ModelProviderView`；`settingsViewSchema.config` 加 `uses`；`IxaIpcApi` 加 5 个方法                                                                                                                       |
+| `packages/core/src/models/resolveModelUse.ts`（新） | +71            | 按用途取模型的纯函数，不解密；`packages/core/src/index.ts` 导出                                                                                                                                           |
+| `apps/desktop/src/main/appRuntime.ts`               | +170           | `listModelProviders` / `saveModelProvider` / `deleteModelProvider` / `fetchProviderModels` / `saveModelUses`；`getProvider()`、`chatLaunchOptions()`、`directChatLaunch()` 三条路径改走 `resolveModelUse` |
+| `apps/desktop/src/main/ipc.ts`                      | +8             | 5 个新通道；`getSettings` 的 config 加 `uses`                                                                                                                                                             |
+| `apps/desktop/src/preload/index.ts`                 | +6             | 5 个方法桥接                                                                                                                                                                                              |
+
+**合计约 +335 行源码**，超了「每支 ≤300 行」——超出来的是契约 schema / 视图类型 / 类型声明这些必须照规格写死的东西
+（`config.ts` + `ipc.ts` 共约 80 行几乎都是 schema 与类型）。逻辑本身集中在 `resolveModelUse.ts` 与 `appRuntime.ts`
+两处，没有旁支改动。这一条如实报给整合方，不自行拆。
+
+**按规格第 5 条改的一处**：`directChatLaunch()` 的「聊天单独选过」改成 `uses.chat` 有 **或** `model.chatModelName` 非空，
+两者都没有时照旧跟着后台分析、不走直连（CF3b 的行为没退化：条件 17 仍绿）。
+
+### 自动化通过
+
+```
+node scripts/acceptance.mjs run MP2   → 27 passed | 1 failed（共 28）
+```
+
+通过的 27 条覆盖条件 1、2（含真 IPC getSettings、后四位、解不开）、3、4（含 302 不跟随、超时、地址变了不带旧 Key）、
+5、6（含 `engine = 'direct'`）、7、8、9（除下面那条）、10。
+
+### 一条过不了的锁定测试（**规格/测试本身的错，不是实现错**）
+
+`apps/desktop/test/acceptance/mp2-providers.test.ts` 条件 9 的第一条：
+
+```ts
+expect(getSetting(db, 'cockpit.magpie_url')).toBe('http://127.0.0.1:39123');
+```
+
+`@ixaeon/core` 的 `getSetting(db, key)` 返回的是 `{ value: string; updatedAt: string } | null`
+（`packages/core/src/settings.ts:22`，全仓唯一实现，界面那边也是 `getSetting(...)?.value` 这么用的），
+所以这条断言**永远不可能成立**：实现已经把 `cockpit.magpie_url` 正确写成 `http://127.0.0.1:39123`，
+只是读出来是个对象。
+
+需要的改动只有一行（改的是锁定测试，**我不能动**）：
+
+```ts
+expect(getSetting(db, 'cockpit.magpie_url')?.value).toBe('http://127.0.0.1:39123');
+```
+
+请整合方改这一行后重新锁定；改完这条应立刻变绿（实现侧无需再改）。
+
+### 真机 / 用户接受
+
+**真机未跑**（第一支不接线，甲/乙都要在 MP2b 之后做）。**用户接受未取得**。
+
+### 还剩什么
+
+1. 上面那行锁定测试要整合方改（一行）。
+2. MP2b（界面）**本轮没开始**：等这一条定了再在同一分支上继续，免得界面把红一起带过去。

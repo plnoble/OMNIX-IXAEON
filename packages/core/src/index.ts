@@ -321,3 +321,4 @@ export {
   parseUserTodo,
 } from './runtime/suggestedTodos.js';
 export { explainModelFailure, isModelUnavailable } from './runtime/modelErrors.js';
+export { resolveModelUse, type ModelUse, type ResolvedModelUse } from './models/resolveModelUse.js';

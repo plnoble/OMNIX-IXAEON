@@ -316,6 +316,22 @@ export interface AskDeltaEvent {
  * 两个用处：回答下面列出「用到的记忆」，觉得不对当场点掉；提炼这段回答时
  * 认出哪些话只是在复述这些记忆（回声），不再存一遍。
  */
+/** MP2：给界面的供应商视图——只有后四位，没有完整 Key，也没有密文。 */
+export interface ModelProviderView {
+  id: string;
+  name: string;
+  kind: 'openai' | 'magpie';
+  apiBaseUrl: string;
+  apiKeyPresent: boolean;
+  /** Key 的后四位；Key 不到 8 个字符、没有 Key、解不开都是 null */
+  apiKeyTail: string | null;
+  /** 有密文但解不开 */
+  apiKeyUnreadable: boolean;
+  savedModels: string[];
+  modelsCheckedAt: string | null;
+  usedBy: Array<'analysis' | 'chat' | 'coding'>;
+}
+
 export interface MemoryUsedItem {
   id: string;
   statement: string;
@@ -406,6 +422,15 @@ export const restoreDataInputSchema = z.object({
 });
 export type RestoreDataInput = z.infer<typeof restoreDataInputSchema>;
 
+/** MP2：给界面的「用途」选择（只有 providerId 与 model，没有 Key）。 */
+const modelChoiceView = z.object({ providerId: z.string().min(1), model: z.string().min(1) });
+const modelChoiceUsesView = z
+  .object({
+    analysis: modelChoiceView.optional(),
+    chat: modelChoiceView.optional(),
+    coding: modelChoiceView.optional(),
+  })
+  .default({});
 export const settingsViewSchema = z.object({
   config: z.object({
     modelName: z.string(),
@@ -427,6 +452,8 @@ export const settingsViewSchema = z.object({
     /** 受控网页搜索（B3）：provider 与 Key 状态（Key 永不回传渲染进程） */
     webSearchProvider: z.enum(['none', 'brave', 'tavily', 'tinyfish']).default('none'),
     webSearchKeyPresent: z.boolean().default(false),
+    /** MP2（11-03 补）：三个用途各自选了哪家的哪个模型 */
+    uses: modelChoiceUsesView,
   }),
   dataDir: z.string(),
   /** K3：驾驶舱读队列用的 IXAEON 仓库路径（设置页填；空串 = 不读队列）。 */
@@ -926,6 +953,26 @@ export interface IxaIpcApi {
   listWorkRuns(input: { projectId: string; limit: number }): Promise<WorkRun[]>;
   // 设置
   getSettings(): Promise<SettingsView>;
+  // MP2：多供应商
+  listModelProviders(): Promise<ModelProviderView[]>;
+  saveModelProvider(input: {
+    id?: string;
+    name: string;
+    kind: 'openai' | 'magpie';
+    apiBaseUrl: string;
+    apiKey?: string;
+    savedModels?: string[];
+  }): Promise<{ ok: true; id: string; keyCleared: boolean }>;
+  deleteModelProvider(id: string): Promise<{ ok: true }>;
+  fetchProviderModels(
+    id: string,
+    input?: { apiBaseUrl?: string; apiKey?: string },
+  ): Promise<{ models: string[]; error: string | null }>;
+  saveModelUses(input: {
+    analysis?: { providerId: string; model: string } | null;
+    chat?: { providerId: string; model: string } | null;
+    coding?: { providerId: string; model: string } | null;
+  }): Promise<{ ok: true }>;
   getSemanticIndexStatus(): Promise<{
     enabled: boolean;
     model: string | null;

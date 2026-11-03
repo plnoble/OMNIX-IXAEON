@@ -142,6 +142,12 @@ const api: IxaIpcApi = {
   listWorkRuns: (input) => ipcRenderer.invoke('ixaeon:listWorkRuns', input),
   getSettings: () => ipcRenderer.invoke('ixaeon:getSettings'),
   saveModelSettings: (input) => ipcRenderer.invoke('ixaeon:saveModelSettings', input),
+  // MP2：多供应商
+  listModelProviders: () => ipcRenderer.invoke('ixaeon:listModelProviders'),
+  saveModelProvider: (input) => ipcRenderer.invoke('ixaeon:saveModelProvider', input),
+  deleteModelProvider: (id) => ipcRenderer.invoke('ixaeon:deleteModelProvider', id),
+  fetchProviderModels: (id, input) => ipcRenderer.invoke('ixaeon:fetchProviderModels', id, input),
+  saveModelUses: (input) => ipcRenderer.invoke('ixaeon:saveModelUses', input),
   saveCodingSettings: (input) => ipcRenderer.invoke('ixaeon:saveCodingSettings', input),
   saveWebSearchSettings: (input) => ipcRenderer.invoke('ixaeon:saveWebSearchSettings', input),
   getPersonalMemoryToChat: () => ipcRenderer.invoke('ixaeon:getPersonalMemoryToChat'),
