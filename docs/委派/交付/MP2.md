@@ -152,3 +152,31 @@ expect(getSetting(db, 'cockpit.magpie_url')?.value).toBe('http://127.0.0.1:39123
 
 1. 上面那行锁定测试要整合方改（一行）。
 2. MP2b（界面）**本轮没开始**：等这一条定了再在同一分支上继续，免得界面把红一起带过去。
+
+### 行数更正（实测，2026-11-03）
+
+上面那张表是我凭印象写的「约」，实测 `git diff --numstat origin/main...HEAD -- packages/contracts/src packages/core/src apps/desktop/src`：
+
+| 文件                                                | 新增    |
+| --------------------------------------------------- | ------- |
+| `apps/desktop/src/main/appRuntime.ts`               | 319     |
+| `packages/core/src/models/resolveModelUse.ts`（新） | 69      |
+| `packages/contracts/src/ipc.ts`                     | 47      |
+| `packages/contracts/src/config.ts`                  | 34      |
+| `apps/desktop/src/main/ipc.ts`                      | 8       |
+| `apps/desktop/src/preload/index.ts`                 | 6       |
+| `packages/core/src/index.ts`                        | 1       |
+| **合计新增**                                        | **484** |
+
+**比规格估的 230 行、比 300 行指引都多**。多出来的两块：
+
+1. 契约那 82 行（两个 schema、`ModelProviderView`、`SettingsView` 的 `uses`、`IxaIpcApi` 的 5 个方法）——规格「契约」一节写死的形状，删不掉；
+2. `appRuntime.ts` 的 319 行含 5 个新方法（约 200 行）与三条取模型路径的改写（约 30 行），
+   其中 `fetchProviderModels` 一个方法就 45 行（超时、不跟跳转、Key 复用规则、去重、记检测时间都要在里面）。
+
+不自行再拆：规格已经把 MP2 的第二半（界面）单列成 MP2b，再拆就与规格的拆法不符。**是否接受 484 行由整合方定。**
+
+### 分支状态（截至本轮停下）
+
+- `dev/MP2`：`ff9490f`，CI **success**；本机 `node scripts/verify.mjs` **全过**。
+- 队列第 163 行保持「窗口进行中（dev）」——第一支还差上面那一行锁定测试的裁定，没改成「待复审」。
