@@ -1,69 +1,89 @@
-﻿# MP2 交付说明（本轮：只交测试）
+﻿# MP2 交付说明（本轮：只交测试，第二版）
 
-规格：`docs/委派/MP2-多个模型供应商.md`（MP2 条件 1–10、MP2b 条件 11–15）。
-B 档流程：本轮**只写测试、登记指纹**，不写实现。分支 `dev/MP2`。
+规格：`docs/委派/MP2-多个模型供应商.md`（main 最新版，含 11-03 补的三处）。
+B 档流程：本轮**只写测试**，不写实现。分支 `dev/MP2`。
 
-## 一、已实现
+## 一、本版按复审意见改了什么（逐条）
 
-**没有实现**。这一轮只写验收测试；源码、配置 schema、IPC、界面一行都没动（`git status` 里只有测试与本文档）。
+**怎么实现都过不了的（必须改）**
 
-## 二、测试清单（条件逐条对应）
+1. `runtime.getSettings()` 不存在 → 全部改用 `runtime.getConfig()`；条件 2「getSettings 返回里没有 Key/密文」
+   改成走**真的 IPC**：`registerIpc(runtime)` 后从 `ipcMain.handle` 的调用里取出 `ixaeon:getSettings` 处理函数再调
+   （照 `d7b-executor-selection.test.ts` 的做法）；并断言返回里带 `uses`。条件 9 的 magpie 地址改用
+   core 的 `getSetting(db, 'cockpit.magpie_url')` 读，期望 `http://127.0.0.1:39123`。
+2. 三个文件的 `runtimeWith` 都去掉了 `getProvider: () => FakeProvider('mp2')` 替身，改用真的 `getProvider`。
+3. 删掉了 `getProvider()?.baseUrl` 那一行（字段是私有的）。
+4. `safeStorage` 替身的 `decryptString` 改成「不是 `enc:` 开头就抛」，才造得出「解不开」。
 
-| 文件                                                    | 条数 | 覆盖条件                                                                                                                            |
-| ------------------------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/desktop/test/acceptance/mp2-providers.test.ts`    | 14   | 1（旧配置照样能读）、2（Key 只在主进程/视图给后四位）、3（改地址来源清 Key）、5（两家互不影响）、8（删除）、9（magpie）、10（审计） |
-| `apps/desktop/test/acceptance/mp2-fetch-models.test.ts` | 4    | 4（`GET /models`、只取 id 去重、302 不跟随、超时不抛错、Key 用不用）                                                                |
-| `apps/desktop/test/acceptance/mp2-uses.test.ts`         | 8    | 6（按用途取模型 / 聊天走直连 / 拒绝未勾选 / 选 default 写旧字段）、7（那家没了或解不开 → null，不借别家 Key）                       |
-| `apps/desktop/test/acceptance/mp2b-model-page.test.ts`  | 9    | 11（导航与设置页搬家）、12（供应商卡片）、13（用途下拉框）、14（聊天/编码的模型下拉框）、15（删正在用的）                           |
+**恒绿或等于没测的（必须改）**
 
-合计 **35 条**。没有连真网关、没有用真 Key：地址全是 `127.0.0.1` 的合成端口（`mp2-fetch-models` 里用 `node:http` 现起随机端口的假服务），
-Key 是 `sk-synthetic-…` 合成值，模型名是 `demo-a` / `demo-b`。导出的契约（`ModelProviderView`、`AppRuntime.listModelProviders` 等）
-照规格「契约」一节原样使用；`chatLaunchOptions()` 是私有方法，测试用类型转换按契约形状直接调，没有额外发明公开方法。
+5. 条件 2「解不开」去掉 `if (view)`，必须找到那一家并断言。
+6. 条件 5 先获取一次 B 让它有 `modelsCheckedAt`，再获取 A，断言 B 的时间不变。
+7. 条件 6「选没勾过的模型」先单独调 `withTwoProviders`，再 `expect(...).toThrow()`，然后断言聊天仍是旧字段。
+8. 条件 4「地址变了」改用**另一个端口的假服务**，断言第二个服务收到的请求 `authorization` 为 null、第一个服务没多收请求。
+9. 条件 14 去掉 `if (codingModel)`，必须找到下拉框。
 
-## 三、现在为什么是红的（红得对不对）
+**漏掉的条件（必须补）**
 
-`node node_modules/vitest/vitest.mjs run --project acceptance <四个文件>` → **35 条全红**，报错是：
+10. 条件 9 最后一条：openai 类型走完「获取模型 → 保存勾选 → `listModelProviders()`」，假服务只收到 `/v1/models`（补在 `mp2-fetch-models`）。
+11. 条件 11 后半句：聊天里「去设置「模型接入」添加」入口还在、点了会触发回调（`AskMessage` 的 `model-unavailable-settings`）。
+12. 条件 12：补「没 Key 显示『未配置』」；「新」「上游已没有」按获取前后的勾选对比断言（不再用「页面有『新』字」这种松写法）；筛选框输入 `new` 后 `demo-a` 那一行消失。
+13. 条件 13：聊天选成「合成乙 · demo-b」保存后断言 `saveModelUses` 收到 `chat = { providerId: 'p-b', model: 'demo-b' }`；`getSettings` 按规格返回 `config.uses`；重新渲染后选中还是它。
+14. 条件 14：补聊天里换模型的下拉框（`model-retry-select`），断言选项带「供应商名 · 」前缀。
+
+## 二、测试清单（38 条）
+
+| 文件                       | 条数 | 条件                        |
+| -------------------------- | ---- | --------------------------- |
+| `mp2-providers.test.ts`    | 15   | 1、2、3、5、8、9、10        |
+| `mp2-fetch-models.test.ts` | 5    | 4、9（openai 不发额度请求） |
+| `mp2-uses.test.ts`         | 8    | 6、7                        |
+| `mp2b-model-page.test.ts`  | 10   | 11、12、13、14、15          |
+
+不连真网关、不用真 Key：地址是 `127.0.0.1` 随机端口（条件 4 用 `node:http` 现起假服务），Key 是合成值，模型名 `demo-a`/`demo-b`。
+
+## 三、现在为什么是红的（逐文件）
+
+`node node_modules/vitest/vitest.mjs run --project acceptance <四个文件>` → **38 条里 36 红、2 绿**：
+
+| 文件                       | 结果             | 红的原因（只能是「功能没有」）                                                                                                                        |
+| -------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mp2-providers.test.ts`    | 15 条 14 红 1 绿 | `runtime.saveModelProvider / listModelProviders / deleteModelProvider / saveModelUses is not a function`；`getSetting('cockpit.magpie_url')` 没被写入 |
+| `mp2-fetch-models.test.ts` | 5 条全红         | `runtime.saveModelProvider` / `fetchProviderModels is not a function`                                                                                 |
+| `mp2-uses.test.ts`         | 8 条全红         | `saveModelProvider / saveModelUses is not a function`；`chatLaunchOptions()` 还不认 `uses`                                                            |
+| `mp2b-model-page.test.ts`  | 10 条 9 红 1 绿  | 导航没有 `nav-models`、没有 `models-page`（页面还没做）；设置页还有 `settings-model`/`settings-quota`                                                 |
+
+**2 条绿的是「保持原样」的守卫，不是漏测**：
+
+- `mp2-providers` 的「getProvider() 与 chatLaunchOptions() 跟改之前一样」——这条本来就该在改之前和改之后都是绿的；
+- `mp2b` 的「聊天里『去设置「模型接入」添加』入口还在、点了会触发回调」——入口今天就有；本规格只把它**落点**改成「模型」页。
+
+## 四、证明「测的是真东西」（复审第一条要求）
+
+做法：临时新建一个**不提交**的 `zztmp-proof.test.ts`，给 runtime 补上最小的假 `listModelProviders()` / `saveModelProvider()`
+（default 从 `config.model` 推、别家从 `config.providers` 推，后四位写死 `c3d4`），跑条件 1 与条件 2 的那几条断言：
 
 ```
-TypeError: runtime.saveModelProvider is not a function
-TypeError: runtime.listModelProviders is not a function
+✓ |acceptance| apps/desktop/test/acceptance/zztmp-proof.test.ts (1 test) 70ms
+Tests  1 passed (1)
 ```
 
-也就是「功能还没有」，不是测试写错。有两条「应当拒绝」的用例一开始被 `TypeError` 凑巧满足成假绿
-（`expect(() => …).toThrow()` 对「方法不存在」也成立），已收紧成断言**给用户看的中文拒绝理由**
-（`/默认|default/i`、`/magpie/i`、`/本机|magpie|地址/i`），现在 14/14 全红，没有假绿。
+**结论：补上假实现之后这些断言就变绿了**，说明它们测的是真行为，不是空断言。跑完已删除，没有提交。
+（第一次跑时断言也全过，只是收尾 `rmSync` 在 Windows 上因 db 未关报了 EPERM；关掉 db 后是干净的 1 passed。）
 
-## 四、冲突的锁定测试（**没有改它们**，由整合方定口径）
+## 五、冲突的旧锁定测试（本轮**一条未改**）
 
-我逐个核对了规格列的那 9 个文件，按「它们实际读的 testId / 文案」判断：
+上轮列的清单不变：`m2-settings-ui`、`m3-settings-ui`、`sub1-magpie-preset`、`sub1b-quota-settings`、
+`k4c-quota-settings`、`v4-settings-page`、`u2-settings-coding-saved`、`d7b-pages`、`cf0-chat-model-switch`。
+其中前四份测的界面元素按规格要搬走或消失，后几份是选项文案/页面骨架变化。
+**按规格「已有锁定测试会撞到的（11-03 定）」**：这些旧测试要跟 MP2b 的实现放在同一个分支改，
+规矩是只改「去哪儿找」、断言不删不放宽、不重新登记它们的指纹。**本轮是纯测试轮，不动它们。**
 
-| 锁定测试                           | 命中                                      | 为什么会撞                                                                                                                                                                 |
-| ---------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `m2-settings-ui.test.ts`           | 21 处，`settings-model`                   | 它整份渲染设置页的「模型接入」卡片并逐条断言（首次检测、勾选、筛选、保存）。MP2b 条件 11 要求把这张卡片从设置页搬走 → 整份失效                                             |
-| `m3-settings-ui.test.ts`           | 3 处，`settings-model` / 文案「模型接入」 | 同上：M3 的 Key 修改/清除规则断言挂在设置页那张卡片上                                                                                                                      |
-| `sub1-magpie-preset.test.ts`       | 5 处，`settings-model` / 文案「模型接入」 | 「用本机 magpie」一键预设按钮原来在设置页模型卡片里，MP2b 条件 12 把它搬到「模型」页的添加表单旁                                                                           |
-| `sub1b-quota-settings.test.ts`     | 3 处，`settings-quota` / 文案「额度来源」 | 条件 11 要求设置页没有 `settings-quota` 这张卡（额度搬进 magpie 那张供应商卡片）                                                                                           |
-| `k4c-quota-settings.test.ts`       | 2 处，文案「额度来源」                    | 同上，按文案定位额度卡片                                                                                                                                                   |
-| `v4-settings-page.test.ts`         | 1 处，`settings-coding`                   | 设置页卡片清单/布局断言：模型接入与额度两张卡搬走后，骨架变化                                                                                                              |
-| `u2-settings-coding-saved.test.ts` | 7 处，`settings-coding`                   | 「编码任务交给谁」的模型下拉框选项文案按条件 14 变成「供应商名 · 模型」                                                                                                    |
-| `d7b-pages.test.ts`                | 17 处，`settings-coding`                  | 同上：模型下拉框的选项与保存规则变了                                                                                                                                       |
-| `cf0-chat-model-switch.test.ts`    | **0 处** testId 命中                      | 不读上面那些 id，所以**不因搬家而红**；但条件 14 改了聊天换模型的选项文案为「供应商名 · 模型」，若它断言了具体选项文字，会因文案变化而红——这一条要整合方看它到底断言了什么 |
+## 六、真机 / 用户接受
 
-需要整合方决定的是：`m2-settings-ui`、`sub1-magpie-preset`、`sub1b-quota-settings`、`k4c-quota-settings` 这四份
-测的界面元素**按规格要搬走或消失**，只能改写（改到新页面）或退役；`u2`、`d7b`、`v4`、`cf0` 是选项文案/骨架变化，
-按规格改期望值即可。**我没有动它们任何一行。**
+**真机未跑**（还没实现，甲/乙/丙都做不了）。**用户接受未取得**，`待用户实测`。
 
-## 五、两处读法说明（不改条件，交整合方核）
+## 七、两处读法
 
-1. **条件 9 的「地址来源」**：我用 `http://127.0.0.1:<端口>` 作为「来源」，断言 `cockpit.magpie_url` 等于去掉 `/v1` 之后的那串
-   （`http://127.0.0.1:39123`）。若实现打算保留路径，这条要跟着改。
-2. **`getProvider()` 的 `baseUrl`**：条件 6 只说「`getProvider()` 还是 default」，我按现有 `ModelProvider` 的形状多断言了 `baseUrl`；
-   若规格不希望暴露地址，删掉那一行即可。
-
-## 六、真机检查
-
-**未跑**（本轮只交测试，功能还没实现；甲/乙/丙都做不了）。按流程等测试锁定后再写实现、再跑真机。
-
-## 七、用户接受
-
-**未取得**，`待用户实测`（丙）。
+1. 条件 9 的「地址来源」：期望 `cockpit.magpie_url` 是 `http://127.0.0.1:39123`（去掉 `/v1`）。
+2. 条件 6 只断言 `getProvider()?.modelName` 仍是 default，不再断言 `baseUrl`（字段私有）。

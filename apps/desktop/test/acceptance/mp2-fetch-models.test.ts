@@ -1,10 +1,14 @@
 /**
- * MP2 验收（条件 4）：获取模型。用本机随机端口的假 OpenAI 兼容服务，不连真网关。
+ * MP2 验收（条件 4 与条件 9 最后一条）：获取模型 / 不发额度请求。
+ * 用本机随机端口的假 OpenAI 兼容服务，不连真网关。
  *
  * - 条件 4 主句：假服务收到的是 `GET /models`，带的是那一家的 Key；只取出 `id`，去重。
- * - 302 指向另一个端口：返回 error，另一个端口一次请求都没收到（不跟跳转）。
- * - 超时（10 秒）：返回 error，不抛错。
- * - Key 留空、地址没变：用已保存的 Key；地址变了：不带旧 Key。
+ * - 条件 4：302 指向另一个端口 → 返回 error，另一个端口一次请求都没收到（不跟跳转）。
+ * - 条件 4：超时（10 秒）→ 返回 error，不抛错。
+ * - 条件 4：Key 留空、地址来源没变 → 用已保存的 Key；**地址来源变了（换成另一个端口的假服务）**
+ *   → 不带旧 Key，并且原来那个服务一次新请求都没收到。
+ * - 条件 9 最后一条：一家 openai 类型走完「获取模型 → 保存勾选 → listModelProviders()」，
+ *   假服务只收到 `/v1/models`，没有任何额度请求（没有含 `magpie` 的路径）。
  *
  * 地址是 127.0.0.1 的合成端口，Key 是合成的。
  */
@@ -18,13 +22,17 @@ import { Buffer } from 'node:buffer';
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.0.0', getPath: () => '' },
   dialog: {},
-  ipcMain: {},
+  ipcMain: { handle: vi.fn() },
   shell: {},
   BrowserWindow: class {},
   safeStorage: {
     isEncryptionAvailable: () => true,
     encryptString: (s: string) => Buffer.from(`enc:${s}`),
-    decryptString: (b: Buffer) => Buffer.from(b.toString().replace(/^enc:/, '')),
+    decryptString: (b: Buffer) => {
+      const text = Buffer.from(b).toString();
+      if (!text.startsWith('enc:')) throw new Error('解不开');
+      return text.slice(4);
+    },
   },
 }));
 
@@ -32,7 +40,6 @@ import {
   CodingOrchestrator,
   ConversationStore,
   FakeCodingExecutor,
-  FakeProvider,
   ItemService,
   ProjectService,
   SearchService,
@@ -121,7 +128,6 @@ function runtimeWith(config: AppConfig): AppRuntime {
     hermesFound: () => false,
     disposeWarmSession: () => undefined,
     warm: null,
-    getProvider: () => new FakeProvider('mp2'),
     getTinyFishFetcher: () => null,
     getWebSearchExecutor: () => null,
   });
@@ -143,12 +149,16 @@ function legacyConfig(): AppConfig {
   };
 }
 
+function jsonModels(ids: string[]): (recorded: Recorded[], res: ServerResponse) => void {
+  return (_recorded, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ data: ids.map((id) => ({ id })) }));
+  };
+}
+
 describe('MP2 条件 4：获取模型', () => {
   it('发的是 GET /models，带那一家的 Key，只取 id 并去重', async () => {
-    const { base, recorded } = await fakeServer((_r, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'demo-a' }, { id: 'demo-a' }, { id: 'demo-a2' }] }));
-    });
+    const { base, recorded } = await fakeServer(jsonModels(['demo-a', 'demo-a', 'demo-a2']));
     const runtime = runtimeWith(legacyConfig());
     const saved = runtime.saveModelProvider({
       name: '合成甲',
@@ -168,10 +178,7 @@ describe('MP2 条件 4：获取模型', () => {
   });
 
   it('302 指向另一个端口 → 返回 error，另一个端口一次请求都没收到', async () => {
-    const other = await fakeServer((_r, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'demo-leak' }] }));
-    });
+    const other = await fakeServer(jsonModels(['demo-leak']));
     const { base } = await fakeServer((_r, res) => {
       res.writeHead(302, { location: `${other.base}/models` });
       res.end();
@@ -206,11 +213,34 @@ describe('MP2 条件 4：获取模型', () => {
     expect(result.models).toEqual([]);
   }, 20_000);
 
-  it('Key 留空且地址没变 → 用已保存的 Key；地址变了 → 不带旧 Key', async () => {
-    const { base, recorded } = await fakeServer((_r, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'demo-a' }] }));
+  it('Key 留空且地址来源没变 → 用已保存的 Key；地址来源变了 → 不带旧 Key，老服务不再收到请求', async () => {
+    const first = await fakeServer(jsonModels(['demo-a']));
+    const second = await fakeServer(jsonModels(['demo-a']));
+    const runtime = runtimeWith(legacyConfig());
+    const saved = runtime.saveModelProvider({
+      name: '合成甲',
+      kind: 'openai',
+      apiBaseUrl: first.base,
+      apiKey: KEY_A,
     });
+
+    // 地址没变、Key 留空 → 用已保存的
+    await runtime.fetchProviderModels(saved.id, { apiBaseUrl: first.base });
+    expect(first.recorded[0]!.authorization).toBe(`Bearer ${KEY_A}`);
+    const firstCountAfterSameAddress = first.recorded.length;
+
+    // 地址来源变了（另一个端口的假服务）、Key 留空 → 不带旧 Key
+    await runtime.fetchProviderModels(saved.id, { apiBaseUrl: second.base });
+    expect(second.recorded).toHaveLength(1);
+    expect(second.recorded[0]!.authorization).toBeNull();
+    // 老服务没有多收一次请求
+    expect(first.recorded).toHaveLength(firstCountAfterSameAddress);
+  });
+});
+
+describe('MP2 条件 9 最后一条：openai 类型不发任何额度请求', () => {
+  it('获取模型 → 保存勾选 → 读视图，假服务只收到 /v1/models', async () => {
+    const { base, recorded } = await fakeServer(jsonModels(['demo-a', 'demo-a2']));
     const runtime = runtimeWith(legacyConfig());
     const saved = runtime.saveModelProvider({
       name: '合成甲',
@@ -219,12 +249,21 @@ describe('MP2 条件 4：获取模型', () => {
       apiKey: KEY_A,
     });
 
-    // 地址没变、Key 留空 → 用已保存的
-    await runtime.fetchProviderModels(saved.id, { apiBaseUrl: base });
-    expect(recorded[0]!.authorization).toBe(`Bearer ${KEY_A}`);
+    const listed = await runtime.fetchProviderModels(saved.id);
+    expect(listed.error).toBeNull();
+    runtime.saveModelProvider({
+      id: saved.id,
+      name: '合成甲',
+      kind: 'openai',
+      apiBaseUrl: base,
+      savedModels: ['demo-a'],
+    });
+    runtime.listModelProviders();
 
-    // 地址变了、Key 留空 → 不带旧 Key
-    await runtime.fetchProviderModels(saved.id, { apiBaseUrl: `${base}-moved` });
-    expect(recorded[1]!.authorization).toBeNull();
+    expect(recorded.length).toBeGreaterThan(0);
+    for (const call of recorded) {
+      expect(call.url).toBe('/v1/models');
+      expect(call.url).not.toMatch(/magpie|quota|usage|balance/i);
+    }
   });
 });

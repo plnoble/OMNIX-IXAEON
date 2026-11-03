@@ -6,12 +6,13 @@
  *   并且这一问走的是直连（`engine = 'direct'`）。
  * - 聊天的选择清掉 → 回到旧字段；
  * - 后台分析选了 B 家、聊天没单独选 → 聊天也走 B 家；
- * - 选一个没勾选过的模型 → 拒绝；
+ * - 选一个没勾选过的模型 → 拒绝（**先单独把两家建好**，别让建家时的异常冒充「拒绝」），
+ *   拒绝之后聊天仍旧是旧字段；
  * - 选 default 那一家 → 写进旧字段，`uses` 里没有这一项。
  * 条件 7：
  * - B 家被删 / B 家的 Key 解不开 → 用了 B 家的用途返回 null，不会掉回 default 借别家的 Key。
  *
- * 不联网：假网关是内存里的 SSE 流；地址与 Key 都是合成的。
+ * 不联网：假网关是内存里的 SSE 流；地址与 Key 都是合成的；getProvider 用真实现。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -22,13 +23,17 @@ import { Buffer } from 'node:buffer';
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.0.0', getPath: () => '' },
   dialog: {},
-  ipcMain: {},
+  ipcMain: { handle: vi.fn() },
   shell: {},
   BrowserWindow: class {},
   safeStorage: {
     isEncryptionAvailable: () => true,
     encryptString: (s: string) => Buffer.from(`enc:${s}`),
-    decryptString: (b: Buffer) => Buffer.from(b.toString().replace(/^enc:/, '')),
+    decryptString: (b: Buffer) => {
+      const text = Buffer.from(b).toString();
+      if (!text.startsWith('enc:')) throw new Error('解不开');
+      return text.slice(4);
+    },
   },
 }));
 
@@ -36,7 +41,6 @@ import {
   CodingOrchestrator,
   ConversationStore,
   FakeCodingExecutor,
-  FakeProvider,
   ItemService,
   ProjectService,
   SearchService,
@@ -87,14 +91,13 @@ function legacyConfig(): AppConfig {
   };
 }
 
-function runtimeWith(config: AppConfig): AppRuntime {
+function runtimeWith(config: AppConfig): { runtime: AppRuntime; conversationId: string } {
   const conversations = new ConversationStore(db);
   const conv = conversations.create({ projectId: null });
   const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
   Object.assign(runtime as unknown as Record<string, unknown>, {
     db,
     conversations,
-    conversationForTest: conv.id,
     todos: new TodoStore(db),
     items: new ItemService(db),
     search: new SearchService(db),
@@ -136,14 +139,13 @@ function runtimeWith(config: AppConfig): AppRuntime {
     hermesFound: () => true,
     disposeWarmSession: () => undefined,
     warm: null,
-    getProvider: () => new FakeProvider('mp2'),
     getTinyFishFetcher: () => null,
     getWebSearchExecutor: () => null,
+    // 复审意见 2：不覆盖 getProvider —— 条件 6 要断言真的那条实现仍指向 default
   });
-  return runtime;
+  return { runtime, conversationId: conv.id };
 }
 
-/** 规格说 chatLaunchOptions() 是私有的；测试按契约形状直接调它，不额外发明公开方法。 */
 function launchOf(runtime: AppRuntime): {
   chatModel: string | null;
   chatBaseUrl: string | null;
@@ -181,7 +183,7 @@ function withTwoProviders(runtime: AppRuntime): { a: string; b: string } {
 
 describe('MP2 条件 6：按用途取模型', () => {
   it('聊天选了 B 家的 demo-b → chatLaunchOptions 返回 B 家；getProvider 还是 default', () => {
-    const runtime = runtimeWith(legacyConfig());
+    const { runtime } = runtimeWith(legacyConfig());
     const { b } = withTwoProviders(runtime);
     runtime.saveModelUses({ chat: { providerId: b, model: 'demo-b' } });
 
@@ -190,7 +192,6 @@ describe('MP2 条件 6：按用途取模型', () => {
     expect(launch.chatBaseUrl).toBe(ADDR_B);
     expect(launch.chatApiKey).toBe(KEY_B);
     expect(runtime.getProvider()?.modelName).toBe('demo-a');
-    expect(runtime.getProvider()?.baseUrl).toBe(ADDR_A);
   });
 
   it('聊天选了 B 家 → 这一问走直连（engine = direct）', async () => {
@@ -211,11 +212,9 @@ describe('MP2 条件 6：按用途取模型', () => {
     }) as typeof fetch;
     vi.stubGlobal('fetch', fetchImpl);
 
-    const runtime = runtimeWith(legacyConfig());
+    const { runtime, conversationId } = runtimeWith(legacyConfig());
     const { b } = withTwoProviders(runtime);
     runtime.saveModelUses({ chat: { providerId: b, model: 'demo-b' } });
-    const conversationId = (runtime as unknown as { conversationForTest: string })
-      .conversationForTest;
 
     await runtime.ask({ conversationId, projectId: null, question: '合成问题' });
 
@@ -229,7 +228,7 @@ describe('MP2 条件 6：按用途取模型', () => {
   });
 
   it('聊天的选择清掉 → 回到旧字段', () => {
-    const runtime = runtimeWith(legacyConfig());
+    const { runtime } = runtimeWith(legacyConfig());
     const { b } = withTwoProviders(runtime);
     runtime.saveModelUses({ chat: { providerId: b, model: 'demo-b' } });
     runtime.saveModelUses({ chat: null });
@@ -241,7 +240,7 @@ describe('MP2 条件 6：按用途取模型', () => {
   });
 
   it('后台分析选了 B 家、聊天没单独选 → 聊天也走 B 家', () => {
-    const runtime = runtimeWith(legacyConfig());
+    const { runtime } = runtimeWith(legacyConfig());
     const { b } = withTwoProviders(runtime);
     runtime.saveModelUses({ analysis: { providerId: b, model: 'demo-b' } });
 
@@ -252,58 +251,61 @@ describe('MP2 条件 6：按用途取模型', () => {
     expect(runtime.getProvider()?.modelName).toBe('demo-b');
   });
 
-  it('选一个没勾选过的模型 → 拒绝', () => {
-    const runtime = runtimeWith(legacyConfig());
+  it('选一个没勾选过的模型 → 拒绝，拒绝之后聊天仍是旧字段', () => {
+    const { runtime } = runtimeWith(legacyConfig());
+    // 先单独把两家建好：建家这一步自己抛错不能冒充「拒绝」
     const { b } = withTwoProviders(runtime);
+
     expect(() =>
       runtime.saveModelUses({ chat: { providerId: b, model: 'demo-没勾过' } }),
     ).toThrow();
+
+    const launch = launchOf(runtime);
+    expect(launch.chatBaseUrl).toBe(ADDR_A);
+    expect(launch.chatModel).toBe('demo-a');
   });
 
   it('选 default 那一家 → 写进旧字段，uses 里没有这一项', () => {
-    const runtime = runtimeWith(legacyConfig());
+    const { runtime } = runtimeWith(legacyConfig());
     runtime.saveModelUses({ chat: { providerId: 'default', model: 'demo-a' } });
-    const settings = runtime.getSettings() as unknown as {
-      model: { chatModelName: string };
-      uses: { chat?: unknown };
-    };
-    expect(settings.model.chatModelName).toBe('demo-a');
-    expect(settings.uses.chat).toBeUndefined();
+    const config = runtime.getConfig();
+    expect(config.model.chatModelName).toBe('demo-a');
+    expect(config.uses?.chat).toBeUndefined();
   });
 });
 
 describe('MP2 条件 7：那家没了或解不开 → null，不借别家的 Key', () => {
   it('B 家被删之后，用了 B 家的用途返回 null', () => {
-    const runtime = runtimeWith(legacyConfig());
+    const { runtime } = runtimeWith(legacyConfig());
     const { b } = withTwoProviders(runtime);
     runtime.saveModelUses({ chat: { providerId: b, model: 'demo-b' } });
-    // 先清掉用途才能删；这里直接在配置层面把 B 抹掉，模拟「那家没了」
-    const settings = runtime.getSettings() as unknown as AppConfig;
+    // 直接把这家人从配置里抹掉，模拟「那家没了」
+    const config = runtime.getConfig();
     Object.assign(runtime as unknown as { config: AppConfig }, {
       config: {
-        ...settings,
-        providers: (settings.providers ?? []).filter((p) => p.id !== b),
-      } as unknown as AppConfig,
+        ...config,
+        providers: (config.providers ?? []).filter((p) => p.id !== b),
+      } as AppConfig,
     });
 
     expect(launchOf(runtime).chatBaseUrl).toBeNull();
-    const resolved = resolveModelUse((runtime as unknown as { config: AppConfig }).config, 'chat');
-    expect(resolved).toBeNull();
+    expect(resolveModelUse(runtime.getConfig(), 'chat')).toBeNull();
   });
 
   it('B 家的 Key 解不开 → 那个用途返回 null，不借 default 的 Key', () => {
-    const runtime = runtimeWith(legacyConfig());
+    const { runtime } = runtimeWith(legacyConfig());
     const { b } = withTwoProviders(runtime);
     runtime.saveModelUses({ chat: { providerId: b, model: 'demo-b' } });
-    const settings = runtime.getSettings() as unknown as AppConfig;
-    const providers = (settings.providers ?? []).map((p) =>
+    const config = runtime.getConfig();
+    const providers = (config.providers ?? []).map((p) =>
       p.id === b ? { ...p, apiKeyEncrypted: Buffer.from('broken-cipher').toString('base64') } : p,
     );
     Object.assign(runtime as unknown as { config: AppConfig }, {
-      config: { ...settings, providers } as unknown as AppConfig,
+      config: { ...config, providers } as AppConfig,
     });
 
-    expect(launchOf(runtime).chatBaseUrl).toBeNull();
-    expect(launchOf(runtime).chatApiKey).toBeNull();
+    const launch = launchOf(runtime);
+    expect(launch.chatBaseUrl).toBeNull();
+    expect(launch.chatApiKey).toBeNull();
   });
 });

@@ -2,36 +2,39 @@
 /**
  * MP2b 验收（界面）——规格 docs/委派/MP2-多个模型供应商.md 验收条件 11–15。
  *
- * - 条件 11：导航里有「模型」；设置页里没有 settings-model、settings-quota 两张卡片了；
- *   有跳到「模型」页的按钮；原来跳到设置页模型区的入口，现在跳到「模型」页。
- * - 条件 12：供应商卡片——Key 显示后四位（「已保存 ····c3d4」）；短 Key 只显示「已保存」；
- *   没有 Key 显示「未配置」；页面文本里找不到完整 Key；
- *   勾选清单有筛选框和「新」「上游已没有」标记；
- *   magpie 那张有额度区和「刷新」；openai 那张页面上找不到额度区域；
- *   已经有 magpie 时「用本机 magpie」按钮不能点。
- * - 条件 13：用途三个下拉框——选项是所有供应商勾选过的模型，显示成「供应商名 · 模型」；
- *   聊天多一个「跟着后台分析」；保存后重新打开页面，选中的还在。
- * - 条件 14：聊天里换模型、设置里「编码任务交给谁」的模型下拉框，选项跟第 13 条一样。
- * - 条件 15：删除一家正在用的供应商 → 页面上显示拒绝的原因，卡片还在。
+ * - 条件 11：导航里有「模型」；设置页里没有 settings-model、settings-quota；
+ *   有跳到「模型」页的按钮（点了到 models-page）；
+ *   聊天里那个「去设置「模型接入」添加」入口仍然存在、点了会触发回调（落点由实现改成「模型」页）。
+ * - 条件 12：卡片——Key 后四位「已保存 ····c3d4」；短 Key 只显示「已保存」；
+ *   **没有 Key 显示「未配置」**；页面文本里找不到完整 Key；
+ *   勾选清单：获取后新出现的行标「新」、上游已没有的行标「上游已没有」；**筛选框真的能筛**；
+ *   magpie 那张有额度区；openai 那张没有；已有 magpie 时「用本机 magpie」不能点。
+ * - 条件 13：用途三个下拉框显示「供应商名 · 模型」、聊天多「跟着后台分析」；
+ *   聊天选成「合成乙 · demo-b」保存 → saveModelUses 收到 { providerId: 'p-b', model: 'demo-b' }；
+ *   重新渲染后选中的还是它。
+ * - 条件 14：设置页「编码任务交给谁」的模型下拉框、聊天里换模型的下拉框，选项也显示成「供应商名 · 模型」。
+ * - 条件 15：删正在用的供应商 → 页面显示拒绝原因，卡片还在。
  *
- * 界面测试用的 testId：既有的沿用（nav-*、settings-model、settings-quota）；
- * 新页面这一套是本文件定义的契约（实现照这些 id 写）：
- * models-page、provider-card-<id>、provider-key-<id>、provider-models-<id>、provider-quota-<id>、
- * provider-delete-<id>、provider-add、provider-add-name/-base/-key、provider-add-save、
- * provider-magpie-preset、model-filter-<id>、uses-analysis/-chat/-coding、uses-save、
- * settings-model-jump。
+ * 界面 testId：既有的沿用（nav-*、settings-model、settings-quota、model-retry-select）；
+ * 新页面这一套是本文件定义的契约：models-page、provider-card-<id>、provider-key-<id>、
+ * provider-models-<id>、model-row-<id>、model-filter-<id>、provider-quota-<id>、
+ * provider-delete-<id>、provider-magpie-preset、uses-analysis/-chat/-coding、uses-save、
+ * settings-model-jump、settings-coding-model。
  *
- * 一律不联网：api 全是替身，Key 是合成的。
+ * 不联网：api 全是替身，Key 是合成的。
  */
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ModelProviderView } from '@ixaeon/contracts';
+import type { ConversationMessage, ModelProviderView } from '@ixaeon/contracts';
 
-const providerViews: ModelProviderView[] = [];
+let providerViews: ModelProviderView[] = [];
+let uses: Record<string, unknown> = {};
+let savedModelsState: string[] = [];
+let upstream: string[] = [];
 const deleted: string[] = [];
 const deleteError = { message: '' as string };
-let usesSaved: unknown = null;
+let usesSaved: { chat?: { providerId: string; model: string } } | null = null;
 
 vi.mock('../../src/renderer/src/api.js', () => ({
   api: {
@@ -39,16 +42,16 @@ vi.mock('../../src/renderer/src/api.js', () => ({
     listProjects: async () => [],
     listMatchedFindings: async () => [],
     getSettings: async () => ({
-      model: {
-        provider: 'openai',
+      config: {
         modelName: 'demo-a',
+        chatModelName: '',
         apiBaseUrl: 'http://127.0.0.1:18081/v1',
         apiKeyPresent: true,
-        savedModels: ['demo-a'],
+        savedModels: savedModelsState,
+        uses,
       },
       cockpit: { magpieUrl: '' },
       providers: providerViews,
-      uses: {},
     }),
     listModelProviders: async () => providerViews,
     saveModelProvider: async () => ({ ok: true, id: 'p-new', keyCleared: false }),
@@ -57,9 +60,9 @@ vi.mock('../../src/renderer/src/api.js', () => ({
       deleted.push(id);
       return { ok: true };
     },
-    fetchProviderModels: async () => ({ models: [], error: null }),
+    fetchProviderModels: async () => ({ models: upstream, error: null }),
     saveModelUses: async (input: unknown) => {
-      usesSaved = input;
+      usesSaved = input as { chat?: { providerId: string; model: string } };
       return { ok: true };
     },
     listAvailableModels: async () => ({ models: [], error: null }),
@@ -71,15 +74,19 @@ vi.mock('../../src/renderer/src/api.js', () => ({
   errMsg: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
-import { App } from '../../src/renderer/src/App.js';
+import App from '../../src/renderer/src/App.js';
+import { AskMessage } from '../../src/renderer/src/pages/AskMessage.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null;
 let host: HTMLDivElement;
 
-beforeEach(async () => {
-  providerViews.length = 0;
+beforeEach(() => {
+  providerViews = [];
+  uses = {};
+  savedModelsState = [];
+  upstream = [];
   deleted.length = 0;
   deleteError.message = '';
   usesSaved = null;
@@ -103,8 +110,37 @@ async function renderApp(): Promise<void> {
   });
 }
 
+async function flush(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
 function q(testId: string): HTMLElement | null {
   return host.querySelector(`[data-testid="${testId}"]`);
+}
+
+function view(partial: Partial<ModelProviderView> & { id: string }): ModelProviderView {
+  return {
+    name: partial.id,
+    kind: 'openai',
+    apiBaseUrl: 'http://127.0.0.1:18081/v1',
+    apiKeyPresent: true,
+    apiKeyTail: 'c3d4',
+    apiKeyUnreadable: false,
+    savedModels: [],
+    modelsCheckedAt: null,
+    usedBy: [],
+    ...partial,
+  };
+}
+
+async function openModelsPage(): Promise<void> {
+  await renderApp();
+  await act(async () => {
+    (q('nav-models') as HTMLElement | null)?.click();
+  });
+  await flush();
 }
 
 describe('MP2b 条件 11：导航加「模型」，设置页搬走两张卡片', () => {
@@ -112,14 +148,10 @@ describe('MP2b 条件 11：导航加「模型」，设置页搬走两张卡片',
     await renderApp();
     expect(q('nav-models')).toBeTruthy();
 
-    const settings = q('nav-settings') as HTMLElement | null;
-    expect(settings).toBeTruthy();
     await act(async () => {
-      settings?.click();
+      (q('nav-settings') as HTMLElement | null)?.click();
     });
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await flush();
 
     expect(q('settings-model')).toBeNull();
     expect(q('settings-quota')).toBeNull();
@@ -128,237 +160,225 @@ describe('MP2b 条件 11：导航加「模型」，设置页搬走两张卡片',
 
   it('点设置页那个按钮 → 到「模型」页', async () => {
     await renderApp();
-    const settings = q('nav-settings') as HTMLElement | null;
     await act(async () => {
-      settings?.click();
+      (q('nav-settings') as HTMLElement | null)?.click();
     });
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await flush();
     await act(async () => {
       (q('settings-model-jump') as HTMLElement | null)?.click();
     });
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await flush();
     expect(q('models-page')).toBeTruthy();
+  });
+
+  it('聊天里「去设置「模型接入」添加」入口还在，点了会触发打开模型的回调', async () => {
+    const onOpenModelSettings = vi.fn();
+    const message = {
+      id: 'm1',
+      seq: 2,
+      role: 'assistant',
+      citations: [],
+      content: '',
+      status: 'failed',
+      modelName: 'demo-a',
+      // 组件内部用它认出「模型不可用」，没有它就不出换模型那一段
+      errorMessage: 'No available channel for model demo-a',
+      meta: {},
+      createdAt: new Date().toISOString(),
+    } as unknown as ConversationMessage;
+
+    await act(async () => {
+      root?.render(
+        createElement(AskMessage, {
+          message,
+          savedModels: [],
+          chatModelName: '',
+          onOpenModelSettings,
+        } as unknown as Parameters<typeof AskMessage>[0]),
+      );
+    });
+    await flush();
+
+    const button = q('model-unavailable-settings');
+    expect(button, '没有这个入口按钮').toBeTruthy();
+    await act(async () => {
+      button?.click();
+    });
+    expect(onOpenModelSettings).toHaveBeenCalled();
   });
 });
 
 describe('MP2b 条件 12：供应商卡片', () => {
-  function seed(): void {
-    providerViews.push(
-      {
-        id: 'default',
-        name: '默认',
-        kind: 'openai',
-        apiBaseUrl: 'http://127.0.0.1:18081/v1',
-        apiKeyPresent: true,
-        apiKeyTail: 'c3d4',
-        apiKeyUnreadable: false,
-        savedModels: ['demo-a'],
-        modelsCheckedAt: null,
-        usedBy: [],
-      },
-      {
-        id: 'p-magpie',
-        name: '本机 magpie',
-        kind: 'magpie',
-        apiBaseUrl: 'http://127.0.0.1:39123/v1',
-        apiKeyPresent: true,
-        apiKeyTail: null,
-        apiKeyUnreadable: false,
-        savedModels: ['demo-m'],
-        modelsCheckedAt: null,
-        usedBy: ['analysis'],
-      },
-    );
-  }
+  it('Key 后四位 / 短 Key / 未配置；页面文本里找不到完整 Key', async () => {
+    providerViews = [
+      view({ id: 'default', name: '默认', apiKeyTail: 'c3d4' }),
+      view({ id: 'p-short', name: '合成短 Key', kind: 'magpie', apiKeyTail: null }),
+      view({ id: 'p-none', name: '合成没配', apiKeyPresent: false, apiKeyTail: null }),
+    ];
+    await openModelsPage();
 
-  it('Key 显示后四位 / 短 Key 只显示「已保存」；页面文本里找不到完整 Key', async () => {
-    seed();
-    await renderApp();
-    await act(async () => {
-      (q('nav-models') as HTMLElement | null)?.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    const defaultKey = q('provider-key-default');
-    expect(defaultKey?.textContent ?? '').toContain('已保存');
-    expect(defaultKey?.textContent ?? '').toContain('c3d4');
-    const magpieKey = q('provider-key-p-magpie');
-    expect(magpieKey?.textContent ?? '').toContain('已保存');
-    expect(magpieKey?.textContent ?? '').not.toContain('····');
+    expect(q('provider-key-default')?.textContent ?? '').toContain('c3d4');
+    expect(q('provider-key-p-short')?.textContent ?? '').toContain('已保存');
+    expect(q('provider-key-p-short')?.textContent ?? '').not.toContain('····');
+    expect(q('provider-key-p-none')?.textContent ?? '').toContain('未配置');
     expect(host.textContent ?? '').not.toContain('sk-synthetic');
   });
 
-  it('magpie 那张有额度区与「刷新」；openai 那张没有额度区域', async () => {
-    seed();
-    await renderApp();
+  it('获取模型后：新出现的标「新」、上游已没有的标「上游已没有」；筛选框真的能筛', async () => {
+    providerViews = [view({ id: 'default', name: '默认', savedModels: ['demo-a', 'demo-gone'] })];
+    savedModelsState = ['demo-a', 'demo-gone'];
+    upstream = ['demo-a', 'demo-new'];
+    await openModelsPage();
+
     await act(async () => {
-      (q('nav-models') as HTMLElement | null)?.click();
+      (q('provider-models-default') as HTMLElement | null)?.click();
     });
+    await flush();
+
+    expect(q('model-row-demo-new')?.textContent ?? '').toContain('新');
+    expect(q('model-row-demo-gone')?.textContent ?? '').toContain('上游已没有');
+
+    // 筛选：输入 new 之后，demo-a 那一行看不到
+    const filter = q('model-filter-default') as HTMLInputElement | null;
+    expect(filter).toBeTruthy();
     await act(async () => {
-      await Promise.resolve();
+      if (filter) {
+        filter.value = 'new';
+        filter.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     });
-    expect(q('provider-quota-p-magpie')).toBeTruthy();
-    expect(q('provider-quota-default')).toBeNull();
+    await flush();
+    expect(q('model-row-demo-a')).toBeNull();
+    expect(q('model-row-demo-new')).toBeTruthy();
   });
 
-  it('已经有 magpie 时「用本机 magpie」按钮不能点', async () => {
-    seed();
-    await renderApp();
-    await act(async () => {
-      (q('nav-models') as HTMLElement | null)?.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
+  it('magpie 那张有额度区；openai 那张没有；已有 magpie 时预设按钮不能点', async () => {
+    providerViews = [
+      view({ id: 'default', name: '默认' }),
+      view({ id: 'p-magpie', name: '本机 magpie', kind: 'magpie', savedModels: ['demo-m'] }),
+    ];
+    await openModelsPage();
+
+    expect(q('provider-quota-p-magpie')).toBeTruthy();
+    expect(q('provider-quota-default')).toBeNull();
     const preset = q('provider-magpie-preset') as HTMLButtonElement | null;
     expect(preset).toBeTruthy();
     expect(preset?.disabled).toBe(true);
   });
-
-  it('勾选清单有筛选框和「新」「上游已没有」标记', async () => {
-    seed();
-    await renderApp();
-    await act(async () => {
-      (q('nav-models') as HTMLElement | null)?.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(q('model-filter-default')).toBeTruthy();
-    expect(q('provider-models-default')?.textContent ?? '').toContain('新');
-  });
 });
 
 describe('MP2b 条件 13：用途三个下拉框', () => {
-  it('选项显示成「供应商名 · 模型」，聊天多「跟着后台分析」，保存后重新打开还在', async () => {
-    providerViews.push(
-      {
-        id: 'default',
-        name: '默认',
-        kind: 'openai',
-        apiBaseUrl: 'http://127.0.0.1:18081/v1',
-        apiKeyPresent: true,
-        apiKeyTail: 'c3d4',
-        apiKeyUnreadable: false,
-        savedModels: ['demo-a'],
-        modelsCheckedAt: null,
-        usedBy: [],
-      },
-      {
-        id: 'p-b',
-        name: '合成乙',
-        kind: 'openai',
-        apiBaseUrl: 'http://127.0.0.1:18082/v1',
-        apiKeyPresent: true,
-        apiKeyTail: 'e7d6',
-        apiKeyUnreadable: false,
-        savedModels: ['demo-b'],
-        modelsCheckedAt: null,
-        usedBy: [],
-      },
-    );
-    await renderApp();
-    await act(async () => {
-      (q('nav-models') as HTMLElement | null)?.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
+  it('选项是「供应商名 · 模型」，聊天多「跟着后台分析」；保存后重新打开还在', async () => {
+    providerViews = [
+      view({ id: 'default', name: '默认', savedModels: ['demo-a'] }),
+      view({ id: 'p-b', name: '合成乙', savedModels: ['demo-b'] }),
+    ];
+    await openModelsPage();
 
     for (const id of ['uses-analysis', 'uses-chat', 'uses-coding']) {
       const select = q(id) as HTMLSelectElement | null;
-      expect(select).toBeTruthy();
+      expect(select, `没有 ${id}`).toBeTruthy();
       const text = select?.textContent ?? '';
       expect(text).toContain('默认 · demo-a');
       expect(text).toContain('合成乙 · demo-b');
     }
     expect(q('uses-chat')?.textContent ?? '').toContain('跟着后台分析');
 
-    // 保存：点「保存」后必须真的调过 saveModelUses，并且重新打开页面选中还在
+    // 聊天选成「合成乙 · demo-b」并保存
+    const chatSelect = q('uses-chat') as HTMLSelectElement | null;
+    const option = [...(chatSelect?.options ?? [])].find((o) =>
+      (o.textContent ?? '').includes('合成乙 · demo-b'),
+    );
+    expect(option, '聊天下拉里没有「合成乙 · demo-b」').toBeTruthy();
+    await act(async () => {
+      if (chatSelect && option) {
+        chatSelect.value = option.value;
+        chatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+    await flush();
     await act(async () => {
       (q('uses-save') as HTMLElement | null)?.click();
     });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(usesSaved).not.toBeNull();
+    await flush();
+
+    expect(usesSaved?.chat).toEqual({ providerId: 'p-b', model: 'demo-b' });
+
+    // 重新渲染（getSettings 按规格返回 config.uses），选中的还是它
+    uses = { chat: { providerId: 'p-b', model: 'demo-b' } };
+    await act(async () => root?.unmount());
+    root = createRoot(host);
+    await openModelsPage();
+    const after = q('uses-chat') as HTMLSelectElement | null;
+    const selectedText = after?.selectedOptions[0]?.textContent ?? '';
+    expect(selectedText).toContain('合成乙 · demo-b');
   });
 });
 
-describe('MP2b 条件 14：聊天换模型、编码任务的模型下拉框', () => {
-  it('选项同样显示成「供应商名 · 模型」', async () => {
-    providerViews.push({
-      id: 'default',
-      name: '默认',
-      kind: 'openai',
-      apiBaseUrl: 'http://127.0.0.1:18081/v1',
-      apiKeyPresent: true,
-      apiKeyTail: 'c3d4',
-      apiKeyUnreadable: false,
-      savedModels: ['demo-a'],
-      modelsCheckedAt: null,
-      usedBy: [],
-    });
+describe('MP2b 条件 14：编码任务的模型下拉框、聊天里换模型', () => {
+  it('设置页「编码任务交给谁」的模型下拉框，选项是「供应商名 · 模型」', async () => {
+    providerViews = [view({ id: 'default', name: '默认', savedModels: ['demo-a'] })];
+    savedModelsState = ['demo-a'];
     await renderApp();
     await act(async () => {
       (q('nav-settings') as HTMLElement | null)?.click();
     });
+    await flush();
+
+    const codingModel = q('settings-coding-model') as HTMLSelectElement | null;
+    expect(codingModel, '设置页没有编码模型的模型下拉框').toBeTruthy();
+    expect(codingModel?.textContent ?? '').toContain('默认 · demo-a');
+  });
+
+  it('聊天里换模型的下拉框，选项是「供应商名 · 模型」', async () => {
+    const message = {
+      id: 'm1',
+      seq: 2,
+      role: 'assistant',
+      citations: [],
+      content: '',
+      status: 'failed',
+      modelName: 'demo-a',
+      // 组件内部用它认出「模型不可用」，没有它就不出换模型那一段
+      errorMessage: 'No available channel for model demo-a',
+      meta: {},
+      createdAt: new Date().toISOString(),
+    } as unknown as ConversationMessage;
+
     await act(async () => {
-      await Promise.resolve();
+      root?.render(
+        createElement(AskMessage, {
+          message,
+          savedModels: ['demo-a', 'demo-b'],
+          chatModelName: '',
+        } as unknown as Parameters<typeof AskMessage>[0]),
+      );
     });
-    const codingModel = q('settings-coding-model');
-    if (codingModel) expect(codingModel.textContent ?? '').toContain('默认 · demo-a');
+    await flush();
+
+    const select = q('model-retry-select') as HTMLSelectElement | null;
+    expect(select, '没有换模型的下拉框').toBeTruthy();
+    // 失败的那个（demo-a）被过滤掉，剩下的是别的已保存模型；选项要带「供应商名 · 」前缀
+    const options = [...(select?.options ?? [])].map((o) => (o.textContent ?? '').trim());
+    expect(options.length).toBeGreaterThan(0);
+    expect(options[0]).toMatch(/·\s*demo-b$/);
+    expect(options[0]).not.toBe('demo-b');
   });
 });
 
 describe('MP2b 条件 15：删正在用的供应商', () => {
   it('页面上显示拒绝的原因，卡片还在', async () => {
-    providerViews.push(
-      {
-        id: 'default',
-        name: '默认',
-        kind: 'openai',
-        apiBaseUrl: 'http://127.0.0.1:18081/v1',
-        apiKeyPresent: true,
-        apiKeyTail: 'c3d4',
-        apiKeyUnreadable: false,
-        savedModels: ['demo-a'],
-        modelsCheckedAt: null,
-        usedBy: [],
-      },
-      {
-        id: 'p-b',
-        name: '合成乙',
-        kind: 'openai',
-        apiBaseUrl: 'http://127.0.0.1:18082/v1',
-        apiKeyPresent: true,
-        apiKeyTail: 'e7d6',
-        apiKeyUnreadable: false,
-        savedModels: ['demo-b'],
-        modelsCheckedAt: null,
-        usedBy: ['chat'],
-      },
-    );
+    providerViews = [
+      view({ id: 'default', name: '默认' }),
+      view({ id: 'p-b', name: '合成乙', savedModels: ['demo-b'], usedBy: ['chat'] }),
+    ];
     deleteError.message = '聊天在用它，先在用途里换掉';
-    await renderApp();
-    await act(async () => {
-      (q('nav-models') as HTMLElement | null)?.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await openModelsPage();
+
     await act(async () => {
       (q('provider-delete-p-b') as HTMLElement | null)?.click();
     });
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await flush();
 
     expect(host.textContent ?? '').toContain('聊天在用它');
     expect(q('provider-card-p-b')).toBeTruthy();

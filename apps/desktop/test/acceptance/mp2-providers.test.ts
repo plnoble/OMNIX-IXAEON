@@ -4,17 +4,18 @@
  *   listModelProviders() 返回一家 default，地址与模型清单跟旧字段一样；
  *   getProvider() / chatLaunchOptions() 的结果跟改之前完全一样。
  * - 条件 2：新加一家（Key 用 sk-synthetic-a1b2c3d4）：
- *   config.json 文本里找不到明文 Key；listModelProviders() 与 getSettings() 里
- *   找不到完整 Key、也找不到密文；apiKeyTail 是 c3d4；config.json 里没有单独存后四位的字段；
+ *   config.json 文本里找不到明文 Key；**IPC getSettings 的真实返回**里找不到完整 Key、也找不到密文；
+ *   那一家的 apiKeyTail 是 c3d4；config.json 里没有单独存后四位的字段；
  *   Key 是 magpie（不到 8 个字符）时 apiKeyTail 为 null；密文解不开时 apiKeyUnreadable=true、apiKeyTail=null。
  * - 条件 3：同一家改了地址来源又没填新 Key → 那家 Key 被清掉、keyCleared=true，别家不受影响。
- * - 条件 5：两家各自勾选保存互不影响；获取 A 家模型不改 B 家检测时间。
+ * - 条件 5：两家各自勾选保存互不影响；**先让 B 有过检测时间**，再获取 A，B 的检测时间不变。
  * - 条件 8：删除——被用着→拒绝且提示写用途；删 default→拒绝；没人用的删掉且密文从 config.json 消失。
- * - 条件 9：magpie——保存一家 magpie 类型把 cockpit.magpie_url 写成它地址的来源；
+ * - 条件 9：magpie——保存一家 magpie 类型把数据库设置 cockpit.magpie_url 写成它地址的来源；
  *   第二家 magpie 拒绝；magpie 类型、地址不是本机 → 拒绝且不发请求。
  * - 条件 10：审计里有保存、删除记录，记录里没有 Key、没有密文。
  *
- * 一律不联网：条件 5 的「获取模型」用假 fetch 桩；地址全是 127.0.0.1 的合成值，Key 全是合成的。
+ * 不联网：地址全是 127.0.0.1 的合成值，Key 全是合成的。读配置用 getConfig()，
+ * 读 magpie 地址用 core 的 getSetting()，读界面视图走真的 IPC getSettings 处理函数。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -25,36 +26,44 @@ import { Buffer } from 'node:buffer';
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.0.0', getPath: () => '' },
   dialog: {},
-  ipcMain: {},
+  ipcMain: { handle: vi.fn() },
   shell: {},
   BrowserWindow: class {},
   safeStorage: {
     isEncryptionAvailable: () => true,
     encryptString: (s: string) => Buffer.from(`enc:${s}`),
-    decryptString: (b: Buffer) => Buffer.from(b.toString().replace(/^enc:/, '')),
+    // 复审意见 4：替身必须「解不开」才测得出解不开的分支——不是 enc: 开头就抛
+    decryptString: (b: Buffer) => {
+      const text = Buffer.from(b).toString();
+      if (!text.startsWith('enc:')) throw new Error('解不开');
+      return text.slice(4);
+    },
   },
 }));
 
+import { ipcMain } from 'electron';
 import {
   CodingOrchestrator,
   ConversationStore,
   FakeCodingExecutor,
-  FakeProvider,
   ItemService,
   ProjectService,
   SearchService,
   TodoStore,
+  getSetting,
   migrate,
   openDatabase,
   type CoreDatabase,
 } from '@ixaeon/core';
 import { defaultAppConfig, type AppConfig } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { registerIpc } from '../../src/main/ipc.js';
 
 const KEY_A = 'sk-synthetic-a1b2c3d4';
 const KEY_B = 'sk-synthetic-b9f8e7d6';
 const ADDR_A = 'http://127.0.0.1:18081/v1';
 const ADDR_B = 'http://127.0.0.1:18082/v1';
+const MAGPIE_ADDR = 'http://127.0.0.1:39123/v1';
 
 let dir: string;
 let db: CoreDatabase;
@@ -118,9 +127,9 @@ function runtimeWith(config: AppConfig): AppRuntime {
     hermesFound: () => false,
     disposeWarmSession: () => undefined,
     warm: null,
-    getProvider: () => new FakeProvider('mp2'),
     getTinyFishFetcher: () => null,
     getWebSearchExecutor: () => null,
+    // 复审意见 2：不覆盖 getProvider —— 要测真的那条实现
   });
   return runtime;
 }
@@ -146,6 +155,18 @@ function configText(): string {
   return readFileSync(join(dir, 'config.json'), 'utf8');
 }
 
+/** 走真的 IPC：注册后从 ipcMain.handle 的调用里取出处理函数再调（照 d7b 的做法）。 */
+async function ipcHandler(
+  runtime: AppRuntime,
+  channel: string,
+): Promise<(...args: unknown[]) => unknown> {
+  vi.mocked(ipcMain.handle).mockClear();
+  registerIpc(runtime);
+  const entry = vi.mocked(ipcMain.handle).mock.calls.find(([ch]) => ch === channel);
+  expect(entry, `没有注册 IPC：${channel}`).toBeTruthy();
+  return entry![1] as (...args: unknown[]) => unknown;
+}
+
 function auditRows(): Array<{ kind: string; detail: string }> {
   return db
     .prepare('SELECT kind, detail_json AS detail FROM audit_events ORDER BY rowid DESC')
@@ -165,7 +186,7 @@ describe('MP2 条件 1：旧配置照样能读', () => {
     expect(def.apiKeyPresent).toBe(true);
   });
 
-  it('getProvider() 与 chatLaunchOptions() 跟改之前一样', () => {
+  it('getProvider() 与 chatLaunchOptions() 跟改之前一样（真实现，不是替身）', () => {
     const runtime = runtimeWith(legacyConfig());
     expect(runtime.getProvider()?.modelName).toBe('demo-a');
     const launch = launchOf(runtime);
@@ -194,16 +215,34 @@ describe('MP2 条件 2：Key 只在主进程里，视图只给后四位', () => 
     expect(view.apiKeyPresent).toBe(true);
     const serialized = JSON.stringify(view);
     expect(serialized).not.toContain(KEY_A);
-    // 密文也不能回给界面
     const encrypted = JSON.parse(text) as { providers: Array<{ apiKeyEncrypted: string }> };
     const cipher = encrypted.providers[0]?.apiKeyEncrypted ?? '';
     expect(cipher.length).toBeGreaterThan(0);
     expect(serialized).not.toContain(cipher);
-    expect(JSON.stringify(runtime.getSettings())).not.toContain(KEY_A);
-    expect(JSON.stringify(runtime.getSettings())).not.toContain(cipher);
 
-    // 没有单独存后四位的字段
+    // config.json 里没有单独存后四位的字段
     expect(text).not.toMatch(/apiKeyTail|keyTail|tail/);
+  });
+
+  it('IPC getSettings 的真实返回里没有完整 Key、也没有密文，并且带上 uses', async () => {
+    const runtime = runtimeWith(legacyConfig());
+    runtime.saveModelProvider({
+      name: '合成乙',
+      kind: 'openai',
+      apiBaseUrl: ADDR_B,
+      apiKey: KEY_A,
+    });
+    const onDisk = JSON.parse(configText()) as { providers: Array<{ apiKeyEncrypted: string }> };
+    const cipher = onDisk.providers[0]?.apiKeyEncrypted ?? '';
+    expect(cipher.length).toBeGreaterThan(0);
+
+    const handler = await ipcHandler(runtime, 'ixaeon:getSettings');
+    const view = await handler();
+    const serialized = JSON.stringify(view);
+    expect(serialized).not.toContain(KEY_A);
+    expect(serialized).not.toContain(cipher);
+    // 规格 11-03 补：getSettings 返回的 config 里带 uses（只有 providerId 与 model）
+    expect(serialized).toContain('uses');
   });
 
   it('Key 不到 8 个字符（magpie）→ apiKeyTail 是 null', () => {
@@ -211,7 +250,7 @@ describe('MP2 条件 2：Key 只在主进程里，视图只给后四位', () => 
     const saved = runtime.saveModelProvider({
       name: '合成 magpie',
       kind: 'magpie',
-      apiBaseUrl: 'http://127.0.0.1:39123/v1',
+      apiBaseUrl: MAGPIE_ADDR,
       apiKey: 'magpie',
     });
     const view = runtime.listModelProviders().find((p) => p.id === saved.id)!;
@@ -227,21 +266,22 @@ describe('MP2 条件 2：Key 只在主进程里，视图只给后四位', () => 
       apiBaseUrl: ADDR_B,
       apiKey: KEY_B,
     });
-    // 把那个 id 的密文改成解不开的
-    const onDisk = JSON.parse(configText()) as {
-      providers: Array<{ id: string; apiKeyEncrypted: string | null }>;
-    };
-    const row = onDisk.providers.find((p) => p.id === saved.id)!;
-    row.apiKeyEncrypted = Buffer.from('broken-cipher').toString('base64');
+    // 把它那份密文换成解不开的（不是 enc: 开头，替身会抛）
+    const config = runtime.getConfig();
+    const providers = (config.providers ?? []).map((p) =>
+      p.id === saved.id
+        ? { ...p, apiKeyEncrypted: Buffer.from('broken-cipher').toString('base64') }
+        : p,
+    );
     Object.assign(runtime as unknown as { config: AppConfig }, {
-      config: { ...runtime.getSettings(), providers: onDisk.providers } as unknown as AppConfig,
+      config: { ...config, providers } as AppConfig,
     });
 
+    // 复审意见 5：必须找到那一家，不允许「找不到也算过」
     const view = runtime.listModelProviders().find((p) => p.id === saved.id);
-    if (view) {
-      expect(view.apiKeyUnreadable).toBe(true);
-      expect(view.apiKeyTail).toBeNull();
-    }
+    expect(view, '应当能找到刚存的那一家').toBeDefined();
+    expect(view!.apiKeyUnreadable).toBe(true);
+    expect(view!.apiKeyTail).toBeNull();
   });
 });
 
@@ -279,7 +319,7 @@ describe('MP2 条件 3：改地址来源又没填新 Key → 那家 Key 被清�
 });
 
 describe('MP2 条件 5：两家各自勾选保存、互不影响', () => {
-  it('保存 A 的勾选不改 B 的勾选；获取 A 的模型不改 B 的检测时间', async () => {
+  it('保存 A 的勾选不改 B 的勾选；先让 B 有检测时间，再获取 A，B 的检测时间不变', async () => {
     const runtime = runtimeWith(legacyConfig());
     const a = runtime.saveModelProvider({
       name: '合成甲',
@@ -314,20 +354,33 @@ describe('MP2 条件 5：两家各自勾选保存、互不影响', () => {
       'demo-b',
     ]);
 
-    const before = runtime.listModelProviders().find((p) => p.id === b.id)!.modelsCheckedAt;
-    // 获取 A 的模型（假 fetch 桩，只回 A 的清单）
-    const fetchImpl = (async () =>
-      new Response(JSON.stringify({ data: [{ id: 'demo-a' }, { id: 'demo-a2' }] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })) as typeof fetch;
-    vi.stubGlobal('fetch', fetchImpl);
+    // 复审意见 6：先获取一次 B，让它真的有检测时间
+    vi.stubGlobal(
+      'fetch',
+      (async () =>
+        new Response(JSON.stringify({ data: [{ id: 'demo-b' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as typeof fetch,
+    );
+    await runtime.fetchProviderModels(b.id);
+    const bChecked = runtime.listModelProviders().find((p) => p.id === b.id)!.modelsCheckedAt;
+    expect(bChecked, 'B 家获取过一次，应当有检测时间').toBeTruthy();
+
+    // 再获取 A
+    vi.stubGlobal(
+      'fetch',
+      (async () =>
+        new Response(JSON.stringify({ data: [{ id: 'demo-a' }, { id: 'demo-a2' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as typeof fetch,
+    );
     const got = await runtime.fetchProviderModels(a.id);
     expect(got.error).toBeNull();
     expect(got.models).toEqual(['demo-a', 'demo-a2']);
 
-    const after = runtime.listModelProviders().find((p) => p.id === b.id)!.modelsCheckedAt;
-    expect(after).toBe(before);
+    expect(runtime.listModelProviders().find((p) => p.id === b.id)!.modelsCheckedAt).toBe(bChecked);
     expect(runtime.listModelProviders().find((p) => p.id === a.id)!.modelsCheckedAt).toBeTruthy();
   });
 });
@@ -374,16 +427,15 @@ describe('MP2 条件 8：删除', () => {
 });
 
 describe('MP2 条件 9：magpie 挂在那一家人上', () => {
-  it('保存一家 magpie → cockpit.magpie_url 变成它地址的来源', () => {
+  it('保存一家 magpie → 数据库设置 cockpit.magpie_url 变成它地址的来源', () => {
     const runtime = runtimeWith(legacyConfig());
     runtime.saveModelProvider({
       name: '合成 magpie',
       kind: 'magpie',
-      apiBaseUrl: 'http://127.0.0.1:39123/v1',
+      apiBaseUrl: MAGPIE_ADDR,
       apiKey: 'magpie',
     });
-    const settings = runtime.getSettings() as unknown as { cockpit: { magpieUrl: string } };
-    expect(settings.cockpit.magpieUrl).toBe('http://127.0.0.1:39123');
+    expect(getSetting(db, 'cockpit.magpie_url')).toBe('http://127.0.0.1:39123');
   });
 
   it('第二家 magpie → 拒绝', () => {
@@ -391,7 +443,7 @@ describe('MP2 条件 9：magpie 挂在那一家人上', () => {
     runtime.saveModelProvider({
       name: '合成 magpie',
       kind: 'magpie',
-      apiBaseUrl: 'http://127.0.0.1:39123/v1',
+      apiBaseUrl: MAGPIE_ADDR,
       apiKey: 'magpie',
     });
     expect(() =>
