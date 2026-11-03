@@ -502,11 +502,11 @@ export function SettingsPage({
   useEffect(() => {
     void api
       .listModelProviders()
-      .then(setProviders)
+      .then((rows) => setProviders(rows ?? []))
       .catch(() => setProviders([]));
   }, []);
   const codingChoices = useMemo(() => {
-    const rows = providers.flatMap((p) =>
+    const rows = (providers ?? []).flatMap((p) =>
       p.savedModels.map((m) => ({ value: m, label: `${p.name} · ${m}` })),
     );
     return rows.length > 0 ? rows : [...savedSet].map((id) => ({ value: id, label: id }));
