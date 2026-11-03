@@ -116,6 +116,8 @@ saveModelUses(input: { analysis?: ModelChoice | null; chat?: ModelChoice | null;
 
 `id === 'default'` 时，`saveModelProvider`、`fetchProviderModels` 读写的是 `config.model`，规则跟旧的 `saveModelSettings`、`listAvailableModels` 一样。旧方法保留，内部可以改成调新方法。
 
+界面要知道每个用途现在选的是什么：IPC `getSettings` 返回的 `config` 加一项 `uses`，原样是 `config.uses`（只有 providerId 和 model，没有 Key）。这是本单唯一一处给已有返回加字段（11-03 整合方审测试时补）。
+
 ## 约束
 
 - 只访问用户填的地址，只发 `GET /models`；Key 只放在请求头里，只发给那一家的地址。magpie 的额度请求照旧只认本机。
@@ -138,7 +140,7 @@ MP2：
 4. 获取模型：假服务收到的是 `GET /models`，带的是那一家的 Key；只取出 `id`，去重。另外三种情况：
    - 假服务回 302 指向另一个端口：返回 error，另一个端口一次请求都没收到；
    - 超时：返回 error，不抛错；
-   - Key 留空、地址没变：用已保存的 Key；地址变了：不带旧 Key。
+   - Key 留空、地址没变：用已保存的 Key；地址变了：不带旧 Key。这里的「地址变了」跟条件 3 一样按**地址来源**（协议 + 主机 + 端口）算，测试用另一个端口。
 5. 两家各自勾选、保存，互不影响；获取 A 家的模型不改 B 家的检测时间。
 6. 用途：
    - 聊天选了 B 家的 `demo-b`：`chatLaunchOptions()` 返回 B 家的地址、B 家的 Key、`demo-b`，`getProvider()` 还是 default；
@@ -173,7 +175,13 @@ MP2b：
 
 UI 搬家会撞到一些锁定测试，它们查的是设置页上「模型接入」「额度来源」的 testId。可能的有：`m2-settings-ui`、`m3-settings-ui`、`sub1-magpie-preset`、`sub1b-quota-settings`、`k4c-quota-settings`、`v4-settings-page`、`u2-settings-coding-saved`、`d7b-pages`、`cf0-chat-model-switch`。
 
-**不许改它们。** 写 MP2 / MP2b 的验收测试时，把**实际会撞**的锁定测试列一份清单，写进交付说明：哪个文件、哪一条、为什么跟本规格冲突。整合方锁 MP2 测试时一并改写或退役。后端那一侧的旧方法都保留，应该不会撞；撞了照样列出来。
+**不许改它们。** 写 MP2 / MP2b 的验收测试时，把**实际会撞**的锁定测试列一份清单，写进交付说明：哪个文件、哪一条、为什么跟本规格冲突。后端那一侧的旧方法都保留，应该不会撞；撞了照样列出来。
+
+**怎么改（11-03 整合方审 MP2 测试时定）**：这些旧测试现在是绿的，改早了 main 会红，所以跟 MP2b 的实现放在**同一个分支**里改。规矩：
+- 只改「去哪儿找」：导航、testId、选项文字（「模型」→「供应商名 · 模型」）。原来断言的行为（Key 改了 / 清了怎么样、magpie 预设、手动额度、编码任务的模型保存）在「模型」页上照样断言，**一条断言都不许删、不许放宽**。
+- 设置页上那两张卡片「不在了」本身就是 MP2b 条件 11，不用在旧测试里另外断言。
+- 每个改到的文件、每处改动、为什么，逐条写进 MP2b 的交付说明。
+- 执行方不重新登记这些旧任务的指纹：分支上 `acceptance-lock` 这一步会因此不过，只许是这几个文件，交付说明里写明；整合方复审改写之后在合并时重新锁定。
 
 ## 真机检查
 
