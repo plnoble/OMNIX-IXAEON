@@ -180,3 +180,16 @@ expect(getSetting(db, 'cockpit.magpie_url')?.value).toBe('http://127.0.0.1:39123
 
 - `dev/MP2`：`ff9490f`，CI **success**；本机 `node scripts/verify.mjs` **全过**。
 - 队列第 163 行保持「窗口进行中（dev）」——第一支还差上面那一行锁定测试的裁定，没改成「待复审」。
+
+## 整合方改锁定测试（2026-11-03，实现轮）
+
+- 执行方报告条件 9 那条读 magpie 地址的断言永远过不了：`getSetting` 返回 `{ value, updatedAt }`，测试直接拿对象比字符串。这是整合方锁定时没查出来的错，改成读 `?.value`，重新锁定 MP2。断言的意思没变。
+- 源码 484 行，超过 300：整合方接受不再拆。契约里写死的 schema 和类型约 80 行，`fetchProviderModels` 的超时、不跟跳转、Key 复用都是规格要求的；界面已经单独拆成 MP2b。复审时逐段看。
+
+### 收尾轮（2026-11-03，CP1）
+
+- 同步 main（`74493df` 已把条件 9 那条改成读 `?.value`）后 `node scripts/acceptance.mjs run MP2` → **28/28 全过**。
+- 另加一条自己的回归（**不登记锁定**）`apps/desktop/test/integration/mp2-default-no-key.test.ts`：
+  default 那一家没配 Key 时 `chatLaunchOptions().chatApiKey` 是 `null`（模型名照旧传给 Hermes），
+  `directChatLaunch()` 返回 `null`——聊天**不走直连**，`getProvider()` 也是 `null`。**1/1 通过**。
+- `node scripts/verify.mjs` 本机全过（见下）；分支 CI 绿。

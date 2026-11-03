@@ -435,7 +435,7 @@ describe('MP2 条件 9：magpie 挂在那一家人上', () => {
       apiBaseUrl: MAGPIE_ADDR,
       apiKey: 'magpie',
     });
-    expect(getSetting(db, 'cockpit.magpie_url')).toBe('http://127.0.0.1:39123');
+    expect(getSetting(db, 'cockpit.magpie_url')?.value).toBe('http://127.0.0.1:39123');
   });
 
   it('第二家 magpie → 拒绝', () => {
