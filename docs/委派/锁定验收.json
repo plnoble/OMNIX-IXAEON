@@ -880,6 +880,18 @@
       "files": {
         "packages/core/test/acceptance/d5b-review-tests.test.ts": "30ac002c6011692561a72ad6b05bdaa78bac3e8b37ed5b3ccb02163011f836b5"
       }
+    },
+    {
+      "id": "CF3",
+      "title": "聊天改用直连模型做主引擎",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/cf3-chat-stream.test.ts": "5aff08aa7c42b0d31fbf9031b65dfec0492812b88d9ea1538a9acaf245801a14",
+        "packages/core/test/acceptance/cf3-direct-chat.test.ts": "a573a6e2d81f8ff8781b19eea19e43636bebb2b393b8b09abc5c60c41217ec20",
+        "packages/core/test/acceptance/cf3-prompt.test.ts": "8adeb7bae749154f0219fc2c4fde1e68977b9472cfd0921dc4d3129631085f7f",
+        "apps/desktop/test/acceptance/cf3b-direct-chat.test.ts": "988e8566ef5777828951b00ae881b262bc5f569846faa72927f3049db5884e62",
+        "apps/desktop/test/acceptance/cf3b-engine-label.test.ts": "9580a1784e436351a634746bdd6908e624c41c10c4078c40a38fec3fd6744714"
+      }
     }
   ]
 }
