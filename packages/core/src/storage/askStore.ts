@@ -41,7 +41,7 @@ export interface AskResult {
   usedChars: number;
   modelName: string;
   coverage?: AskCoverage;
-  engine?: 'hermes' | 'core-bounded' | 'missing' | 'ask';
+  engine?: 'hermes' | 'core-bounded' | 'direct' | 'missing' | 'ask';
   runId?: string;
   steps?: Array<{ round: number; tool: string; ok: boolean; detail: string }>;
   /**

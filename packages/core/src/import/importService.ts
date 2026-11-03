@@ -725,7 +725,7 @@ export class ImportService {
     userSeq: number;
     assistantSeq: number;
     runId?: string;
-    engine: 'hermes' | 'core-bounded';
+    engine: 'hermes' | 'core-bounded' | 'direct';
     model: string | null;
     projectId: string | null;
     permissionId: string;

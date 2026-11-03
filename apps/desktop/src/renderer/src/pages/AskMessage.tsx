@@ -207,6 +207,9 @@ function userTodoOf(meta: Record<string, unknown>): { id: string; title: string 
     : null;
 }
 
+/** 引擎显示名：direct 是直连模型，别把英文原样漏给用户。 */
+const ENGINE_LABELS: Record<string, string> = { direct: '直连' };
+
 export function AskMessage({
   message: m,
   showNotice,
@@ -405,7 +408,8 @@ export function AskMessage({
           // 冒充成 Hermes。细节（用量、覆盖、说明、步骤）收进折叠区。
           <details className="ask-msg-details">
             <summary className="muted">
-              引擎 {m.engine ?? 'ask'} · 模型 {m.modelName ?? '—'}
+              引擎 {ENGINE_LABELS[m.engine ?? 'ask'] ?? m.engine ?? 'ask'} · 模型{' '}
+              {m.modelName ?? '—'}
             </summary>
             <p className="muted">
               {typeof m.meta['usedChars'] === 'number'
