@@ -13,8 +13,8 @@
 - [x] 5. 导航与入口（验收条件 11、14），`acceptance.mjs run MP2b` **9/9 全过** —— 同上
 - [x] 6. `mp2b-entry.test.ts`（经 App 渲染的两条）+ `acceptance.mjs lock MP2b-entry` —— 见下一条提交
 - [ ] 7. 改冲突的旧锁定测试 —— **未完成**（红的 22 条原样列在下面「改写的旧测试」）
-- [ ] 8. 真机检查 —— **甲未跑**；乙脚本已写但纯 node 下卡在 safeStorage，未跑（原因见下）
-- [ ] 9. 交付 —— 两支已推；`dev/MP2` CI 绿；`dev/MP2b` 因 CP7 未完成，CI 的 acceptance 一步会红；队列保持「窗口进行中（dev）」
+- [x] 8. 真机检查 —— **甲、乙都跑了**（`scripts/real/mp2b-ui-check.mjs`，输出见「真机通过」）
+- [ ] 9. 交付 —— 两支已推；`dev/MP2` CI 绿；`dev/MP2b` 因 CP7 未完成仍红；**卡在 CP7 的那个决定上**，队列保持「窗口进行中（dev）」
 
 ## 待整合方定
 
