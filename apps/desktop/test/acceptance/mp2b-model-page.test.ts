@@ -329,41 +329,9 @@ describe('MP2b 条件 14：编码任务的模型下拉框、聊天里换模型',
     expect(codingModel, '设置页没有编码模型的模型下拉框').toBeTruthy();
     expect(codingModel?.textContent ?? '').toContain('默认 · demo-a');
   });
-
-  it('聊天里换模型的下拉框，选项是「供应商名 · 模型」', async () => {
-    const message = {
-      id: 'm1',
-      seq: 2,
-      role: 'assistant',
-      citations: [],
-      content: '',
-      status: 'failed',
-      modelName: 'demo-a',
-      // 组件内部用它认出「模型不可用」，没有它就不出换模型那一段
-      errorMessage: 'No available channel for model demo-a',
-      meta: {},
-      createdAt: new Date().toISOString(),
-    } as unknown as ConversationMessage;
-
-    await act(async () => {
-      root?.render(
-        createElement(AskMessage, {
-          message,
-          savedModels: ['demo-a', 'demo-b'],
-          chatModelName: '',
-        } as unknown as Parameters<typeof AskMessage>[0]),
-      );
-    });
-    await flush();
-
-    const select = q('model-retry-select') as HTMLSelectElement | null;
-    expect(select, '没有换模型的下拉框').toBeTruthy();
-    // 失败的那个（demo-a）被过滤掉，剩下的是别的已保存模型；选项要带「供应商名 · 」前缀
-    const options = [...(select?.options ?? [])].map((o) => (o.textContent ?? '').trim());
-    expect(options.length).toBeGreaterThan(0);
-    expect(options[0]).toMatch(/·\s*demo-b$/);
-    expect(options[0]).not.toBe('demo-b');
-  });
+  // 整合方锁定时拿掉了「聊天里换模型」那一条：单独渲染 AskMessage、只给 savedModels 字符串，
+  // 等于把组件的入参写死了，实现拿不到供应商名就只能硬编「默认 · 」。这一条和条件 11 的
+  // 「聊天入口落到模型页」一起，由 MP2b 实现时另写 mp2b-entry.test.ts（经 App 渲染），合并时锁定。
 });
 
 describe('MP2b 条件 15：删正在用的供应商', () => {

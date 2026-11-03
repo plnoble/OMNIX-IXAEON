@@ -908,7 +908,7 @@
       "title": "模型页（供应商卡片、用途、额度）",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/mp2b-model-page.test.ts": "8d1677d9733b059ed0900fa54916842c568b9b1718ef4fc2bf8f2f5116227211"
+        "apps/desktop/test/acceptance/mp2b-model-page.test.ts": "595f33cfe8478360918abaeffa9c86f627ed3148c3567a5eb977d6c4644122c7"
       }
     }
   ]
