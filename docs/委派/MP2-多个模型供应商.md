@@ -42,6 +42,7 @@
    - `uses` 里有这一项，就用那一家；没有，就照旧走 `default` 和旧字段。
    - 聊天没有单独选（`uses.chat` 没有，`chatModelName` 也是空的）：跟着后台分析走，包括跟着它用同一家供应商。
    - `getProvider()`（后台分析）、`chatLaunchOptions()`（聊天，CF3 的直连和 Hermes 都从这里读）、编码任务「我的模型」都改从这里取。`chatLaunchOptions()` 的返回形状不变。
+   - CF3b 并入时定了：聊天**单独选过**才走直连（`directChatLaunch()` 现在只看 `model.chatModelName` 非空）。这一单把「单独选过」改成 `uses.chat` 有，或者 `chatModelName` 非空，两种都算；「跟着后台分析」两种都没有，照旧不走直连。验收条件 6 里「聊天选了 B 家的 `demo-b`」那一条，同时断言这一问走的是直连（`engine = 'direct'`）。
    - 那家没了、没 Key、Key 解不开：返回 null，行为跟今天「没配模型」一样。
 6. **额度挂在 magpie 那一家上**：
    - magpie 最多只能有一家。保存一家 `magpie` 类型的供应商时，把它地址的来源写进 `cockpit.magpie_url`；地址不过 `checkMagpieUrl`（只认 http + 本机 + 端口）就拒绝保存。现有的驾驶舱额度、MG2 模型清单都读这个设置，那些代码不改。
