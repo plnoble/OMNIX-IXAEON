@@ -26,7 +26,8 @@
    - `config.model` 就是 id 固定为 `default` 的那一家，旧字段一个不改、一个不搬。
    - 这样不用迁移配置；旧的 IPC（`saveModelSettings`、`listAvailableModels`）和旧测试照常能用；装回旧版本也不坏。
 2. **每家供应商**有这些：名字、类型（`openai` 或 `magpie`）、地址、加密的 Key、勾选保存的模型、上次检测时间。
-   - 新加的 Key 跟现在一样，用 `encryptApiKey` 加密后落盘，永远不回给界面。界面只拿到「已保存 / 未配置」。
+   - 新加的 Key 跟现在一样，用 `encryptApiKey` 加密后落盘，完整的 Key 和密文永远不回给界面。
+   - 界面显示 Key 的**后四位**（用户 11-03 定），好认出是哪个 Key。后四位由主进程在生成视图时解密现算，**不另存**。Key 不到 8 个字符的（比如 magpie 的 Key）不显示后四位，只显示「已保存」；没有 Key 显示「未配置」；解不开显示「Key 解不开，请重新填」。
    - 地址的来源（协议 + 主机 + 端口）改了、这次又没填新 Key：把那一家已保存的 Key 清掉。照 M3 的规则，每一家都一样。
 3. **获取模型**：对某一家发 `GET <地址>/models`，带 `Authorization: Bearer <Key>`。
    - 只取每项的 `id`，去重；超时 10 秒；不跟跳转（`redirect: 'error'`）。
@@ -58,7 +59,7 @@
 10. **「模型」页分三块**：
     - **供应商**：每家一张卡片，`default` 排第一。卡片上有：
       - 名字；magpie 那家加一个「magpie」标记；
-      - 地址；Key 显示「已保存 / 未配置」，不回显；
+      - 地址；Key 显示成「已保存 ····abcd」（后四位），规则见第 2 条；
       - 「获取模型」「编辑」「删除」三个按钮；
       - 勾选清单，照 M2 的样子：筛选框、「新」「上游已没有」标记，加一个「保存勾选」。
       - magpie 那张卡片在下面显示驾驶舱同一份额度卡片，加一个「刷新」按钮。别的卡片**没有任何额度区域**。
@@ -93,6 +94,8 @@ uses: z.object({
 export interface ModelProviderView {
   id: string; name: string; kind: 'openai' | 'magpie';
   apiBaseUrl: string; apiKeyPresent: boolean;
+  apiKeyTail: string | null;          // Key 的后四位；Key 不到 8 个字符、没有 Key、解不开都是 null
+  apiKeyUnreadable: boolean;          // 有密文但解不开
   savedModels: string[]; modelsCheckedAt: string | null;
   usedBy: Array<'analysis' | 'chat' | 'coding'>;
 }
@@ -125,7 +128,11 @@ saveModelUses(input: { analysis?: ModelChoice | null; chat?: ModelChoice | null;
 
 MP2：
 1. 旧配置（只有 `config.model`，没有 `providers` / `uses`）照样能读。`listModelProviders()` 返回一家 `default`，地址、模型清单跟旧字段一样；`getProvider()`、`chatLaunchOptions()` 的结果跟改之前完全一样。
-2. 新加一家供应商：config.json 的文本里找不到明文 Key；`listModelProviders()` 和 `getSettings()` 的返回里找不到明文 Key，也找不到密文。
+2. 新加一家供应商（Key 用 `sk-synthetic-a1b2c3d4`）：
+   - config.json 的文本里找不到明文 Key；
+   - `listModelProviders()` 和 `getSettings()` 的返回里找不到完整的 Key，也找不到密文；那一家的 `apiKeyTail` 是 `c3d4`；
+   - config.json 里没有单独存后四位的字段；
+   - Key 是 `magpie`（不到 8 个字符）时 `apiKeyTail` 是 null；密文解不开时 `apiKeyUnreadable` 是 true、`apiKeyTail` 是 null。
 3. 同一家改了地址来源、又没填新 Key：那一家的 Key 被清掉，返回 `keyCleared: true`，别的家不受影响。
 4. 获取模型：假服务收到的是 `GET /models`，带的是那一家的 Key；只取出 `id`，去重。另外三种情况：
    - 假服务回 302 指向另一个端口：返回 error，另一个端口一次请求都没收到；
@@ -153,7 +160,7 @@ MP2：
 MP2b：
 11. 导航里有「模型」；设置页里没有 `settings-model`、`settings-quota` 两张卡片了（testId 以现有为准），有跳到「模型」页的按钮。原来跳到设置页模型区的入口，现在跳到「模型」页。
 12. 供应商卡片：
-    - Key 只显示「已保存 / 未配置」；
+    - Key 显示后四位（「已保存 ····c3d4」）；短 Key 只显示「已保存」；没有 Key 显示「未配置」；页面文本里找不到完整的 Key；
     - 勾选清单有筛选框和「新」「上游已没有」标记；
     - magpie 那张有额度区和「刷新」；`openai` 那张页面上找不到额度区域；
     - 已经有 magpie 时，「用本机 magpie」按钮不能点。
