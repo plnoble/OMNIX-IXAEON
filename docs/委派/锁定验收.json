@@ -898,7 +898,7 @@
       "title": "模型接入支持多个供应商",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/mp2-providers.test.ts": "f79f55dd63835b0d55e0b37d7a7d026c95e6f0d8649f643392ba8ddffa1b916c",
+        "apps/desktop/test/acceptance/mp2-providers.test.ts": "2c9a541478d361c435eb445d57ab4b0ea82211b9b4675a2a948b1471153399bd",
         "apps/desktop/test/acceptance/mp2-fetch-models.test.ts": "ec7ec470ad4bc2c053cd4b05d1aae836df7d93aef5606f08f2e02aa5ccbd14c4",
         "apps/desktop/test/acceptance/mp2-uses.test.ts": "ad7ce767aab06cadd014ab371aa1ba59cf916ce781b67ca5936a6d903e439f87"
       }
