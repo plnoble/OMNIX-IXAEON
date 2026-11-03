@@ -203,7 +203,9 @@ function setup(options: HarnessOptions = {}): Harness {
         ...defaultAppConfig().model,
         modelName: MODEL,
         chatModelName: chatConfigured ? MODEL : null,
-        apiBaseUrl: 'http://127.0.0.1:9/v1',
+        // 整合方复审：chatModelName() 空着会退回 modelName，光清模型名还是三样齐；
+        // 「没配」用清掉地址来造（chatLaunchOptions 缺地址就不算配好）
+        apiBaseUrl: chatConfigured ? 'http://127.0.0.1:9/v1' : '',
         apiKeyEncrypted: Buffer.from(`enc:${SYNTHETIC_KEY}`).toString('base64'),
         apiKeyPresent: true,
         savedModels: [MODEL],
@@ -308,6 +310,14 @@ describe('CF3b 条件 10–17：聊天走直连模型', () => {
     );
     const toolContent = JSON.stringify(toolCall?.body['messages'] ?? '');
     expect(toolContent).toContain('用户偏好简洁的回答');
+    // 整合方复审补严：「和记忆桥同一个方法」——工具结果就是 hermesTool('search_memory') 那个对象
+    //（带 today 和 items），JSON 序列化后交回模型，不另拼一套格式
+    const toolMsg = (toolCall?.body['messages'] as Array<{ role: string; content: string }>).find(
+      (m) => m.role === 'tool',
+    )!;
+    const parsed = JSON.parse(toolMsg.content) as { today?: unknown; items?: unknown };
+    expect(typeof parsed.today).toBe('string');
+    expect(Array.isArray(parsed.items)).toBe(true);
 
     // 关掉开关，也没有逐条分享
     setPersonalMemoryToChat(db, false);
@@ -381,39 +391,43 @@ describe('CF3b 条件 10–17：聊天走直连模型', () => {
     expect(seen[0]).not.toContain('someone@example.com');
   });
 
-  it('条件 13：模型调 propose_task（不在工具清单里）→ 不执行，也没有多出任务或记忆', async () => {
-    const itemsBefore = (db.prepare('SELECT COUNT(*) AS n FROM items').get() as { n: number }).n;
-    const tasksBefore = (
-      db.prepare('SELECT COUNT(*) AS n FROM coding_tasks').get() as { n: number }
-    ).n;
+  // 整合方复审补严：规格条件 13 写的是 propose_task 和 record_observation，两个都测
+  it.each(['propose_task', 'record_observation'])(
+    '条件 13：模型调 %s（不在工具清单里）→ 不执行，也没有多出任务或记忆',
+    async (toolName) => {
+      const itemsBefore = (db.prepare('SELECT COUNT(*) AS n FROM items').get() as { n: number }).n;
+      const tasksBefore = (
+        db.prepare('SELECT COUNT(*) AS n FROM coding_tasks').get() as { n: number }
+      ).n;
 
-    const gw = gateway([
-      () => toolSse('propose_task', JSON.stringify({ title: '合成任务' })),
-      () => textSse('好的'),
-    ]);
-    vi.stubGlobal('fetch', gw.fetchImpl);
-    const h = setup();
+      const gw = gateway([
+        () => toolSse(toolName, JSON.stringify({ title: '合成任务', statement: '合成观察' })),
+        () => textSse('好的'),
+      ]);
+      vi.stubGlobal('fetch', gw.fetchImpl);
+      const h = setup();
 
-    await h.runtime.ask({
-      conversationId: h.conversationId,
-      projectId: null,
-      question: '合成问题',
-    });
+      await h.runtime.ask({
+        conversationId: h.conversationId,
+        projectId: null,
+        question: '合成问题',
+      });
 
-    expect((db.prepare('SELECT COUNT(*) AS n FROM items').get() as { n: number }).n).toBe(
-      itemsBefore,
-    );
-    expect((db.prepare('SELECT COUNT(*) AS n FROM coding_tasks').get() as { n: number }).n).toBe(
-      tasksBefore,
-    );
-    // 作为失败的工具结果交回模型（不是静默丢掉）
-    const withTool = gw.calls.find((c) =>
-      Array.isArray(c.body['messages'])
-        ? (c.body['messages'] as Array<{ role: string }>).some((m) => m.role === 'tool')
-        : false,
-    );
-    expect(withTool).toBeDefined();
-  });
+      expect((db.prepare('SELECT COUNT(*) AS n FROM items').get() as { n: number }).n).toBe(
+        itemsBefore,
+      );
+      expect((db.prepare('SELECT COUNT(*) AS n FROM coding_tasks').get() as { n: number }).n).toBe(
+        tasksBefore,
+      );
+      // 作为失败的工具结果交回模型（不是静默丢掉）
+      const withTool = gw.calls.find((c) =>
+        Array.isArray(c.body['messages'])
+          ? (c.body['messages'] as Array<{ role: string }>).some((m) => m.role === 'tool')
+          : false,
+      );
+      expect(withTool).toBeDefined();
+    },
+  );
 
   it('条件 14：存档与提炼照做，meta.memoryUsed 含工具查到的，injectedMemoryByTurn 认得出', async () => {
     const items = new ItemService(db);
@@ -494,13 +508,17 @@ describe('CF3b 条件 10–17：聊天走直连模型', () => {
             ),
           );
           await gate;
-          init?.signal?.addEventListener('abort', () => {
+          // 整合方复审：取消可能在 gate 放开之前就发生了，先看一眼已取消就直接报错，
+          // 否则 abort 事件已经错过、流会一直挂着
+          const fail = () => {
             try {
               controller.error(new DOMException('aborted', 'AbortError'));
             } catch {
               /* 忽略 */
             }
-          });
+          };
+          if (init?.signal?.aborted) fail();
+          else init?.signal?.addEventListener('abort', fail);
         },
       });
       return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });

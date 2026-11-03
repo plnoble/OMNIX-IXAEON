@@ -100,6 +100,16 @@ describe('CF3 条件 5–7、9：runDirectChat 工具循环', () => {
     expect(toolMessage).toBeDefined();
     expect((toolMessage as { toolCallId?: string }).toolCallId).toBe('t1');
     expect((toolMessage as { content?: string }).content).toContain('合成记忆');
+    // 整合方复审补严：OpenAI 兼容端点要求 tool 结果前面有那条带 toolCalls 的 assistant 消息
+    const toolIndex = second.indexOf(toolMessage!);
+    const assistantWithCall = second
+      .slice(0, toolIndex)
+      .find(
+        (m) =>
+          m.role === 'assistant' &&
+          (m as { toolCalls?: ChatToolCall[] }).toolCalls?.some((c) => c.id === 't1'),
+      );
+    expect(assistantWithCall).toBeDefined();
 
     // steps 有一条 search_memory
     expect(result.steps.filter((s: Step) => s.tool === 'search_memory')).toHaveLength(1);
@@ -177,6 +187,12 @@ describe('CF3 条件 5–7、9：runDirectChat 工具循环', () => {
 
     // 这一问在最后
     expect(messages[messages.length - 1]).toEqual({ role: 'user', content: '这一问' });
+    // 整合方复审补严：上下文在此前轮次之前，此前轮次在这一问之前
+    const firstPrior = messages.findIndex((m: Msg) => m.content === '之前问的');
+    const lastPrior = messages.findIndex((m: Msg) => m.content === '之前答的');
+    expect(contextIndex).toBeLessThan(firstPrior);
+    expect(firstPrior).toBeLessThan(lastPrior);
+    expect(lastPrior).toBeLessThan(messages.length - 1);
   });
 
   it('条件 7（超限）：此前轮次超过 6000 字时丢的是最早的', async () => {

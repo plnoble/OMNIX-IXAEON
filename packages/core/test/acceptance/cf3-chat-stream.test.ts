@@ -68,7 +68,8 @@ interface SentCall {
 function sentCalls(fetchImplCalls: Array<[unknown, RequestInit | undefined]>): SentCall[] {
   return fetchImplCalls.map(([url, init]) => ({
     url: String(url),
-    headers: (init?.headers ?? {}) as Record<string, string>,
+    // 整合方复审：实现用普通对象还是 Headers 都行，这里统一读成小写键的对象
+    headers: Object.fromEntries(new Headers(init?.headers ?? {}).entries()),
     body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>,
   }));
 }
@@ -100,7 +101,7 @@ describe('CF3 条件 1–4：OpenAIChatStreamClient 对假 SSE 服务', () => {
 
     const sent = sentCalls(calls)[0]!;
     expect(sent.url).toContain('/chat/completions');
-    expect(sent.headers['Authorization']).toBe(`Bearer ${SYNTHETIC_KEY}`);
+    expect(sent.headers['authorization']).toBe(`Bearer ${SYNTHETIC_KEY}`);
     expect(sent.body['stream']).toBe(true);
     expect(sent.body['model']).toBe('demo-a');
     expect(Array.isArray(sent.body['messages'])).toBe(true);
