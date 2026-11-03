@@ -14,9 +14,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 // playwright 装在 apps/desktop 里，从那里解析（根 node_modules 没有）
-const { _electron: electron } = createRequire(
-  resolvePath('apps/desktop/package.json'),
-)('playwright');
+const { _electron: electron } = createRequire(resolvePath('apps/desktop/package.json'))(
+  'playwright',
+);
 
 const port = Number(process.argv[2] ?? 0);
 if (!port) {
@@ -78,11 +78,9 @@ try {
   log('流式出字：已看到第一段正文');
 
   // 等回答收尾，读引擎标签与用到的记忆
-  await page.waitForFunction(
-    () => document.body.innerText.includes('引擎'),
-    undefined,
-    { timeout: 30_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes('引擎'), undefined, {
+    timeout: 30_000,
+  });
   const details = await page.evaluate(() => {
     const nodes = [...document.querySelectorAll('.ask-msg-details summary')];
     const summary = nodes.length > 0 ? nodes[nodes.length - 1].textContent : '';
