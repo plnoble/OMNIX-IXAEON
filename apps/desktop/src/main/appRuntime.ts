@@ -1519,6 +1519,11 @@ export class AppRuntime {
 
   /** CF3b：三样齐（模型 / 地址 / Key）才走直连；缺一样返回 null，原来的路径一个字不动。 */
   private directChatLaunch(): { model: string; baseUrl: string; apiKey: string } | null {
+    // 只看设置页里「聊天模型」那一项是否**显式选过**：留空说明用户没给聊天指定模型
+    //（只配了分析模型的任务、编码派发等不该因此把聊天改道）；chatModelName() 的回退
+    // 是给 Hermes 启动参数用的，不拿来判断「聊天配好了没有」。
+    const explicit = (this.config as AppConfig | undefined)?.model?.chatModelName?.trim();
+    if (!explicit) return null;
     const { chatModel, chatBaseUrl, chatApiKey } = this.chatLaunchOptions();
     if (!chatModel || !chatBaseUrl || !chatApiKey) return null;
     return { model: chatModel, baseUrl: chatBaseUrl, apiKey: chatApiKey };
@@ -1535,11 +1540,16 @@ export class AppRuntime {
           const obj = (await this.searchMemoryForModel(args)) as {
             items?: Array<{ id: string; statement: string }>;
           };
-          const memoryUsed: MemoryUsedItem[] = (obj.items ?? []).map((i) => ({
-            id: i.id,
-            statement: i.statement,
-            tag: '记忆',
-          }));
+          // 与预先注入的那批一样用 memoryOriginTag：工具结果不带判断要用的字段，
+          // 按 id 从库里取整条再算，AI 建议才不会被当成用户说的。
+          const memoryUsed: MemoryUsedItem[] = (obj.items ?? []).map((i) => {
+            const full = this.items.get(i.id);
+            return {
+              id: i.id,
+              statement: i.statement,
+              tag: full ? memoryOriginTag(full) : '记忆',
+            };
+          });
           return { ok: true, content: JSON.stringify(obj), memoryUsed };
         }
         if (name === 'search_web') {
@@ -1580,82 +1590,100 @@ export class AppRuntime {
          VALUES (?, ?, ?, 'direct', 'running', '[]', ?, ?, NULL)`,
       )
       .run(input.runId, input.question, input.projectId, '直连模型', now);
-    const selected = await new ContextSelector(this.db).selectForQuestionHybrid(
-      input.question,
-      input.projectId,
-      { audience: 'model', maxItems: 8, semantic: this.semanticIndex },
-    );
-    const memoryUsed: MemoryUsedItem[] = selected.items.map((i) => ({
-      id: i.id,
-      statement: i.statement,
-      tag: memoryOriginTag(i),
-    }));
-    const blocks: string[] = [];
-    if (memoryUsed.length > 0) {
-      blocks.push(memoryUsed.map((m) => `- ${m.statement}（${m.tag}）`).join('\n'));
-    }
-    let projectBrief: ProjectBriefCounts | undefined;
-    if (input.projectId) {
-      const brief = buildProjectBrief(this.db, input.projectId);
-      if (brief.block) {
-        blocks.push(brief.block);
-        projectBrief = brief.counts;
+    let ok = false;
+    try {
+      const selected = await new ContextSelector(this.db).selectForQuestionHybrid(
+        input.question,
+        input.projectId,
+        { audience: 'model', maxItems: 8, semantic: this.semanticIndex },
+      );
+      const memoryUsed: MemoryUsedItem[] = selected.items.map((i) => ({
+        id: i.id,
+        statement: i.statement,
+        tag: memoryOriginTag(i),
+      }));
+      const blocks: string[] = [];
+      if (memoryUsed.length > 0) {
+        blocks.push(memoryUsed.map((m) => `- ${m.statement}（${m.tag}）`).join('\n'));
+      }
+      let projectBrief: ProjectBriefCounts | undefined;
+      if (input.projectId) {
+        const brief = buildProjectBrief(this.db, input.projectId);
+        if (brief.block) {
+          blocks.push(brief.block);
+          projectBrief = brief.counts;
+        }
+      }
+      const contextBlock = blocks.join('\n\n');
+      const client = new OpenAIChatStreamClient({
+        baseUrl: input.launch.baseUrl,
+        apiKey: input.launch.apiKey,
+        model: input.launch.model,
+      });
+      const ctrl = new AbortController();
+      this.directAskAborts ??= new Map();
+      this.directAskAborts.set(input.runId, ctrl);
+      const out = await runDirectChat({
+        signal: ctrl.signal,
+        client,
+        question: input.question,
+        priorTurns: input.priorTurns,
+        contextBlock,
+        preMemoryUsed: memoryUsed,
+        tools: this.directChatTools(input.projectId),
+        onDelta: input.onDelta,
+        onProgress: input.onProgress,
+      }).finally(() => {
+        this.directAskAborts?.delete(input.runId);
+      });
+      // 失败时补一条 model 步骤，让既有的 failedKind / explainModelFailure 收尾照旧生效。
+      const steps =
+        out.status === 'failed'
+          ? [
+              ...out.steps,
+              { round: 0, tool: 'model', ok: false, detail: out.failure ?? '模型调用失败' },
+            ]
+          : out.steps;
+      this.db
+        .prepare(
+          `UPDATE runtime_runs SET status = ?, events_json = ?, notice = ?, finished_at = ? WHERE id = ?`,
+        )
+        .run(
+          out.status === 'succeeded' ? 'succeeded' : out.status,
+          JSON.stringify(steps),
+          out.status === 'succeeded' ? '直连模型' : (out.failure ?? '直连模型'),
+          new Date().toISOString(),
+          input.runId,
+        );
+      ok = true;
+      return {
+        answer: out.answer,
+        citations: [],
+        notice: out.status === 'cancelled' ? '用户取消' : '本轮走直连模型（不是 Hermes）。',
+        usedChars: contextBlock.length,
+        modelName: input.launch.model,
+        engine: 'direct',
+        runId: input.runId,
+        steps,
+        memoryUsed: out.memoryUsed,
+        ...(projectBrief ? { projectBrief } : {}),
+        ...(out.status === 'failed' ? { failedKind: 'model_error' as const } : {}),
+      };
+    } finally {
+      // 插了 running 行之后任何一步抛错（选记忆、项目近况、建客户端）都不能让它永远停在 running；
+      // 错误照旧往外抛，交给既有的失败收尾。
+      if (!ok) {
+        try {
+          this.db
+            .prepare(
+              `UPDATE runtime_runs SET status = 'failed', notice = ?, finished_at = ? WHERE id = ? AND status = 'running'`,
+            )
+            .run('直连这一轮中途出错', new Date().toISOString(), input.runId);
+        } catch {
+          /* 库已关闭：不再抛，原始错误照旧往外抛 */
+        }
       }
     }
-    const contextBlock = blocks.join('\n\n');
-    const client = new OpenAIChatStreamClient({
-      baseUrl: input.launch.baseUrl,
-      apiKey: input.launch.apiKey,
-      model: input.launch.model,
-    });
-    const ctrl = new AbortController();
-    this.directAskAborts ??= new Map();
-    this.directAskAborts.set(input.runId, ctrl);
-    const out = await runDirectChat({
-      signal: ctrl.signal,
-      client,
-      question: input.question,
-      priorTurns: input.priorTurns,
-      contextBlock,
-      preMemoryUsed: memoryUsed,
-      tools: this.directChatTools(input.projectId),
-      onDelta: input.onDelta,
-      onProgress: input.onProgress,
-    }).finally(() => {
-      this.directAskAborts?.delete(input.runId);
-    });
-    // 失败时补一条 model 步骤，让既有的 failedKind / explainModelFailure 收尾照旧生效。
-    const steps =
-      out.status === 'failed'
-        ? [
-            ...out.steps,
-            { round: 0, tool: 'model', ok: false, detail: out.failure ?? '模型调用失败' },
-          ]
-        : out.steps;
-    this.db
-      .prepare(
-        `UPDATE runtime_runs SET status = ?, events_json = ?, notice = ?, finished_at = ? WHERE id = ?`,
-      )
-      .run(
-        out.status === 'succeeded' ? 'succeeded' : out.status,
-        JSON.stringify(steps),
-        out.status === 'succeeded' ? '直连模型' : (out.failure ?? '直连模型'),
-        new Date().toISOString(),
-        input.runId,
-      );
-    return {
-      answer: out.answer,
-      citations: [],
-      notice: out.status === 'cancelled' ? '用户取消' : '本轮走直连模型（不是 Hermes）。',
-      usedChars: contextBlock.length,
-      modelName: input.launch.model,
-      engine: 'direct',
-      runId: input.runId,
-      steps,
-      memoryUsed: out.memoryUsed,
-      ...(projectBrief ? { projectBrief } : {}),
-      ...(out.status === 'failed' ? { failedKind: 'model_error' as const } : {}),
-    };
   }
 
   /**
@@ -1663,7 +1691,8 @@ export class AppRuntime {
    * 都为空时返回 null —— 不干预，用 Hermes 自己 config.yaml 里的。
    */
   chatModelName(): string | null {
-    const m = this.config.model;
+    const m = (this.config as AppConfig | undefined)?.model;
+    if (!m) return null;
     return m.chatModelName?.trim() || m.modelName?.trim() || null;
   }
 
@@ -1679,7 +1708,8 @@ export class AppRuntime {
     chatBaseUrl: string | null;
     chatApiKey: string | null;
   } {
-    const m = this.config.model;
+    const m = (this.config as AppConfig | undefined)?.model;
+    if (!m) return { chatModel: null, chatBaseUrl: null, chatApiKey: null };
     const chatModel = this.chatModelName();
     const chatBaseUrl = m.apiBaseUrl?.trim() || null;
     if (!chatModel || !chatBaseUrl) return { chatModel, chatBaseUrl: null, chatApiKey: null };
