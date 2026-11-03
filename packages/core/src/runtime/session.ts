@@ -56,7 +56,7 @@ function formatPriorTurns(turns: PriorTurn[]): string {
 }
 
 export interface AgentSessionResult extends AskResult {
-  engine: 'hermes' | 'core-bounded' | 'missing';
+  engine: 'hermes' | 'core-bounded' | 'direct' | 'missing';
   runId: string;
   steps: AgentStep[];
   /** E5：Hermes 这一轮回答前注入的记忆（Core 兜底路径不填，它的依据在 citations 里）。 */

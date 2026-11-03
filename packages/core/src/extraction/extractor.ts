@@ -512,7 +512,7 @@ export class Extractor {
       )
       .all(conversationId) as Array<{ seq: number; engine: string | null; meta_json: string }>;
     for (const r of rows) {
-      if (r.engine !== 'hermes') continue;
+      if (r.engine !== 'hermes' && r.engine !== 'direct') continue;
       let used: unknown;
       try {
         used = (JSON.parse(r.meta_json) as { memoryUsed?: unknown }).memoryUsed;

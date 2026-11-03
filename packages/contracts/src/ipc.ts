@@ -273,7 +273,7 @@ export const askAnswerSchema = z.object({
       budgetLimited: z.boolean(),
     })
     .optional(),
-  engine: z.enum(['hermes', 'core-bounded', 'missing', 'ask']).optional(),
+  engine: z.enum(['hermes', 'core-bounded', 'direct', 'missing', 'ask']).optional(),
   runId: z.string().optional(),
   steps: z
     .array(

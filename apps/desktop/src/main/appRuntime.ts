@@ -54,6 +54,14 @@ import {
   fetchApprovedSource,
   ContextSelector,
   memoryOriginTag,
+  buildProjectBrief,
+  sanitizePublicQuery,
+  OpenAIChatStreamClient,
+  runDirectChat,
+  type AgentSessionResult,
+  type DirectChatTools,
+  type PriorTurn,
+  type ProjectBriefCounts,
   includesAiAdvice,
   AI_ADVICE_NOTE,
   CORE_TOOL_NAMES,
@@ -83,6 +91,7 @@ import {
   type PlanStep,
 } from '@ixaeon/core';
 import {
+  type MemoryUsedItem,
   ErrorCodes,
   IxaError,
   LOCAL_HTTP_PORT,
@@ -121,12 +130,48 @@ import { desktopResearchFetchDeps, createDesktopTinyFishFetcher } from './resear
 import { CodingDispatch } from './codingDispatch.js';
 import { ConfiguredCodingExecutor, executorGapText, type ExecutorPlan } from './codingExecutor.js';
 import type { TinyFishFetcher } from '@ixaeon/core';
-import { syncBundledExtension } from './extensionBundle.js';
+import { syncBundledExtension } from './extensionBundle.js'; /** 直连聊天的五个工具定义（规格第 6 条）。 */
 
 /**
  * 桌面应用主运行时：集中持有数据库、服务与本地 HTTP 服务。
  * 应用打开时初始化，退出时全部停止。
  */
+const DIRECT_CHAT_TOOL_DEFS = [
+  {
+    name: 'search_memory',
+    description: '查用户的记忆：问到用户本人、过去说过做过的事时先用它',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string' }, limit: { type: 'integer' } },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_evidence',
+    description: '看某条记忆的出处',
+    parameters: {
+      type: 'object',
+      properties: { itemId: { type: 'string' } },
+      required: ['itemId'],
+    },
+  },
+  {
+    name: 'get_project_context',
+    description: '看项目近况',
+    parameters: { type: 'object', properties: { projectId: { type: 'string' } } },
+  },
+  {
+    name: 'search_web',
+    description: '联网搜索（没配置就如实说没配置）',
+    parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+  },
+  {
+    name: 'read_web',
+    description: '读网页原文',
+    parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+  },
+] as const;
+
 export class AppRuntime {
   // 恢复失败时需要整体重建（重开数据库 + 重建服务），因此不再声明 readonly
   db: CoreDatabase;
@@ -187,6 +232,8 @@ export class AppRuntime {
   taskReportSink: ((e: { conversationId: string }) => void) | null = null;
   /** S1：取消后丢掉迟到的分段，不再写库、不再发事件。 */
   private cancelledAskRuns = new Set<string>();
+  /** CF3b：直连这一轮的可取消句柄（按 runId 存，cancelAsk 时 abort）。 */
+  private directAskAborts = new Map<string, AbortController>();
   /** P1：预热好的空闲问答会话（最多一个），见 prewarmChat。 */
   private warm: { session: AgentSession; contextRef: string; timer: NodeJS.Timeout } | null = null;
   private warming = false;
@@ -1053,8 +1100,10 @@ export class AppRuntime {
     // core-bounded 兜底循环用的）。真 Hermes 可用时即使未配 key 也要放行——
     // 否则「装了引擎却用不上」。两者都没有才如实拒绝。
     const provider = this.getProvider();
-    const hermesAvailable = this.hermesFound();
-    if (!provider && !hermesAvailable) {
+    // CF3b：三样齐就走直连，这时不问 Hermes 装没装（问一下就会顺手把它拉起来）。
+    const directLaunch = this.directChatLaunch();
+    const hermesAvailable = directLaunch ? false : this.hermesFound();
+    if (!directLaunch && !provider && !hermesAvailable) {
       throw new IxaError(
         ErrorCodes.MODEL_NOT_CONFIGURED,
         'IXA0010 模型未配置：请在设置中填写 OpenAI API Key，或安装 Hermes 引擎后使用问答',
@@ -1205,28 +1254,43 @@ export class AppRuntime {
           userMessageId: userMessage.id,
           messageId: assistantMessage.id,
         };
-      }
-      // A06：同一对话复用 AgentSession（进而复用引擎侧 Hermes 会话）。
-      // D4：按 conversationId 取，不再是全局单例。
-      // P1：对话还没有会话时，先接过预热好的那个（省掉 5–9 秒组装），没有才新建。
-      const session =
-        this.askSessions.get(conversationId) ??
-        this.adoptWarmSession(effectiveProjectId) ??
-        this.newAskSession().session;
-      this.askSessions.set(conversationId, session);
-      // G04：这一轮里建的编码任务（propose_task，或这一轮里别的代码直接建的）
-      // 都带上本轮 runId。并发的两轮各有各的上下文，不串。
-      const result = await withAskRun(runId, () =>
-        session.run({
-          goal: question,
+      } // CF3b：三样齐（模型/地址/Key）走直连；缺一样走原来的路径，一个字不动。
+      const launch = directLaunch;
+      let session: AgentSession | null = null;
+      let result: AgentSessionResult;
+      if (launch) {
+        result = await this.runDirectAnswer({
+          launch,
+          question,
           projectId: effectiveProjectId,
           runId,
           priorTurns,
           onDelta,
           onProgress: (phase) => emitProgress(phase),
-        }),
-      );
-      flushDeltas();
+        });
+      } else {
+        // A06：同一对话复用 AgentSession（进而复用引擎侧 Hermes 会话）。
+        // D4：按 conversationId 取，不再是全局单例。
+        // P1：对话还没有会话时，先接过预热好的那个（省掉 5–9 秒组装），没有才新建。
+        session =
+          this.askSessions.get(conversationId) ??
+          this.adoptWarmSession(effectiveProjectId) ??
+          this.newAskSession().session;
+        this.askSessions.set(conversationId, session);
+        // G04：这一轮里建的编码任务（propose_task，或这一轮里别的代码直接建的）
+        // 都带上本轮 runId。并发的两轮各有各的上下文，不串。
+        const active = session;
+        result = await withAskRun(runId, () =>
+          active.run({
+            goal: question,
+            projectId: effectiveProjectId,
+            runId,
+            priorTurns,
+            onDelta,
+            onProgress: (phase) => emitProgress(phase),
+          }),
+        );
+      }
       // 用户指示（2026-09-13）：所有问答内容都进 Core。
       // A03（审核 2026-09-13）：问答存档挂独立的启用/撤销状态——
       // 用户在授权列表撤销过 ask.ixaeon.local 后，普通提问**不再隐式重建授权**，
@@ -1276,7 +1340,7 @@ export class AppRuntime {
       // （手写步骤）时按步骤判：model 那步失败且没有正常 answer 步。
       // Hermes 的轮步骤只有 text/terminal，没有 answer 步，不能被误判。
       let failedKind: 'model_error' | 'round_limit' | null = null;
-      if (result.engine === 'core-bounded') {
+      if (result.engine === 'core-bounded' || result.engine === 'direct') {
         const steps = result.steps ?? [];
         const answered = steps.some((s) => s.tool === 'answer' && s.ok === true);
         const modelStepFailed = steps.some((s) => s.tool === 'model' && s.ok === false);
@@ -1307,7 +1371,12 @@ export class AppRuntime {
               permissionId: askPerm.id,
             });
             if (captured.created) {
-              this.conversations.setSourceId(conversationId, captured.source.id);
+              // 挂来源只用于显示；写不进去（来源行还没落库等）不该让存档与提炼一起失败。
+              try {
+                this.conversations.setSourceId(conversationId, captured.source.id);
+              } catch {
+                /* 忽略 */
+              }
             }
             this.enqueueExtract(captured.source.id, false);
             result.notice = `${result.notice}；问答已存入 IXAEON 记忆（日常偏好与事实自动沉淀生效；若有冲突或关键决策，将在「待讨论」等你确认）。`;
@@ -1373,11 +1442,13 @@ export class AppRuntime {
       });
       // 引擎会话 id 落库：仅用于显示「这个对话上次用的是哪个引擎会话」。
       // 它进程内有效，下次启动会被 clearEngineSessions 清掉。
-      this.conversations.setEngineSession(
-        conversationId,
-        result.engine,
-        session.getEngineSessionId(),
-      );
+      if (session) {
+        this.conversations.setEngineSession(
+          conversationId,
+          result.engine,
+          session.getEngineSessionId(),
+        );
+      }
 
       return {
         ...result,
@@ -1418,6 +1489,173 @@ export class AppRuntime {
       }
       this.cancelledAskRuns.delete(runId);
     }
+  } /** 记忆桥与直连聊天共用的 search_memory（规格第 6 条：抽成一个共用方法，不许抄第二份）。 */
+
+  private async searchMemoryForModel(args: Record<string, unknown>): Promise<unknown> {
+    const query = String(args.query ?? '').trim();
+    if (!query) throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'search_memory 需要 query');
+    const limit = Math.min(12, Math.max(1, Math.trunc(Number(args.limit ?? 8)) || 8));
+    await this.awaitSemanticBackfill();
+    const r = await new ContextSelector(this.db).selectForQuestionHybrid(query, null, {
+      audience: 'model',
+      maxItems: limit,
+      semantic: this.semanticIndex,
+    });
+    return {
+      today: localDay(new Date()),
+      items: r.items.map((i) => ({
+        id: i.id,
+        type: i.type,
+        statement: i.statement,
+        origin: memoryOriginTag(i),
+        recordedAt: localDay(i.recordedAt),
+        // E1：事情本身已经过去（内容日期已过或用户确认已结束），别当成眼下的事
+        ...(i.over ? { over: i.pastDay ? `所述日期 ${i.pastDay} 已过` : '用户确认已结束' } : {}),
+      })),
+      notice: r.retrievalNotice ?? (r.items.length === 0 ? '没有找到相关记忆。' : null),
+      ...(includesAiAdvice(r.items) ? { adviceNote: AI_ADVICE_NOTE } : {}),
+    };
+  }
+
+  /** CF3b：三样齐（模型 / 地址 / Key）才走直连；缺一样返回 null，原来的路径一个字不动。 */
+  private directChatLaunch(): { model: string; baseUrl: string; apiKey: string } | null {
+    const { chatModel, chatBaseUrl, chatApiKey } = this.chatLaunchOptions();
+    if (!chatModel || !chatBaseUrl || !chatApiKey) return null;
+    return { model: chatModel, baseUrl: chatBaseUrl, apiKey: chatApiKey };
+  }
+
+  /** 直连聊天给模型的五个工具（规格第 6 条）；不在清单里的名字一律拒绝执行。 */
+  private directChatTools(projectId: string | null): DirectChatTools {
+    const broker = new CoreToolBroker(this.db, this.items, this.search, this.coding, this.projects);
+    const ctx = { audience: 'model' as const, runId: 'direct-chat', projectId };
+    return {
+      defs: [...DIRECT_CHAT_TOOL_DEFS],
+      call: async (name, args) => {
+        if (name === 'search_memory') {
+          const obj = (await this.searchMemoryForModel(args)) as {
+            items?: Array<{ id: string; statement: string }>;
+          };
+          const memoryUsed: MemoryUsedItem[] = (obj.items ?? []).map((i) => ({
+            id: i.id,
+            statement: i.statement,
+            tag: '记忆',
+          }));
+          return { ok: true, content: JSON.stringify(obj), memoryUsed };
+        }
+        if (name === 'search_web') {
+          const executor = this.getWebSearchExecutor();
+          if (!executor) return { ok: false, content: '联网搜索没有配置：设置里填搜索服务的 Key' };
+          const sanitized = sanitizePublicQuery(String(args['query'] ?? ''));
+          if (!sanitized.query) return { ok: false, content: 'search_web 需要可公开的 query' };
+          const outcome = await executor.search(sanitized.query);
+          return { ok: true, content: JSON.stringify(outcome) };
+        }
+        if (name === 'get_evidence' || name === 'get_project_context' || name === 'read_web') {
+          const picked = name === 'get_project_context' ? { projectId, ...args } : args;
+          const out = await broker.invoke(name, picked, ctx);
+          return { ok: true, content: JSON.stringify(out) };
+        }
+        return {
+          ok: false,
+          content: `工具 ${name} 不在直连聊天的可用清单里（普通聊天不建任务、不写记忆）`,
+        };
+      },
+    };
+  }
+
+  /** 直连跑一轮：自己插 runtime_runs 行（engine=direct），结束时补状态；Key 不进库、不进日志。 */
+  private async runDirectAnswer(input: {
+    launch: { model: string; baseUrl: string; apiKey: string };
+    question: string;
+    projectId: string | null;
+    runId: string;
+    priorTurns: PriorTurn[];
+    onDelta: (text: string) => void;
+    onProgress: (phase: 'thinking' | 'answering') => void;
+  }): Promise<AgentSessionResult> {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO runtime_runs (id, goal, project_id, engine, status, events_json, notice, created_at, finished_at)
+         VALUES (?, ?, ?, 'direct', 'running', '[]', ?, ?, NULL)`,
+      )
+      .run(input.runId, input.question, input.projectId, '直连模型', now);
+    const selected = await new ContextSelector(this.db).selectForQuestionHybrid(
+      input.question,
+      input.projectId,
+      { audience: 'model', maxItems: 8, semantic: this.semanticIndex },
+    );
+    const memoryUsed: MemoryUsedItem[] = selected.items.map((i) => ({
+      id: i.id,
+      statement: i.statement,
+      tag: memoryOriginTag(i),
+    }));
+    const blocks: string[] = [];
+    if (memoryUsed.length > 0) {
+      blocks.push(memoryUsed.map((m) => `- ${m.statement}（${m.tag}）`).join('\n'));
+    }
+    let projectBrief: ProjectBriefCounts | undefined;
+    if (input.projectId) {
+      const brief = buildProjectBrief(this.db, input.projectId);
+      if (brief.block) {
+        blocks.push(brief.block);
+        projectBrief = brief.counts;
+      }
+    }
+    const contextBlock = blocks.join('\n\n');
+    const client = new OpenAIChatStreamClient({
+      baseUrl: input.launch.baseUrl,
+      apiKey: input.launch.apiKey,
+      model: input.launch.model,
+    });
+    const ctrl = new AbortController();
+    this.directAskAborts ??= new Map();
+    this.directAskAborts.set(input.runId, ctrl);
+    const out = await runDirectChat({
+      signal: ctrl.signal,
+      client,
+      question: input.question,
+      priorTurns: input.priorTurns,
+      contextBlock,
+      preMemoryUsed: memoryUsed,
+      tools: this.directChatTools(input.projectId),
+      onDelta: input.onDelta,
+      onProgress: input.onProgress,
+    }).finally(() => {
+      this.directAskAborts?.delete(input.runId);
+    });
+    // 失败时补一条 model 步骤，让既有的 failedKind / explainModelFailure 收尾照旧生效。
+    const steps =
+      out.status === 'failed'
+        ? [
+            ...out.steps,
+            { round: 0, tool: 'model', ok: false, detail: out.failure ?? '模型调用失败' },
+          ]
+        : out.steps;
+    this.db
+      .prepare(
+        `UPDATE runtime_runs SET status = ?, events_json = ?, notice = ?, finished_at = ? WHERE id = ?`,
+      )
+      .run(
+        out.status === 'succeeded' ? 'succeeded' : out.status,
+        JSON.stringify(steps),
+        out.status === 'succeeded' ? '直连模型' : (out.failure ?? '直连模型'),
+        new Date().toISOString(),
+        input.runId,
+      );
+    return {
+      answer: out.answer,
+      citations: [],
+      notice: out.status === 'cancelled' ? '用户取消' : '本轮走直连模型（不是 Hermes）。',
+      usedChars: contextBlock.length,
+      modelName: input.launch.model,
+      engine: 'direct',
+      runId: input.runId,
+      steps,
+      memoryUsed: out.memoryUsed,
+      ...(projectBrief ? { projectBrief } : {}),
+      ...(out.status === 'failed' ? { failedKind: 'model_error' as const } : {}),
+    };
   }
 
   /**
@@ -1553,31 +1791,7 @@ export class AppRuntime {
    */
   async hermesTool(name: HermesBridgeToolName, args: Record<string, unknown>): Promise<unknown> {
     recordAudit(this.db, 'hermes_bridge.tool', { name });
-    if (name === 'search_memory') {
-      const query = String(args.query ?? '').trim();
-      if (!query) throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'search_memory 需要 query');
-      const limit = Math.min(12, Math.max(1, Math.trunc(Number(args.limit ?? 8)) || 8));
-      await this.awaitSemanticBackfill();
-      const r = await new ContextSelector(this.db).selectForQuestionHybrid(query, null, {
-        audience: 'model',
-        maxItems: limit,
-        semantic: this.semanticIndex,
-      });
-      return {
-        today: localDay(new Date()),
-        items: r.items.map((i) => ({
-          id: i.id,
-          type: i.type,
-          statement: i.statement,
-          origin: memoryOriginTag(i),
-          recordedAt: localDay(i.recordedAt),
-          // E1：事情本身已经过去（内容日期已过或用户确认已结束），别当成眼下的事
-          ...(i.over ? { over: i.pastDay ? `所述日期 ${i.pastDay} 已过` : '用户确认已结束' } : {}),
-        })),
-        notice: r.retrievalNotice ?? (r.items.length === 0 ? '没有找到相关记忆。' : null),
-        ...(includesAiAdvice(r.items) ? { adviceNote: AI_ADVICE_NOTE } : {}),
-      };
-    }
+    if (name === 'search_memory') return this.searchMemoryForModel(args);
     if (name === 'propose_coding_task') return this.proposeCodingTask(args);
     const broker = new CoreToolBroker(this.db, this.items, this.search, this.coding, this.projects);
     const ctx = { audience: 'model' as const, runId: 'hermes-bridge', projectId: null };
@@ -1924,6 +2138,7 @@ export class AppRuntime {
     // 已经在回答的，照旧通知会话停掉。
     this.askSessions.get(target)?.cancel(runId);
     this.cancelledAskRuns.add(runId);
+    this.directAskAborts?.get(runId)?.abort();
     return { cancelled: true, runId };
   }
 
