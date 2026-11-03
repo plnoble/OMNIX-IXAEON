@@ -910,6 +910,14 @@
       "files": {
         "apps/desktop/test/acceptance/mp2b-model-page.test.ts": "595f33cfe8478360918abaeffa9c86f627ed3148c3567a5eb977d6c4644122c7"
       }
+    },
+    {
+      "id": "MP2b-entry",
+      "title": "聊天入口与换模型",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp2b-entry.test.ts": "7401cdede170e1cf774c342424fc227cc5f52608b76a550e0cfb692d13d8cf73"
+      }
     }
   ]
 }
