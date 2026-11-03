@@ -892,6 +892,24 @@
         "apps/desktop/test/acceptance/cf3b-direct-chat.test.ts": "c4a0be6c70ee286b5ee4b0b7908c069b882d7f703ff2f7825f7b525fe4863144",
         "apps/desktop/test/acceptance/cf3b-engine-label.test.ts": "9580a1784e436351a634746bdd6908e624c41c10c4078c40a38fec3fd6744714"
       }
+    },
+    {
+      "id": "MP2",
+      "title": "模型接入支持多个供应商",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp2-providers.test.ts": "f79f55dd63835b0d55e0b37d7a7d026c95e6f0d8649f643392ba8ddffa1b916c",
+        "apps/desktop/test/acceptance/mp2-fetch-models.test.ts": "ec7ec470ad4bc2c053cd4b05d1aae836df7d93aef5606f08f2e02aa5ccbd14c4",
+        "apps/desktop/test/acceptance/mp2-uses.test.ts": "ad7ce767aab06cadd014ab371aa1ba59cf916ce781b67ca5936a6d903e439f87"
+      }
+    },
+    {
+      "id": "MP2b",
+      "title": "模型页（供应商卡片、用途、额度）",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp2b-model-page.test.ts": "8d1677d9733b059ed0900fa54916842c568b9b1718ef4fc2bf8f2f5116227211"
+      }
     }
   ]
 }
