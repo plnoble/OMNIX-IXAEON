@@ -246,6 +246,23 @@ export {
   type PriorTurn,
 } from './runtime/session.js';
 export {
+  OpenAIChatStreamClient,
+  FakeStreamChatClient,
+  type ChatMessage,
+  type ChatToolCall,
+  type ChatToolDef,
+  type ChatStreamResult,
+  type StreamChatClient,
+} from './runtime/chatStream.js';
+export {
+  DIRECT_CHAT_PROMPT_VERSION,
+  DIRECT_CHAT_SYSTEM_PROMPT,
+  DIRECT_CHAT_TOOL_NAMES,
+  runDirectChat,
+  type DirectChatResult,
+  type DirectChatTools,
+} from './runtime/directChat.js';
+export {
   SkillCandidateStore,
   type SkillCandidate,
   type SkillStatus,
