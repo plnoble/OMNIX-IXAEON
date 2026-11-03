@@ -884,7 +884,7 @@
     {
       "id": "CF3",
       "title": "聊天改用直连模型做主引擎",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/cf3-chat-stream.test.ts": "6c7d75be5bb277a8376d4aa4a04ca5eec7cd8001ec6981cc6c79ec3d67d2b39d",
         "packages/core/test/acceptance/cf3-direct-chat.test.ts": "5b07c78d83445422a8d3112919f3d125df2f4f27da3ba1fbecf06df236ec6f8b",
