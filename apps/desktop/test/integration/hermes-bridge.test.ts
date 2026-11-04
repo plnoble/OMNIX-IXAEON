@@ -259,7 +259,7 @@ describe('开关流程（设置页）', () => {
     expect(t.writes).toEqual([true]);
     expect(t.rt.config.hermesBridge.token).toMatch(/^[0-9a-f]{64}$/);
     expect(t.rt.config.hermesBridge.token).not.toBe(LOCAL_TOKEN);
-    expect(t.invalidated()).toBe(1);
+    // CF3c：进程内 Hermes 会话已不存在，invalidateContext 不再有可作废的会话（这一步不适用）
     expect(t.rt.hermesBridgeStatus(t.deps.locate)).toEqual({ enabled: true, blockedReason: null });
     rmSync(t.home, { recursive: true, force: true });
   });
