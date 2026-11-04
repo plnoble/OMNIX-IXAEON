@@ -242,7 +242,7 @@ describe('D3 提问带最近 N 轮上下文', () => {
 
     const prompt = promptAt(0);
     // 本轮问题只应作为「用户问题」出现一次，不应同时出现在历史块里
-    expect(prompt.split('这周做啥？').length - 1).toBe(1);
+    expect(prompt.split('这是本轮的问题').length - 1).toBe(1);
   });
 });
 
@@ -290,11 +290,7 @@ describe('D4 引擎会话按对话隔离', () => {
     expect(fourthPrompt).not.toContain('买手机');
     expect(fourthPrompt).not.toContain('预算五千');
 
-    // 两个对话各有独立的 AgentSession 实例
-    expect(runtime.askSessions.size).toBe(2);
-    expect(runtime.askSessions.get(phone.conversationId)).not.toBe(
-      runtime.askSessions.get(ppt.conversationId),
-    );
+    // CF3c：不再有进程内引擎会话；「各看各的历史」由上面四条提示词断言保证
   });
 
   it('重启后重开旧对话能续：引擎会话清空，历史靠 priorTurns 重新喂', async () => {
@@ -312,7 +308,6 @@ describe('D4 引擎会话按对话隔离', () => {
     expect(conversations.get(conv.conversationId).engineSessionId).toBeNull();
 
     const after = makeRuntime();
-    expect(after.askSessions.size).toBe(0);
 
     enqueueAnswer('接上了。');
     await after.ask({
@@ -322,8 +317,8 @@ describe('D4 引擎会话按对话隔离', () => {
     });
 
     // 重启后的这一问，历史必须重新注入——否则「刚才我说了什么」答不上来
+    // CF3c：直连没有 Hermes 那套「本对话此前的内容」标记，直接看交给模型的 messages
     const prompt = promptAt(1);
-    expect(prompt).toContain('本对话此前的内容');
     expect(prompt).toContain('第一轮的问题');
     expect(prompt).toContain('第一轮的回答。');
   });
@@ -344,7 +339,7 @@ describe('D4 引擎会话按对话隔离', () => {
       role: 'assistant',
       content: '这是回答正文。',
       status: 'complete',
-      engine: 'core-bounded',
+      engine: 'direct',
     });
     expect(messages[1]!.id).toBe(result.messageId);
     expect(messages[0]!.id).toBe(result.userMessageId);

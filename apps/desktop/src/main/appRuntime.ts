@@ -1477,17 +1477,9 @@ export class AppRuntime {
     if (process.env['IXAEON_FAKE_MODEL'] === '1') {
       return { model: 'fake-direct', baseUrl: 'http://127.0.0.1:9/v1', apiKey: 'fake' };
     }
+    // 规格只要求三样齐（模型 / 地址 / Key）就走直连——不再额外要求「模型在已保存清单里」
     const { chatModel, chatBaseUrl, chatApiKey } = this.chatLaunchOptions();
     if (!chatModel || !chatBaseUrl || !chatApiKey) return null;
-    // 聊天用的模型必须在这家的已保存清单里（M2：下拉只从已保存清单选）；不在就算没配好
-    const config = this.config as AppConfig;
-    const resolved = resolveModelUse(config, 'chat');
-    if (!resolved) return null;
-    const saved =
-      resolved.providerId === 'default'
-        ? (config.model.savedModels ?? [])
-        : ((config.providers ?? []).find((p) => p.id === resolved.providerId)?.savedModels ?? []);
-    if (!saved.includes(resolved.model)) return null;
     return { model: chatModel, baseUrl: chatBaseUrl, apiKey: chatApiKey };
   }
 
