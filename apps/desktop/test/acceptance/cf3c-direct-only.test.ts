@@ -182,8 +182,8 @@ function setup(options: HarnessOptions = {}): Harness {
       ...defaultAppConfig(),
       model: {
         ...defaultAppConfig().model,
-        modelName: MODEL,
-        chatModelName: options.chatModel === 'blank' ? '' : MODEL,
+        modelName: missing === 'model' ? '' : MODEL,
+        chatModelName: missing === 'model' || options.chatModel === 'blank' ? '' : MODEL,
         apiBaseUrl: missing === 'base' ? '' : BASE,
         apiKeyEncrypted:
           missing === 'key' ? null : Buffer.from(`enc:${SYNTHETIC_KEY}`).toString('base64'),
@@ -373,9 +373,8 @@ describe('CF3c 条件 7：回答下面那段说明', () => {
       question: '合成问题',
     });
     const meta = (h.messages().at(-1)!.meta ?? {}) as { notice?: string };
-    // 替身下存档这一步会失败，ask() 会在说明后面追加「；注意：问答存档失败…」；
-    // 那不是这条断言要钉的东西，剥掉再比。
-    const notice = (meta.notice ?? '').split('；注意：')[0] ?? '';
+    // 整合方锁定时改：不剥尾巴。真机上「。；」就出在几段说明拼接处，剥掉就测不到了。
+    const notice = meta.notice ?? '';
     expect(notice).not.toContain('不是 Hermes');
     expect(notice).not.toContain('。；');
   });

@@ -77,6 +77,9 @@ describe('CF3c 条件 4：不预热 Hermes', () => {
     } catch {
       // 只关心注册了哪些通道；替身缺方法导致的异常不影响这条断言
     }
+    // 整合方锁定时补：先确认通道真的注册上了，否则注册中途抛错也会让下面那条「没有 prewarm」成立
+    expect(handlers.has('ixaeon:getSettings')).toBe(true);
+    expect(handlers.has('ixaeon:rebuildSemanticIndex')).toBe(true);
     const channels = [...handlers.keys()].filter((c) => c.toLowerCase().includes('prewarm'));
     expect(channels).toEqual([]);
   });

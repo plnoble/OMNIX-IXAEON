@@ -118,3 +118,15 @@ node node_modules/vitest/vitest.mjs run --project acceptance \
 2. 上述甲乙丙清单按实际跑红逐份改 / 列退役；
 3. 删掉跟着变成死代码的集成测试（如 `p1-prewarm`）；
 4. 真机甲 / 乙，丙交用户。
+
+## 整合方审测试（2026-11-04，锁定）
+
+改了三处后锁定：
+
+1. **条件 3「缺模型」造错了**：只清空了已保存清单，`modelName` / `chatModelName` 还是 `demo-a`，三样其实是齐的。执行方临时加的守卫没生效就是这个原因，不是模块缓存。现在缺模型时两个模型名都置空。整合方临时加了一道「没有直连就抛 `MODEL_NOT_CONFIGURED`」，条件 3 的 4 条全绿；试完已还原。
+2. **条件 7 不再剥「；注意：」之后的尾巴**：真机截图里的「。；」就出在几段说明拼接的地方，剥掉就测不到了。实现要在拼接处处理标点，不能靠改测试。
+3. **条件 4 第一条**：先断言 `ixaeon:getSettings`、`ixaeon:rebuildSemanticIndex` 已注册，再断言没有 prewarm 通道。否则注册中途抛错、一个通道都没登记时，这条也会成立。
+
+现状：12 条里 10 红 2 绿，红因都是「功能没有」。
+
+**实现排在 MP2b 之后**：CF3cb 要改的甲类旧测试里，`m2-settings-ui`、`m3-settings-ui`、`sub1-magpie-preset`、`sub1b-quota-settings`、`u2-settings-coding-saved`、`v4-settings-page`、`d7b-pages` 跟 MP2b 的 CP7 是同一批文件。MP2b 先改完、先并入，CF3cb 再在它上面改，免得两边改同一份测试。

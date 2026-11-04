@@ -916,8 +916,8 @@
       "title": "聊天只走直连",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/cf3c-direct-only.test.ts": "19296e374e8da4fc99b69fa982af9dbe2fe790e7adbe99a9eec716c0fc76750b",
-        "apps/desktop/test/acceptance/cf3c-no-prewarm.test.ts": "416ee9ead78b57330ea5b2e8edd8beed4816de4e620334106dc402955f3f7eb7"
+        "apps/desktop/test/acceptance/cf3c-direct-only.test.ts": "1fe75c9bc25bbfb9a9de0a49909e28644ecf86efb8054731b28057aa68faf3b0",
+        "apps/desktop/test/acceptance/cf3c-no-prewarm.test.ts": "960ab88c6032a92b605aa285f55678ae4ab9d614fe31f79f0a84eedb6fce6f48"
       }
     }
   ]
