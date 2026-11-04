@@ -54,7 +54,6 @@ import {
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
-import { installFakeChat } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.0.0', getPath: () => '' },
@@ -165,7 +164,6 @@ function setup(results: AskResult[]) {
     enqueueExtract: vi.fn(() => undefined),
     ensureAskCapturePermission: () => ({ id: 'perm-1', status: 'active' }),
   });
-  installFakeChat(runtime as unknown as Record<string, unknown>);
   return { runtime, conversations, conv, calls, captureAsk, captured };
 }
 
