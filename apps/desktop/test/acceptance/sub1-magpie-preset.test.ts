@@ -54,7 +54,11 @@ vi.mock('../../src/renderer/src/api.js', () => {
       kind: string;
       apiBaseUrl: string;
       apiKey?: string;
+      savedModels?: string[];
     }) => {
+      // 整合方复审时改：记下这次保存带的勾选，用来钉「预设没有偷偷保存」
+      if ((input.savedModels ?? []).length > 0)
+        state.saved.push({ savedModels: input.savedModels });
       state.calls.push({ apiBaseUrl: input.apiBaseUrl, apiKey: input.apiKey ?? '' });
       state.providers.push({
         id: 'p-magpie',
@@ -70,13 +74,10 @@ vi.mock('../../src/renderer/src/api.js', () => {
       });
       return { ok: true as const, id: 'p-magpie', keyCleared: false };
     },
-    fetchProviderModels: async (id: string) => {
+    // 整合方复审时改：跟生产一样，获取模型只返回清单、不替用户保存勾选
+    fetchProviderModels: async () => {
       if (state.failWith !== null) return { models: [], error: state.failWith };
-      const models = state.upstream.map((m) => m.id);
-      state.providers = state.providers.map((p) =>
-        p.id === id ? { ...p, savedModels: models } : p,
-      );
-      return { models, error: null };
+      return { models: state.upstream.map((m) => m.id), error: null };
     },
     deleteModelProvider: async () => ({ ok: true as const }),
     saveModelUses: async () => ({ ok: true as const }),
@@ -233,6 +234,12 @@ describe('SUB1 模型接入：用本机 magpie', () => {
     ).not.toContain('上游已没有');
     // 用户照旧勾选后保存（这里只钉住预设没有偷偷保存）
     expect(state.saved).toEqual([]);
+    expect(state.providers.every((p) => (p['savedModels'] as string[]).length === 0)).toBe(true);
+    expect(
+      [...container.querySelectorAll<HTMLInputElement>('[data-testid^="model-row-"] input')].some(
+        (el) => el.checked,
+      ),
+    ).toBe(false);
   });
 
   it('条件 2：magpie 没起 → 出那句话，地址和 Key 保持不变，清单也不动', async () => {
@@ -242,7 +249,9 @@ describe('SUB1 模型接入：用本机 magpie', () => {
     await clickMagpie();
 
     expect(state.calls).toEqual([{ apiBaseUrl: MAGPIE_BASE, apiKey: 'magpie' }]);
-    expect($<HTMLInputElement>('provider-base-input-default')!.value).toBe('https://api.example.com/v1');
+    expect($<HTMLInputElement>('provider-base-input-default')!.value).toBe(
+      'https://api.example.com/v1',
+    );
     // Key 输入框本来就没填（已保存的 Key 不回显）→ 还是空
     expect($<HTMLInputElement>('provider-key-input-default')!.value).toBe('');
     expect($('models-error')!.textContent).toContain(MAGPIE_ERROR);

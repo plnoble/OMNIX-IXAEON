@@ -65,6 +65,8 @@ vi.mock('../../src/renderer/src/api.js', () => {
   const specific = {
     getSettings: async () => state.view,
     listAuditEvents: async () => [],
+    // MP2b：设置页读供应商列表给编码模型下拉用（整合方复审时补，同 u2 / d7b / v4）
+    listModelProviders: async () => [],
     saveMobileSettings: async (input: SavedMobile) => {
       state.saved.push({ enabled: input.enabled, port: input.port });
       return { ok: true as const };

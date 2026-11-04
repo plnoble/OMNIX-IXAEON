@@ -162,7 +162,10 @@ describe('CF1 聊天做首页、驾驶舱放第二', () => {
 
   it('条件 3：其余各项的先后和改之前一样（按改之前的顺序写死比对）', async () => {
     await renderApp();
-    const expected = ['聊天', '驾驶舱', ...BEFORE.filter((x) => x !== '驾驶舱' && x !== '问答')];
+    const rest = BEFORE.filter((x) => x !== '驾驶舱' && x !== '问答');
+    // MP2b 规格加了「模型」一项，放在「设置」前面（整合方复审时补）；其余先后不变
+    rest.splice(rest.indexOf('设置'), 0, '模型');
+    const expected = ['聊天', '驾驶舱', ...rest];
     expect(navLabels()).toEqual(expected);
     // 「问答」只改了显示名，data-testid 不变（避免连带改到别处按 nav-ask 找元素的代码）
     expect($('nav-ask')).not.toBeNull();

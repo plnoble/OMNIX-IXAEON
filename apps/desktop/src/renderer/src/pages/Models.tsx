@@ -49,6 +49,7 @@ interface Draft {
   apiKey: string;
   kind: 'openai' | 'magpie';
 }
+const USE_NAMES = { analysis: '后台分析', chat: '聊天', coding: '编码任务' } as const;
 const EMPTY_DRAFT: Draft = { name: '', apiBaseUrl: '', apiKey: '', kind: 'openai' };
 
 export function ModelsPage() {
@@ -150,7 +151,15 @@ export function ModelsPage() {
     setError(null);
     setNotice(null);
     try {
-      const result = await api.fetchProviderModels(id);
+      // 卡片上改了地址或填了 Key 还没保存：用填的去检测（整合方并入时修）
+      const typed = edits[id];
+      const input = {
+        ...(typed && typed.base.trim() && typed.base !== row?.apiBaseUrl
+          ? { apiBaseUrl: typed.base }
+          : {}),
+        ...(typed?.key.trim() ? { apiKey: typed.key } : {}),
+      };
+      const result = await api.fetchProviderModels(id, input);
       if (reqSeq.current[id] !== seq) return; // 迟到的旧清单：丢掉
       if (result.error) {
         // 检测失败：如实报错，清单和勾选都不动
@@ -275,16 +284,18 @@ export function ModelsPage() {
               >
                 保存勾选
               </Button>
-              <Button
-                kind="default"
-                testId={`provider-delete-${view.id}`}
-                onClick={() => void remove(view.id)}
-              >
-                删除
-              </Button>
+              {view.id === 'default' ? null : (
+                <Button
+                  kind="default"
+                  testId={`provider-delete-${view.id}`}
+                  onClick={() => void remove(view.id)}
+                >
+                  删除
+                </Button>
+              )}
               {view.usedBy.length > 0 ? (
                 <span className="muted" data-testid={`provider-usedby-${view.id}`}>
-                  {view.usedBy.join('、')}在用它
+                  {view.usedBy.map((u) => USE_NAMES[u]).join('、')}在用它
                 </span>
               ) : null}
             </div>
@@ -387,7 +398,8 @@ export function ModelsPage() {
           />
           <input
             className="input"
-            placeholder="Key（留空 = 不改已保存的）"
+            type="password"
+            placeholder="Key"
             data-testid="provider-add-key"
             value={draft.apiKey}
             onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}

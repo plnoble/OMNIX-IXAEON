@@ -50,6 +50,8 @@ vi.mock('../../src/renderer/src/api.js', () => {
   const specific = {
     getSettings: async () => state.view,
     listAuditEvents: async () => [],
+    // MP2b：设置页读供应商列表给编码模型下拉用（整合方复审时补，同 u2 / d7b / v4）
+    listModelProviders: async () => [],
     saveCockpitSettings: async (input: { ixaeonRepo: string }) => {
       state.saved.push({ ixaeonRepo: input.ixaeonRepo });
       return { ok: true as const };

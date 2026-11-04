@@ -59,7 +59,7 @@ vi.mock('../../src/renderer/src/api.js', () => {
   const specific = {
     getSettings: async () => state.view,
     listAuditEvents: async () => [],
-      listModelProviders: async () => [],
+    listModelProviders: async () => [],
     saveCodingSettings: async (input: { executor: string; modelName: string }) => {
       state.savedCoding.push({ executor: input.executor, modelName: input.modelName });
       return { ok: true as const };

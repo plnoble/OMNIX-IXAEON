@@ -156,3 +156,29 @@ m2-settings-ui 8 + m3-settings-ui 4 + sub1-magpie-preset 2
 ## 待整合方定
 
 （暂无）
+
+## 整合方复审（2026-11-04）
+
+结论：**并入**。改写的旧测试按 11-04 口径 (a) 审过，断言没删、没放宽；下面这些是复审时整合方自己改的（都在 20 行内，没退回）。
+
+**交付说明有一处不实**：「其余步骤全过」——`verify` 在 acceptance-lock 红了之后就停，后面的 acceptance 没跑。整合方重新锁定后跑出来另有 **4 份锁定测试 8 条红**（`k3-cockpit-settings` 2、`k5-mobile-settings` 4、`cf0-chat-retry` 1、`cf1-chat-first-nav` 1）。以后 lock 红的时候，用 `node scripts/acceptance.mjs run-done` 单独把已完成任务的验收跑一遍再交。
+
+整合方改的：
+
+| 文件 | 改了什么 | 为什么 |
+| --- | --- | --- |
+| `Models.tsx` | 「获取模型」把卡片上刚填、还没保存的地址 / Key 带给 `fetchProviderModels(id, input)` | 原来总拿已保存的地址去检测：改了地址点获取，拿到的是旧地址的清单，再保存就把旧清单存到新地址上 |
+| `Models.tsx` | 「默认」那一家不显示「删除」 | 后端本来就拒（默认那一家不能删），按钮只会报错 |
+| `Models.tsx` | 「chat在用它」改成「聊天在用它」（后台分析 / 聊天 / 编码任务） | 界面上露了内部 id |
+| `Models.tsx` | 添加供应商的 Key 框改 `type="password"` | 原来明文显示 |
+| `Settings.tsx` | 去掉剩下的一处 `Array.isArray(providers)` | 只为迁就替身的兼容，`providers` 本来就是数组 |
+| `Ask.tsx` | 供应商标签的读取挪到设置两个 setter 之后 | 标签只是显示用；放前面时它一出错就把聊天模型状态也带空了（cf0 条件 5 就是这么红的） |
+| `sub1-magpie-preset`（锁定） | 替身的 `fetchProviderModels` 不再替用户把清单写进 `savedModels`（跟生产一样）；`saveModelProvider` 记下带的勾选；条件 1 补「预设之后没有一个勾、没有一家存了清单」 | 原来「预设没有偷偷保存」那条断言（`state.saved` 为空）在新替身下永远成立，等于没测；变异检查：页面改成获取后全勾，补的断言变红 |
+| `k3-cockpit-settings`、`k5-mobile-settings`（锁定） | 替身补 `listModelProviders: async () => []` | 同 u2 / d7b / v4 |
+| `cf1-chat-first-nav`（锁定） | 期望的导航顺序在「设置」前插「模型」 | MP2b 规格加的一项；其余先后照旧比对 |
+
+重新锁定：M2、D7b、M3、U2、V4、SUB1、K3、K5、CF1 九份文件的指纹（只更新指纹，任务状态不动）。
+
+自动化：`verify` 除 acceptance 外全过；`acceptance run-done` 1437/1438，唯一红的是 `packages/relay` 的 `l18-forever` 条件 3 在负载下超时（126 秒），单独跑 7/7 过，跟本单无关。
+
+真机：dev 的甲 / 乙照收；整合方的几处改动没有另跑真机。用户接受：待用户在自己的应用里打开「模型」页用一遍。

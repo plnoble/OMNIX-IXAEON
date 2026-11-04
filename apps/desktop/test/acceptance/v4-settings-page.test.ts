@@ -34,7 +34,7 @@ vi.mock('../../src/renderer/src/api.js', () => {
   const specific = {
     getSettings: async () => state.view,
     listAuditEvents: async () => [],
-      listModelProviders: async () => [],
+    listModelProviders: async () => [],
     getVerifySandbox: async () => {
       state.calls.push('getVerifySandbox');
       return state.pendingGet ? await state.pendingGet : state.sandbox;

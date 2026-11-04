@@ -126,6 +126,9 @@ export function AskPage({
     try {
       const view = await api.getSettings();
       setSavedModels(view.config.savedModels ?? []);
+      setChatModelName(view.config.chatModelName || view.config.modelName || null);
+      setModelName(view.config.modelName || null);
+      // 标签只是显示用：放在最后，取不到也不影响上面的模型状态（整合方并入时调的先后）
       void api
         .listModelProviders()
         .then((rows) =>
@@ -136,8 +139,6 @@ export function AskPage({
           ),
         )
         .catch(() => setModelLabels(undefined));
-      setChatModelName(view.config.chatModelName || view.config.modelName || null);
-      setModelName(view.config.modelName || null);
     } catch {
       // 设置读不到就不出换模型控件；不影响聊天本身
     }

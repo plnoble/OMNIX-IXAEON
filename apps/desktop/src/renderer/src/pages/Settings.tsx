@@ -734,8 +734,7 @@ export function SettingsPage({
           </select>
         </Field>
         {/* MP2b：有可选的供应商模型、或本来就用「我的模型」时才出现（默认 Codex 时不该看到它） */}
-        {(codingExec === 'model' ||
-          (Array.isArray(providers) && providers.some((p) => p.savedModels.length > 0))) && (
+        {(codingExec === 'model' || providers.some((p) => p.savedModels.length > 0)) && (
           <Field label="模型">
             <select
               value={codingModel}
