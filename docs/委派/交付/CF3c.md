@@ -201,3 +201,5 @@ Tests  12 passed (12)
 真机：甲 / 乙都在第二支工作目录里跑（同一份源码），输出与截图见 `CF3cb.md`「真机通过」。
 
 用户接受：未接受。
+
+补充：`typecheck-acceptance`（把已完成任务的验收测试也过一遍 tsc）与 `acceptance-lock` 在第一支会红——旧锁定测试还引用 `askSessions` 等已删字段，这类改写按约定集中在 CF3cb；红名单与 CF3cb.md 列的一致。
