@@ -218,10 +218,8 @@ function PersonalMemoryCard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 老版本主进程没有这个方法：跳过这一块，别把整页带崩
-    if (typeof api.getPersonalMemoryToChat !== 'function') return;
-    void Promise.resolve()
-      .then(() => api.getPersonalMemoryToChat())
+    api
+      .getPersonalMemoryToChat()
       .then(setStatus)
       .catch((err) => setError(errMsg(err)));
   }, []);
@@ -506,14 +504,13 @@ export function SettingsPage({
   // MP2b：编码任务的模型下拉框显示「供应商名 · 模型」
   const [providers, setProviders] = useState<ModelProviderView[]>([]);
   useEffect(() => {
-    // 兼容同步/异步两种替身（真实接口是 async）
-    void Promise.resolve()
-      .then(() => api.listModelProviders())
-      .then((rows) => setProviders(Array.isArray(rows) ? rows : []))
+    void api
+      .listModelProviders()
+      .then(setProviders)
       .catch(() => setProviders([]));
   }, []);
   const codingChoices = useMemo(() => {
-    const rows = (Array.isArray(providers) ? providers : []).flatMap((p) =>
+    const rows = providers.flatMap((p) =>
       p.savedModels.map((m) => ({ value: m, label: `${p.name} · ${m}` })),
     );
     return rows.length > 0 ? rows : [...savedSet].map((id) => ({ value: id, label: id }));

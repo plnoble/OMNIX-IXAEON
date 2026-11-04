@@ -27,12 +27,62 @@ const state = vi.hoisted(() => ({
   failWith: null as string | null,
   calls: [] as Array<{ apiBaseUrl: string; apiKey: string }>,
   saved: [] as Array<Record<string, unknown>>,
+  providers: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('../../src/renderer/src/api.js', () => {
   const specific = {
     getSettings: async () => state.view,
     listAuditEvents: async () => [],
+    listModelProviders: async () => [
+      {
+        id: 'default',
+        name: '默认',
+        kind: 'openai',
+        apiBaseUrl: (state.view as { config: { apiBaseUrl: string } }).config.apiBaseUrl,
+        apiKeyPresent: false,
+        apiKeyTail: null,
+        apiKeyUnreadable: false,
+        savedModels: (state.view as { config: { savedModels: string[] } }).config.savedModels,
+        modelsCheckedAt: null,
+        usedBy: [],
+      },
+      ...state.providers,
+    ],
+    saveModelProvider: async (input: {
+      name: string;
+      kind: string;
+      apiBaseUrl: string;
+      apiKey?: string;
+    }) => {
+      state.calls.push({ apiBaseUrl: input.apiBaseUrl, apiKey: input.apiKey ?? '' });
+      state.providers.push({
+        id: 'p-magpie',
+        name: input.name,
+        kind: input.kind as 'magpie',
+        apiBaseUrl: input.apiBaseUrl,
+        apiKeyPresent: true,
+        apiKeyTail: 'pie',
+        apiKeyUnreadable: false,
+        savedModels: [],
+        modelsCheckedAt: null,
+        usedBy: [],
+      });
+      return { ok: true as const, id: 'p-magpie', keyCleared: false };
+    },
+    fetchProviderModels: async (id: string) => {
+      if (state.failWith !== null) return { models: [], error: state.failWith };
+      const models = state.upstream.map((m) => m.id);
+      state.providers = state.providers.map((p) =>
+        p.id === id ? { ...p, savedModels: models } : p,
+      );
+      return { models, error: null };
+    },
+    deleteModelProvider: async () => ({ ok: true as const }),
+    saveModelUses: async () => ({ ok: true as const }),
+    getCockpit: async () => ({ quota: null }),
+    refreshQuota: async () => ({ ok: true as const }),
+    saveCockpitSettings: async () => ({ ok: true as const }),
     listAvailableModels: async (input: { apiBaseUrl: string; apiKey: string }) => {
       state.calls.push({ apiBaseUrl: input.apiBaseUrl, apiKey: input.apiKey });
       if (state.failWith !== null) throw new Error(state.failWith);
@@ -66,7 +116,7 @@ vi.mock('../../src/renderer/src/api.js', () => {
   };
 });
 
-import { SettingsPage } from '../../src/renderer/src/pages/Settings.js';
+import { ModelsPage } from '../../src/renderer/src/pages/Models.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -113,6 +163,7 @@ beforeEach(() => {
   state.failWith = null;
   state.calls = [];
   state.saved = [];
+  state.providers = [];
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -127,7 +178,7 @@ const $ = <T extends Element>(id: string) => container.querySelector<T>(`[data-t
 
 async function render(): Promise<void> {
   await act(async () => {
-    root.render(createElement(SettingsPage));
+    root.render(createElement(ModelsPage));
   });
   await act(async () => {
     await Promise.resolve();
@@ -135,8 +186,24 @@ async function render(): Promise<void> {
 }
 
 async function clickMagpie(): Promise<void> {
+  // 新页面：预设填表 → 添加 → 获取模型（比旧页面多两步）
   await act(async () => {
-    $<HTMLButtonElement>('settings-magpie')!.click();
+    $<HTMLButtonElement>('provider-magpie-preset')!.click();
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  await act(async () => {
+    $<HTMLButtonElement>('provider-add-save')!.click();
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  await act(async () => {
+    $<HTMLButtonElement>('provider-models-p-magpie')!.click();
+  });
+  await act(async () => {
+    await Promise.resolve();
   });
   await act(async () => {
     await Promise.resolve();
@@ -152,16 +219,18 @@ describe('SUB1 模型接入：用本机 magpie', () => {
 
     // 检测走的是 magpie 预设的地址与 Key（不是表单原来的空值）
     expect(state.calls).toEqual([{ apiBaseUrl: MAGPIE_BASE, apiKey: 'magpie' }]);
-    const base = $<HTMLInputElement>('settings-api-base')!;
+    const base = $<HTMLInputElement>('provider-add-base')!;
     expect(base.value).toBe(MAGPIE_BASE);
-    expect($<HTMLInputElement>('settings-api-key')!.value).toBe('magpie');
+    expect($<HTMLInputElement>('provider-add-key')!.value).toBe('magpie');
 
     // 清单里正好这 3 个（顺序按上游）
     const ids = [
-      ...container.querySelectorAll<HTMLInputElement>('[data-testid="settings-model-check"]'),
+      ...container.querySelectorAll<HTMLInputElement>('[data-testid^="model-row-"]'),
     ].map((el) => el.dataset['modelId']);
     expect(ids).toEqual(['prov/m1', 'prov/m2', 'prov/m3']);
-    expect($('settings-model-checklist')!.textContent).not.toContain('上游已没有');
+    expect(
+      container.querySelector('[data-testid^="provider-checklist-"]')!.textContent,
+    ).not.toContain('上游已没有');
     // 用户照旧勾选后保存（这里只钉住预设没有偷偷保存）
     expect(state.saved).toEqual([]);
   });
@@ -173,13 +242,13 @@ describe('SUB1 模型接入：用本机 magpie', () => {
     await clickMagpie();
 
     expect(state.calls).toEqual([{ apiBaseUrl: MAGPIE_BASE, apiKey: 'magpie' }]);
-    expect($<HTMLInputElement>('settings-api-base')!.value).toBe('https://api.example.com/v1');
+    expect($<HTMLInputElement>('provider-base-input-default')!.value).toBe('https://api.example.com/v1');
     // Key 输入框本来就没填（已保存的 Key 不回显）→ 还是空
-    expect($<HTMLInputElement>('settings-api-key')!.value).toBe('');
-    expect($('settings-magpie-error')!.textContent).toContain(MAGPIE_ERROR);
+    expect($<HTMLInputElement>('provider-key-input-default')!.value).toBe('');
+    expect($('models-error')!.textContent).toContain(MAGPIE_ERROR);
     // 已保存清单还在，没有被 magpie 的失败清掉
     const ids = [
-      ...container.querySelectorAll<HTMLInputElement>('[data-testid="settings-model-check"]'),
+      ...container.querySelectorAll<HTMLInputElement>('[data-testid^="model-row-"]'),
     ].map((el) => el.dataset['modelId']);
     expect(ids).toEqual(['kept-model']);
   });

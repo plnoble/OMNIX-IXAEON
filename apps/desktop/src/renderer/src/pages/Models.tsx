@@ -4,7 +4,7 @@
  * 三块：供应商卡片、用途三个下拉框、手动登记的额度（默认收起）。
  * 界面不碰 Key：只显示后四位或「已保存 / 未配置」，完整 Key 与密文永远不回到这里。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ModelProviderView } from '@ixaeon/contracts';
 import { api, errMsg } from '../api.js';
 import { Button, Card } from '../ui.js';
@@ -18,11 +18,22 @@ interface Uses {
 
 /** 下拉选项的 value 编码：`providerId::model`；空串 = 没单独选（走旧字段 / 跟着后台分析）。 */
 const sep = '::';
-const encode = (providerId: string, model: string): string => `${providerId}${sep}${model}`;
+const encode = (providerId: string, model: string): string =>
+  providerId === 'default' ? model : `${providerId}${sep}${model}`;
 function decode(value: string): { providerId: string; model: string } | null {
+  if (!value) return null;
   const at = value.indexOf(sep);
-  if (at <= 0) return null;
+  if (at <= 0) return { providerId: 'default', model: value };
   return { providerId: value.slice(0, at), model: value.slice(at + sep.length) };
+}
+
+/** 从地址里取主机:端口，给「没连上 magpie」那句话用。 */
+function hostOf(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
 }
 
 function keyText(view: ModelProviderView): string {
@@ -43,21 +54,30 @@ const EMPTY_DRAFT: Draft = { name: '', apiBaseUrl: '', apiKey: '', kind: 'openai
 export function ModelsPage() {
   const [providers, setProviders] = useState<ModelProviderView[]>([]);
   const [uses, setUses] = useState<Uses>({});
-  const [savedModels, setSavedModels] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [checked, setChecked] = useState<Record<string, string[]>>({});
   const [upstream, setUpstream] = useState<Record<string, string[]>>({});
   const [filter, setFilter] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
+  const [currentModel, setCurrentModel] = useState('');
+  const [keyCleared, setKeyCleared] = useState<Record<string, boolean>>({});
+  const [edits, setEdits] = useState<Record<string, { base: string; key: string }>>({});
+  // 每次检测一个序号：保存会让在途检测作废，迟到的旧清单不许盖上来
+  const reqSeq = useRef<Record<string, number>>({});
 
   const load = useCallback(async () => {
     try {
       const [list, view] = await Promise.all([api.listModelProviders(), api.getSettings()]);
       setProviders(list);
       setUses((view.config.uses ?? {}) as Uses);
-      setSavedModels(view.config.savedModels ?? []);
+      setCurrentModel(view.config.modelName ?? '');
+      setEdits((cur) => {
+        const next = { ...cur };
+        for (const p of list) if (!next[p.id]) next[p.id] = { base: p.apiBaseUrl, key: '' };
+        return next;
+      });
       setChecked(Object.fromEntries(list.map((p) => [p.id, [...p.savedModels]])));
     } catch (err) {
       setError(errMsg(err));
@@ -79,19 +99,40 @@ export function ModelsPage() {
     [providers],
   );
 
+  // 分析下拉要把「在用的模型」也列出来（不在已保存清单时标注）
+  const analysisOptions = useMemo(() => {
+    const list = [...choices];
+    const inUseModel = uses.analysis?.model ?? currentModel;
+    const inUseProvider = uses.analysis?.providerId ?? 'default';
+    const has = list.some((c) => c.value === encode(inUseProvider, inUseModel));
+    if (inUseModel && !has) {
+      list.unshift({
+        value: encode(inUseProvider, inUseModel),
+        label: `${inUseModel}（不在已保存清单）`,
+      });
+    }
+    return list;
+  }, [choices, uses.analysis, currentModel]);
+
   const save = async (id: string): Promise<void> => {
     const row = providers.find((p) => p.id === id);
     if (!row) return;
+    // 保存使在途检测作废（旧凭据下的清单不许回填）
+    reqSeq.current[id] = (reqSeq.current[id] ?? 0) + 1;
     setBusy(true);
     setError(null);
     try {
-      await api.saveModelProvider({
+      const res = await api.saveModelProvider({
         id,
         name: row.name,
         kind: row.kind,
-        apiBaseUrl: row.apiBaseUrl,
+        apiBaseUrl: edits[id]?.base ?? row.apiBaseUrl,
+        ...(edits[id]?.key ? { apiKey: edits[id]!.key } : {}),
         savedModels: checked[id] ?? [],
       });
+      setKeyCleared((cur) => ({ ...cur, [id]: Boolean(res.keyCleared) }));
+      // 填过的 Key 不留在界面上
+      setEdits((cur) => ({ ...cur, [id]: { base: cur[id]?.base ?? row.apiBaseUrl, key: '' } }));
       setNotice('已保存勾选');
       await load();
     } catch (err) {
@@ -102,21 +143,41 @@ export function ModelsPage() {
   };
 
   const fetchModels = async (id: string): Promise<void> => {
+    const row = providers.find((p) => p.id === id);
+    const seq = (reqSeq.current[id] ?? 0) + 1;
+    reqSeq.current[id] = seq;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       const result = await api.fetchProviderModels(id);
-      if (result.error) setError(result.error);
-      else {
-        setUpstream((cur) => ({ ...cur, [id]: result.models }));
-        setNotice(`获取到 ${String(result.models.length)} 个模型`);
+      if (reqSeq.current[id] !== seq) return; // 迟到的旧清单：丢掉
+      if (result.error) {
+        // 检测失败：如实报错，清单和勾选都不动
+        // magpie 没起的时候说人话（跟旧设置页同一句）
+        const magpieDown =
+          row?.kind === 'magpie' && /fetch failed|ECONNREFUSED|abort|network/i.test(result.error);
+        setError(
+          magpieDown
+            ? `没连上本机 magpie（${hostOf(row!.apiBaseUrl)}），先把 magpie 打开`
+            : result.error,
+        );
+        return;
       }
-      await load();
+      setUpstream((cur) => ({ ...cur, [id]: result.models }));
+      const up = new Set(result.models);
+      const stillSaved = row?.savedModels ?? [];
+      // 勾了没保存、上游已没有 → 清掉；上游仍有的（含已保存的）保留
+      setChecked((cur) => ({
+        ...cur,
+        [id]: (cur[id] ?? []).filter((m) => up.has(m) || stillSaved.includes(m)),
+      }));
+      setNotice(`获取到 ${String(result.models.length)} 个模型`);
     } catch (err) {
+      if (reqSeq.current[id] !== seq) return;
       setError(errMsg(err));
     } finally {
-      setBusy(false);
+      if (reqSeq.current[id] === seq) setBusy(false);
     }
   };
 
@@ -141,7 +202,6 @@ export function ModelsPage() {
         apiBaseUrl: draft.apiBaseUrl.trim(),
         ...(draft.apiKey.trim() ? { apiKey: draft.apiKey.trim() } : {}),
       });
-      setDraft(EMPTY_DRAFT);
       setNotice('已添加');
       await load();
     } catch (err) {
@@ -211,7 +271,6 @@ export function ModelsPage() {
               <Button
                 kind="primary"
                 testId={`provider-save-${view.id}`}
-                disabled={busy}
                 onClick={() => void save(view.id)}
               >
                 保存勾选
@@ -229,6 +288,39 @@ export function ModelsPage() {
                 </span>
               ) : null}
             </div>
+            <div className="row">
+              <input
+                className="input"
+                data-testid={`provider-base-input-${view.id}`}
+                value={edits[view.id]?.base ?? view.apiBaseUrl}
+                onChange={(e) => {
+                  const base = e.currentTarget.value;
+                  setEdits((cur) => ({
+                    ...cur,
+                    [view.id]: { base, key: cur[view.id]?.key ?? '' },
+                  }));
+                }}
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="Key（留空 = 不改）"
+                data-testid={`provider-key-input-${view.id}`}
+                value={edits[view.id]?.key ?? ''}
+                onChange={(e) => {
+                  const key = e.currentTarget.value;
+                  setEdits((cur) => ({
+                    ...cur,
+                    [view.id]: { base: cur[view.id]?.base ?? view.apiBaseUrl, key },
+                  }));
+                }}
+              />
+            </div>
+            {keyCleared[view.id] ? (
+              <p className="warn" data-testid={`provider-key-cleared-${view.id}`}>
+                地址变了，原来的 Key 没有带到新地址，请在下面重新填。
+              </p>
+            ) : null}
             <input
               className="input"
               placeholder="筛选模型"
@@ -247,7 +339,7 @@ export function ModelsPage() {
                 const isNew = upstream[view.id] !== undefined && !view.savedModels.includes(model);
                 const gone = upstream[view.id] !== undefined && !upstream[view.id]!.includes(model);
                 return (
-                  <li key={model} data-testid={`model-row-${model}`}>
+                  <li key={model} data-testid={`model-row-${model}`} data-model-id={model}>
                     <label>
                       <input
                         type="checkbox"
@@ -330,11 +422,14 @@ export function ModelsPage() {
           后台分析
           <select
             data-testid="uses-analysis"
-            value={uses.analysis ? encode(uses.analysis.providerId, uses.analysis.model) : ''}
+            value={
+              uses.analysis
+                ? encode(uses.analysis.providerId, uses.analysis.model)
+                : (analysisOptions[0]?.value ?? '')
+            }
             onChange={(e) => setUses({ ...uses, analysis: decode(e.target.value) ?? undefined })}
           >
-            <option value="">默认 · {savedModels.join(' / ') || '（没配）'}</option>
-            {choices.map((c) => (
+            {analysisOptions.map((c) => (
               <option key={`a-${c.value}`} value={c.value}>
                 {c.label}
               </option>

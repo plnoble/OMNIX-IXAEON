@@ -76,6 +76,45 @@ function baseView(savedModels: string[]): SettingsView {
 vi.mock('../../src/renderer/src/api.js', () => {
   const specific = {
     getSettings: async () => state.view,
+    listModelProviders: async () => [
+      {
+        id: 'default',
+        name: '默认',
+        kind: 'openai',
+        apiBaseUrl: 'http://127.0.0.1:18081/v1',
+        apiKeyPresent: true,
+        apiKeyTail: 'c3d4',
+        apiKeyUnreadable: false,
+        savedModels: state.view.config.savedModels,
+        modelsCheckedAt: null,
+        usedBy: [],
+      },
+    ],
+    fetchProviderModels: async () => {
+      if (state.failWith !== null) return { models: [], error: state.failWith };
+      if (state.hangNext) {
+        state.hangNext = false;
+        await new Promise<void>((resolve) => {
+          state.hangRegistrar?.(resolve);
+        });
+      }
+      return { models: state.upstream.map((m) => m.id), error: null };
+    },
+    saveModelProvider: async (input: { savedModels?: string[]; id?: string }) => {
+      state.saved.push({
+        modelName: '',
+        chatModelName: '',
+        apiBaseUrl: '',
+        apiKey: undefined,
+        savedModels: input.savedModels ?? [],
+      });
+      return { ok: true as const, id: input.id ?? 'default', keyCleared: false };
+    },
+    deleteModelProvider: async () => ({ ok: true as const }),
+    saveModelUses: async () => ({ ok: true as const }),
+    getCockpit: async () => ({ quota: null }),
+    refreshQuota: async () => ({ ok: true as const }),
+    saveCockpitSettings: async () => ({ ok: true as const }),
     listAuditEvents: async () => [],
     listAvailableModels: async () => {
       if (state.failWith !== null) throw new Error(state.failWith);
@@ -132,7 +171,7 @@ vi.mock('../../src/renderer/src/api.js', () => {
   };
 });
 
-import { SettingsPage } from '../../src/renderer/src/pages/Settings.js';
+import { ModelsPage } from '../../src/renderer/src/pages/Models.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -157,7 +196,7 @@ afterEach(() => {
 
 async function render(): Promise<void> {
   await act(async () => {
-    root.render(createElement(SettingsPage));
+    root.render(createElement(ModelsPage));
   });
 }
 
@@ -166,7 +205,7 @@ const text = (): string => container.textContent ?? '';
 async function clickFetch(): Promise<void> {
   await act(async () => {
     (
-      container.querySelector('[data-testid="settings-fetch-models"]') as HTMLButtonElement
+      container.querySelector('[data-testid="provider-models-default"]') as HTMLButtonElement
     )?.dispatchEvent(new MouseEvent('click', { bubbles: true } as MouseEventInit));
   });
 }
@@ -174,7 +213,7 @@ async function clickFetch(): Promise<void> {
 async function clickSave(): Promise<void> {
   await act(async () => {
     (
-      container.querySelector('[data-testid="settings-model-save"]') as HTMLButtonElement
+      container.querySelector('[data-testid="provider-save-default"]') as HTMLButtonElement
     )?.dispatchEvent(new MouseEvent('click', { bubbles: true } as MouseEventInit));
   });
 }
@@ -183,14 +222,14 @@ async function uncheckRow(id: string): Promise<void> {
   await act(async () => {
     (
       container.querySelector(
-        `[data-testid="settings-model-check"][data-model-id="${id}"]`,
+        `[data-testid="model-row-${id}"] input[type="checkbox"]`,
       ) as HTMLInputElement
     ).click();
   });
   expect(
     (
       container.querySelector(
-        `[data-testid="settings-model-check"][data-model-id="${id}"]`,
+        `[data-testid="model-row-${id}"] input[type="checkbox"]`,
       ) as HTMLInputElement
     ).checked,
   ).toBe(false);
@@ -202,7 +241,7 @@ async function checkRow(id: string): Promise<void> {
     // React 的受控 onChange 才接得到；直接写 checked 再派 change 是空测。
     (
       container.querySelector(
-        `[data-testid="settings-model-check"][data-model-id="${id}"]`,
+        `[data-testid="model-row-${id}"] input[type="checkbox"]`,
       ) as HTMLInputElement
     ).click();
   });
@@ -210,7 +249,7 @@ async function checkRow(id: string): Promise<void> {
   expect(
     (
       container.querySelector(
-        `[data-testid="settings-model-check"][data-model-id="${id}"]`,
+        `[data-testid="model-row-${id}"] input[type="checkbox"]`,
       ) as HTMLInputElement
     ).checked,
   ).toBe(true);
@@ -227,12 +266,12 @@ describe('M2 模型管理（设置页逻辑）', () => {
     state.upstream = [{ id: 'gpt-a' }, { id: 'gpt-b' }];
     await render();
     await clickFetch();
-    expect(container.querySelector('[data-testid="settings-model-filter"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="model-filter-default"]')).not.toBeNull();
     expect(text()).toContain('gpt-a');
     expect(text()).toContain('新');
     // 都没保存过：默认不打勾
     const box = container.querySelector(
-      '[data-testid="settings-model-check"][data-model-id="gpt-a"]',
+      '[data-testid="model-row-gpt-a"] input[type="checkbox"]',
     ) as HTMLInputElement;
     expect(box.checked).toBe(false);
   });
@@ -247,7 +286,7 @@ describe('M2 模型管理（设置页逻辑）', () => {
     state.upstream = [{ id: 'gpt-a' }, { id: 'gpt-c' }];
     await clickFetch();
     expect(
-      container.querySelector('[data-testid="settings-model-check"][data-model-id="gpt-b"]'),
+      container.querySelector('[data-testid="model-row-gpt-b"] input[type="checkbox"]'),
     ).toBeNull();
     await clickSave();
     expect(state.saved[state.saved.length - 1]!.savedModels).toEqual(['gpt-a']);
@@ -265,7 +304,7 @@ describe('M2 模型管理（设置页逻辑）', () => {
     expect(
       (
         container.querySelector(
-          '[data-testid="settings-model-check"][data-model-id="gpt-b"]',
+          '[data-testid="model-row-gpt-b"] input[type="checkbox"]',
         ) as HTMLInputElement
       ).checked,
     ).toBe(true);
@@ -295,9 +334,11 @@ describe('M2 模型管理（设置页逻辑）', () => {
     });
     await act(async () => {});
     expect(
-      container.querySelector('[data-testid="settings-model-check"][data-model-id="stale-x"]'),
+      container.querySelector('[data-testid="model-row-stale-x"] input[type="checkbox"]'),
     ).toBeNull();
-    expect(container.querySelectorAll('[data-testid="settings-model-check"]').length).toBe(1);
+    expect(
+      container.querySelectorAll('[data-testid^="model-row-"] input[type="checkbox"]').length,
+    ).toBe(1);
   });
 
   it('契约 5：重检不撤销用户刚取消的勾选（只更新标记）', async () => {
@@ -312,7 +353,7 @@ describe('M2 模型管理（设置页逻辑）', () => {
     expect(
       (
         container.querySelector(
-          '[data-testid="settings-model-check"][data-model-id="gpt-a"]',
+          '[data-testid="model-row-gpt-a"] input[type="checkbox"]',
         ) as HTMLInputElement
       ).checked,
     ).toBe(false);
@@ -327,13 +368,13 @@ describe('M2 模型管理（设置页逻辑）', () => {
     await clickFetch();
     // gemini-b 上游没了：仍显示、仍默认勾上、带「上游已没有」标记
     expect(
-      container.querySelector('[data-testid="settings-model-check"][data-model-id="gemini-b"]'),
+      container.querySelector('[data-testid="model-row-gemini-b"] input[type="checkbox"]'),
     ).not.toBeNull();
     expect(text()).toContain('上游已没有');
     expect(
       (
         container.querySelector(
-          '[data-testid="settings-model-check"][data-model-id="gemini-b"]',
+          '[data-testid="model-row-gemini-b"] input[type="checkbox"]',
         ) as HTMLInputElement
       ).checked,
     ).toBe(true);
@@ -343,16 +384,16 @@ describe('M2 模型管理（设置页逻辑）', () => {
     state.view = baseView(['gpt-a']);
     await render();
     // 模型名称：只有已保存的 gpt-a + 在用的 wizard-model（标注）
-    expect(selectValues('settings-model-select')).toEqual(['wizard-model', 'gpt-a']);
+    expect(selectValues('uses-analysis')).toEqual(['wizard-model', 'gpt-a']);
     expect(
-      container.querySelector('[data-testid="settings-model-select"] option[value="wizard-model"]')
+      container.querySelector('[data-testid="uses-analysis"] option[value="wizard-model"]')
         ?.textContent,
     ).toContain('不在已保存清单');
     // 聊天模型：第一项「跟随分析模型」+ 清单
-    expect(selectValues('settings-chat-model')).toEqual(['', 'gpt-a']);
+    expect(selectValues('uses-chat')).toEqual(['', 'gpt-a']);
     expect(
-      container.querySelector('[data-testid="settings-chat-model"] option[value=""]')?.textContent,
-    ).toContain('跟随分析模型');
+      container.querySelector('[data-testid="uses-chat"] option[value=""]')?.textContent,
+    ).toContain('跟着后台分析');
     // 没有手输模型名的入口（模型名称绝对是下拉框）
     expect(container.querySelector('[data-testid="settings-model-name"]')).toBeNull();
   });
@@ -364,18 +405,22 @@ describe('M2 模型管理（设置页逻辑）', () => {
     await clickFetch();
     await expect(
       (container.querySelector(
-        '[data-testid="settings-model-check"][data-model-id="gpt-a"]',
+        '[data-testid="model-row-gpt-a"] input[type="checkbox"]',
       ) as HTMLInputElement) !== null,
     ).toBe(true);
-    const counted = container.querySelectorAll('[data-testid="settings-model-check"]').length;
+    const counted = container.querySelectorAll(
+      '[data-testid^="model-row-"] input[type="checkbox"]',
+    ).length;
     state.failWith = 'upstream exploded';
     await clickFetch();
     expect(text()).toContain('upstream exploded');
-    expect(container.querySelectorAll('[data-testid="settings-model-check"]').length).toBe(counted);
+    expect(
+      container.querySelectorAll('[data-testid^="model-row-"] input[type="checkbox"]').length,
+    ).toBe(counted);
     expect(
       (
         container.querySelector(
-          '[data-testid="settings-model-check"][data-model-id="gpt-a"]',
+          '[data-testid="model-row-gpt-a"] input[type="checkbox"]',
         ) as HTMLInputElement
       ).checked,
     ).toBe(true);

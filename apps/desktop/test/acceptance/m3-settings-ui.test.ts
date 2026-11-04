@@ -68,6 +68,47 @@ vi.mock('../../src/renderer/src/api.js', () => {
   const specific = {
     getSettings: async () => state.view,
     listAuditEvents: async () => [],
+    listModelProviders: async () => [
+      {
+        id: 'default',
+        name: '默认',
+        kind: 'openai',
+        apiBaseUrl: state.view.config.apiBaseUrl,
+        apiKeyPresent: state.view.config.apiKeyPresent,
+        apiKeyTail: state.view.config.apiKeyPresent ? 'c3d4' : null,
+        apiKeyUnreadable: false,
+        savedModels: state.view.config.savedModels,
+        modelsCheckedAt: null,
+        usedBy: [],
+      },
+    ],
+    fetchProviderModels: async () => ({ models: state.view.config.savedModels, error: null }),
+    saveModelProvider: async (input: {
+      id?: string;
+      apiBaseUrl?: string;
+      apiKey?: string;
+      savedModels?: string[];
+    }) => {
+      state.saves.push({
+        modelName: state.view.config.modelName,
+        apiBaseUrl: input.apiBaseUrl,
+        apiKey: input.apiKey,
+      });
+      const cleared = state.nextKeyCleared;
+      const typedKey = typeof input.apiKey === 'string' && input.apiKey.length > 0;
+      state.view = view(
+        (input.apiBaseUrl ?? state.view.config.apiBaseUrl).trim(),
+        cleared === true ? false : typedKey || state.view.config.apiKeyPresent,
+      );
+      return cleared === null
+        ? { ok: true as const, id: 'default', keyCleared: false }
+        : { ok: true as const, id: 'default', keyCleared: cleared };
+    },
+    deleteModelProvider: async () => ({ ok: true as const }),
+    saveModelUses: async () => ({ ok: true as const }),
+    getCockpit: async () => ({ quota: null }),
+    refreshQuota: async () => ({ ok: true as const }),
+    saveCockpitSettings: async () => ({ ok: true as const }),
     saveModelSettings: async (input: SaveInput) => {
       state.saves.push({
         modelName: input.modelName,
@@ -108,7 +149,7 @@ vi.mock('../../src/renderer/src/api.js', () => {
   };
 });
 
-import { SettingsPage } from '../../src/renderer/src/pages/Settings.js';
+import { ModelsPage } from '../../src/renderer/src/pages/Models.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -129,7 +170,7 @@ afterEach(() => {
 
 async function render(): Promise<void> {
   await act(async () => {
-    root.render(createElement(SettingsPage));
+    root.render(createElement(ModelsPage));
   });
   await act(async () => {
     await Promise.resolve();
@@ -152,7 +193,7 @@ async function type(testId: string, value: string): Promise<void> {
 
 async function clickSave(): Promise<void> {
   await act(async () => {
-    $<HTMLButtonElement>('settings-model-save')!.click();
+    $<HTMLButtonElement>('provider-save-default')!.click();
   });
   await act(async () => {
     await Promise.resolve();
@@ -160,24 +201,24 @@ async function clickSave(): Promise<void> {
 }
 
 /** 模型接入卡片里的文字（「未配置」在别的卡片里也有，只看这一张）。 */
-const modelCard = () => $('settings-model')!.textContent ?? '';
-const cleared = () => $('settings-apikey-cleared');
+const modelCard = () => $('provider-card-default')!.textContent ?? '';
+const cleared = () => $('provider-key-cleared-default');
 
 describe('M3 条件 6：Key 因为换地址被清掉之后，设置页说清楚', () => {
   it('地址改成另一家、Key 留空保存：显示「未配置」和提示；保存时没带 Key', async () => {
     await render();
-    expect(modelCard()).toContain('已保存（不回显）');
+    expect(modelCard()).toContain('已保存 ····c3d4');
     expect(cleared()).toBeNull();
 
     state.nextKeyCleared = true;
-    await type('settings-api-base', B);
+    await type('provider-base-input-default', B);
     await clickSave();
 
     expect(state.saves).toHaveLength(1);
     expect(state.saves[0]!.apiBaseUrl!.trim()).toBe(B);
     expect(state.saves[0]!.apiKey ?? '').toBe('');
     expect(modelCard()).toContain('未配置');
-    expect(modelCard()).not.toContain('已保存（不回显）');
+    expect(modelCard()).not.toContain('已保存 ····c3d4');
     expect(cleared()).not.toBeNull();
     expect(cleared()!.textContent).toContain('地址变了，原来的 Key 没有带到新地址');
     expect(cleared()!.textContent).toContain('重新填');
@@ -190,31 +231,31 @@ describe('M3 条件 6：Key 因为换地址被清掉之后，设置页说清楚'
     it(`普通保存（${label}）：不出现提示`, async () => {
       await render();
       state.nextKeyCleared = flag;
-      await type('settings-api-base', 'https://a.example.com/v2');
+      await type('provider-base-input-default', 'https://a.example.com/v2');
       await clickSave();
       expect(state.saves).toHaveLength(1);
       expect(cleared()).toBeNull();
-      expect(modelCard()).toContain('已保存（不回显）');
+      expect(modelCard()).toContain('已保存 ····c3d4');
     });
   }
 
   it('出现提示之后补填 Key 再保存：提示消失，显示「已保存」，页面上看不到 Key', async () => {
     await render();
     state.nextKeyCleared = true;
-    await type('settings-api-base', B);
+    await type('provider-base-input-default', B);
     await clickSave();
     expect(cleared()).not.toBeNull();
 
     state.nextKeyCleared = false;
-    await type('settings-api-key', NEW_KEY);
+    await type('provider-key-input-default', NEW_KEY);
     await clickSave();
 
     expect(state.saves).toHaveLength(2);
     expect(state.saves[1]!.apiKey).toBe(NEW_KEY);
     expect(cleared()).toBeNull();
-    expect(modelCard()).toContain('已保存（不回显）');
+    expect(modelCard()).toContain('已保存 ····c3d4');
     // Key 不回显：输入框清空，页面文字里没有它
-    expect($<HTMLInputElement>('settings-api-key')!.value).toBe('');
+    expect($<HTMLInputElement>('provider-key-input-default')!.value).toBe('');
     expect(container.textContent ?? '').not.toContain(NEW_KEY);
   });
 });

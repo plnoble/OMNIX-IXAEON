@@ -55,6 +55,7 @@ vi.mock('../../src/renderer/src/api.js', () => {
   const specific = {
     getSettings: async () => state.view,
     listAuditEvents: async () => [],
+      listModelProviders: async () => [],
     // 像真的主进程那样：保存之后，再读到的就是新的
     saveCodingSettings: async (input: { executor: string; modelName: string }) => {
       state.view = view(input.executor, input.modelName);
