@@ -156,8 +156,8 @@
 
 ## CI 结果
 
-- `dev/CF3c`：lint / format / typecheck / typecheck-acceptance / build / unit / integration 绿；红在 acceptance-lock（红名单与下表列出的文件一致）——旧锁定测试的**行为改写**都在第二支，第一支只做了让 tsc 过的纯编译 cast。
-- `dev/CF3cb`：lint / format / typecheck / typecheck-acceptance / build / unit / integration 全绿，红在 acceptance-lock（只因本文件列表里的 16 个文件）。
+- `dev/CF3c`（`f7a8b1a`，run 41858304540）：lint / format / typecheck / typecheck-acceptance / build / unit / integration 绿；红在 acceptance-lock（红名单与下表列出的文件一致）——旧锁定测试的**行为改写**都在第二支，第一支只做了让 tsc 过的纯编译 cast。
+- `dev/CF3cb`（`f44c126`，run 41858532390）：lint / format / typecheck / typecheck-acceptance / build / unit / integration 全绿，红在 acceptance-lock（只因本文件列表里的 16 个文件）。
 - 端到端：本机 23 条里 22 条过，唯一红是 d7b-model-executor（拿不准第 4 条）。CI 在 acceptance-lock 处停下，未跑到端到端那一步。
 
 ## 拿不准（请整合方定）
