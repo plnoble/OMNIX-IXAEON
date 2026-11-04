@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import {
   CodingOrchestrator,
   ConversationStore,
@@ -21,13 +22,18 @@ import {
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { installFakeChat } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: {},
   BrowserWindow: {},
   dialog: {},
   ipcMain: {},
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 
 let dir: string;
@@ -57,7 +63,6 @@ function runtimeAnswering(answer: string) {
     search: new SearchService(db),
     projects: new ProjectService(db),
     coding: new CodingOrchestrator(db, new FakeCodingExecutor(), dir),
-    askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -72,22 +77,8 @@ function runtimeAnswering(answer: string) {
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
   });
+  installFakeChat(runtime as unknown as Record<string, unknown>, () => ({ content: answer }));
   const conv = conversations.create({ projectId: null });
-  runtime['askSessions'].set(conv.id, {
-    run: async () => ({
-      answer,
-      citations: [],
-      notice: '本轮经 Hermes TUI gateway',
-      usedChars: 1,
-      modelName: 'hermes',
-      engine: 'hermes',
-      runId: 'run',
-      steps: [],
-      memoryUsed: [],
-    }),
-    cancel: () => undefined,
-    getEngineSessionId: () => 's-test',
-  } as unknown as AgentSession);
   return { runtime, conversations, todos, conv };
 }
 

@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import {
   CodingOrchestrator,
   ConversationStore,
@@ -25,22 +26,27 @@ import {
   FakeProvider,
   IxaError,
   ItemService,
+  ContextSelector,
   ProjectService,
   SearchService,
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { installFakeChat } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: {},
   BrowserWindow: {},
   dialog: {},
   ipcMain: {},
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 
 let dir: string;
@@ -53,6 +59,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   if (db.open) db.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -67,6 +74,12 @@ function setup() {
   conversations.appendMessage(conv.id, { role: 'user', content: '之前问的' });
   conversations.appendMessage(conv.id, { role: 'assistant', content: '之前答的' });
   const seen: Array<string | null> = [];
+  vi.spyOn(ContextSelector.prototype, 'selectForQuestionHybrid').mockImplementation(
+    async (_q: string, projectId: string | null) => {
+      seen.push(projectId ?? null);
+      return { items: [], retrievalNotice: null } as never;
+    },
+  );
   const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
   Object.assign(runtime, {
     db,
@@ -76,7 +89,6 @@ function setup() {
     search: new SearchService(db),
     projects,
     coding: new CodingOrchestrator(db, new FakeCodingExecutor(), dir),
-    askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -91,26 +103,10 @@ function setup() {
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
   });
-  const fakeSession = {
-    run: async (input: { projectId: string | null }) => {
-      seen.push(input.projectId);
-      return {
-        answer: '好的',
-        citations: [],
-        notice: '本轮经 Hermes TUI gateway',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: 'run',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    getEngineSessionId: () => 's-test',
-  } as unknown as AgentSession;
-  /** 让某个对话用替身会话（不启动真引擎）。 */
-  const bind = (conversationId: string) => runtime['askSessions'].set(conversationId, fakeSession);
+  installFakeChat(runtime as unknown as Record<string, unknown>, () => ({ content: '好的' }));
+  const bind = (_conversationId: string): void => {
+    // CF3c：不再有替身会话；「派给模型的是哪个项目的上下文」由下面这个 spy 记录
+  };
   bind(conv.id);
   return { runtime, conversations, conv, projectA, projectB, seen, bind };
 }
