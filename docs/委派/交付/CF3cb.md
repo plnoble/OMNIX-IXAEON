@@ -151,13 +151,13 @@
 - [x] 6. relay l16 单独重跑：3 passed（42.7s）→ 负载下计时，跟本单无关
 - [x] 7. 四条命令全跑（输出见「自动化通过」）；只有丙类 22 条红 + acceptance-lock 红 + 端到端 d7b 红
 - [x] 8. 真机甲 / 乙：甲两段都过（提示指去「模型」页、hermes 0；假网关下走直连、标签是后台分析模型）；乙 5 问全 succeeded
-- [~] 9. 同步 main + 推两支 + CI：两支都已推、已合并 origin/main；CI 见下
+- [x] 9. 同步 main + 推两支 + CI：两支都已推、已合并 origin/main（未 rebase）；CI 都只红在 acceptance-lock（详见「CI 结果」）
 - [x] 10. 交付说明收尾
 
 ## CI 结果
 
 - `dev/CF3c`（`f7a8b1a`，run 41858304540）：lint / format / typecheck / typecheck-acceptance / build / unit / integration 绿；红在 acceptance-lock（红名单与下表列出的文件一致）——旧锁定测试的**行为改写**都在第二支，第一支只做了让 tsc 过的纯编译 cast。
-- `dev/CF3cb`（`f44c126`，run 41858532390）：lint / format / typecheck / typecheck-acceptance / build / unit / integration 全绿，红在 acceptance-lock（只因本文件列表里的 16 个文件）。
+- `dev/CF3cb`（`9609cd4`，run 41859573580；此前 `f44c126` run 41858532390 同样）：lint / format / typecheck / typecheck-acceptance / build / unit / integration 全绿，红在 acceptance-lock（只因本文件列表里的 16 个文件）。
 - 端到端：本机 23 条里 22 条过，唯一红是 d7b-model-executor（拿不准第 4 条）。CI 在 acceptance-lock 处停下，未跑到端到端那一步。
 
 ## 拿不准（请整合方定）
