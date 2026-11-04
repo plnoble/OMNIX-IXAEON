@@ -59,3 +59,38 @@
 
 按上面三类逐份改（先甲类，11 份夹具形状接近，可套一个共用假客户端 helper），再乙类，再端到端四条；
 然后 `run CF3c` / `run-done` / `verify` / `build + test-e2e desktop` 全跑，真机甲/乙，最后两支推、CI、队列 162 改「待复审（整合方）」。
+
+## 本轮进度（2026-11-04 晚，未完成）
+
+### 共用的假模型客户端
+
+新建 `apps/desktop/test/acceptance/cf3cb-fake-chat.ts`（不是 `.test.ts`），导出 `installFakeChat(runtime)`：
+给 `Object.create(AppRuntime.prototype)` 造的 runtime 挂一个测试专用 `askSessions`（普通 Map，旧的
+`runtime.askSessions.set/get/size` 照旧能用）+ `chatStreamClient`（每次 stream 取「插入顺序里没用过的那个替身」，
+调它的 `run()`，把 `answer` 当正文吐出）+ 一份三样齐的 `config.model`。
+
+**引用它的测试**：`p5-unbind-folder`、`p4-project-folder`、`p7-preview-revoke`、`p8-delete-project`、
+`a5-model-failure`、`g06-conversation-project`、`p6-revoked-folder`、`t2a-ask-todos`（均已加 import + 在 harness 里调用）。
+
+### 各文件当前实测（只挂接缝、没有逐条改断言）
+
+| 文件                       | 结果  | 说明                                                                                          |
+| -------------------------- | ----- | --------------------------------------------------------------------------------------------- |
+| `p5-unbind-folder`         | 13/18 | 5 条还红：靠替身 `run()` 里建草案/取消的副作用与 `invalidateContext` 观察，直连路径不产生     |
+| `p4-project-folder`        | 9/10  | 1 条红：同上传导 P4 错误的方式变了（替身里抛错 → 直连把消息置 failed，断言看的是别处）        |
+| `p7-preview-revoke`        | 10/11 | 1 条红：`invalidateContext` 观察                                                              |
+| `p8-delete-project`        | 10/15 | 5 条红：取消在途任务并回报，依赖替身的副作用                                                  |
+| `a5-model-failure`         | 0/10  | 全红：靠替身返回 `failedKind`/`steps` 判定模型失败，直连的失败来自客户端抛错，结构不同        |
+| `g06-conversation-project` | 0/4   | 全红：断言「派给引擎的上下文」，名字里就写着引擎，需改成看 `chatStreamClient` 收到的 messages |
+| `p6-revoked-folder`        | 3/10  | 7 条红：`propose_coding_task` 在替身里建草案的副作用 + 撤销后报错口径                         |
+| `t2a-ask-todos`            | 0/4   | 全红：`建议待办`/`proposedTodos` 来自替身返回的 steps，直连下要从回答正文里抽                 |
+
+### 未开始
+
+- `g05-cancel-preparing` / `g05-cancel-preparing-extra`（harness 不是 `Object.assign(runtime,…)`，还没挂）
+- `cf3b-direct-chat`（有 6 处 `hermesFound` + 条件 17，要按条拆甲/丙）
+- 乙类 3 份、端到端 4 条、四条命令全跑、真机甲/乙——**都没做**
+
+结论：接缝能整体过一部分文件的多数用例（p4 9/10、p7 10/11、p5 13/18），但剩下每一条要按原断言逐条改成看
+`chatStreamClient` 收到的 messages / 从回答正文抽待办 / 用客户端抛错模拟失败，工作量还很大。状态保持
+「窗口进行中（dev）」，队列 162 不改。

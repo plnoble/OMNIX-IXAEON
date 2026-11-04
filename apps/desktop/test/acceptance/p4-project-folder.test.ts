@@ -38,6 +38,7 @@ import {
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { installFakeChat } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: {},
@@ -122,6 +123,7 @@ function setup() {
     // codingDispatchRef）；本单不测派发，替身什么都不做
     codingDispatchRef: { kick: () => undefined },
   });
+  installFakeChat(runtime as unknown as Record<string, unknown>);
   return { runtime, projects, permissions, conversations, todos, coding, modelCalls };
 }
 

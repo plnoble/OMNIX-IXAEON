@@ -21,6 +21,7 @@ import {
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { installFakeChat } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: {},
@@ -72,6 +73,7 @@ function runtimeAnswering(answer: string) {
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
   });
+  installFakeChat(runtime as unknown as Record<string, unknown>);
   const conv = conversations.create({ projectId: null });
   runtime['askSessions'].set(conv.id, {
     run: async () => ({

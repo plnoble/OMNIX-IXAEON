@@ -41,6 +41,7 @@ import {
 } from '@ixaeon/core';
 import type { Project } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { installFakeChat } from './cf3cb-fake-chat.js';
 import { CodingDispatch, type CodingDispatchHost } from '../../src/main/codingDispatch.js';
 import { registerIpc } from '../../src/main/ipc.js';
 
@@ -202,6 +203,7 @@ function setup(): Harness {
     logger,
     kickSemanticBackfill: () => Promise.resolve(),
   });
+  installFakeChat(runtime as unknown as Record<string, unknown>);
   return {
     runtime,
     projects,

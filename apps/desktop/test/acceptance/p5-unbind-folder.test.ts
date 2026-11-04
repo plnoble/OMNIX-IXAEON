@@ -45,6 +45,7 @@ import {
 } from '@ixaeon/core';
 import type { Project } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { installFakeChat } from './cf3cb-fake-chat.js';
 import { registerIpc } from '../../src/main/ipc.js';
 
 vi.mock('electron', () => ({
@@ -247,6 +248,7 @@ function setup(): Harness {
     logger,
     kickSemanticBackfill: () => Promise.resolve(),
   });
+  installFakeChat(runtime as unknown as Record<string, unknown>);
   return {
     runtime,
     projects,
