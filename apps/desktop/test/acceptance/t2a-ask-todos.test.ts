@@ -18,7 +18,6 @@ import {
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
