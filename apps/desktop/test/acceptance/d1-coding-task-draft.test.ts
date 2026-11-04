@@ -148,7 +148,7 @@ function startAsk(
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  runtime['askSessions'].set(conversationId, {
+  (runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conversationId, {
     run: async (input: { runId?: string }) => {
       await gate;
       return {

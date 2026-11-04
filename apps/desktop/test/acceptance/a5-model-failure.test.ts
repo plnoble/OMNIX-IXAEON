@@ -29,6 +29,7 @@ import {
   type AgentSession,
   type AgentSessionResult,
   type AskResult,
+  type ChatStreamResult,
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
@@ -212,10 +213,10 @@ function setupDirect(scripts: FakeStreamImpl[]) {
           priorTurns: messages.slice(1, -1) as SessionCall['priorTurns'],
           sent: messages.map((m) => m.content).join('\n'),
         });
-        const script =
-          scripts[Math.min(cursor, scripts.length - 1)] ?? (() => ({ content: '' })) ?? null;
+        const script: FakeStreamImpl | undefined = scripts[Math.min(cursor, scripts.length - 1)];
+        if (!script) throw new Error('没有剧本');
         cursor += 1;
-        const out = await script!({
+        const out: Partial<ChatStreamResult> = await script({
           messages,
           lastUser: lastUser?.content ?? '',
           call: cursor - 1,

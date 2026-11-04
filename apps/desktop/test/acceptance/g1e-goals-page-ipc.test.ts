@@ -8,14 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ipcMain } from 'electron';
-import {
-  GoalStore,
-  PlanStore,
-  TodoStore,
-  migrate,
-  openDatabase,
-  type CoreDatabase,
-} from '@ixaeon/core';
+import { GoalStore, PlanStore, TodoStore, migrate, openDatabase, type CoreDatabase } from '@ixaeon/core';
 import type { GoalSummaryView } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
 import { registerIpc } from '../../src/main/ipc.js';
@@ -54,14 +47,7 @@ function ipc() {
   };
 }
 
-const GOAL_TABLES = [
-  'goals',
-  'goal_events',
-  'goal_plans',
-  'goal_steps',
-  'goal_step_deps',
-  'goal_links',
-];
+const GOAL_TABLES = ['goals', 'goal_events', 'goal_plans', 'goal_steps', 'goal_step_deps', 'goal_links'];
 const snapshot = (): unknown[] =>
   GOAL_TABLES.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all());
 
@@ -172,16 +158,7 @@ describe('Goals 只读 IPC', () => {
       expect(['ixaeon:listGoals', 'ixaeon:getGoalDetail']).toContain(ch);
     }
     expect(channels).toContain('ixaeon:listGoals');
-    for (const verb of [
-      'confirm',
-      'reject',
-      'create',
-      'update',
-      'set',
-      'link',
-      'unlink',
-      'replan',
-    ]) {
+    for (const verb of ['confirm', 'reject', 'create', 'update', 'set', 'link', 'unlink', 'replan']) {
       expect(channels.some((ch) => ch.toLowerCase().includes(verb))).toBe(false);
     }
 

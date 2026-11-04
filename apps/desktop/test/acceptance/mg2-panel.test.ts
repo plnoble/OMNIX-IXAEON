@@ -75,7 +75,10 @@ const models = (reachable: boolean): RelayModels => ({
     row({
       role: 'developer',
       current: 'gw / model-a1',
-      options: ['gw / model-a1', ...(reachable ? MAGPIE.map((id) => `magpie / ${id}`) : [])],
+      options: [
+        'gw / model-a1',
+        ...(reachable ? MAGPIE.map((id) => `magpie / ${id}`) : []),
+      ],
       note: reachable ? null : '没连上 magpie',
     }),
     row({

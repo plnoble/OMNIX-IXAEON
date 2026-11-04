@@ -150,7 +150,7 @@ describe('G04 编码任务按运行归属', () => {
 
   it('条件 1 与 4：别人运行建的任务和没有归属的旧任务都不进 A 的回答，A 自己的照进', async () => {
     const { rt, conversations, tasks, projectA, projectB, convA } = runtime();
-    rt['askSessions'].set(convA.id, {
+    (rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(convA.id, {
       run: async (input: { runId?: string }) => {
         // 都在本轮等待期间建：时间窗口分不出它们，只有 origin_run_id 分得出
         makeTask(tasks, projectB.id, '别人运行的任务', 'run-other');
@@ -171,7 +171,7 @@ describe('G04 编码任务按运行归属', () => {
 
   it('条件 1：那个任务出现在它自己的运行（对话 B）的回答里', async () => {
     const { rt, conversations, tasks, projectB, convB } = runtime();
-    rt['askSessions'].set(convB.id, {
+    (rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(convB.id, {
       run: async (input: { runId?: string }) => {
         makeTask(tasks, projectB.id, 'B这一轮的任务', input.runId ?? null);
         return ANSWER;
@@ -208,8 +208,8 @@ describe('G04 编码任务按运行归属', () => {
         cancel: () => undefined,
         getEngineSessionId: () => 's-test',
       }) as unknown as AgentSession;
-    rt['askSessions'].set(convA.id, session('并发任务A', resolveA, bInserted));
-    rt['askSessions'].set(convB.id, session('并发任务B', resolveB, aInserted));
+    (rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(convA.id, session('并发任务A', resolveA, bInserted));
+    (rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(convB.id, session('并发任务B', resolveB, aInserted));
     const [a, b] = await Promise.all([
       rt.ask({ conversationId: convA.id, projectId: projectA.id, question: '问A' }),
       rt.ask({ conversationId: convB.id, projectId: projectA.id, question: '问B' }),

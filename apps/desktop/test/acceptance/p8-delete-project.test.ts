@@ -417,6 +417,18 @@ function sourceUnder(h: Harness, permissionId: string, projectId: string | null)
     { permissionId, projectId, rawPath: `sha256/aa/${'a'.repeat(64)}` },
   ).id;
 }
+
+/** 一条从这份资料提炼出来的条目。返回条目号。 */
+function itemFrom(h: Harness, sourceId: string, projectId: string): string {
+  const item = h.items.createManual({
+    projectId,
+    type: 'decision',
+    statement: '从合成资料里提炼出的一条',
+    rationale: null,
+  });
+  db.prepare('UPDATE items SET extracted_from_source_id = ? WHERE id = ?').run(sourceId, item.id);
+  return item.id;
+}
 const sourceGrantStatus = (h: Harness, sourceId: string) =>
   h.sources.list({ projectId: null }).find((s) => s.source.id === sourceId)?.permissionStatus;
 

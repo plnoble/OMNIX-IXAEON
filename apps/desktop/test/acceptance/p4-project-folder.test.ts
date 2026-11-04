@@ -172,7 +172,7 @@ function seedUnboundDraft(h: ReturnType<typeof setup>, projectId: string) {
 function startAsk(runtime: AppRuntime, conversationId: string, projectId: string) {
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
-  runtime['askSessions'].set(conversationId, {
+  (runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conversationId, {
     run: async (input: { runId?: string }) => {
       await gate;
       return {
