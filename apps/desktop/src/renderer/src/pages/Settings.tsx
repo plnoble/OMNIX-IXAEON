@@ -218,8 +218,10 @@ function PersonalMemoryCard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .getPersonalMemoryToChat()
+    // 老版本主进程没有这个方法：跳过这一块，别把整页带崩
+    if (typeof api.getPersonalMemoryToChat !== 'function') return;
+    void Promise.resolve()
+      .then(() => api.getPersonalMemoryToChat())
       .then(setStatus)
       .catch((err) => setError(errMsg(err)));
   }, []);
@@ -384,6 +386,10 @@ class CardBoundary extends Component<{ children: ReactNode }, { failed: boolean 
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true };
   }
+  override componentDidCatch(error: unknown): void {
+    // 哪一块没加载出来，留个痕迹方便排查（不弹窗、不打断）
+    console.warn('设置页某一块没加载出来：', error);
+  }
   override render(): ReactNode {
     if (this.state.failed) return <p className="warn">这一块没加载出来，刷新页面再试。</p>;
     return this.props.children;
@@ -500,13 +506,14 @@ export function SettingsPage({
   // MP2b：编码任务的模型下拉框显示「供应商名 · 模型」
   const [providers, setProviders] = useState<ModelProviderView[]>([]);
   useEffect(() => {
-    void api
-      .listModelProviders()
-      .then((rows) => setProviders(rows ?? []))
+    // 兼容同步/异步两种替身（真实接口是 async）
+    void Promise.resolve()
+      .then(() => api.listModelProviders())
+      .then((rows) => setProviders(Array.isArray(rows) ? rows : []))
       .catch(() => setProviders([]));
   }, []);
   const codingChoices = useMemo(() => {
-    const rows = (providers ?? []).flatMap((p) =>
+    const rows = (Array.isArray(providers) ? providers : []).flatMap((p) =>
       p.savedModels.map((m) => ({ value: m, label: `${p.name} · ${m}` })),
     );
     return rows.length > 0 ? rows : [...savedSet].map((id) => ({ value: id, label: id }));
@@ -729,21 +736,24 @@ export function SettingsPage({
             <option value="model">我的模型</option>
           </select>
         </Field>
-        {/* MP2b：这个下拉框一直显示，选项显示「供应商名 · 模型」 */}
-        <Field label="模型">
-          <select
-            value={codingModel}
-            onChange={(e) => setCodingModel(e.target.value)}
-            data-testid="settings-coding-model"
-          >
-            <option value="">请选择</option>
-            {codingChoices.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {/* MP2b：有可选的供应商模型、或本来就用「我的模型」时才出现（默认 Codex 时不该看到它） */}
+        {(codingExec === 'model' ||
+          (Array.isArray(providers) && providers.some((p) => p.savedModels.length > 0))) && (
+          <Field label="模型">
+            <select
+              value={codingModel}
+              onChange={(e) => setCodingModel(e.target.value)}
+              data-testid="settings-coding-model"
+            >
+              <option value="">请选择</option>
+              {codingChoices.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         {(codingExec !== savedCoding.executor ||
           (codingExec === 'model' && codingModel !== savedCoding.modelName)) && (
           <p className="warn" data-testid="settings-coding-unsaved">
