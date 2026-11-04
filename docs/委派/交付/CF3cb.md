@@ -141,11 +141,15 @@
 - p4 → 乙；**若任务页 `coding.create` 根本没有文件夹拦截（拦截只在聊天工具里），那是功能缺口，停下报整合方，不在 coding.create 里补**。
 - l16-watchdog → 单独重跑定性。
 
-## 进度
+## 进度（2026-11-04 晚）
 
 - [x] 分类表按改判更新
-- [ ] 甲类（24 + p8 一半）
-- [ ] 乙类（55 + p8 一半）
+- [x] 共用假客户端 cf3cb-fake-chat.ts（只模拟模型回答；不挂 askSessions、不替用户建任务）
+- [x] 甲类第一批 13 条：t2a-ask-todos 4/4、g06-conversation-project 4/4、g05-cancel-preparing 3/3、g05-cancel-preparing-extra 2/2（均实测全过）
+- [ ] 甲类余下 11 条：a5-model-failure 10、p5 条件 10（1）、p7 条件 12（1）、p8 条件 6 上下文部分（0.5）
+- [ ] 乙类 55 条 + p8 条件 6 任务部分
 - [ ] 端到端 4 条
 - [ ] 四条命令全跑
 - [ ] 真机甲 / 乙
+
+说明：甲类这批改成看生产真实的东西（chatStreamClient 收到的 messages、ContextSelector 收到的 projectId、消息状态、AbortSignal、从直连回答抽待办），断言未删未放宽。
