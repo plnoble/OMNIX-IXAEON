@@ -130,7 +130,7 @@ describe('G05 准备阶段也能取消', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    rt['askSessions'].set(conv.id, {
+    (rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
       run: async (input: { onDelta?: (text: string) => void }) => {
         input.onDelta?.('已到');
         await gate;

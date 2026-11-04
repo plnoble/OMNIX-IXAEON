@@ -73,7 +73,7 @@ function runtimeAnswering(answer: string) {
     kickSemanticBackfill: () => Promise.resolve(),
   });
   const conv = conversations.create({ projectId: null });
-  runtime['askSessions'].set(conv.id, {
+  (runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
     run: async () => ({
       answer,
       citations: [],

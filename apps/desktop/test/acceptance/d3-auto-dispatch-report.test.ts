@@ -133,7 +133,7 @@ async function proposedTask(
       ? h.conversations.get(input.conversationId)
       : h.conversations.create({ projectId: h.projectId });
   let taskId = '';
-  h.runtime['askSessions'].set(conv.id, {
+  (h.runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
     run: async () => {
       const task = h.coding.create({
         projectId: h.projectId,

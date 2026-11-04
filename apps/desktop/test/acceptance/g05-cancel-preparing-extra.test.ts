@@ -107,7 +107,7 @@ it('第一次提问还没有会话时，准备阶段取消：不建会话、不�
   release();
   const result = await pending;
   expect(created).toBe(0);
-  expect(rt['askSessions'].size).toBe(0);
+  expect((rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].size).toBe(0);
   expect(conversations.getMessage(result.messageId).status).toBe('cancelled');
 });
 
@@ -118,7 +118,7 @@ it('回答进行中取消时，会话收到的是这一轮的 runId', async () =
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  rt['askSessions'].set(conv.id, {
+  (rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
     run: async (input: { runId?: string; onDelta?: (text: string) => void }) => {
       input.onDelta?.('已到');
       await gate;
