@@ -23,7 +23,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { AgentSession } from '@ixaeon/core';
 import {
   CodingOrchestrator,
   ConversationStore,
@@ -127,8 +126,6 @@ function setup() {
 
 const taskStatus = (id: string): string =>
   (db.prepare('SELECT status FROM coding_tasks WHERE id = ?').get(id) as { status: string }).status;
-const taskCount = (): number =>
-  (db.prepare('SELECT count(*) n FROM coding_tasks').get() as { n: number }).n;
 const sourceCount = (): number =>
   (db.prepare('SELECT count(*) n FROM sources').get() as { n: number }).n;
 const jobRows = (): number => (db.prepare('SELECT count(*) n FROM jobs').get() as { n: number }).n;
@@ -166,48 +163,6 @@ function seedUnboundDraft(h: ReturnType<typeof setup>, projectId: string) {
   const title = '把 note.txt 写好';
   const todo = h.todos.propose({ title, linked: { kind: 'coding_task', id: task.id } });
   return { taskId: task.id, todo };
-}
-
-/** 开一轮「正在回答」的提问（照 D1）：替身会话挂起，等 finish 才收尾。 */
-function startAsk(runtime: AppRuntime, conversationId: string, projectId: string) {
-  let release!: () => void;
-  const gate = new Promise<void>((r) => (release = r));
-  (runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conversationId, {
-    run: async (input: { runId?: string }) => {
-      await gate;
-      return {
-        answer: '好。',
-        citations: [],
-        notice: '',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: input.runId ?? 'fake',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    getEngineSessionId: () => 's-p4',
-  } as unknown as AgentSession);
-  // 提问本身怎么收尾不归本单测：结果吞掉，不留未处理的拒绝
-  const done = runtime
-    .ask({ conversationId, projectId, question: '加个文件' })
-    .catch(() => undefined);
-  return {
-    finish: async () => {
-      release();
-      await done;
-    },
-  };
-}
-
-async function waitActive(runtime: AppRuntime, n: number): Promise<void> {
-  const map = runtime['activeAskRuns'] as Map<string, string>;
-  for (let i = 0; i < 300 && map.size < n; i += 1) {
-    await new Promise((r) => setTimeout(r, 10));
-  }
-  expect(map.size).toBe(n);
 }
 
 describe('P4 验收条件 1：绑定成功——路径、授权、审计、返回', () => {
@@ -306,35 +261,7 @@ describe('P4 验收条件 3：拒绝——已绑定 / 绑到别的项目 / 项�
   });
 });
 
-describe('P4 验收条件 4：D1 聊天里提编码任务——没绑文件夹拦，绑好放行', () => {
-  // 丙类（见 CF3cb.md「拿不准」）：这条测的是「聊天里提编码任务」这个入口，CF3c 已删掉该工具；
-  // 等价行为（没绑文件夹批准被拦、绑好后放行）由本文件条件 5、条件 6 两条例覆盖并通过。
-  it.skip('没绑文件夹：同一条文案，不建草案、不记审计；绑好之后再提能建出草案', async () => {
-    const h = setup();
-    const p = h.projects.create({ name: '未绑定项目', rootPath: null, description: null });
-    const f = folder('w');
-    const conv = h.conversations.create({ projectId: p.id });
-    // 真的发起一轮「正在回答」的提问（照 D1）：工具认的是 activeAskRuns
-    const ask = startAsk(h.runtime, conv.id, p.id);
-    await waitActive(h.runtime, 1);
-
-    await expect(
-      h.runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
-    ).rejects.toThrow(UNBOUND_MESSAGE);
-    expect(taskCount()).toBe(0);
-    expect(auditCount('hermes.propose_coding_task')).toBe(0);
-
-    // 绑好之后，同一个对话（还在回答）再提同样的话：能建出草案
-    await h.runtime.bindProjectFolder(p.id, f);
-    const res = (await h.runtime.hermesTool('propose_coding_task', {
-      goal: '加个文件',
-      acceptance: ['有文件'],
-    })) as { status: string };
-    expect(res.status).toBe('draft');
-    expect(taskCount()).toBe(1);
-    await ask.finish();
-  });
-});
+// 条件 4「聊天里提编码任务」整合方 11-05 退役：CF3c 起聊天不建编码任务（任务页建），拦截见条件 5、6。
 
 describe('P4 验收条件 5：待办卡点「要做」——没绑文件夹拦，绑好放行', () => {
   it('没绑文件夹：报同一句话，任务没批准没派发，待办还是等你拍板；绑好再点就开工', async () => {

@@ -40,7 +40,7 @@
       "files": {
         "packages/core/test/acceptance/t2a-suggested-todos.test.ts": "894abc8826f20296a9f026131ce5bac61e8caa1740ce92d248547a73563cb9a2",
         "packages/core/test/acceptance/t2a-hermes-instruction.test.ts": "66e66cf930e02aefd540795612d3c37c6ff60cf736b958667160873a99934175",
-        "apps/desktop/test/acceptance/t2a-ask-todos.test.ts": "29eff4c3c4b7d2d5834e63552e086a5f603aee829bc713b5a31d79660e76e651",
+        "apps/desktop/test/acceptance/t2a-ask-todos.test.ts": "8b1781bdcaf7849d2821dbc09a30433f0a3501f61cefc2dda9752e18f9343789",
         "apps/desktop/test/acceptance/t2a-todo-cards.test.ts": "f5940c3e73c54c00c962fa1d05abe6af9ee225fed0b13f2985d7a053a9b53c60"
       }
     },
@@ -48,8 +48,9 @@
       "id": "T2b",
       "title": "编码任务进待办",
       "status": "done",
-      "files": {
-        "apps/desktop/test/acceptance/t2b-coding-todos.test.ts": "3fb154b8cfdabad9cf41b2756afb8925750c20ae19e9a86cceddf7a49c885950"
+      "files": {},
+      "retired": {
+        "apps/desktop/test/acceptance/t2b-coding-todos.test.ts": "整合方 2026-11-05 退役（CF3c）：五条都在测聊天里提出的编码任务进待办，CF3c 起聊天不建编码任务"
       }
     },
     {
@@ -159,7 +160,7 @@
       "title": "对话的项目固定",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/g06-conversation-project.test.ts": "24e5c9760452c5c23f131e23e7cadd9b7978bca55ee11382191ef089feae4605",
+        "apps/desktop/test/acceptance/g06-conversation-project.test.ts": "3d1f8d0a429918bf09e8009712b149410d3e99277c3e096f6bd8b3e5f249b763",
         "apps/desktop/test/acceptance/g06-conversation-project-page.test.ts": "e20572f5334af8136bcc3384a9b43c26f4d58dc556c6c5fc0d9001a8feb6c71d"
       }
     },
@@ -176,7 +177,7 @@
       "title": "编码任务按运行归属",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/g04-task-origin.test.ts": "3455dc6b7d8ff598d555a5bd53f533d18de54d5bdc6eae55e4bf6f9cc339b8a4"
+        "apps/desktop/test/acceptance/g04-task-origin.test.ts": "17e125fb5052664b44b45b24e1e6200b617e63b272de1fd0682398d725a3eec1"
       }
     },
     {
@@ -202,8 +203,8 @@
       "title": "准备阶段也能取消",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/g05-cancel-preparing.test.ts": "cb10c487e81163ded43e96a0a6ffacdc7bec2ab197437534ab53a0e30f97f8c2",
-        "apps/desktop/test/acceptance/g05-cancel-preparing-extra.test.ts": "cfed327683054d25e55ae0f9e8435603ba26db01e014a702d0cf10fadfb14b4d"
+        "apps/desktop/test/acceptance/g05-cancel-preparing.test.ts": "fbb194aa642b6aa660ddf793b18c1fa1ac87a4756e4674e11e38450f8832b6dd",
+        "apps/desktop/test/acceptance/g05-cancel-preparing-extra.test.ts": "38d70aa987aa7a14a9b2b2e3ad6f22966ad814455ee63b59c1874f9ad62dde29"
       }
     },
     {
@@ -238,7 +239,7 @@
       "title": "点要做就开工并回报",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "02542d8e8dca1dc93035916b28dcc90647e068fdea9134acc073b8c78cf19cb5"
+        "apps/desktop/test/acceptance/d3-auto-dispatch-report.test.ts": "0ddb9aa25235b7463d2e840ca301a4646b519a37a724fed3d871a05265ba6d57"
       }
     },
     {
@@ -246,7 +247,7 @@
       "title": "聊天里说「把 X 做了」生成编码任务草案",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "50c8134c383debdf5f6f5a27555d5c69a9aa697c61578f2650e3a56ba904e8c5",
+        "apps/desktop/test/acceptance/d1-coding-task-draft.test.ts": "66a72b9a7aa5d43c0f426b562a613783562ebf8a2662a7adb97542a48aa9218b",
         "packages/core/test/acceptance/d1-convention.test.ts": "7c980df3d8de0143870b246719f41fd4caf78ee6aa5928aac45c4aa75a0b377c"
       }
     },
@@ -256,7 +257,7 @@
       "status": "done",
       "files": {
         "packages/core/test/acceptance/d4-apply-branch.test.ts": "232ff8af0125c246ac4623dffc052152c08ba127109c4c027c2e15a808d83e18",
-        "apps/desktop/test/acceptance/d4-landing-report.test.ts": "8956d6555a4618f74abb46b14b89a43c91a963a83ecd7178b01432ef9e41530a",
+        "apps/desktop/test/acceptance/d4-landing-report.test.ts": "5ea1e9b69e5048b2e06e40ca70a7422d007efc6191458bb764b81f61333e4f83",
         "apps/desktop/test/acceptance/d4-tasks-page.test.ts": "a5f5c84663903b96c338c818047519f7a344c50f2e7179b78e778020de85bba6"
       }
     },
@@ -284,7 +285,7 @@
       "title": "P4 给已有项目绑定文件夹；没绑文件夹的项目不派编码任务",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/p4-project-folder.test.ts": "4f17e291285d8c305bed649c14b5894f0ad4a4daa74e7ce0215c1d1a2a715ff0"
+        "apps/desktop/test/acceptance/p4-project-folder.test.ts": "28392e28d1668b8e482a03b5f64eacd8fa88763eb2f218751f08675728f334ef"
       }
     },
     {
@@ -300,7 +301,7 @@
       "title": "A5 模型出错的轮记成失败：不当回答显示、不进记忆、不进下一轮上下文",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/a5-model-failure.test.ts": "16d82f5ec2186e6ccb8b018716535ed1c28f76eeeda77bd82d5283b5b1026350"
+        "apps/desktop/test/acceptance/a5-model-failure.test.ts": "669a85ebdaa2f2a581b19039fa9aa9f987159b730797075fce07e0c41701bf12"
       }
     },
     {
@@ -325,7 +326,7 @@
       "title": "按设置选执行器：选了我的模型就交给它，缺东西不派发并回报，设置页一栏",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "e0428b9ec4edc542f52af49252bba990798ccc4e5d118da2612f3ed9a2da16f3",
+        "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "95d19fe196caeee6275db9fe61aa36f22e0bdb85e50b956e4f9806b2bc0f7ff3",
         "apps/desktop/test/acceptance/d7b-pages.test.ts": "4038c2594afbbd4c4ff10bc8200d27a309fe4204c0af31883892d3a887646db6"
       }
     },
@@ -394,7 +395,7 @@
       "title": "解除项目和文件夹的绑定",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/p5-unbind-folder.test.ts": "33461459d023c0f6edbe062c1ad6dab7ef98aea5175082bc27e8e47e18dcd31d",
+        "apps/desktop/test/acceptance/p5-unbind-folder.test.ts": "a771fadcdabd2dd7c5b835af428b8ab9c2f5f4376e1578ffb25703408f83805e",
         "apps/desktop/test/acceptance/p5-unbind-page.test.ts": "178627b68020ebdb71899a00a17c6f5b3539fef073e06eb7fc9299e47dbb5a09"
       }
     },
@@ -420,7 +421,7 @@
       "title": "授权撤销后不建副本不派任务",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/p6-revoked-folder.test.ts": "e51566a2aa97ad03d2c3f2ffcadc3601b7dd6b97c18ac80dba02a123ae71109b"
+        "apps/desktop/test/acceptance/p6-revoked-folder.test.ts": "a6437dad9f1ed6ed19a12a25ca29ffea7fc6b84c750daf414aaf4327b3476d84"
       }
     },
     {
@@ -428,7 +429,7 @@
       "title": "来源页加撤销读取",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/p7-preview-revoke.test.ts": "f0d54956b54251b070ddd9209ce8d54100382263b2ca6ac74b108f0125aa7ac6",
+        "apps/desktop/test/acceptance/p7-preview-revoke.test.ts": "f31fe36103559fd75b1cd50e1013d2672f7811f470eaced8a59fd8165eae863d",
         "apps/desktop/test/acceptance/p7-revoke-page.test.ts": "b8dec8973a8e8922b4d2abd1d2054e1b6e5e92500c74811e3f18a45d95869f63"
       }
     },
@@ -437,7 +438,7 @@
       "title": "删除项目时撤销授权并清副本",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/p8-delete-project.test.ts": "b2a56d673e9923fcb5ee4d502fc315eb6e71735fc2e21a50903dcf9dac2ae466",
+        "apps/desktop/test/acceptance/p8-delete-project.test.ts": "3995aebd5424a1a5d981d647c36ef4ba7926ea43315f69023cb73d35193d2e5c",
         "apps/desktop/test/acceptance/p8-delete-page.test.ts": "bc0061a97caa508dc724601403a95e73ee7e1be7593c0a3d3930b774660aad43"
       }
     },
@@ -889,7 +890,7 @@
         "packages/core/test/acceptance/cf3-chat-stream.test.ts": "6c7d75be5bb277a8376d4aa4a04ca5eec7cd8001ec6981cc6c79ec3d67d2b39d",
         "packages/core/test/acceptance/cf3-direct-chat.test.ts": "5b07c78d83445422a8d3112919f3d125df2f4f27da3ba1fbecf06df236ec6f8b",
         "packages/core/test/acceptance/cf3-prompt.test.ts": "8adeb7bae749154f0219fc2c4fde1e68977b9472cfd0921dc4d3129631085f7f",
-        "apps/desktop/test/acceptance/cf3b-direct-chat.test.ts": "c4a0be6c70ee286b5ee4b0b7908c069b882d7f703ff2f7825f7b525fe4863144",
+        "apps/desktop/test/acceptance/cf3b-direct-chat.test.ts": "6058b47c8bae5594ca3d3b6e847758e4b5a7df6a8c3242c395a8a6bc3f76cad0",
         "apps/desktop/test/acceptance/cf3b-engine-label.test.ts": "9580a1784e436351a634746bdd6908e624c41c10c4078c40a38fec3fd6744714"
       }
     },

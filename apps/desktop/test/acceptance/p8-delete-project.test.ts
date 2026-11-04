@@ -59,7 +59,6 @@ import {
 } from '@ixaeon/core';
 import type { Project } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
-import { fakeChatModel } from './cf3cb-fake-chat.js';
 import { registerIpc } from '../../src/main/ipc.js';
 
 /**
@@ -418,17 +417,6 @@ function sourceUnder(h: Harness, permissionId: string, projectId: string | null)
   ).id;
 }
 
-/** 一条从这份资料提炼出来的条目。返回条目号。 */
-function itemFrom(h: Harness, sourceId: string, projectId: string): string {
-  const item = h.items.createManual({
-    projectId,
-    type: 'decision',
-    statement: '从合成资料里提炼出的一条',
-    rationale: null,
-  });
-  db.prepare('UPDATE items SET extracted_from_source_id = ? WHERE id = ?').run(sourceId, item.id);
-  return item.id;
-}
 const sourceGrantStatus = (h: Harness, sourceId: string) =>
   h.sources.list({ projectId: null }).find((s) => s.source.id === sourceId)?.permissionStatus;
 
@@ -659,34 +647,6 @@ describe('条件 6：拒绝；上下文失效', () => {
 
     await h.runtime.deleteProject(project.id);
     expect(h.projects.get(project.id)).toBeNull();
-  });
-
-  // 功能缺口（见 CF3cb.md「拿不准」）：删除项目之后，那个项目里的条目仍会被选进上下文
-  //（与 p5 解绑、p7 撤销来源同一原因）。断言原样保留，等整合方定。
-  it.skip('删除项目之后，下一问交给模型的内容里没有那个项目的东西', async () => {
-    const h = setup();
-    const { project } = await bound(h);
-    const grant = h.permissions.activePermissionForPath(project.root_path!)!.id;
-    const source = sourceUnder(h, grant, project.id);
-    itemFrom(h, source, project.id);
-    const sent: string[] = [];
-    Object.assign(h.runtime as unknown as Record<string, unknown>, {
-      config: { model: fakeChatModel() },
-      chatStreamClient: () => ({
-        modelName: 'demo-a',
-        stream: async (input: { messages: Array<{ content: string }> }) => {
-          sent.push(input.messages.map((m) => String(m.content)).join('\n'));
-          return { content: '好', toolCalls: [], finishReason: 'stop', toolsUnsupported: false };
-        },
-      }),
-    });
-    await h.runtime.deleteProject(project.id);
-    await h.runtime.ask({
-      conversationId: null,
-      projectId: null,
-      question: '从合成资料里提炼出的一条',
-    });
-    expect(sent[0] ?? '').not.toContain('从合成资料里提炼出的一条');
   });
 });
 

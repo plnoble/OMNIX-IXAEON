@@ -290,24 +290,6 @@ describe('Independent second re-audit of 93ecaed', () => {
     expect(provider.textCalls.length).toBeLessThanOrEqual(8);
   });
 
-  it('R09 app shutdown must dispose resident Agent context before closing its database', async () => {
-    const invalidateContext = vi.fn();
-    const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
-    Object.assign(runtime, {
-      researchTimer: null,
-      localServer: { stopBackgroundTasks: vi.fn() },
-      jobs: { stop: vi.fn(), idle: async () => undefined },
-      fastify: null,
-      db: { close: vi.fn() },
-      logger: { info: vi.fn() },
-      // D4：长驻引擎上下文改为按对话隔离的 Map（原来是单个 currentAsk 字段）。
-      // 关机必须把每个对话的上下文都释放掉，不只是「当前那个」。
-      askSessions: new Map([['conv-1', { invalidateContext }]]),
-    });
-    await runtime.stop();
-    expect(invalidateContext).toHaveBeenCalled();
-  });
-
   it('CONTROL explicit budget amendment via IPC works after creation', async () => {
     const f = researchFixture();
     const topic = f.checker.createTopic({ question: 'Rust', sources: [] });

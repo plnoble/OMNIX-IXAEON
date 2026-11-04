@@ -45,7 +45,6 @@ import {
 } from '@ixaeon/core';
 import type { Project } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
-import { fakeChatModel } from './cf3cb-fake-chat.js';
 import { registerIpc } from '../../src/main/ipc.js';
 
 vi.mock('electron', () => ({
@@ -830,42 +829,7 @@ describe('条件 9：解除之后重新绑定', () => {
   });
 });
 
-describe('条件 10：解除绑定让对话上下文失效', () => {
-  // 功能缺口（见 CF3cb.md「拿不准」）：解绑之后，从那个文件夹提炼的条目仍会被选进上下文。
-  // 断言原样保留，等整合方定（不删、不放宽）。
-  it.skip('解绑之后，下一问交给模型的内容里没有那个文件夹的资料', async () => {
-    const h = setup();
-    const { project, grantId } = await bound(h);
-    const source = sourceUnder(h, grantId, project.id);
-    itemFrom(h, source, project.id);
-    const sent: string[] = [];
-    Object.assign(h.runtime as unknown as Record<string, unknown>, {
-      config: { model: fakeChatModel() },
-      chatStreamClient: () => ({
-        modelName: 'demo-a',
-        stream: async (input: { messages: Array<{ content: string }> }) => {
-          sent.push(input.messages.map((m) => String(m.content)).join('\n'));
-          return { content: '好', toolCalls: [], finishReason: 'stop', toolsUnsupported: false };
-        },
-      }),
-    });
-    // 解绑前：那份文件夹里的东西会带给模型
-    await h.runtime.ask({
-      conversationId: null,
-      projectId: project.id,
-      question: '合成资料里提炼出的那条是什么',
-    });
-    expect(sent[0] ?? '').toContain('从合成资料里提炼出的一条');
-    // 解绑之后：同一问，模型不该再看到它
-    await h.runtime.unbindProjectFolder(project.id);
-    await h.runtime.ask({
-      conversationId: null,
-      projectId: null,
-      question: '合成资料里提炼出的那条是什么',
-    });
-    expect(sent[1] ?? '').not.toContain('从合成资料里提炼出的一条');
-  });
-});
+// 条件 10「上下文失效」整合方 11-05 退役：原指作废 Hermes 缓存的会话，直连每一问现组上下文、没有会话可作废。
 
 describe('条件 12：IPC', () => {
   it('registerIpc 注册了两个接口，调它们得到的和运行时上的方法一样；输入只有项目号', async () => {

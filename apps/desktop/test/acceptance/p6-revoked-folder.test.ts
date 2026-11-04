@@ -34,7 +34,6 @@ import {
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CodingExecutor,
   type CoreDatabase,
   type IndependentCheck,
@@ -263,9 +262,6 @@ const taskRow = (id: string) =>
   };
 const count = (table: string): number =>
   (db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
-const audits = (kind: string): number =>
-  (db.prepare('SELECT count(*) AS n FROM audit_events WHERE kind = ?').get(kind) as { n: number })
-    .n;
 /** 数据目录里一共建了几个任务副本。 */
 const copies = (h: Harness): string[] =>
   existsSync(join(h.dataDir, 'workspaces')) ? readdirSync(join(h.dataDir, 'workspaces')) : [];
@@ -310,69 +306,9 @@ async function chatDraft(
   return { taskId: task.id, todoId: todo.id, conversationId: conv.id };
 }
 
-/** 让一次提问停在半路，好在这一轮里调 propose_coding_task。返回放行它的函数。 */
-async function withInFlightAsk(h: Harness, projectId: string): Promise<() => Promise<void>> {
-  const conv = h.conversations.create({ projectId });
-  let finish!: () => void;
-  const hold = new Promise<void>((r) => {
-    finish = r;
-  });
-  (h.runtime as unknown as { askSessions: Map<string, AgentSession> }).askSessions.set(conv.id, {
-    run: async (input: { runId?: string }) => {
-      await hold;
-      return {
-        answer: '好。',
-        citations: [],
-        notice: '',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: input.runId ?? 'fake',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    invalidateContext: () => undefined,
-    getEngineSessionId: () => 's-p6',
-  } as unknown as AgentSession);
-  const asking = h.runtime
-    .ask({ conversationId: conv.id, projectId, question: '加个文件' })
-    .catch(() => undefined);
-  const active = (h.runtime as unknown as { activeAskRuns: Map<string, string> }).activeAskRuns;
-  await vi.waitFor(() => expect(active.size).toBe(1));
-  return async () => {
-    finish();
-    await asking;
-  };
-}
-
-const propose = (h: Harness) =>
-  h.runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] });
 const WAIT = { timeout: 60_000 };
 
 describe('条件 1：绑着文件夹、授权撤销了', () => {
-  // 丙类（CF3cb）：测的是聊天工具 propose_coding_task，CF3c 已删该工具。
-  it.skip('propose_coding_task：授权还在时照常建草案；从来源页撤销之后不建草案、不记审计，错误就是那一句', async () => {
-    const h = setup();
-    const { project, grantId } = await bound(h);
-    // 先证明这一套搭得对：授权还在，同一个调用建得出草案
-    const endFirst = await withInFlightAsk(h, project.id);
-    await expect(propose(h)).resolves.toMatchObject({ status: 'draft' });
-    await endFirst();
-    expect(count('coding_tasks')).toBe(1);
-    expect(audits('hermes.propose_coding_task')).toBe(1);
-
-    await revokeViaSourcePage(h, grantId, project.id);
-    const end = await withInFlightAsk(h, project.id);
-    const todosBefore = count('todos');
-    await expect(propose(h)).rejects.toThrow(REVOKED);
-    expect(count('coding_tasks')).toBe(1);
-    expect(audits('hermes.propose_coding_task')).toBe(1);
-    expect(count('todos')).toBe(todosBefore);
-    await end();
-  });
-
   it('已有的草案点「要做」、任务页批准：都报那一句；没批准、没建副本，待办还是「等你拍板」', async () => {
     const h = setup();
     const { project, grantId } = await bound(h);

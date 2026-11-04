@@ -6,9 +6,8 @@
  * 保持返回工具调用到轮次上限），断言的是用户可见结果（消息状态、errorMessage、正文、
  * 是否存档、下一轮上下文）。
  *
- * 丙类（不改，由整合方退役）：条件 8「Hermes 的结果没有 answer 步」——Hermes 专有。
- * 已知功能缺口（见 CF3cb.md「拿不准」）：条件 7「到轮次上限记成失败」——直连的
- * runDirectChat 到上限时按正常结束返回，不产生 round_limit 失败。
+ * 整合方 11-05 退役：条件 8「Hermes 的结果没有 answer 步」——Hermes 专有，聊天已不走 Hermes。
+ * 条件 7「到轮次上限记成失败」：整合方在 runDirectChat 补上（最后一轮仍没说出话 → failed）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -26,9 +25,6 @@ import {
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
-  type AgentSessionResult,
-  type AskResult,
   type ChatStreamResult,
   type CoreDatabase,
 } from '@ixaeon/core';
@@ -62,87 +58,10 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function messageResult(
-  answer: string,
-  steps: Array<{ round: number; tool: string; ok: boolean; detail?: string }>,
-): AgentSessionResult {
-  return {
-    answer,
-    citations: [],
-    notice: '本轮走 Core 有界工具循环（不是 Hermes）。',
-    usedChars: 0,
-    modelName: 'fake-model',
-    engine: 'core-bounded' as const,
-    runId: 'run-1',
-    steps: steps.map((s) => ({ ...s, detail: s.detail ?? '' })),
-    memoryUsed: [],
-  };
-}
-
 interface SessionCall {
   goal: string;
   priorTurns: Array<{ role: 'user' | 'assistant'; content: string }>;
   sent: string;
-}
-
-/** 丙类用例（条件 8）仍在用的旧替身夹具：原样保留，不改。 */
-function setup(results: AskResult[]) {
-  const projects = new ProjectService(db);
-  projects.create({ name: 'A5 项目', rootPath: null, description: null });
-  const conversations = new ConversationStore(db);
-  const conv = conversations.create({ projectId: null });
-  conversations.appendMessage(conv.id, { role: 'user', content: '之前问的' });
-  conversations.appendMessage(conv.id, { role: 'assistant', content: '之前答的' });
-
-  let cursor = 0;
-  const fakeSession = {
-    run: async (): Promise<AskResult> => {
-      const next = results[Math.min(cursor, results.length - 1)] ?? results[results.length - 1]!;
-      cursor += 1;
-      return next;
-    },
-    cancel: () => undefined,
-    getEngineSessionId: () => 's-a5',
-  } as unknown as AgentSession;
-
-  const captureAsk = vi.fn((_input: { answer: string }) => ({
-    created: true as const,
-    source: { id: 'src-ask' },
-  }));
-  const captured = new Array<string>();
-  const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
-  Object.assign(runtime, {
-    db,
-    conversations,
-    todos: new TodoStore(db),
-    items: new ItemService(db),
-    search: new SearchService(db),
-    projects,
-    coding: new CodingOrchestrator(db, new FakeCodingExecutor(), join(dir, 'data')),
-    askSessions: new Map([[conv.id, fakeSession]]),
-    activeAskRuns: new Map(),
-    cancelledAskRuns: new Set(),
-    askDeltaSink: null,
-    askProgressSink: null,
-    getProvider: () => new FakeProvider('a5'),
-    hermesFound: () => false,
-    getTinyFishFetcher: () => null,
-    getWebSearchExecutor: () => null,
-    semanticIndex: null,
-    semanticBackfillRun: null,
-    logger: { warn: () => undefined, info: () => undefined },
-    kickSemanticBackfill: () => Promise.resolve(),
-    jobs: { hold: () => () => undefined },
-    imports: {
-      captureAsk: (input: { answer: string }) => {
-        captured.push(input.answer);
-        return captureAsk(input);
-      },
-    },
-    enqueueExtract: vi.fn(() => undefined),
-    ensureAskCapturePermission: () => ({ id: 'perm-1', status: 'active' }),
-  });
-  return { runtime, conversations, conv, captureAsk, captured };
 }
 
 /**
@@ -343,8 +262,6 @@ describe('A5 模型出错的轮记成失败（后端）', () => {
 
 /**
  * 整合方补：真的工具循环出错（CF3c 起用直连的假客户端造同样情形）。
- * 条件 7「到轮次上限记成失败」暂未覆盖：直连到上限时按正常结束返回（功能缺口，
- * 见 CF3cb.md「拿不准」），不在这里把断言改松。
  */
 describe('A5（整合方补）：工具循环出错时 ask 怎么收尾', () => {
   const lastMessage = (h: ReturnType<typeof setupDirect>) => {
@@ -388,9 +305,7 @@ describe('A5（整合方补）：工具循环出错时 ask 怎么收尾', () => 
     expect(h.captureAsk).toHaveBeenCalledTimes(1);
   });
 
-  // 功能缺口（见 CF3cb.md「拿不准」）：直连的 runDirectChat 到轮次上限时按正常结束返回，
-  // 不产生 round_limit 失败。条件 7 的断言原样留在这里，等整合方定（不删、不放宽）。
-  it.skip('条件 7：到了轮次上限还没形成最终回答：failed、不存档，那段话不当回答', async () => {
+  it('条件 7：到了轮次上限还没形成最终回答：failed、不存档，那段话不当回答', async () => {
     const h = setupDirect([
       () => ({
         content: '',
@@ -432,23 +347,4 @@ describe('A5（整合方补）：工具循环出错时 ask 怎么收尾', () => 
   });
 });
 
-describe('A5（整合方补）条件 8：Hermes 的结果没有 answer 步，不许误判', () => {
-  it('引擎是 hermes、步骤只有 text / terminal、正常回答 → complete，照常存档', async () => {
-    const hermesResult: AskResult = {
-      ...messageResult('Hermes 的正常回答', [
-        { round: 1, tool: 'text', ok: true },
-        { round: 2, tool: 'terminal', ok: true },
-      ]),
-      engine: 'hermes' as const,
-      modelName: 'hermes',
-      notice: '本轮经 Hermes TUI gateway（stdio JSON-RPC）。',
-    };
-    const { runtime, conversations, conv, captureAsk } = setup([hermesResult]);
-    await runtime.ask({ conversationId: conv.id, projectId: null, question: 'A5 Hermes 一问' });
-    const messages = conversations.messages(conv.id);
-    const last = messages[messages.length - 1]!;
-    expect(last.status).toBe('complete');
-    expect(last.content).toContain('Hermes 的正常回答');
-    expect(captureAsk).toHaveBeenCalled();
-  });
-});
+// 条件 8「Hermes 的结果没有 answer 步」整合方 11-05 退役：聊天已不走 Hermes。

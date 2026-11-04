@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import { fakeChatClient, fakeChatModel } from '../acceptance/cf3cb-fake-chat.js';
 import { MEMORY_EVAL_SCENARIOS } from '../../../../packages/core/src/memory/evalScenarios.js';
 import {
   openDatabase,
@@ -25,7 +26,6 @@ import {
   CoreToolBroker,
   TuiGatewaySession,
   JsonRpcStdio,
-  HermesRuntimeAdapter,
   SkillCandidateStore,
   ResearchChecker,
   type CoreDatabase,
@@ -34,7 +34,16 @@ import {
   type RuntimeRunInput,
 } from '../../../../packages/core/src/index.js';
 
-vi.mock('electron', () => ({ app: {}, safeStorage: {}, net: {}, ipcMain: {} }));
+vi.mock('electron', () => ({
+  app: {},
+  // CF3c：聊天直连要解密模型密钥，给一个可逆的假加密
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
+  net: {},
+  ipcMain: {},
+}));
 
 let dir: string;
 let db: CoreDatabase;
@@ -279,16 +288,6 @@ describe('Core model disclosure boundaries', () => {
 
   it('M03 desktop ask must not silently recreate a revoked capture permission', async () => {
     const { AppRuntime } = await import('../../src/main/appRuntime.js');
-    vi.spyOn(HermesRuntimeAdapter.prototype, 'probe').mockReturnValue({
-      locator: { found: true },
-    } as ReturnType<HermesRuntimeAdapter['probe']>);
-    vi.spyOn(HermesRuntimeAdapter.prototype, 'start').mockResolvedValue({
-      events: [],
-      answer: 'synthetic answer',
-      status: 'terminal',
-      modelName: 'fake',
-      providerName: 'fake',
-    });
     const app = Object.create(AppRuntime.prototype) as InstanceType<typeof AppRuntime>;
     Object.assign(app, {
       db,
@@ -302,8 +301,9 @@ describe('Core model disclosure boundaries', () => {
       getProvider: () => new FakeProvider(),
       getWebSearchExecutor: () => null,
       enqueueExtract: vi.fn(),
-      // D4：提问走按对话隔离的引擎会话；Object.create 绕过构造函数，显式注入。
-      askSessions: new Map(),
+      // CF3c 起聊天只走直连：Object.create 绕过构造函数，显式注入模型配置与假客户端。
+      config: { model: fakeChatModel() },
+      chatStreamClient: () => fakeChatClient(() => ({ content: 'synthetic answer' })),
       activeAskRuns: new Map(),
       conversations: new ConversationStore(db),
     });
