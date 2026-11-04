@@ -165,20 +165,92 @@ m2-settings-ui 8 + m3-settings-ui 4 + sub1-magpie-preset 2
 
 整合方改的：
 
-| 文件 | 改了什么 | 为什么 |
-| --- | --- | --- |
-| `Models.tsx` | 「获取模型」把卡片上刚填、还没保存的地址 / Key 带给 `fetchProviderModels(id, input)` | 原来总拿已保存的地址去检测：改了地址点获取，拿到的是旧地址的清单，再保存就把旧清单存到新地址上 |
-| `Models.tsx` | 「默认」那一家不显示「删除」 | 后端本来就拒（默认那一家不能删），按钮只会报错 |
-| `Models.tsx` | 「chat在用它」改成「聊天在用它」（后台分析 / 聊天 / 编码任务） | 界面上露了内部 id |
-| `Models.tsx` | 添加供应商的 Key 框改 `type="password"` | 原来明文显示 |
-| `Settings.tsx` | 去掉剩下的一处 `Array.isArray(providers)` | 只为迁就替身的兼容，`providers` 本来就是数组 |
-| `Ask.tsx` | 供应商标签的读取挪到设置两个 setter 之后 | 标签只是显示用；放前面时它一出错就把聊天模型状态也带空了（cf0 条件 5 就是这么红的） |
-| `sub1-magpie-preset`（锁定） | 替身的 `fetchProviderModels` 不再替用户把清单写进 `savedModels`（跟生产一样）；`saveModelProvider` 记下带的勾选；条件 1 补「预设之后没有一个勾、没有一家存了清单」 | 原来「预设没有偷偷保存」那条断言（`state.saved` 为空）在新替身下永远成立，等于没测；变异检查：页面改成获取后全勾，补的断言变红 |
-| `k3-cockpit-settings`、`k5-mobile-settings`（锁定） | 替身补 `listModelProviders: async () => []` | 同 u2 / d7b / v4 |
-| `cf1-chat-first-nav`（锁定） | 期望的导航顺序在「设置」前插「模型」 | MP2b 规格加的一项；其余先后照旧比对 |
+| 文件                                                | 改了什么                                                                                                                                                           | 为什么                                                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `Models.tsx`                                        | 「获取模型」把卡片上刚填、还没保存的地址 / Key 带给 `fetchProviderModels(id, input)`                                                                               | 原来总拿已保存的地址去检测：改了地址点获取，拿到的是旧地址的清单，再保存就把旧清单存到新地址上                                 |
+| `Models.tsx`                                        | 「默认」那一家不显示「删除」                                                                                                                                       | 后端本来就拒（默认那一家不能删），按钮只会报错                                                                                 |
+| `Models.tsx`                                        | 「chat在用它」改成「聊天在用它」（后台分析 / 聊天 / 编码任务）                                                                                                     | 界面上露了内部 id                                                                                                              |
+| `Models.tsx`                                        | 添加供应商的 Key 框改 `type="password"`                                                                                                                            | 原来明文显示                                                                                                                   |
+| `Settings.tsx`                                      | 去掉剩下的一处 `Array.isArray(providers)`                                                                                                                          | 只为迁就替身的兼容，`providers` 本来就是数组                                                                                   |
+| `Ask.tsx`                                           | 供应商标签的读取挪到设置两个 setter 之后                                                                                                                           | 标签只是显示用；放前面时它一出错就把聊天模型状态也带空了（cf0 条件 5 就是这么红的）                                            |
+| `sub1-magpie-preset`（锁定）                        | 替身的 `fetchProviderModels` 不再替用户把清单写进 `savedModels`（跟生产一样）；`saveModelProvider` 记下带的勾选；条件 1 补「预设之后没有一个勾、没有一家存了清单」 | 原来「预设没有偷偷保存」那条断言（`state.saved` 为空）在新替身下永远成立，等于没测；变异检查：页面改成获取后全勾，补的断言变红 |
+| `k3-cockpit-settings`、`k5-mobile-settings`（锁定） | 替身补 `listModelProviders: async () => []`                                                                                                                        | 同 u2 / d7b / v4                                                                                                               |
+| `cf1-chat-first-nav`（锁定）                        | 期望的导航顺序在「设置」前插「模型」                                                                                                                               | MP2b 规格加的一项；其余先后照旧比对                                                                                            |
 
 重新锁定：M2、D7b、M3、U2、V4、SUB1、K3、K5、CF1 九份文件的指纹（只更新指纹，任务状态不动）。
 
 自动化：`verify` 除 acceptance 外全过；`acceptance run-done` 1437/1438，唯一红的是 `packages/relay` 的 `l18-forever` 条件 3 在负载下超时（126 秒），单独跑 7/7 过，跟本单无关。
 
 真机：dev 的甲 / 乙照收；整合方的几处改动没有另跑真机。用户接受：待用户在自己的应用里打开「模型」页用一遍。
+
+## 端到端改写（2026-11-04，e2e 三条 spec）
+
+起因：CI 的「端到端测试（desktop）」红，`d5a-acceptance-first`、`d7b-model-executor`、`m2-model-ui` 还在设置页找
+`settings-model` / `settings-api-base` / `settings-fetch-models` / `settings-model-check` / `settings-model-save` /
+`settings-model-select` / `settings-chat-model` / `settings-model-badge-*`。口径同 CP7 的 (a)：改去哪儿找、改点击路径、
+改规格要求换掉的字面；断言的行为一条不删、不放宽。e2e 不在锁定清单里，改了不用 lock。
+
+另外给 `Models.tsx` 的「新」「上游已没有」两个 tag 加了 `data-testid="model-badge-<模型id>"`（只加属性，不改行为）；
+保存成功的提示改成 `ok-banner` 样式（原来就那一条提示，e2e 用它判断「已保存」）。
+
+### d5a-acceptance-first
+
+| 改哪一步         | 原来                                     | 现在                                                         | 为什么                                   |
+| ---------------- | ---------------------------------------- | ------------------------------------------------------------ | ---------------------------------------- |
+| 配模型入口       | `nav-settings` → `settings-model`        | `nav-models` → `models-page`                                 | 模型接入搬到「模型」页                   |
+| 填地址/Key       | `settings-api-base` / `settings-api-key` | `provider-base-input-default` / `provider-key-input-default` | 卡片上就有这两个输入框                   |
+| 检测             | `settings-fetch-models`                  | `provider-models-default`                                    | 同上                                     |
+| 勾选             | `settings-model-check[data-model-id=…]`  | `model-row-<id> input[type="checkbox"]`                      | 行改成 `model-row-*`                     |
+| 保存             | `settings-model-save`                    | `provider-save-default`                                      | 同上                                     |
+| 之后配编码执行器 | ——                                       | 先 `nav-settings` 再 `settings-coding-executor`              | 模型页不是设置页，要回到设置页（多一步） |
+
+### d7b-model-executor
+
+同上五步（`SAVED_MODEL`）；后面「重开设置页看执行器还在」「清空模型再点要做」两处仍走 `nav-settings`，未动。
+
+### m2-model-ui
+
+| 改哪一步                   | 原来                                            | 现在                                                 | 为什么                                                          |
+| -------------------------- | ----------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
+| 入口/填地址/检测/勾选/保存 | 同 d5a                                          | 同 d5a                                               | 同上                                                            |
+| 行数统计                   | `settings-model-check`                          | `[data-testid^="model-row-"] input[type="checkbox"]` | 同上                                                            |
+| 「新」「上游已没有」标记   | `settings-model-badge-<id>`                     | `model-badge-<id>`                                   | 页面上只加这个属性                                              |
+| 保存成功的提示             | `模型设置已保存`                                | `已保存`                                             | 模型页的提示是「已保存勾选」，行为不变（保存后有提示）          |
+| 选模型/聊天模型            | `settings-model-select` / `settings-chat-model` | `uses-analysis` / `uses-chat`                        | 选模型改走「用途」区                                            |
+| 聊天第一项文案             | `/跟随分析模型/`                                | `/跟着后台分析/`                                     | MP2b 规格定的字面                                               |
+| 保存用途                   | 第二次 `settings-model-save`                    | `uses-save`                                          | 用途单独保存                                                    |
+| 聊天项文字                 | `option[value="gpt-a"]` 文本 `gpt-a`            | 文本包含 `gpt-a`                                     | 现在显示「供应商名 · 模型」（规格要求），断言仍是「只从清单选」 |
+| 检测失败提示               | `error-banner`（可点按钮关掉）                  | `models-error`（下一次检测自动清）                   | 模型页自己的错误提示；去掉「点按钮关」这一步，下一步检测会清    |
+
+断言行为未变：全标「新」、默认不打勾、只保存勾上的、在用模型不在清单也列出并标注、聊天「跟着后台分析」+ 清单、
+Key 留空复用已保存 Key（服务器 Auth 仍是一笔 `Bearer TEST_KEY`）、换上游后勾选保留/新增标「新」/消失标「上游已没有」、
+检测失败如实报原文且清单与勾选不动、重启后清单与勾选还在、下拉只从清单选。
+
+### 三条命令的原样输出
+
+```
+$ node scripts/acceptance.mjs run-done
+Test Files  192 passed (192)
+     Tests  1438 passed (1438)
+  Duration  295.32s (transform 41.16s, setup 0ms, import 189.55s, tests 5051.71s, environment 159.62s)
+```
+
+```
+$ node scripts/verify.mjs
+▶ review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron）
+Running 3 tests using 1 worker
+  ok 2 apps\desktop\test\review\recheck-ui-20260907.spec.ts:8:5 › BUI01: recent work must expose rec…
+  3 passed (8.6s)
+全部通过（IXAEON v0.2 验证完成）
+```
+
+```
+$ node scripts/test-e2e.mjs desktop
+▶ desktop e2e
+Running 23 tests using 1 worker
+  23 passed (1.3m)
+✓ desktop e2e 完成（75.8s）
+```
+
+（本机跑 e2e 前要先 `node scripts/build.mjs`；本会话环境里有 `ELECTRON_RUN_AS_NODE=1`，会让 Electron 起不来，
+跑 e2e 时先清掉这个环境变量。CI 上没有这个问题。）

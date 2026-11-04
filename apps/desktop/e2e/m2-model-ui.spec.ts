@@ -91,90 +91,92 @@ test.describe('M2 模型管理（界面）', () => {
     // 第一段：首次设置 + 到设置页
     let { app, page } = await launch();
     await setupOnce(page);
-    await page.getByTestId('nav-settings').click();
-    await expect(page.getByTestId('settings-model')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('nav-models').click();
+    await expect(page.getByTestId('models-page')).toBeVisible({ timeout: 20_000 });
 
     // 填假上游地址与 Key，点检测
-    await page.getByTestId('settings-api-base').fill(upstreamBase);
-    await page.getByTestId('settings-api-key').fill(TEST_KEY);
-    await page.getByTestId('settings-fetch-models').click();
-    await expect(page.getByTestId('settings-model-checklist')).toBeVisible({ timeout: 20_000 });
-    const rows = page.locator('[data-testid="settings-model-check"]');
+    await page.getByTestId('provider-base-input-default').fill(upstreamBase);
+    await page.getByTestId('provider-key-input-default').fill(TEST_KEY);
+    await page.getByTestId('provider-models-default').click();
+    await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible({
+      timeout: 20_000,
+    });
+    const rows = page.locator('[data-testid^="model-row-"] input[type="checkbox"]');
     await expect(rows).toHaveCount(3);
 
     // 契约 1/2：全部标「新」（从没保存过），默认不打勾
-    await expect(page.getByTestId('settings-model-badge-gpt-a')).toHaveText('新');
-    await expect(page.getByTestId('settings-model-badge-gemini-b')).toHaveText('新');
+    await expect(page.getByTestId('model-badge-gpt-a')).toHaveText('新');
+    await expect(page.getByTestId('model-badge-gemini-b')).toHaveText('新');
     await expect(
-      page.locator('[data-testid="settings-model-check"][data-model-id="gpt-a"]'),
+      page.locator('[data-testid="model-row-gpt-a"] input[type="checkbox"]'),
     ).not.toBeChecked();
 
     // 契约 3：勾两个保存；保存只认勾上的
-    await page.locator('[data-testid="settings-model-check"][data-model-id="gpt-a"]').check();
-    await page.locator('[data-testid="settings-model-check"][data-model-id="gemini-b"]').check();
+    await page.locator('[data-testid="model-row-gpt-a"] input[type="checkbox"]').check();
+    await page.locator('[data-testid="model-row-gemini-b"] input[type="checkbox"]').check();
     // 契约 3 界面：没有手输模型名的入口（模型名称是下拉框）
-    await expect(page.getByTestId('settings-model-select')).toBeVisible();
-    await page.getByTestId('settings-model-save').click();
-    await expect(page.locator('.ok-banner')).toContainText('模型设置已保存', { timeout: 15_000 });
+    await expect(page.getByTestId('uses-analysis')).toBeVisible();
+    await page.getByTestId('provider-save-default').click();
+    await expect(page.locator('.ok-banner')).toContainText('已保存', { timeout: 15_000 });
 
     // 契约 4：当前在用的模型（wizard-model）不在已保存清单里——下拉照样显示并标注
-    const modelSelect = page.getByTestId('settings-model-select');
+    const modelSelect = page.getByTestId('uses-analysis');
     await expect(modelSelect.locator('option[value="wizard-model"]')).toContainText(
       '不在已保存清单',
     );
     // 契约 4：聊天模型下拉有「跟随分析模型」+ 清单里的模型
-    const chatSelect = page.getByTestId('settings-chat-model');
-    await expect(chatSelect.locator('option[value=""]')).toHaveText(/跟随分析模型/);
-    await expect(chatSelect.locator('option[value="gpt-a"]')).toHaveText('gpt-a');
+    const chatSelect = page.getByTestId('uses-chat');
+    await expect(chatSelect.locator('option[value=""]')).toHaveText(/跟着后台分析/);
+    await expect(chatSelect.locator('option[value="gpt-a"]')).toContainText('gpt-a');
 
     // 选上两个再保存（改在用的模型）
     await modelSelect.selectOption('gpt-a');
     await chatSelect.selectOption('gemini-b');
-    await page.getByTestId('settings-model-save').click();
-    await expect(page.locator('.ok-banner')).toContainText('模型设置已保存', { timeout: 15_000 });
-    await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
-    await expect(page.getByTestId('settings-chat-model')).toHaveValue('gemini-b');
+    await page.getByTestId('uses-save').click();
+    await expect(page.locator('.ok-banner')).toContainText('已保存', { timeout: 15_000 });
+    await expect(page.getByTestId('uses-analysis')).toHaveValue('gpt-a');
+    await expect(page.getByTestId('uses-chat')).toHaveValue('gemini-b');
 
     // 契约 6：Key 留空再检测，用已保存的 Key（服务器这一笔 Auth 还是 TEST_KEY）。
     // 等这次检测真的把请求发出去再比对，不跟 UI 渲染抢。
     const beforeAuths = auths.length;
-    await page.getByTestId('settings-api-key').fill('');
-    await page.getByTestId('settings-fetch-models').click();
+    await page.getByTestId('provider-key-input-default').fill('');
+    await page.getByTestId('provider-models-default').click();
     await expect.poll(() => auths.length, { timeout: 20_000 }).toBe(beforeAuths + 1);
     expect(auths.slice(beforeAuths)).toEqual([`Bearer ${TEST_KEY}`]);
 
     // 契约 1/2/5：换假上游（少 gemini-b、多 gpt-new）再检测——
     // 已保存的勾还在；新增标「新」；上游没有的标「上游已没有」不自动删；在用的模型不变
     upstream = ['gpt-a', 'claude-c', 'gpt-new'];
-    await page.getByTestId('settings-api-key').fill(TEST_KEY);
-    await page.getByTestId('settings-fetch-models').click();
-    await expect(page.getByTestId('settings-model-checklist')).toBeVisible({ timeout: 20_000 });
-    const rows2 = page.locator('[data-testid="settings-model-check"]');
+    await page.getByTestId('provider-key-input-default').fill(TEST_KEY);
+    await page.getByTestId('provider-models-default').click();
+    await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible({
+      timeout: 20_000,
+    });
+    const rows2 = page.locator('[data-testid^="model-row-"] input[type="checkbox"]');
     await expect(rows2).toHaveCount(4); // 上游 3 + 已保存但上游没有的 gemini-b
     await expect(
-      page.locator('[data-testid="settings-model-check"][data-model-id="gpt-a"]'),
+      page.locator('[data-testid="model-row-gpt-a"] input[type="checkbox"]'),
     ).toBeChecked();
     await expect(
-      page.locator('[data-testid="settings-model-check"][data-model-id="gemini-b"]'),
+      page.locator('[data-testid="model-row-gemini-b"] input[type="checkbox"]'),
     ).toBeChecked();
-    await expect(page.getByTestId('settings-model-badge-gpt-new')).toHaveText('新');
-    await expect(page.getByTestId('settings-model-badge-gemini-b')).toHaveText('上游已没有');
+    await expect(page.getByTestId('model-badge-gpt-new')).toHaveText('新');
+    await expect(page.getByTestId('model-badge-gemini-b')).toHaveText('上游已没有');
     // 契约 5：重检不改在用的模型（还没保存，就在下拉里）
-    await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
-    await expect(page.getByTestId('settings-chat-model')).toHaveValue('gemini-b');
+    await expect(page.getByTestId('uses-analysis')).toHaveValue('gpt-a');
+    await expect(page.getByTestId('uses-chat')).toHaveValue('gemini-b');
     // 契约 3：下拉框里没有未保存的模型（claude-c 上游有但没勾选保存）
-    await expect(
-      page.getByTestId('settings-model-select').locator('option[value="claude-c"]'),
-    ).toHaveCount(0);
-    await expect(
-      page.getByTestId('settings-chat-model').locator('option[value="claude-c"]'),
-    ).toHaveCount(0);
+    await expect(page.getByTestId('uses-analysis').locator('option[value="claude-c"]')).toHaveCount(
+      0,
+    );
+    await expect(page.getByTestId('uses-chat').locator('option[value="claude-c"]')).toHaveCount(0);
 
     // 契约 7：上游故障 → 检测失败如实显示错误，清单/勾选/在用的模型都不变
     failModels = true;
-    await page.getByTestId('settings-fetch-models').click();
+    await page.getByTestId('provider-models-default').click();
     // 契约 7：如实显示上游错误——假上游的报错原文要原样可见，不能只给一个笼统前缀
-    await expect(page.getByTestId('error-banner')).toContainText(
+    await expect(page.getByTestId('models-error')).toContainText(
       'upstream exploded for this test',
       {
         timeout: 20_000,
@@ -182,51 +184,52 @@ test.describe('M2 模型管理（界面）', () => {
     );
     await expect(rows2).toHaveCount(4); // 清单还是上一轮检测的四项
     await expect(
-      page.locator('[data-testid="settings-model-check"][data-model-id="gpt-a"]'),
+      page.locator('[data-testid="model-row-gpt-a"] input[type="checkbox"]'),
     ).toBeChecked();
-    await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
-    await expect(page.getByTestId('settings-chat-model')).toHaveValue('gemini-b');
+    await expect(page.getByTestId('uses-analysis')).toHaveValue('gpt-a');
+    await expect(page.getByTestId('uses-chat')).toHaveValue('gemini-b');
     failModels = false;
     // 错误关掉后再检测一次复原（进入下面的保存流程）
-    await page.getByTestId('error-banner').getByRole('button').click();
-    await page.getByTestId('settings-fetch-models').click();
-    await expect(page.getByTestId('settings-model-checklist')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('provider-models-default').click();
+    await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible({
+      timeout: 20_000,
+    });
 
     // 契约 2：筛选框按名字过滤
-    await page.getByTestId('settings-model-filter').fill('gpt');
+    await page.getByTestId('model-filter-default').fill('gpt');
     await expect(
-      page.locator('[data-testid="settings-model-check"][data-model-id="claude-c"]'),
+      page.locator('[data-testid="model-row-claude-c"] input[type="checkbox"]'),
     ).toHaveCount(0);
-    await page.getByTestId('settings-model-filter').fill('');
+    await page.getByTestId('model-filter-default').fill('');
 
     // 保存新的勾选（gpt-a、gemini-b、gpt-new）后重启
-    await page.locator('[data-testid="settings-model-check"][data-model-id="gpt-new"]').check();
-    await page.getByTestId('settings-model-save').click();
-    await expect(page.locator('.ok-banner')).toContainText('模型设置已保存', { timeout: 15_000 });
-    await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
+    await page.locator('[data-testid="model-row-gpt-new"] input[type="checkbox"]').check();
+    await page.getByTestId('provider-save-default').click();
+    await expect(page.locator('.ok-banner')).toContainText('已保存', { timeout: 15_000 });
+    await expect(page.getByTestId('uses-analysis')).toHaveValue('gpt-a');
 
     await app.close();
 
     // 契约 2：重启后清单与勾选状态还在
     ({ app, page } = await launch());
     await page.getByTestId('main-nav').waitFor({ timeout: 20_000 });
-    await page.getByTestId('nav-settings').click();
-    await expect(page.getByTestId('settings-model')).toBeVisible({ timeout: 20_000 });
-    const rows3 = page.locator('[data-testid="settings-model-check"]');
+    await page.getByTestId('nav-models').click();
+    await expect(page.getByTestId('models-page')).toBeVisible({ timeout: 20_000 });
+    const rows3 = page.locator('[data-testid^="model-row-"] input[type="checkbox"]');
     await expect(rows3).toHaveCount(3); // 没检测过：只显示已保存的
     await expect(
-      page.locator('[data-testid="settings-model-check"][data-model-id="gpt-a"]'),
+      page.locator('[data-testid="model-row-gpt-a"] input[type="checkbox"]'),
     ).toBeChecked();
     await expect(
-      page.locator('[data-testid="settings-model-check"][data-model-id="gemini-b"]'),
+      page.locator('[data-testid="model-row-gemini-b"] input[type="checkbox"]'),
     ).toBeChecked();
     await expect(
-      page.locator('[data-testid="settings-model-check"][data-model-id="gpt-new"]'),
+      page.locator('[data-testid="model-row-gpt-new"] input[type="checkbox"]'),
     ).toBeChecked();
-    await expect(page.getByTestId('settings-model-select')).toHaveValue('gpt-a');
-    await expect(page.getByTestId('settings-chat-model')).toHaveValue('gemini-b');
+    await expect(page.getByTestId('uses-analysis')).toHaveValue('gpt-a');
+    await expect(page.getByTestId('uses-chat')).toHaveValue('gemini-b');
     // 均不打「不在已保存清单」的补丁：在用的都在清单里
-    await expect(page.getByTestId('settings-model-select')).not.toContainText('不在已保存清单');
+    await expect(page.getByTestId('uses-analysis')).not.toContainText('不在已保存清单');
 
     await app.close();
   });

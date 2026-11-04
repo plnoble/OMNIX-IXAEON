@@ -72,7 +72,21 @@ export function ModelsPage() {
     try {
       const [list, view] = await Promise.all([api.listModelProviders(), api.getSettings()]);
       setProviders(list);
-      setUses((view.config.uses ?? {}) as Uses);
+      // uses 里没有的，按旧字段回显（default 那家选择会写回 modelName / chatModelName）
+      const cfgUses = (view.config.uses ?? {}) as Uses;
+      setUses({
+        analysis:
+          cfgUses.analysis ??
+          (view.config.modelName
+            ? { providerId: 'default', model: view.config.modelName }
+            : undefined),
+        chat:
+          cfgUses.chat ??
+          (view.config.chatModelName
+            ? { providerId: 'default', model: view.config.chatModelName }
+            : undefined),
+        coding: cfgUses.coding,
+      });
       setCurrentModel(view.config.modelName ?? '');
       setEdits((cur) => {
         const next = { ...cur };
@@ -248,7 +262,7 @@ export function ModelsPage() {
         </p>
       ) : null}
       {notice ? (
-        <p className="muted" data-testid="models-notice">
+        <p className="ok-banner" data-testid="models-notice">
           {notice}
         </p>
       ) : null}
@@ -366,8 +380,16 @@ export function ModelsPage() {
                       />
                       {model}
                     </label>
-                    {isNew ? <span className="tag">新</span> : null}
-                    {gone ? <span className="tag">上游已没有</span> : null}
+                    {isNew ? (
+                      <span className="tag" data-testid={`model-badge-${model}`}>
+                        新
+                      </span>
+                    ) : null}
+                    {gone ? (
+                      <span className="tag" data-testid={`model-badge-${model}`}>
+                        上游已没有
+                      </span>
+                    ) : null}
                   </li>
                 );
               })}
