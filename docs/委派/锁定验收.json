@@ -910,6 +910,15 @@
       "files": {
         "apps/desktop/test/acceptance/mp2b-model-page.test.ts": "595f33cfe8478360918abaeffa9c86f627ed3148c3567a5eb977d6c4644122c7"
       }
+    },
+    {
+      "id": "CF3c",
+      "title": "聊天只走直连",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/cf3c-direct-only.test.ts": "19296e374e8da4fc99b69fa982af9dbe2fe790e7adbe99a9eec716c0fc76750b",
+        "apps/desktop/test/acceptance/cf3c-no-prewarm.test.ts": "416ee9ead78b57330ea5b2e8edd8beed4816de4e620334106dc402955f3f7eb7"
+      }
     }
   ]
 }
