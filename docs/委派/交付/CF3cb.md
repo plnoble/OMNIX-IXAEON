@@ -160,158 +160,26 @@
 - `dev/CF3cb`（`9609cd4`，run 41859573580；此前 `f44c126` run 41858532390 同样）：lint / format / typecheck / typecheck-acceptance / build / unit / integration 全绿，红在 acceptance-lock（只因本文件列表里的 16 个文件）。
 - 端到端：本机 23 条里 22 条过，唯一红是 d7b-model-executor（拿不准第 4 条）。CI 在 acceptance-lock 处停下，未跑到端到端那一步。
 
-## 拿不准（请整合方定）
+## d7b-model-executor 重做（2026-11-05，按整合方复审）
 
-1. **上下文隐私过滤没实现**（p5 条件 10 / p7 条件 12 / p8 条件 6 上下文）：实测解绑文件夹、撤销来源授权、删项目之后，从那里提炼的条目**仍会被选进**下一问交给模型的内容。三条改成 messages 断言后仍红，已 `it.skip` 保留原断言，没删没放宽。
-2. **条件 7 轮次上限**（a5）：直连 `runDirectChat` 到 `maxToolRounds` 时按正常结束返回，不产生 round_limit 失败。测试已 `it.skip` 保留原断言。
-3. **a5 条件 8**（Hermes 没有 answer 步）：丙类，原样保留（红）。
-4. **端到端 d7b-model-executor**：这条从「聊天里提任务 → 待办卡 → 点要做 → 派发到我的模型」一路断言。CF3c 删掉聊天建任务之后，前半段没有入口；用建议待办（parseUserTodo/建议待办）不会生成编码任务，派发链路因此起不来。断言没删没放宽，保持红。
-5. **端到端需要假客户端跨多问连续走剧本**（同一运行时复用同一个假客户端），已在 `chatStreamClient` 里缓存实例；延时用 `IXAEON_TEST_MODEL_DELAY_MS`。
+整条走任务页：任务页「创建草案」（填目标 / 可修改范围 / 独立验证命令）→「批准并排队」→「派发（我的模型）」。
+不再用 SQL 往 `coding_tasks` / `todos` 插行，也不往消息 meta 里塞待办卡；只保留「绑定文件夹」那一步的 SQL（原生目录对话框无法自动化）。
 
-## 本轮收尾（2026-11-04 夜）：四条命令 + 真机甲/乙
+断言（两条关键的一条没删、没放宽）：
 
-### 自动化通过（原样输出）
+- 任务卡显示「执行器 我的模型（e2e-model）」（原来写在对话回报里的那句，改看任务页同样信息）；
+- 合成项目副本里 `README.md` 真被改了（`D7b e2e 加的一行`），真实项目那份没动；
+- 收尾那条「清空「我的模型」的模型选择后再派发 → 停在排队并写明缺什么、去哪设置」也改在任务页上验。
 
-```
-$ node scripts/acceptance.mjs run CF3c
-Tests  12 passed (12)
-```
-
-（在第一支工作目录跑。）
+跑法与本机输出：
 
 ```
-$ node scripts/acceptance.mjs run-done
+$ node scripts/build.mjs
+exit=0
 
+$ node scripts/test-e2e.mjs desktop
+23 passed (1.1m)
+✓ desktop e2e 完成（67.9s）
 ```
 
-只剩丙类 22 条红：d1 12、g04 3、t2b 5、a5 条件 8、cf3b 条件 17；没有别的红。
-
-```
-$ node scripts/verify.mjs
-
-```
-
-`acceptance-lock` 红，且只因我列出的 16 个文件被改（T2a/T2b/G06/G04/G05×2/D3/D1/D4/P4/A5/D7b/P5/P6/P7/P8），符合约定。
-
-```
-$ node scripts/build.mjs && node scripts/test-e2e.mjs desktop
-
-```
-
-端到端 23 条里 22 条过；唯一红的是 d7b-model-executor（见「拿不准」第 4 条）。
-
-```
-$ node node_modules/vitest/vitest.mjs run --project acceptance packages/relay/test/acceptance/l16-watchdog.test.ts
-
-```
-
-单独跑能过 → 负载下计时，跟本单无关。
-
-### 真机通过
-
-甲（临时数据目录；临时目录遮成 <临时目录>）：
-
-```
-��02u-�A�04N�epenc�vU_�<�4N�e�vU_>�
-�
-��c�MR �h�e�r�m�e�s� �ۏzpe�0�
-�
-�w0R�v�c:y�I�X�A�0�0�1�0��I�X�A�0�0�1�0� �!j�W*gM�n���0R0!j�W
-0u��m�R�O�^FUv^	�}YJ�)Y(u�v!j�W �sQ� ��e�[݋ ��e�[݋ �hQ�y��v\��zz�[݋	� �9e
-T �R_ch � Rd� ��PJ�)Y�N7h�v�c�0bc�N*N݋��
-�
-��c�T �h�e�r�m�e�s� �ۏzpe�0�
-�
-�*b�V�.�l�o�g�s�/�c�f�3�c�-�r�e�a�l�-�a�.�p�n�g�
-�
-�02u-�B�04N�epenc�vU_�<�4N�e�vU_>�
-�
-�GPQsQ1\�~��z�S �5�8�4�6�2�	�
-�
-�_�dh~{�_�d ��vޏ ��� �!j�W �d�e�m�o�-�a�
-�
-�*b�V�.�l�o�g�s�/�c�f�3�c�-�r�e�a�l�-�b�.�p�n�g�
-�
-�
-```
-
-乙（真网关、合成问题，经 run-batch；模型名不打印）：
-
-```
-��
-�
-�=�=�=�=�=� �s�c�r�i�p�t�s�/�r�e�a�l�/�c�f�3�-�d�i�r�e�c�t�-�c�h�a�t�.�t�s� �=�=�=�=�=�
-�
-�[�r�u�n�n�e�r�]� �penc�vU_8h�[�w��^(u=�&T�4N�e�vU_S_�Spe O�m�k�d�t�e�m�p�S�y�n�c�=�	g	�
-�
-�=�=� �C�F�3� �w:gYN�w!j�W �+� �Tbpenc�!j�W1u�Spe OeQ�
-NSbpS	�=�=�
-�
-�Q�1� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�]� ���W[=�6�0�4�1�m�s� �;`��=�6�5�3�9�m�s�
-�
-� � � � � ��VT{MR �8�0� �W[�b/f`O�v*N�N�RKb �I�X�A�E�O�N���gM�	��1u �G�o�o�g�l�e� ��g�^�v �G�e�m�i�n�i� �4� �A�r�g�o�n� �'Y���!j�Wq��R0
-�
-�Q�2� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�s�e�a�r�c�h�_�m�e�m�o�r�y�]� ���W[=�1�0�8�6�4�m�s� �;`��=�1�1�7�1�4�m�s�
-�
-� � � � � ��VT{MR �8�0� �W[��vMRb�v���_�^-N�l	gsQ�N`O*N�N�VT{Θ<hOP}Y�v��U_0bS_MR؞��u��_ �_4Y�N�S�v�c�~T{Hh0(u�{m-N�e�VT{ �vĉR��Y�g`O	gvQ�NOP}Y��Y�~�gS���p0��~�c�[I{	���S�N
-�
-�Q�3� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�s�e�a�r�c�h�_�w�e�b�]� ���W[=�1�0�3�1�0�m�s� �;`��=�1�0�3�1�0�m�s�
-�
-� � � � � ��VT{MR �8�0� �W[�T�Qd"}�R���vMR�l	gM�n�b�e�l:N`O�g��gя�v �T�y�p�e�S�c�r�i�p�t� �lQ�_�e��0`O����(W��n̑kX�Qd"}
-g�R�v �K�e�y� �T�bMb��ck8^ۏL�T�Q�g�0
-�
-�Q�4� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�s�e�a�r�c�h�_�m�e�m�o�r�y�,� �g�e�t�_�p�r�o�j�e�c�t�_�c�o�n�t�e�x�t�]� ���W[=�1�9�0�9�3�m�s� �;`��=�2�0�2�9�2�m�s�
-�
-� � � � � ��VT{MR �8�0� �W[�	cbRMb�c0R�v�Q�[��^��`OHQ�[b*�*�T�Qd"}�R���vM�n�(W��n-NkX�Qd"}
-g�R�v �K�e�y�	�*�*�0 ��vMRb�v���_�^-N�l	gsQ�N`OvQ�Ny��vb�_�_�S�R��Rh��v��U_0�Y�g`O
-�
-�Q�5� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�s�e�a�r�c�h�_�m�e�m�o�r�y�]� ���W[=�1�1�5�7�0�m�s� �;`��=�1�1�7�3�0�m�s�
-�
-� � � � � ��VT{MR �8�0� �W[�b
-N�wS�`O
-N*NgwQSO���NY\����V:Nb�v���_�^-N�l	gsQ�N`O*N�N&�USb�m9���U_�v�Oo`0�Y�g`O�����~������bwQSO�v&�USpenc�S�~b�b�S�N.^`O���{0
-�
-�[�r�u�n�n�e�r�]� �c�f�3�-�d�i�r�e�c�t�-�c�h�a�t�.�t�s� ����Qx=�0�\���l	g �R�E�S�U�L�T� �L�	�
-�
-�
-�
-�=�=�=�=�=� �Gl;` �=�=�=�=�=�
-�
-�0�	�s�c�r�i�p�t�s�/�r�e�a�l�/�c�f�3�-�d�i�r�e�c�t�-�c�h�a�t�.�t�s�	���l	g �R�E�S�U�L�T� �L�	�
-�
-�
-�
-�qQ �1� �*N�^� �0� ��v �0� �*N
-�
-�
-```
-
-5 个合成问题全部 succeeded。
-
-### 用户接受
-
-未接受。
-
-### 拿不准（请整合方定）
-
-1. 上下文隐私过滤没实现（p5 条件 10 / p7 条件 12 / p8 条件 6 上下文）：解绑 / 撤销来源 / 删项目之后，那份东西提炼的条目仍会被选进下一问交给模型的内容。三条已改成 messages 断言并 it.skip 保留原断言。
-2. a5 条件 7（轮次上限记成失败）：直连到上限时按正常结束返回，不产生 round_limit 失败；it.skip 保留原断言。
-3. a5 条件 8、p6 条件 1、p4 条件 4 的聊天入口：丙类（能力已删）；a5 条件 8 原样保留（红），后两者 it.skip 并在表里写了理由。
-4. 端到端 d7b-model-executor：已改成「任务页建草案 + 待办卡」再点「要做」（不再依赖聊天建任务），待办卡能显示、能点，但点完 30 秒内没有「我的模型（e2e-model）」回报出现；原因未定位（可能与我用 SQL 补的草案状态/审批字段有关）。后段断言（回报、任务页、副本真被改）没删没放宽，整条保持红。
-
-## 整合方复审（2026-11-05）
-
-| 拿不准 | 定了什么 | 怎么落的 |
-| --- | --- | --- |
-| 1. 解绑 / 撤销来源 / 删项目之后条目仍进上下文 | **不是本单的回归，也不算本单的缺口**。这三条原来的断言只是「作废 Hermes 缓存的会话」（`invalidateContext` 被调、`askSessions` 清空）；直连每一问现组上下文、没有会话可作废，这半句退役。「撤销之后已提炼的条目还给不给模型看」是 Hermes 时期就一样的选材行为（`contextSelector` 只排除已归档来源，不看授权），属于改变记忆含义的新隐私决定，交用户定、另开单。11-04 整合方把它判成「必须过」是判错了。 | p5 条件 10、p8 条件 6 上下文那条删掉；p7 条件 12 只去掉「上下文」那几行，其余断言（授权撤销、资料与条目一条不少、别的授权不受影响、再预览说已撤销）恢复执行 |
-| 2. a5 条件 7 轮次上限 | 直连最后一轮不给工具，模型照理只能作答；它仍只回工具调用、一个字没说时，记成失败（「到了轮次上限（N 轮）还没形成回答」），不存档 | `packages/core/src/runtime/directChat.ts` +5 行；条件 7 恢复执行，通过 |
-| 3. 丙类退役 | 照分类表退役 | d1 12 条、g04 3 条、t2b 整份 5 条、a5 条件 8、cf3b 条件 17、p4 条件 4、p6 propose_coding_task 一条；连带删掉没人用的辅助函数和导入。`锁定验收.json` 里 T2b 的文件移到 `retired` |
-| 4. 端到端 d7b-model-executor | 退回 dev（见下） | — |
-
-另外重锁了 17 份改写过的旧测试（指纹只更新、状态不动）。抽查：改写的 11 份里，除退役的块外 `expect(` 条数没有减少（d3 97→97、d4 35→35、d7b-executor-selection 118→118、t2a 10→10 等）。
-
-### d7b-model-executor 退回 dev
-
-现在的写法用 SQL 直接往 `coding_tasks` / `todos` 插行、再往消息 meta 里塞待办卡：草案没走真实的建草案流程（工作区、快照、上下文摘要都是空的或假的），点「要做」之后派发起不来是意料之中，测的也不是用户会走的路。
-
-改法：**整条走任务页**——在任务页用「创建草案」建（填目标、范围、验证命令），在任务页批准、派发，断言任务卡上显示「执行器 我的模型（e2e-model）」、合成项目副本里 README 真被改了。原来「对话里出现回报」那一句：CF3c 起任务不从聊天来，回报没有对话可去；改看任务页上同样的信息（执行器名、结果），不许删掉「执行器是我的模型」和「副本真被改」这两条。不要再手插数据库行。
+CI：`dev/CF3cb` @ `fa365ab`，run **41935942588** → **success**（全绿，含 acceptance-lock 与端到端）。
