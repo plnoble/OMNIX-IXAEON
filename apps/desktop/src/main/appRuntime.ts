@@ -1777,7 +1777,7 @@ export class AppRuntime {
         apiKeyTail: def.tail,
         apiKeyUnreadable: def.unreadable,
         savedModels: m.savedModels ?? [],
-        modelsCheckedAt: null,
+        modelsCheckedAt: m.modelsCheckedAt ?? null,
         usedBy: usedBy('default'),
       },
     ];
@@ -1968,7 +1968,7 @@ export class AppRuntime {
       ];
       const now = new Date().toISOString();
       if (isDefault) {
-        this.updateConfig((c) => ({ ...c, model: { ...c.model } }));
+        this.updateConfig((c) => ({ ...c, model: { ...c.model, modelsCheckedAt: now } }));
       } else {
         this.updateConfig((c) => ({
           ...c,
@@ -1992,11 +1992,6 @@ export class AppRuntime {
     coding?: ModelChoice | null;
   }): { ok: true } {
     const next: AppConfig['uses'] = { ...(this.config.uses ?? {}) };
-    const modelField: Record<ModelUse, 'modelName' | 'chatModelName' | 'coding'> = {
-      analysis: 'modelName',
-      chat: 'chatModelName',
-      coding: 'coding',
-    };
     let analysisModel: string | null = null;
     let chatModel: string | null = null;
     let codingModel: string | null = null;
@@ -2023,12 +2018,15 @@ export class AppRuntime {
         throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个模型没有勾选保存过，先在模型页勾上');
       next[use] = { providerId: choice.providerId, model: choice.model };
     }
-    void modelField;
+    // 后台分析和聊天同一次都选 default 时，两项都要写进同一个 model 对象（整合方并入时修）
     this.updateConfig((c) => ({
       ...c,
       uses: next,
-      ...(analysisModel !== null ? { model: { ...c.model, modelName: analysisModel } } : {}),
-      ...(chatModel !== null ? { model: { ...c.model, chatModelName: chatModel } } : {}),
+      model: {
+        ...c.model,
+        ...(analysisModel !== null ? { modelName: analysisModel } : {}),
+        ...(chatModel !== null ? { chatModelName: chatModel } : {}),
+      },
       ...(codingModel !== null ? { coding: { ...c.coding, modelName: codingModel } } : {}),
     }));
     this.resetChatSessions();

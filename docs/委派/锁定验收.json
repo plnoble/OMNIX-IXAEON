@@ -896,7 +896,7 @@
     {
       "id": "MP2",
       "title": "模型接入支持多个供应商",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/mp2-providers.test.ts": "2c9a541478d361c435eb445d57ab4b0ea82211b9b4675a2a948b1471153399bd",
         "apps/desktop/test/acceptance/mp2-fetch-models.test.ts": "ec7ec470ad4bc2c053cd4b05d1aae836df7d93aef5606f08f2e02aa5ccbd14c4",
