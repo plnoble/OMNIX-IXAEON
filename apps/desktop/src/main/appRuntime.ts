@@ -241,6 +241,8 @@ export class AppRuntime {
   /** P1：预热好的空闲问答会话（最多一个），见 prewarmChat。 */
   /** 这一问用掉了预热会话：答完再备一个。 */
   private codingDispatchRef: CodingDispatch | null = null;
+  /** 假聊天客户端（同一运行时复用，剧本按 stream 调用顺序往下走）。 */
+  private fakeChatClient: StreamChatClient | null = null;
   private get codingDispatch(): CodingDispatch {
     return (this.codingDispatchRef ??= new CodingDispatch(this));
   }
@@ -1462,7 +1464,13 @@ export class AppRuntime {
           script = [{ deltas: ['（假模型的合成回答）'] }];
         }
       }
-      return new FakeStreamChatClient(script as never, launch.model);
+      // 同一个运行时只建一个：剧本是「一次 stream 用一步」，跨多问要连续走下去
+      this.fakeChatClient ??= new FakeStreamChatClient(
+        script as never,
+        launch.model,
+        Number(process.env['IXAEON_TEST_MODEL_DELAY_MS'] ?? 0) || 0,
+      );
+      return this.fakeChatClient;
     }
     return new OpenAIChatStreamClient({
       baseUrl: launch.baseUrl,
