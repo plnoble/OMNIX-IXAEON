@@ -72,6 +72,11 @@ import {
   mapWatchDirections,
   watchDirectionsSchema,
   type WatchDirection,
+  resolveModelUse,
+  checkMagpieUrl,
+  getSetting,
+  setSetting,
+  type ModelUse,
   getDisclosureEpoch,
   isPathInside,
   localDay,
@@ -120,6 +125,8 @@ import {
   type GoalPlanView,
   type GoalStepView,
   type GoalSummaryView,
+  type ModelProviderView,
+  type ModelChoice,
 } from '@ixaeon/contracts';
 import Fastify from 'fastify';
 import { LocalServer } from './server/localServer.js';
@@ -854,7 +861,15 @@ export class AppRuntime {
       }
       return this.fakeProvider;
     }
-    return this.savedKeyProvider(this.config.model.modelName);
+    const resolved = resolveModelUse(this.config, 'analysis');
+    if (!resolved || !resolved.model) return null;
+    const apiKey = resolved.apiKeyEncrypted ? decryptApiKey(resolved.apiKeyEncrypted) : null;
+    if (!apiKey) return null;
+    return new OpenAIResponsesProvider({
+      apiKey,
+      modelName: resolved.model,
+      baseUrl: resolved.apiBaseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
+    });
   }
 
   /** 用已保存的 Key、已保存的地址和给定的模型名建客户端。没有模型名、没存 Key、解不开都返回 null。 */
@@ -1522,7 +1537,9 @@ export class AppRuntime {
     // 只看设置页里「聊天模型」那一项是否**显式选过**：留空说明用户没给聊天指定模型
     //（只配了分析模型的任务、编码派发等不该因此把聊天改道）；chatModelName() 的回退
     // 是给 Hermes 启动参数用的，不拿来判断「聊天配好了没有」。
-    const explicit = (this.config as AppConfig | undefined)?.model?.chatModelName?.trim();
+    const config = this.config as AppConfig | undefined;
+    const explicit =
+      config?.uses?.chat !== undefined || Boolean(config?.model?.chatModelName?.trim());
     if (!explicit) return null;
     const { chatModel, chatBaseUrl, chatApiKey } = this.chatLaunchOptions();
     if (!chatModel || !chatBaseUrl || !chatApiKey) return null;
@@ -1708,13 +1725,18 @@ export class AppRuntime {
     chatBaseUrl: string | null;
     chatApiKey: string | null;
   } {
-    const m = (this.config as AppConfig | undefined)?.model;
-    if (!m) return { chatModel: null, chatBaseUrl: null, chatApiKey: null };
-    const chatModel = this.chatModelName();
-    const chatBaseUrl = m.apiBaseUrl?.trim() || null;
-    if (!chatModel || !chatBaseUrl) return { chatModel, chatBaseUrl: null, chatApiKey: null };
-    const apiKey = m.apiKeyPresent && m.apiKeyEncrypted ? decryptApiKey(m.apiKeyEncrypted) : null;
-    return { chatModel, chatBaseUrl, chatApiKey: apiKey };
+    const config = this.config as AppConfig | undefined;
+    if (!config?.model) return { chatModel: null, chatBaseUrl: null, chatApiKey: null };
+    const resolved = resolveModelUse(config, 'chat');
+    const chatBaseUrl = resolved?.apiBaseUrl?.trim() || null;
+    if (!resolved || !chatBaseUrl)
+      return { chatModel: resolved?.model ?? null, chatBaseUrl: null, chatApiKey: null };
+    // 有密文但解不开 → 当作没配（不借别家的 Key）
+    const apiKey = resolved.apiKeyEncrypted ? decryptApiKey(resolved.apiKeyEncrypted) : null;
+    if (resolved.apiKeyEncrypted && !apiKey) {
+      return { chatModel: resolved.model, chatBaseUrl: null, chatApiKey: null };
+    }
+    return { chatModel: resolved.model, chatBaseUrl, chatApiKey: apiKey };
   }
 
   /**
@@ -1726,6 +1748,292 @@ export class AppRuntime {
    * - M3：地址来源（协议+主机+端口）变了、这次又没填新 Key，就把已保存的
    *   Key 清掉（不留给新地址），返回 keyCleared=true；本来没有 Key 的不算。
    */
+  /** MP2：Key 后四位；不足 8 字符 / 没有 / 解不开都是 null。 */
+  private keyTail(encrypted: string | null): { tail: string | null; unreadable: boolean } {
+    if (!encrypted) return { tail: null, unreadable: false };
+    const plain = decryptApiKey(encrypted);
+    if (!plain) return { tail: null, unreadable: true };
+    return { tail: plain.length >= 8 ? plain.slice(-4) : null, unreadable: false };
+  }
+  /** MP2：default 那家是不是 magpie——靠地址来源等于当前 magpie 地址推算，不另存字段。 */
+  private defaultIsMagpie(apiBaseUrl: string): boolean {
+    const magpie = getSetting(this.db, 'cockpit.magpie_url')?.value ?? '';
+    return Boolean(magpie) && normalizeOrigin(apiBaseUrl) === normalizeOrigin(magpie);
+  }
+  /** MP2：界面的供应商视图（只有后四位，不含 Key 与密文）。 */
+  listModelProviders(): ModelProviderView[] {
+    const cfg = this.config as AppConfig;
+    const usedBy = (id: string): ModelUse[] =>
+      (['analysis', 'chat', 'coding'] as const).filter((u) => cfg.uses?.[u]?.providerId === id);
+    const m = cfg.model;
+    const def = this.keyTail(m.apiKeyEncrypted);
+    const views: ModelProviderView[] = [
+      {
+        id: 'default',
+        name: m.providerName?.trim() || '默认',
+        kind: this.defaultIsMagpie(m.apiBaseUrl) ? 'magpie' : 'openai',
+        apiBaseUrl: m.apiBaseUrl,
+        apiKeyPresent: m.apiKeyPresent,
+        apiKeyTail: def.tail,
+        apiKeyUnreadable: def.unreadable,
+        savedModels: m.savedModels ?? [],
+        modelsCheckedAt: null,
+        usedBy: usedBy('default'),
+      },
+    ];
+    for (const p of cfg.providers ?? []) {
+      const k = this.keyTail(p.apiKeyEncrypted);
+      views.push({
+        id: p.id,
+        name: p.name,
+        kind: p.kind,
+        apiBaseUrl: p.apiBaseUrl,
+        apiKeyPresent: p.apiKeyPresent,
+        apiKeyTail: k.tail,
+        apiKeyUnreadable: k.unreadable,
+        savedModels: p.savedModels ?? [],
+        modelsCheckedAt: p.modelsCheckedAt ?? null,
+        usedBy: usedBy(p.id),
+      });
+    }
+    return views;
+  }
+  /** MP2：保存一家供应商（id=default 时读写 config.model）。 */
+  saveModelProvider(input: {
+    id?: string;
+    name: string;
+    kind: 'openai' | 'magpie';
+    apiBaseUrl: string;
+    apiKey?: string;
+    savedModels?: string[];
+  }): { ok: true; id: string; keyCleared: boolean } {
+    const name = input.name.trim();
+    const apiBaseUrl = input.apiBaseUrl.trim();
+    const providedKey =
+      typeof input.apiKey === 'string' && input.apiKey.length > 0 ? input.apiKey : null;
+    let magpieBase: string | null = null;
+    if (input.kind === 'magpie') {
+      // 规格：magpie 挂在「地址的来源」上——先取来源（协议+主机+端口）再校验，路径不参与
+      const checked = checkMagpieUrl(normalizeOrigin(apiBaseUrl));
+      if (!checked.base)
+        throw new IxaError(
+          ErrorCodes.VALIDATION_FAILED,
+          `magpie 地址只认本机 http：${checked.reason ?? ''}`,
+        );
+      magpieBase = checked.base;
+      const others = (this.config.providers ?? []).filter(
+        (p) => p.kind === 'magpie' && p.id !== input.id,
+      );
+      const clash =
+        others.length > 0 ||
+        (input.id !== 'default' && this.defaultIsMagpie(this.config.model.apiBaseUrl));
+      if (clash)
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '只能有一家 magpie，先把现有的那家换掉');
+    }
+    if (input.id === 'default') {
+      const before = this.config.model.apiBaseUrl;
+      const originChanged = normalizeOrigin(apiBaseUrl) !== normalizeOrigin(before);
+      const keyCleared =
+        originChanged &&
+        providedKey === null &&
+        (this.config.model.apiKeyPresent || this.config.model.apiKeyEncrypted !== null);
+      this.updateConfig((c) => ({
+        ...c,
+        model: {
+          ...c.model,
+          providerName: name,
+          apiBaseUrl,
+          ...(providedKey !== null
+            ? { apiKeyEncrypted: encryptApiKey(providedKey), apiKeyPresent: true }
+            : {}),
+          ...(keyCleared ? { apiKeyEncrypted: null, apiKeyPresent: false } : {}),
+          ...(input.savedModels !== undefined ? { savedModels: [...input.savedModels] } : {}),
+        },
+      }));
+      if (magpieBase) setSetting(this.db, 'cockpit.magpie_url', magpieBase);
+      recordAudit(this.db, 'model_provider.saved', {
+        id: 'default',
+        kind: input.kind,
+        key: providedKey ? 'new' : keyCleared ? 'cleared' : 'kept',
+      });
+      return { ok: true, id: 'default', keyCleared };
+    }
+    const existing = (this.config.providers ?? []).find((p) => p.id === input.id);
+    const id = existing?.id ?? `p-${randomUUID().slice(0, 8)}`;
+    const originChanged = existing
+      ? normalizeOrigin(apiBaseUrl) !== normalizeOrigin(existing.apiBaseUrl)
+      : false;
+    const keyCleared =
+      Boolean(existing) &&
+      originChanged &&
+      providedKey === null &&
+      (existing!.apiKeyPresent || existing!.apiKeyEncrypted !== null);
+    this.updateConfig((c) => {
+      const row = {
+        id,
+        name,
+        kind: input.kind,
+        apiBaseUrl,
+        apiKeyEncrypted:
+          providedKey !== null
+            ? encryptApiKey(providedKey)
+            : keyCleared
+              ? null
+              : (existing?.apiKeyEncrypted ?? null),
+        apiKeyPresent:
+          providedKey !== null ? true : keyCleared ? false : (existing?.apiKeyPresent ?? false),
+        savedModels:
+          input.savedModels !== undefined ? [...input.savedModels] : (existing?.savedModels ?? []),
+        modelsCheckedAt: existing?.modelsCheckedAt ?? null,
+      };
+      return {
+        ...c,
+        providers: existing
+          ? (c.providers ?? []).map((p) => (p.id === id ? row : p))
+          : [...(c.providers ?? []), row],
+      };
+    });
+    if (magpieBase) setSetting(this.db, 'cockpit.magpie_url', magpieBase);
+    recordAudit(this.db, 'model_provider.saved', {
+      id,
+      kind: input.kind,
+      key: providedKey ? 'new' : keyCleared ? 'cleared' : 'kept',
+    });
+    return { ok: true, id, keyCleared };
+  }
+  /** MP2：删一家人；default 与被用途用着都拒绝。 */
+  deleteModelProvider(id: string): { ok: true } {
+    if (id === 'default')
+      throw new IxaError(ErrorCodes.VALIDATION_FAILED, '默认那一家不能删，只能改或清空');
+    const row = (this.config.providers ?? []).find((p) => p.id === id);
+    if (!row) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '没有这家供应商');
+    const names: Record<ModelUse, string> = {
+      analysis: '后台分析',
+      chat: '聊天',
+      coding: '编码任务',
+    };
+    const used = (['analysis', 'chat', 'coding'] as const).filter(
+      (u) => this.config.uses?.[u]?.providerId === id,
+    );
+    if (used.length > 0) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        `${used.map((u) => names[u]).join('、')}在用它，先在用途里换掉再删`,
+      );
+    }
+    this.updateConfig((c) => ({ ...c, providers: (c.providers ?? []).filter((p) => p.id !== id) }));
+    recordAudit(this.db, 'model_provider.deleted', { id, kind: row.kind });
+    return { ok: true };
+  }
+  /** MP2：取一家的模型清单（只发 GET /models，10 秒超时，不跟跳转）。 */
+  async fetchProviderModels(
+    id: string,
+    input?: { apiBaseUrl?: string; apiKey?: string },
+  ): Promise<{ models: string[]; error: string | null }> {
+    const isDefault = id === 'default';
+    const row = isDefault ? null : (this.config.providers ?? []).find((p) => p.id === id);
+    if (!isDefault && !row) return { models: [], error: '没有这家供应商' };
+    const storedBase = isDefault ? this.config.model.apiBaseUrl : (row!.apiBaseUrl ?? '');
+    const storedEnc = isDefault ? this.config.model.apiKeyEncrypted : row!.apiKeyEncrypted;
+    const storedPresent = isDefault ? this.config.model.apiKeyPresent : row!.apiKeyPresent;
+    const base = (input?.apiBaseUrl?.trim() || storedBase || '').replace(/\/+$/, '');
+    if (!base) return { models: [], error: '没有填地址' };
+    const originChanged = normalizeOrigin(base) !== normalizeOrigin(storedBase);
+    const typedKey = input?.apiKey?.trim();
+    const key = typedKey
+      ? typedKey
+      : !originChanged && storedPresent && storedEnc
+        ? decryptApiKey(storedEnc)
+        : null;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    try {
+      const res = await fetch(`${base}/models`, {
+        method: 'GET',
+        headers: key ? { authorization: `Bearer ${key}` } : {},
+        redirect: 'error',
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return { models: [], error: `上游返回 ${res.status}：${text.slice(0, 120)}` };
+      }
+      const body = (await res.json()) as { data?: Array<{ id?: unknown }> };
+      const models = [
+        ...new Set(
+          (body.data ?? [])
+            .map((m) => (typeof m.id === 'string' ? m.id.trim() : ''))
+            .filter((m) => m.length > 0),
+        ),
+      ];
+      const now = new Date().toISOString();
+      if (isDefault) {
+        this.updateConfig((c) => ({ ...c, model: { ...c.model } }));
+      } else {
+        this.updateConfig((c) => ({
+          ...c,
+          providers: (c.providers ?? []).map((p) =>
+            p.id === id ? { ...p, modelsCheckedAt: now } : p,
+          ),
+        }));
+      }
+      return { models, error: null };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { models: [], error: message.slice(0, 120) || '获取模型失败' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  /** MP2：保存三个用途的选择；选 default 时写回旧字段并清掉 uses 里那一项。 */
+  saveModelUses(input: {
+    analysis?: ModelChoice | null;
+    chat?: ModelChoice | null;
+    coding?: ModelChoice | null;
+  }): { ok: true } {
+    const next: AppConfig['uses'] = { ...(this.config.uses ?? {}) };
+    const modelField: Record<ModelUse, 'modelName' | 'chatModelName' | 'coding'> = {
+      analysis: 'modelName',
+      chat: 'chatModelName',
+      coding: 'coding',
+    };
+    let analysisModel: string | null = null;
+    let chatModel: string | null = null;
+    let codingModel: string | null = null;
+    for (const use of ['analysis', 'chat', 'coding'] as const) {
+      const choice = input[use];
+      if (choice === undefined) continue;
+      delete next[use];
+      if (choice === null) continue;
+      if (choice.providerId === 'default') {
+        const saved = this.config.model.savedModels ?? [];
+        if (!saved.includes(choice.model))
+          throw new IxaError(
+            ErrorCodes.VALIDATION_FAILED,
+            '这个模型没有勾选保存过，先在模型页勾上',
+          );
+        if (use === 'analysis') analysisModel = choice.model;
+        else if (use === 'chat') chatModel = choice.model;
+        else codingModel = choice.model;
+        continue;
+      }
+      const row = (this.config.providers ?? []).find((p) => p.id === choice.providerId);
+      if (!row) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '没有这家供应商');
+      if (!(row.savedModels ?? []).includes(choice.model))
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个模型没有勾选保存过，先在模型页勾上');
+      next[use] = { providerId: choice.providerId, model: choice.model };
+    }
+    void modelField;
+    this.updateConfig((c) => ({
+      ...c,
+      uses: next,
+      ...(analysisModel !== null ? { model: { ...c.model, modelName: analysisModel } } : {}),
+      ...(chatModel !== null ? { model: { ...c.model, chatModelName: chatModel } } : {}),
+      ...(codingModel !== null ? { coding: { ...c.coding, modelName: codingModel } } : {}),
+    }));
+    this.resetChatSessions();
+    return { ok: true };
+  }
   saveModelSettings(input: {
     modelName: string;
     chatModelName?: string;
@@ -3199,7 +3507,8 @@ export class AppRuntime {
 
   updateConfig(mutate: (config: AppConfig) => AppConfig): AppConfig {
     this.config = mutate(this.config);
-    saveConfig(this.configFile, this.config);
+    // 配置文件位置：正常走 configFile；只有 dataDir 时（验收测试直接造运行时）按数据目录推。
+    saveConfig(this.configFile ?? join(this.dataDir, 'config.json'), this.config);
     return this.config;
   }
 

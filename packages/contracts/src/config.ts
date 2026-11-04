@@ -1,5 +1,24 @@
 import { z } from 'zod';
 
+/** MP2：一个「用途」选中了哪家的哪个模型（只有这两个字段，没有 Key）。 */
+export const modelChoiceSchema = z.object({
+  providerId: z.string().min(1),
+  model: z.string().min(1),
+});
+export type ModelChoice = z.infer<typeof modelChoiceSchema>;
+
+/** 供应商：id = default 那一家的内容仍然在 config.model 里，这里只放其余各家。 */
+export const modelProviderSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(40),
+  kind: z.enum(['openai', 'magpie']),
+  apiBaseUrl: z.string(),
+  apiKeyEncrypted: z.string().nullable(),
+  apiKeyPresent: z.boolean(),
+  savedModels: z.array(z.string()).default([]),
+  modelsCheckedAt: z.string().nullable().default(null),
+});
+
 /** config.json（保存在数据目录根）的完整 schema。 */
 export const appConfigSchema = z.object({
   configVersion: z.literal(1),
@@ -29,6 +48,8 @@ export const appConfigSchema = z.object({
      * 的编码执行器模型）都只从这里选；不是「模型池」，没有自动挑模型。
      */
     savedModels: z.array(z.string()).default([]),
+    /** default 那家的显示名；空 = 「默认」 */
+    providerName: z.string().default(''),
     /** M2：上次成功检测上游模型的时间；保存选择不碰它。 */
     modelsCheckedAt: z.string().nullable().default(null),
   }),
@@ -87,6 +108,16 @@ export const appConfigSchema = z.object({
       modelName: z.string().default(''),
     })
     .default({ executor: 'codex', modelName: '' }),
+  /** MP2：第一家（default）沿用 config.model，其余各家放这里，不用迁移。 */
+  providers: z.array(modelProviderSchema).default([]),
+  /** MP2：三个用途各自用哪家的哪个模型；没有这一项就走旧字段。 */
+  uses: z
+    .object({
+      analysis: modelChoiceSchema.optional(),
+      chat: modelChoiceSchema.optional(),
+      coding: modelChoiceSchema.optional(),
+    })
+    .default({}),
 });
 export type AppConfig = z.infer<typeof appConfigSchema>;
 
@@ -98,6 +129,7 @@ export function defaultAppConfig(): AppConfig {
       provider: 'openai',
       modelName: '',
       chatModelName: '',
+      providerName: '',
       apiBaseUrl: '',
       apiKeyEncrypted: null,
       apiKeyPresent: false,
@@ -115,6 +147,8 @@ export function defaultAppConfig(): AppConfig {
     webSearch: { provider: 'none', apiKeyEncrypted: null, apiKeyPresent: false },
     hermesBridge: { enabled: false, token: null },
     coding: { executor: 'codex', modelName: '' },
+    providers: [],
+    uses: {},
   };
 }
 

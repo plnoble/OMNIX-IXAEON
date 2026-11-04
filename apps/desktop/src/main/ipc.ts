@@ -774,6 +774,12 @@ export function registerIpc(runtime: AppRuntime): void {
     getSemanticIndexStatus: async () => runtime.getSemanticIndexStatus(),
     prewarmChat: async (input) => runtime.prewarmChat(input?.projectId ?? null),
     rebuildSemanticIndex: async () => runtime.rebuildSemanticIndex(),
+    // MP2：多供应商
+    listModelProviders: async () => runtime.listModelProviders(),
+    saveModelProvider: async (input) => runtime.saveModelProvider(input),
+    deleteModelProvider: async (id) => runtime.deleteModelProvider(id),
+    fetchProviderModels: async (id, input) => runtime.fetchProviderModels(id, input),
+    saveModelUses: async (input) => runtime.saveModelUses(input),
     getSettings: async () => {
       const config = runtime.getConfig();
       return {
@@ -792,6 +798,8 @@ export function registerIpc(runtime: AppRuntime): void {
           extensionLastSyncAt: runtime.lastCaptureAt(),
           webSearchProvider: config.webSearch?.provider ?? 'none',
           webSearchKeyPresent: config.webSearch?.apiKeyPresent ?? false,
+          // MP2（11-03 补）：界面要知道每个用途现在选的是哪家的哪个模型
+          uses: config.uses ?? {},
         },
         dataDir: runtime.state.dataDir,
         cockpit: {
