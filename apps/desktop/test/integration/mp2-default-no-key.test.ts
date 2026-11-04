@@ -129,3 +129,21 @@ describe('MP2 自有回归：default 没 Key 时聊天不走直连', () => {
     expect(runtime.getProvider()).toBeNull();
   });
 });
+
+describe('MP2 整合方并入时补的回归', () => {
+  it('同一次保存里后台分析和聊天都选 default：两项都写进旧字段，互不覆盖', () => {
+    const runtime = runtimeWithoutKey();
+    (runtime as unknown as { resetChatSessions: () => void }).resetChatSessions = () => undefined;
+    runtime.updateConfig((c) => ({
+      ...c,
+      model: { ...c.model, savedModels: ['demo-a', 'demo-a2'] },
+    }));
+    runtime.saveModelUses({
+      analysis: { providerId: 'default', model: 'demo-a2' },
+      chat: { providerId: 'default', model: 'demo-a' },
+    });
+    const model = runtime.getConfig().model;
+    expect(model.modelName).toBe('demo-a2');
+    expect(model.chatModelName).toBe('demo-a');
+  });
+});

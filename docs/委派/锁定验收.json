@@ -896,7 +896,7 @@
     {
       "id": "MP2",
       "title": "模型接入支持多个供应商",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/mp2-providers.test.ts": "2c9a541478d361c435eb445d57ab4b0ea82211b9b4675a2a948b1471153399bd",
         "apps/desktop/test/acceptance/mp2-fetch-models.test.ts": "ec7ec470ad4bc2c053cd4b05d1aae836df7d93aef5606f08f2e02aa5ccbd14c4",
@@ -917,6 +917,15 @@
       "status": "queued",
       "files": {
         "apps/desktop/test/acceptance/mp2b-entry.test.ts": "7401cdede170e1cf774c342424fc227cc5f52608b76a550e0cfb692d13d8cf73"
+      }
+    },
+    {
+      "id": "CF3c",
+      "title": "聊天只走直连",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/cf3c-direct-only.test.ts": "1fe75c9bc25bbfb9a9de0a49909e28644ecf86efb8054731b28057aa68faf3b0",
+        "apps/desktop/test/acceptance/cf3c-no-prewarm.test.ts": "960ab88c6032a92b605aa285f55678ae4ab9d614fe31f79f0a84eedb6fce6f48"
       }
     }
   ]
