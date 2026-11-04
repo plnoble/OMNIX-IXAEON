@@ -608,10 +608,13 @@ describe('聊天里提编码任务草案', () => {
     };
     const toolCalls: Array<[string, Record<string, unknown>]> = [];
     // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言
-    registerHermesBridgeTools(stubServer as never, (async (name: string, args: Record<string, unknown>) => {
-      toolCalls.push([name, args]);
-      return { taskId: 'stub' };
-    }) as never);
+    registerHermesBridgeTools(
+      stubServer as never,
+      (async (name: string, args: Record<string, unknown>) => {
+        toolCalls.push([name, args]);
+        return { taskId: 'stub' };
+      }) as never,
+    );
     expect(registered.map((r) => r.name)).toEqual(
       expect.arrayContaining([
         'search_memory',

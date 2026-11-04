@@ -8,7 +8,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ipcMain } from 'electron';
-import { GoalStore, PlanStore, TodoStore, migrate, openDatabase, type CoreDatabase } from '@ixaeon/core';
+import {
+  GoalStore,
+  PlanStore,
+  TodoStore,
+  migrate,
+  openDatabase,
+  type CoreDatabase,
+} from '@ixaeon/core';
 import type { GoalDetailView } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
 import { registerIpc } from '../../src/main/ipc.js';
@@ -47,7 +54,14 @@ function ipc() {
   };
 }
 
-const GOAL_TABLES = ['goals', 'goal_events', 'goal_plans', 'goal_steps', 'goal_step_deps', 'goal_links'];
+const GOAL_TABLES = [
+  'goals',
+  'goal_events',
+  'goal_plans',
+  'goal_steps',
+  'goal_step_deps',
+  'goal_links',
+];
 const snapshot = (): unknown[] =>
   GOAL_TABLES.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all());
 

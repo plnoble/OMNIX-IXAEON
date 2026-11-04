@@ -120,7 +120,9 @@ describe('SUB1b 驾驶舱额度区（magpie）', () => {
     state.snapshot = snap({
       quotas: [
         card({
-          windows: [{ name: '额外', usedPercent: 20.142857142857142, resetAt: null, display: null }],
+          windows: [
+            { name: '额外', usedPercent: 20.142857142857142, resetAt: null, display: null },
+          ],
         }),
       ],
     });

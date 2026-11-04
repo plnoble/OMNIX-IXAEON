@@ -81,7 +81,9 @@ function seedTask(): CodingTask {
       raw: '',
     }),
   );
-  return db.prepare('SELECT * FROM coding_tasks WHERE id = ?').get('u3-ipc-1') as unknown as CodingTask;
+  return db
+    .prepare('SELECT * FROM coding_tasks WHERE id = ?')
+    .get('u3-ipc-1') as unknown as CodingTask;
 }
 
 /** 真实的 registerIpc + 运行时（挂上 coding），按通道名调用处理函数。 */

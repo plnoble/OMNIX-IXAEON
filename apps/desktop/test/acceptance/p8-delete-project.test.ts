@@ -53,7 +53,6 @@ import {
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CodingExecutor,
   type CoreDatabase,
   type IndependentCheck,
