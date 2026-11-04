@@ -76,6 +76,8 @@ export function AskPage({
   // CF0：设置里已检测并保存的模型 / 当前聊天模型。读不到设置前保持 undefined，
   // 失败消息下面的换模型控件先不出现（免得闪一下「还没有别的模型」）。
   const [savedModels, setSavedModels] = useState<string[] | undefined>(undefined);
+  // MP2b：换模型下拉框显示「供应商名 · 模型」
+  const [modelLabels, setModelLabels] = useState<Record<string, string> | undefined>(undefined);
   const [chatModelName, setChatModelName] = useState<string | null>(null);
   // 现有保存设置通道要求带上分析模型（modelName）；换聊天模型时原样传回，不动它。
   const [modelName, setModelName] = useState<string | null>(null);
@@ -126,6 +128,17 @@ export function AskPage({
       setSavedModels(view.config.savedModels ?? []);
       setChatModelName(view.config.chatModelName || view.config.modelName || null);
       setModelName(view.config.modelName || null);
+      // 标签只是显示用：放在最后，取不到也不影响上面的模型状态（整合方并入时调的先后）
+      void api
+        .listModelProviders()
+        .then((rows) =>
+          setModelLabels(
+            Object.fromEntries(
+              rows.flatMap((p) => p.savedModels.map((m) => [m, `${p.name} · ${m}`])),
+            ),
+          ),
+        )
+        .catch(() => setModelLabels(undefined));
     } catch {
       // 设置读不到就不出换模型控件；不影响聊天本身
     }
@@ -596,6 +609,7 @@ export function AskPage({
                   todoCoding={todoCoding}
                   onOpenTask={onOpenTask}
                   savedModels={savedModels}
+                  modelLabels={modelLabels}
                   chatModelName={chatModelName}
                   retryDisabled={busy}
                   onRetryWithModel={(model) => {

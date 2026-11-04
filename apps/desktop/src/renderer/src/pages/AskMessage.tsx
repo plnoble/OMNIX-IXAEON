@@ -120,9 +120,12 @@ function RetryWithModel({
   disabled,
   onRetryWithModel,
   onOpenModelSettings,
+  modelLabels,
 }: {
   failedModel: string | null;
   savedModels: string[];
+  /** MP2b：模型名 → 「供应商名 · 模型」，换模型下拉框照这个显示。 */
+  modelLabels?: Record<string, string>;
   disabled?: boolean;
   onRetryWithModel?: (model: string) => void;
   onOpenModelSettings?: () => void;
@@ -155,7 +158,7 @@ function RetryWithModel({
       >
         {options.map((m) => (
           <option key={m} value={m}>
-            {m}
+            {modelLabels?.[m] ?? m}
           </option>
         ))}
       </select>
@@ -225,6 +228,7 @@ export function AskMessage({
   retryDisabled,
   onRetryWithModel,
   onOpenModelSettings,
+  modelLabels,
 }: {
   message: ConversationMessage;
   /**
@@ -246,6 +250,7 @@ export function AskMessage({
   onOpenTask?: (taskId: string) => void;
   /** CF0：设置里已检测并保存的模型（没读到设置前不传，控件先不出现）。 */
   savedModels?: string[];
+  modelLabels?: Record<string, string>;
   /** CF0：当前聊天模型（失败原文没给模型名时，退回这条消息自己记录的模型）。 */
   chatModelName?: string | null;
   /** CF0：正在回答/准备中时不许再点「用这个模型重问」。 */
@@ -299,6 +304,7 @@ export function AskMessage({
           <RetryWithModel
             failedModel={failedModel}
             savedModels={savedModels}
+            modelLabels={modelLabels}
             disabled={retryDisabled}
             onRetryWithModel={onRetryWithModel}
             onOpenModelSettings={onOpenModelSettings}

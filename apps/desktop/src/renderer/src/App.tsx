@@ -5,6 +5,7 @@ import { ProjectsPage } from './pages/Projects.js';
 import { SourcesPage } from './pages/Sources.js';
 import { SearchPage } from './pages/Search.js';
 import { SettingsPage } from './pages/Settings.js';
+import { ModelsPage } from './pages/Models.js';
 import { UnderstandingPage } from './pages/Understanding.js';
 import { InboxPage, HistoryPage } from './pages/Inbox.js';
 import { AskPage } from './pages/Ask.js';
@@ -31,7 +32,8 @@ type Page =
   | 'tasks'
   | 'todos'
   | 'goals'
-  | 'settings';
+  | 'settings'
+  | 'models';
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -248,6 +250,14 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={page === 'models' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setPage('models')}
+            data-testid="nav-models"
+          >
+            模型
+          </button>
+          <button
+            type="button"
             className={page === 'settings' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setSettingsFocus(null);
@@ -289,10 +299,7 @@ export default function App() {
               setTaskFocus({ taskId, at: Date.now() });
               setPage('tasks');
             }}
-            onOpenModelSettings={() => {
-              setSettingsFocus({ section: 'model', at: Date.now() });
-              setPage('settings');
-            }}
+            onOpenModelSettings={() => setPage('models')}
           />
         )}
 
@@ -321,7 +328,10 @@ export default function App() {
 
         {page === 'tasks' && <TasksPage projects={projects} focus={taskFocus} />}
 
-        {page === 'settings' && <SettingsPage focus={settingsFocus} />}
+        {page === 'settings' && (
+          <SettingsPage focus={settingsFocus} onOpenModels={() => setPage('models')} />
+        )}
+        {page === 'models' && <ModelsPage />}
       </main>
     </div>
   );

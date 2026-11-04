@@ -92,20 +92,21 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     await page.getByTestId('setup-finish').click();
     await expect(page.getByTestId('main-nav')).toBeVisible({ timeout: 20_000 });
 
-    await page.getByTestId('nav-settings').click();
-    await expect(page.getByTestId('settings-model')).toBeVisible({ timeout: 20_000 });
-    // 模型清单：检测假上游、勾选保存
-    await page.getByTestId('settings-api-base').fill(upstreamBase);
-    await page.getByTestId('settings-api-key').fill('sk-e2e');
-    await page.getByTestId('settings-fetch-models').click();
-    await expect(page.getByTestId('settings-model-checklist')).toBeVisible({ timeout: 20_000 });
-    await page
-      .locator(`[data-testid="settings-model-check"][data-model-id="${SAVED_MODEL}"]`)
-      .check();
-    await page.getByTestId('settings-model-save').click();
+    // MP2b：模型接入搬到「模型」页
+    await page.getByTestId('nav-models').click();
+    await expect(page.getByTestId('models-page')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('provider-base-input-default').fill(upstreamBase);
+    await page.getByTestId('provider-key-input-default').fill('sk-e2e');
+    await page.getByTestId('provider-models-default').click();
+    await expect(page.getByTestId(`model-row-${SAVED_MODEL}`)).toBeVisible({ timeout: 20_000 });
+    await page.locator(`[data-testid="model-row-${SAVED_MODEL}"] input[type="checkbox"]`).check();
+    await page.getByTestId('provider-save-default').click();
     await expect(page.locator('.ok-banner')).toContainText('已保存', { timeout: 15_000 });
 
     // 编码任务交给谁：我的模型
+    // MP2b：模型在「模型」页配好，编码执行器还在设置页
+    await page.getByTestId('nav-settings').click();
+    await expect(page.getByTestId('settings-coding')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('settings-coding-executor').selectOption('model');
     await page.getByTestId('settings-coding-model').selectOption(SAVED_MODEL);
     await page.getByTestId('settings-coding-save').click();

@@ -309,7 +309,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/m2-saved-models.test.ts": "07c0d6e309660c3d810664d8b5daa76960de188cee0ae0f3c5be0cdb4bfa13d1",
-        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "a927dd320d92248716f5dced3dc395ad43c5cb3048f3a7c2456e4bfccd47e432"
+        "apps/desktop/test/acceptance/m2-settings-ui.test.ts": "d803cdfc2c584293bf97875f11a7a040729341afdecfb159cc94efbab7b7c2ae"
       }
     },
     {
@@ -326,7 +326,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/d7b-executor-selection.test.ts": "e0428b9ec4edc542f52af49252bba990798ccc4e5d118da2612f3ed9a2da16f3",
-        "apps/desktop/test/acceptance/d7b-pages.test.ts": "cba0cc624cf1b58b898b9dbc2e2479baf78c3e8074330a70a523fb7dfd1ee0f4"
+        "apps/desktop/test/acceptance/d7b-pages.test.ts": "4038c2594afbbd4c4ff10bc8200d27a309fe4204c0af31883892d3a887646db6"
       }
     },
     {
@@ -335,7 +335,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/m3-key-scope.test.ts": "391a928984625e884c0dc467fc1b624f7db0b69d12662b90f85a76295a2072d2",
-        "apps/desktop/test/acceptance/m3-settings-ui.test.ts": "b3e15c2d3fb5623fd9041588ad08b9d0f83c70d930f3b2c61a805df6cbe07327"
+        "apps/desktop/test/acceptance/m3-settings-ui.test.ts": "60d3da41d59f5e9d920ad3c7c63bd65794c44a5e52eb6b51b13eab4de875a716"
       }
     },
     {
@@ -344,7 +344,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/u2-tasks-page-live.test.ts": "48700e8656cf1767079d82742874e3d3800f9abcbfc88024e1ea7469b783ef56",
-        "apps/desktop/test/acceptance/u2-settings-coding-saved.test.ts": "868ae0e06a67dd46a862eaea27de6acabcebacdcc0e396239a7505cd5d9a5125"
+        "apps/desktop/test/acceptance/u2-settings-coding-saved.test.ts": "5dbea007855cead8610bae787c099329dae4126f6ae9700a5ea5a60ce2804e37"
       }
     },
     {
@@ -451,7 +451,7 @@
         "packages/core/test/acceptance/v4-child-double.ts": "2db1e295162a7a0c3e1ab9cb4eb473e40b93fd90b306d5a2a18c93898e13e708",
         "apps/desktop/test/acceptance/v4-verify-sandbox.test.ts": "42f64ee0662efe0c4e4db503f19f3ecc40af6840a39c2d27c344414853488eab",
         "apps/desktop/test/acceptance/v4-codex-startup.test.ts": "a6cc604adf6e82535fbe6ff379ac216b22b52abf3022824380b323e50ef6cb0f",
-        "apps/desktop/test/acceptance/v4-settings-page.test.ts": "5e3409c0f904f57cf1c6211c7768914c32831b0c4d2c8e0046bb624a38e87196"
+        "apps/desktop/test/acceptance/v4-settings-page.test.ts": "6554f0ad40d383e979e7393b490c0f9e9e325bdd7c2c9558031976c4f1e60dd2"
       }
     },
     {
@@ -748,7 +748,7 @@
       "status": "done",
       "files": {
         "apps/desktop/test/acceptance/k3-cockpit-page.test.ts": "711ef81298d61212f0e9519f9dd450cd4c4012f8ed798cf955a4e6941a6312eb",
-        "apps/desktop/test/acceptance/k3-cockpit-settings.test.ts": "01eba6d5d1ff05ea8f95fb87f574ab2924f3ba9b4b24828e40cc48ca3f95ef4c",
+        "apps/desktop/test/acceptance/k3-cockpit-settings.test.ts": "614a5362d54e42adff7e84cc7353bac4249781f4a3b6e5e43198a54da4ab2a94",
         "apps/desktop/test/acceptance/k3-cockpit-settings-ipc.test.ts": "c4eae8e6875373fac3f84436d096090826091f94b001c9debec5a764ab915851"
       }
     },
@@ -793,7 +793,7 @@
       "files": {
         "apps/desktop/test/acceptance/k5-mobile-server.test.ts": "0cb6bf1851b38a7cecb8ce647eb5601ffceedc7589298bcbe820c8e5a6af5731",
         "apps/desktop/test/acceptance/k5-mobile-page.test.ts": "7aa6eaae068e2167b619ef48d2e4b2359a63f7f0709280b2ecd6e4ca539eeb37",
-        "apps/desktop/test/acceptance/k5-mobile-settings.test.ts": "6300b62c5aae2859b08a834bed8e290446985c561bc869bf0c022147a2e970f1",
+        "apps/desktop/test/acceptance/k5-mobile-settings.test.ts": "d7ce97b57e491a1474e9eca4f50a3165966bdb4048b41803c2669d9de9b27a1a",
         "apps/desktop/test/acceptance/k5-mobile-settings-ipc.test.ts": "7bd85538085761e5b5064c5720450eaebd3208322e03e612b5f0455ac55dd5ff"
       }
     },
@@ -831,7 +831,7 @@
       "title": "CF1 聊天做首页、驾驶舱放第二",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/cf1-chat-first-nav.test.ts": "22861842acb02476516944944bd6a399de6479372486a516d133441899224646"
+        "apps/desktop/test/acceptance/cf1-chat-first-nav.test.ts": "3729e84cb3dc29092cbf071d175877c94d512e2e207c6998f72639c15122006f"
       }
     },
     {
@@ -842,7 +842,7 @@
         "packages/core/test/acceptance/sub1-hermes-gateway.test.ts": "09dcea18b3b2ecbaea43ce534ae884a962dc2b3d896738d8d2b198db79beea49",
         "packages/core/test/acceptance/sub1-magpie-models.test.ts": "7fcef5dcc1b9857fdac00e735539c4b61a2dfd027717bdfcbdf792c31e85134b",
         "apps/desktop/test/acceptance/sub1-hermes-launch.test.ts": "4427c641a463173e39e75e05f7f74ee9eb7448666d4e70b93a037a1c600e1f91",
-        "apps/desktop/test/acceptance/sub1-magpie-preset.test.ts": "9abfb0b6659950bbc6ebf3a595195605dab45df7533fe3509d012372987afe69"
+        "apps/desktop/test/acceptance/sub1-magpie-preset.test.ts": "272de636eaa83c07edf383504a1417d797fa716011154c7f967fbe8825494d99"
       }
     },
     {
@@ -909,6 +909,14 @@
       "status": "queued",
       "files": {
         "apps/desktop/test/acceptance/mp2b-model-page.test.ts": "595f33cfe8478360918abaeffa9c86f627ed3148c3567a5eb977d6c4644122c7"
+      }
+    },
+    {
+      "id": "MP2b-entry",
+      "title": "聊天入口与换模型",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp2b-entry.test.ts": "7401cdede170e1cf774c342424fc227cc5f52608b76a550e0cfb692d13d8cf73"
       }
     },
     {
