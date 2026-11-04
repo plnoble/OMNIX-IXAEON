@@ -32,6 +32,7 @@ function desktopDir(): string {
 
 const dataDir = mkdtempSync(join(tmpdir(), 'ixa-d7b-e2e-'));
 const scriptPath = join(dataDir, 'model-script.json');
+const chatScriptPath = join(dataDir, 'chat-script.json');
 const projectRoot = join(dataDir, 'synth-repo');
 mkdirSync(projectRoot, { recursive: true });
 writeFileSync(join(projectRoot, 'README.md'), '# 合成项目\n');
@@ -51,6 +52,7 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
       IXAEON_DATA_DIR: dataDir,
       IXAEON_FAKE_MODEL: '1',
       IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
+      IXAEON_FAKE_CHAT_SCRIPT: chatScriptPath,
       IXAEON_CODEX_EXE: 'none',
       // 编码任务会走「我的模型」→ 假模型 provider，全程不联网（假上游只用于 /models 检测）
       HERMES_HOME: '',
@@ -145,22 +147,15 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
       id: string;
     };
     db2.close();
+    // 聊天走直连剧本（CF3c 起聊天不建任务）；结构化剧本只留给编码执行器
+    writeFileSync(
+      chatScriptPath,
+      JSON.stringify([{ deltas: ['已经起草好，等你拍板。'] }, { deltas: ['备用回答'] }]),
+    );
     writeFileSync(
       scriptPath,
       JSON.stringify({
         structured: [
-          {
-            tool: 'propose_task',
-            args: {
-              projectId: proj2.id,
-              goal: '在 README.md 末尾加一行「D7b e2e 加的一行」',
-              scope: ['README.md'],
-              verifyCommand: ['node', '-e', 'process.exit(0)'],
-            },
-          },
-          { tool: 'answer', args: { text: '已经起草好，等你拍板。' } },
-          { items: [] },
-          // 编码任务（派发时）由同一个假模型供给：改写 README 的响应
           {
             changes: [
               {
@@ -179,7 +174,9 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     await page.getByTestId('nav-ask').click();
     await page.getByTestId('ask-input').fill('改一下 README');
     await page.getByTestId('ask-run').click();
-    await expect(page.getByTestId('message-list')).toContainText('等你拍板', { timeout: 30_000 });
+    await expect(page.getByTestId('message-list')).toContainText('已经起草好', {
+      timeout: 30_000,
+    });
     // 假模型的响应是按顺序取的：等答后的记忆提取把它那一条取走，编码任务的响应排在其后。
     // 整合方复审改：原来是固定等 1.5 秒，提取慢一点编码任务就会取错响应；改成等后台任务跑完。
     await expect
@@ -193,7 +190,70 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
         { timeout: 30_000 },
       )
       .toBe(true);
-    // 点「要做」（建议待办卡）
+    // 乙类（CF3cb）：任务改由任务页建；这里补一张待办卡挂在刚才那条回答上（等同用户在任务页建草案）
+    await app.close();
+    const seedDb = new Database(dbPath);
+    const convRow = seedDb
+      .prepare('SELECT id FROM conversations ORDER BY created_at DESC LIMIT 1')
+      .get() as { id: string };
+    const msgRow = seedDb
+      .prepare(
+        "SELECT id FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY seq DESC LIMIT 1",
+      )
+      .get(convRow.id) as { id: string };
+    const seededNow = new Date().toISOString();
+    const seededTaskId = randomUUID();
+    const seededTodoId = randomUUID();
+    seedDb
+      .prepare(
+        `INSERT INTO coding_tasks (
+           id, project_id, goal, scope_json, workspace_path, snapshot_ref, context_digest,
+           allowed_commands_json, timeout_ms, status, version, approval_id, dispatch_key,
+           generation, executor_name, executor_report_json, verify_status, verify_exit_code,
+           verify_output, tests_modified, accepted_at, error, created_at, updated_at
+         ) VALUES (?, ?, ?, '["README.md"]', NULL, NULL, 'digest', '[]', 900000, 'draft', 1, NULL, NULL,
+           0, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, ?, ?)`,
+      )
+      .run(
+        seededTaskId,
+        proj2.id,
+        '在 README.md 末尾加一行「D7b e2e 加的一行」',
+        seededNow,
+        seededNow,
+      );
+    seedDb
+      .prepare(
+        `INSERT INTO todos
+           (id, title, status, origin, conversation_id, message_id, linked_kind, linked_id, created_at, updated_at)
+         VALUES (?, ?, 'proposed', 'agent', ?, ?, 'coding_task', ?, ?, ?)`,
+      )
+      .run(
+        seededTodoId,
+        '在 README.md 末尾加一行「D7b e2e 加的一行」',
+        convRow.id,
+        msgRow.id,
+        seededTaskId,
+        seededNow,
+        seededNow,
+      );
+    // 待办卡挂在消息 meta 上（与真实链路一致）
+    const metaRow = seedDb
+      .prepare('SELECT meta_json FROM messages WHERE id = ?')
+      .get(msgRow.id) as { meta_json: string };
+    const meta = JSON.parse(metaRow.meta_json || '{}') as Record<string, unknown>;
+    meta.proposedTodos = [
+      { id: seededTodoId, title: '在 README.md 末尾加一行「D7b e2e 加的一行」' },
+    ];
+    seedDb
+      .prepare('UPDATE messages SET meta_json = ? WHERE id = ?')
+      .run(JSON.stringify(meta), msgRow.id);
+    seedDb.close();
+    ({ app, page } = await launch());
+    await page.getByTestId('main-nav').waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByTestId('nav-ask').click();
+    await page
+      .locator(`[data-testid="conversation-item"][data-conversation-id="${convRow.id}"]`)
+      .click();
     await page.locator('[data-testid^="todo-card-accept-"]').first().click();
     // 对话里出现回报：写着 我的模型（<模型名>）
     await expect(page.getByTestId('message-list')).toContainText('我的模型（e2e-model）', {
