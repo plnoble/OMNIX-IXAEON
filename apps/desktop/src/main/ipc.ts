@@ -772,7 +772,6 @@ export function registerIpc(runtime: AppRuntime): void {
 
     // --- 设置 ---
     getSemanticIndexStatus: async () => runtime.getSemanticIndexStatus(),
-    prewarmChat: async (input) => runtime.prewarmChat(input?.projectId ?? null),
     rebuildSemanticIndex: async () => runtime.rebuildSemanticIndex(),
     // MP2：多供应商
     listModelProviders: async () => runtime.listModelProviders(),

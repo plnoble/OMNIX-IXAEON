@@ -16,11 +16,16 @@ vi.mock('electron', () => ({
   BrowserWindow: {},
   dialog: {},
   ipcMain: {},
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import {
   openDatabase,
   migrate,
@@ -94,7 +99,24 @@ function makeRuntime(index: unknown): TestRuntime {
   runtime['search'] = new SearchService(db);
   runtime['projects'] = new ProjectService(db);
   runtime['coding'] = new CodingOrchestrator(db, new FakeCodingExecutor(), dir);
-  runtime['askSessions'] = new Map();
+  runtime['chatStreamClient'] = () => ({
+    modelName: 'demo-a',
+    stream: async (input: { onDelta?: (t: string) => void }) => {
+      (runtime as unknown as { __onModel?: () => void }).__onModel?.();
+      input.onDelta?.('好');
+      return { content: '好', toolCalls: [], finishReason: 'stop', toolsUnsupported: false };
+    },
+  });
+  runtime['config'] = {
+    model: {
+      modelName: 'demo-a',
+      chatModelName: '',
+      apiBaseUrl: 'http://127.0.0.1:18081/v1',
+      apiKeyEncrypted: Buffer.from('enc:sk-synthetic').toString('base64'),
+      apiKeyPresent: true,
+      savedModels: ['demo-a'],
+    },
+  };
   runtime['activeAskRuns'] = new Map();
   runtime['getProvider'] = () => provider;
   runtime['hermesFound'] = () => false;
@@ -112,7 +134,7 @@ describe('提问与补向量的先后', () => {
     const order: string[] = [];
     const runtime = makeRuntime(makeIndex(order));
     provider.enqueueStructured({ tool: 'answer', args: { text: '好' } });
-    provider.beforeStructured = () => order.push('model');
+    (runtime as unknown as { __onModel?: () => void }).__onModel = () => order.push('model');
     await runtime.ask({ conversationId: null, projectId: null, question: '我最近在忙什么？' });
     expect(order).toEqual(['backfill', 'model']);
   });

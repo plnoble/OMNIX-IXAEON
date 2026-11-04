@@ -266,8 +266,6 @@ export function AskPage({
   // 省掉 5–9 秒的组装空等。失败无所谓，提问时照常冷启动。
   useEffect(() => {
     void api
-      .prewarmChat?.({ projectId: projectId.length > 0 ? projectId : null })
-      .catch(() => undefined);
   }, [projectId]);
 
   useEffect(() => {

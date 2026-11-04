@@ -7,11 +7,16 @@ vi.mock('electron', () => ({
   BrowserWindow: {},
   dialog: {},
   ipcMain: {},
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import {
   openDatabase,
   migrate,
@@ -154,9 +159,25 @@ describe('A03 问答存档独立状态与显式开关控制', () => {
       projects,
       permissions: perms,
       getProvider: () => null,
+      // CF3c：聊天只走直连——这一段只验证「撤销后不自动复活授权」，给一个能用的直连即可
+      chatStreamClient: () => ({
+        modelName: 'demo-a',
+        stream: async (input: { onDelta?: (t: string) => void }) => {
+          input.onDelta?.('好');
+          return { content: '好', toolCalls: [], finishReason: 'stop', toolsUnsupported: false };
+        },
+      }),
       config: {
         capture: { enabled: true, autoAnalyze: false },
         webSearch: { provider: 'none', apiKeyPresent: false },
+        model: {
+          modelName: 'demo-a',
+          chatModelName: '',
+          apiBaseUrl: 'http://127.0.0.1:18081/v1',
+          apiKeyEncrypted: Buffer.from('enc:sk-synthetic').toString('base64'),
+          apiKeyPresent: true,
+          savedModels: ['demo-a'],
+        },
       },
       getConfig: () => ({ capture: { enabled: true, autoAnalyze: false } }),
       enqueueExtract: () => undefined,
