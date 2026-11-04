@@ -373,40 +373,31 @@ const reports = (conversationId: string) =>
     .map((m) => ({ content: m.content, meta: JSON.parse(m.meta_json) as Record<string, unknown> }))
     .filter((m) => m.meta['kind'] === 'task_report');
 
-/** 聊天那条路：真的走一轮提问，会话替身在这一轮里建出草案（带 origin_run_id，对话里挂着待办卡）。 */
+/**
+ * 乙类（CF3cb）：任务改由任务页直接建（draft）+ 挂待办 + 一条来源消息（回报靠 messages.run_id 找回对话）。
+ */
 async function chatDraft(
   h: Harness,
   projectId: string,
   goal: string,
 ): Promise<{ taskId: string; todoId: string; conversationId: string }> {
   const conv = h.conversations.create({ projectId });
-  let taskId = '';
-  (h.runtime as unknown as { askSessions: Map<string, AgentSession> }).askSessions.set(conv.id, {
-    run: async () => {
-      taskId = draft(h, projectId, goal).id;
-      return {
-        answer: '可以，我起草了一个编码任务，等你拍板。',
-        citations: [],
-        notice: '',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: 'fake',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    invalidateContext: () => undefined,
-    getEngineSessionId: () => 's-p8',
-  } as unknown as AgentSession);
-  const answered = await h.runtime.ask({
-    conversationId: conv.id,
-    projectId,
-    question: '把这个做了',
+  const runId = `run-p8-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  h.conversations.appendMessage(conv.id, { role: 'user', content: '把这个做了' });
+  const draftMessage = h.conversations.appendMessage(conv.id, {
+    role: 'assistant',
+    content: '可以，我起草了一个编码任务，等你拍板。',
+    runId,
   });
-  const todo = h.todos.list({ status: ['proposed'] }).find((t) => t.linked_id === taskId);
-  return { taskId, todoId: todo!.id, conversationId: answered.conversationId };
+  const task = draft(h, projectId, goal);
+  db.prepare('UPDATE coding_tasks SET origin_run_id = ? WHERE id = ?').run(runId, task.id);
+  const todo = h.todos.propose({
+    title: goal,
+    conversationId: conv.id,
+    messageId: draftMessage.id,
+    linked: { kind: 'coding_task', id: task.id },
+  })!;
+  return { taskId: task.id, todoId: todo.id, conversationId: conv.id };
 }
 
 /** 往一条授权下放一份资料。返回来源号。 */
@@ -543,14 +534,10 @@ describe('条件 4：没绑文件夹的项目', () => {
       rationale: null,
     });
 
-    const invalidate = vi.fn();
-    (h.runtime as unknown as { askSessions: Map<string, unknown> }).askSessions.set('合成会话', {
-      invalidateContext: invalidate,
-    });
+    // 丙类（CF3cb）：原来给替身会话挂 invalidateContext 观察「上下文作废」（Hermes 专有），不再适用
 
     const done = await h.runtime.deleteProject(bare.id);
 
-    expect(invalidate).toHaveBeenCalled();
     expect(done).toEqual({
       sourcesUnassigned: 0,
       itemsRemoved: 1,
