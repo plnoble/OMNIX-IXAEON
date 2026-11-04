@@ -185,3 +185,21 @@ Tests  12 passed (12)
 - 拿掉之后 **`acceptance run CF3c` 仍然 12/12，没有测试因此变红**（`缺 model` 那条的夹具本身就没让三样齐），
   所以不需要加回，也没有要整合方定的红。
 - 附带：`d3-d4-conversation-context` 剩下的 4 条已改好（改看 `chatStreamClient` 收到的 messages：有前几轮问答、最后一条是本轮问题；删掉「各有独立 AgentSession 实例」「重启后 askSessions 为空」两条——进程内引擎会话已不存在）。该文件 11/11 全过。
+
+## 收尾（2026-11-04）：源码行数与门禁口径
+
+源码改动（`git diff --numstat origin/main...HEAD -- apps/desktop/src packages/contracts/src`）：
+
+- 新增 60 行、删除 232 行（净 -172）；删掉的都是聊天用 Hermes 接线（newAskSession / adoptWarmSession / prewarmChat / askSessions / T2b 建任务进待办 / Hermes 分支）与 prewarm 通道，逐项见上文「已实现」。
+- 新增的部分：直连分支复用、`directChatLaunch()`、`chatStreamClient` 接缝、假客户端跨问复用与 `IXAEON_TEST_MODEL_DELAY_MS` 支持。
+
+自动化：
+
+- `node scripts/acceptance.mjs run CF3c` → `Tests  12 passed (12)`。
+- 本分支上 lint / format / typecheck / build / unit / integration 绿；`run-done` 与 `verify` 会红在「已完成任务的验收」——那是第二支 CF3cb 负责改写的旧锁定测试，按约定第一支不承载这些改写。
+
+真机：甲 / 乙都在第二支工作目录里跑（同一份源码），输出与截图见 `CF3cb.md`「真机通过」。
+
+用户接受：未接受。
+
+补充：`typecheck-acceptance`（把已完成任务的验收测试也过一遍 tsc）与 `acceptance-lock` 在第一支会红——旧锁定测试还引用 `askSessions` 等已删字段，这类改写按约定集中在 CF3cb；红名单与 CF3cb.md 列的一致。
