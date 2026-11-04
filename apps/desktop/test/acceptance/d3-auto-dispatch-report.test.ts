@@ -105,7 +105,6 @@ function setup(
     search: new SearchService(db),
     projects,
     permissions,
-    askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -123,7 +122,10 @@ function setup(
   return { runtime, conversations, todos, coding, executor, projectId: project.id };
 }
 
-/** 走真实提问链路建一个带 origin_run_id 的编码任务草案，并挂成待办。 */
+/**
+ * 乙类（CF3cb）：任务改由任务页直接建（h.coding.create），再挂成待办等拍板。
+ * 原来借聊天这一轮建任务（origin_run_id 来自聊天）；CF3c 之后聊天不建任务。
+ */
 async function proposedTask(
   h: Harness,
   input: { goal: string; acceptance?: string[]; commands?: string[][]; conversationId?: string },
@@ -132,44 +134,34 @@ async function proposedTask(
     input.conversationId != null
       ? h.conversations.get(input.conversationId)
       : h.conversations.create({ projectId: h.projectId });
-  let taskId = '';
-  h.runtime['askSessions'].set(conv.id, {
-    run: async () => {
-      const task = h.coding.create({
-        projectId: h.projectId,
-        goal: input.goal,
-        scope: ['note.txt'],
-        allowedCommands: input.commands ?? [],
-      });
-      if (input.acceptance) {
-        db.prepare('UPDATE coding_tasks SET acceptance_json = ? WHERE id = ?').run(
-          JSON.stringify(input.acceptance),
-          task.id,
-        );
-      }
-      taskId = task.id;
-      return {
-        answer: '可以，我起草了一个编码任务，等你拍板。',
-        citations: [],
-        notice: '',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: 'fake',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    getEngineSessionId: () => 's-d3',
-  } as unknown as AgentSession);
-  const r = await h.runtime.ask({
-    conversationId: conv.id,
-    projectId: h.projectId,
-    question: '把这个做了',
+  // 来源：这一轮对话里用户提了、IXAEON 起草了（回报靠 messages.run_id 找回这个对话）
+  const runId = `run-d3-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  h.conversations.appendMessage(conv.id, { role: 'user', content: '把这个做了' });
+  const draftMessage = h.conversations.appendMessage(conv.id, {
+    role: 'assistant',
+    content: '可以，我起草了一个编码任务，等你拍板。',
+    runId,
   });
-  const [todo] = h.todos.list({ status: ['proposed'] }).filter((t) => t.linked_id === taskId);
-  return { todoId: todo!.id, taskId, conversationId: r.conversationId };
+  const task = h.coding.create({
+    projectId: h.projectId,
+    goal: input.goal,
+    scope: ['note.txt'],
+    allowedCommands: input.commands ?? [],
+    originRunId: runId,
+  });
+  if (input.acceptance) {
+    db.prepare('UPDATE coding_tasks SET acceptance_json = ? WHERE id = ?').run(
+      JSON.stringify(input.acceptance),
+      task.id,
+    );
+  }
+  const todo = h.todos.propose({
+    title: input.goal,
+    conversationId: conv.id,
+    messageId: draftMessage.id,
+    linked: { kind: 'coding_task', id: task.id },
+  });
+  return { todoId: todo!.id, taskId: task.id, conversationId: conv.id };
 }
 
 const taskStatus = (id: string) =>

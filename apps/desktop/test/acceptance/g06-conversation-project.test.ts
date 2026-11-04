@@ -35,7 +35,7 @@ import {
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
-import { installFakeChat } from './cf3cb-fake-chat.js';
+import { fakeChatModel, installFakeChat } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: {},
@@ -157,6 +157,46 @@ describe('G06 对话的项目固定（后端）', () => {
     const toB = await askError(runtime, loose.id, projectB.id);
     expect((toB as IxaError).code).toBe(ErrorCodes.VALIDATION_FAILED);
     expect(seen).toEqual([]);
+  });
+
+  it('补充：交给模型的内容里有这个项目的条目，没有别的项目和个人对话的', async () => {
+    // 这一条要看真的选材（前面的 spy 把它替掉了），先恢复
+    vi.restoreAllMocks();
+    const { runtime, conv, projectA, projectB } = setup();
+    const items = new ItemService(db);
+    for (const [projectId, statement] of [
+      [projectA.id, 'A 项目的合成条目'],
+      [projectB.id, 'B 项目的合成条目'],
+      [null, '个人对话的合成条目'],
+    ] as const) {
+      const item = items.createManual({
+        projectId: projectId as string | null,
+        type: 'decision',
+        statement,
+        rationale: null,
+      });
+      items.grantDisclosure({ itemId: item.id, audience: 'model', note: '合成披露' });
+    }
+    const sent: string[] = [];
+    Object.assign(runtime as unknown as Record<string, unknown>, {
+      config: { model: fakeChatModel() },
+      chatStreamClient: () => ({
+        modelName: 'demo-a',
+        stream: async (input: { messages: Array<{ content: string }> }) => {
+          sent.push(input.messages.map((m) => String(m.content)).join('\n'));
+          return { content: '好', toolCalls: [], finishReason: 'stop', toolsUnsupported: false };
+        },
+      }),
+    });
+    await runtime.ask({
+      conversationId: conv.id,
+      projectId: projectA.id,
+      question: 'A 项目的合成条目',
+    });
+    const text = sent[0] ?? '';
+    expect(text).toContain('A 项目的合成条目');
+    expect(text).not.toContain('B 项目的合成条目');
+    expect(text).not.toContain('个人对话的合成条目');
   });
 
   it('整合方补：刚点「新对话」还没发第一句，以第一句的项目为准并写回；之后固定', async () => {
