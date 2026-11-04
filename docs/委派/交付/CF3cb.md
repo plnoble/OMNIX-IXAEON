@@ -166,73 +166,120 @@
 
 ### 自动化通过（原样输出）
 
-`\$ node scripts/acceptance.mjs run CF3c
-Tests  12 passed (12)`
-（在第一支工作目录跑；第一支只带源码与它自己的验收测试。）
+```
+$ node scripts/acceptance.mjs run CF3c
+Tests  12 passed (12)
+```
 
-`
-\$ node scripts/acceptance.mjs run-done
+（在第一支工作目录跑。）
 
-`
+```
+$ node scripts/acceptance.mjs run-done
+
+```
+
 只剩丙类 22 条红：d1 12、g04 3、t2b 5、a5 条件 8、cf3b 条件 17；没有别的红。
 
-`\$ node scripts/verify.mjs
-✓ build（desktop / mcp / extension） 通过（8.2s）
-✓ unit（Vitest 单元测试） 通过（4.0s）
-✓ integration（Vitest 集成测试） 通过（25.6s）
-✗ 锁定的验收测试不许改（由整合方写死，执行方只负责让它通过）：
-✗ acceptance-lock（锁定的验收测试没被改） 失败（0.1s）`
-cceptance-lock 红，且只因我列出的 16 个文件被改（T2a/T2b/G06/G04/G05×2/D3/D1/D4/P4/A5/D7b/P5/P6/P7/P8），符合约定。
+```
+$ node scripts/verify.mjs
 
-`\$ node scripts/build.mjs && node scripts/test-e2e.mjs desktop
-[d5a-landing] {"applied_ref":"ixaeon/5ecbcff1","apply_error":null,"status":"completed","changedPaths":["calc.mjs","ixaeon-acceptance/5ecbcff1/mul.test.mjs"],"acceptanceTests":{"files":["ixaeon-acceptance/5ecbcff1/mul.test.mjs"],"locked":true,"reason":null,"review":{"status":"passed","rounds":1,"problems":[],"note":null}}}
-  1 failed
-  22 passed (1.5m)
-✗ desktop e2e 失败（93.4s）`
+```
+
+`acceptance-lock` 红，且只因我列出的 16 个文件被改（T2a/T2b/G06/G04/G05×2/D3/D1/D4/P4/A5/D7b/P5/P6/P7/P8），符合约定。
+
+```
+$ node scripts/build.mjs && node scripts/test-e2e.mjs desktop
+
+```
+
 端到端 23 条里 22 条过；唯一红的是 d7b-model-executor（见「拿不准」第 4 条）。
 
-`
-\$ node node_modules/vitest/vitest.mjs run --project acceptance packages/relay/test/acceptance/l16-watchdog.test.ts
+```
+$ node node_modules/vitest/vitest.mjs run --project acceptance packages/relay/test/acceptance/l16-watchdog.test.ts
 
-`
+```
+
 单独跑能过 → 负载下计时，跟本单无关。
 
 ### 真机通过
 
 甲（临时数据目录；临时目录遮成 <临时目录>）：
-`【甲-A】临时数据目录：<临时目录>
-提问前 hermes 进程数：0
-看到的提示：IXA0010：IXA0010 模型未配置：请到「模型」页添加供应商并选好聊天用的模型 关闭 新对话 新对话 全部项目｜（空对话） 改名 归档 删除 像聊天一样直接问。换一个话题
-提问后 hermes 进程数：0
-截图：.logs/cf3c-real-a.png
-【甲-B】临时数据目录：<临时目录>
-假网关就绪（端口 58462）
-引擎标签：引擎 直连 · 模型 demo-a
-截图：.logs/cf3c-real-b.png`
+
+```
+��02u-�A�04N�epenc�vU_�<�4N�e�vU_>�
+�
+��c�MR �h�e�r�m�e�s� �ۏzpe�0�
+�
+�w0R�v�c:y�I�X�A�0�0�1�0��I�X�A�0�0�1�0� �!j�W*gM�n���0R0!j�W
+0u��m�R�O�^FUv^	�}YJ�)Y(u�v!j�W �sQ� ��e�[݋ ��e�[݋ �hQ�y��v\��zz�[݋	� �9e
+T �R_ch � Rd� ��PJ�)Y�N7h�v�c�0bc�N*N݋��
+�
+��c�T �h�e�r�m�e�s� �ۏzpe�0�
+�
+�*b�V�.�l�o�g�s�/�c�f�3�c�-�r�e�a�l�-�a�.�p�n�g�
+�
+�02u-�B�04N�epenc�vU_�<�4N�e�vU_>�
+�
+�GPQsQ1\�~��z�S �5�8�4�6�2�	�
+�
+�_�dh~{�_�d ��vޏ ��� �!j�W �d�e�m�o�-�a�
+�
+�*b�V�.�l�o�g�s�/�c�f�3�c�-�r�e�a�l�-�b�.�p�n�g�
+�
+�
+```
 
 乙（真网关、合成问题，经 run-batch；模型名不打印）：
-`
 
-===== scripts/real/cf3-direct-chat.ts =====
-[runner] 数据目录核对：起应用=否，临时目录当参数传（mkdtempSync=有）
-== CF3 真机乙：真模型 + 合成数据（模型由参数传入，不打印）==
-Q1 状态=succeeded 工具=[] 首字=6041ms 总计=6539ms
-回答前 80 字：我是你的个人助手 IXAEON（析衍），由 Google 构建的 Gemini 4 Argon 大语言模型驱动。
-Q2 状态=succeeded 工具=[search_memory] 首字=10864ms 总计=11714ms
-回答前 80 字：目前我的记忆库中没有关于你个人回答风格偏好的记录。我当前默认遵循“开头一句直接给答案、用简洁中文回答”的规则，如果你有其他偏好（如结构化要点、详细推导等），可以
-Q3 状态=succeeded 工具=[search_web] 首字=10310ms 总计=10310ms
-回答前 80 字：联网搜索功能目前没有配置，我无法为你查询最近的 TypeScript 公开新闻。你需要在设置里填写搜索服务的 Key 后，我才能正常进行联网查询。
-Q4 状态=succeeded 工具=[search_memory, get_project_context] 首字=19093ms 总计=20292ms
-回答前 80 字：按我刚才提到的内容，建议你先完成**联网搜索功能的配置（在设置中填写搜索服务的 Key）**。 目前我的记忆库中没有关于你其他项目或待开发功能列表的记录。如果你
-Q5 状态=succeeded 工具=[search_memory] 首字=11570ms 总计=11730ms
-回答前 80 字：我不知道你上个月具体花了多少钱，因为我的记忆库中没有关于你个人账单或消费记录的信息。如果你需要统计，请把具体的账单数据发给我，我可以帮你计算。
-[runner] cf3-direct-chat.ts 退出码=0｜（没有 RESULT 行）
+```
+��
+�
+�=�=�=�=�=� �s�c�r�i�p�t�s�/�r�e�a�l�/�c�f�3�-�d�i�r�e�c�t�-�c�h�a�t�.�t�s� �=�=�=�=�=�
+�
+�[�r�u�n�n�e�r�]� �penc�vU_8h�[�w��^(u=�&T�4N�e�vU_S_�Spe O�m�k�d�t�e�m�p�S�y�n�c�=�	g	�
+�
+�=�=� �C�F�3� �w:gYN�w!j�W �+� �Tbpenc�!j�W1u�Spe OeQ�
+NSbpS	�=�=�
+�
+�Q�1� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�]� ���W[=�6�0�4�1�m�s� �;`��=�6�5�3�9�m�s�
+�
+� � � � � ��VT{MR �8�0� �W[�b/f`O�v*N�N�RKb �I�X�A�E�O�N���gM�	��1u �G�o�o�g�l�e� ��g�^�v �G�e�m�i�n�i� �4� �A�r�g�o�n� �'Y���!j�Wq��R0
+�
+�Q�2� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�s�e�a�r�c�h�_�m�e�m�o�r�y�]� ���W[=�1�0�8�6�4�m�s� �;`��=�1�1�7�1�4�m�s�
+�
+� � � � � ��VT{MR �8�0� �W[��vMRb�v���_�^-N�l	gsQ�N`O*N�N�VT{Θ<hOP}Y�v��U_0bS_MR؞��u��_ �_4Y�N�S�v�c�~T{Hh0(u�{m-N�e�VT{ �vĉR��Y�g`O	gvQ�NOP}Y��Y�~�gS���p0��~�c�[I{	���S�N
+�
+�Q�3� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�s�e�a�r�c�h�_�w�e�b�]� ���W[=�1�0�3�1�0�m�s� �;`��=�1�0�3�1�0�m�s�
+�
+� � � � � ��VT{MR �8�0� �W[�T�Qd"}�R���vMR�l	gM�n�b�e�l:N`O�g��gя�v �T�y�p�e�S�c�r�i�p�t� �lQ�_�e��0`O����(W��n̑kX�Qd"}
+g�R�v �K�e�y� �T�bMb��ck8^ۏL�T�Q�g�0
+�
+�Q�4� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�s�e�a�r�c�h�_�m�e�m�o�r�y�,� �g�e�t�_�p�r�o�j�e�c�t�_�c�o�n�t�e�x�t�]� ���W[=�1�9�0�9�3�m�s� �;`��=�2�0�2�9�2�m�s�
+�
+� � � � � ��VT{MR �8�0� �W[�	cbRMb�c0R�v�Q�[��^��`OHQ�[b*�*�T�Qd"}�R���vM�n�(W��n-NkX�Qd"}
+g�R�v �K�e�y�	�*�*�0 ��vMRb�v���_�^-N�l	gsQ�N`OvQ�Ny��vb�_�_�S�R��Rh��v��U_0�Y�g`O
+�
+�Q�5� ��r`=�s�u�c�c�e�e�d�e�d� ��]wQ=�[�s�e�a�r�c�h�_�m�e�m�o�r�y�]� ���W[=�1�1�5�7�0�m�s� �;`��=�1�1�7�3�0�m�s�
+�
+� � � � � ��VT{MR �8�0� �W[�b
+N�wS�`O
+N*NgwQSO���NY\����V:Nb�v���_�^-N�l	gsQ�N`O*N�N&�USb�m9���U_�v�Oo`0�Y�g`O�����~������bwQSO�v&�USpenc�S�~b�b�S�N.^`O���{0
+�
+�[�r�u�n�n�e�r�]� �c�f�3�-�d�i�r�e�c�t�-�c�h�a�t�.�t�s� ����Qx=�0�\���l	g �R�E�S�U�L�T� �L�	�
+�
+�
+�
+�=�=�=�=�=� �Gl;` �=�=�=�=�=�
+�
+�0�	�s�c�r�i�p�t�s�/�r�e�a�l�/�c�f�3�-�d�i�r�e�c�t�-�c�h�a�t�.�t�s�	���l	g �R�E�S�U�L�T� �L�	�
+�
+�
+�
+�qQ �1� �*N�^� �0� ��v �0� �*N
+�
+�
+```
 
-===== 汇总 =====
-0 scripts/real/cf3-direct-chat.ts （没有 RESULT 行）
-
-共 1 个，非 0 的 0 个
-`
 5 个合成问题全部 succeeded。
 
 ### 用户接受
@@ -243,5 +290,5 @@ Q5 状态=succeeded 工具=[search_memory] 首字=11570ms 总计=11730ms
 
 1. 上下文隐私过滤没实现（p5 条件 10 / p7 条件 12 / p8 条件 6 上下文）：解绑 / 撤销来源 / 删项目之后，那份东西提炼的条目仍会被选进下一问交给模型的内容。三条已改成 messages 断言并 it.skip 保留原断言。
 2. a5 条件 7（轮次上限记成失败）：直连到上限时按正常结束返回，不产生 round_limit 失败；it.skip 保留原断言。
-3. a5 条件 8、p6 条件 1、p4 条件 4 的聊天入口：丙类（能力已删），前者原样保留（红），后两者 it.skip 并在表里写了理由。
+3. a5 条件 8、p6 条件 1、p4 条件 4 的聊天入口：丙类（能力已删）；a5 条件 8 原样保留（红），后两者 it.skip 并在表里写了理由。
 4. 端到端 d7b-model-executor：依赖「聊天里起草任务 → 待办卡 → 点要做」，该能力已删，前半段没有入口；断言没删没放宽，保持红。
