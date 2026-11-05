@@ -928,6 +928,19 @@
         "apps/desktop/test/acceptance/cf3c-direct-only.test.ts": "1fe75c9bc25bbfb9a9de0a49909e28644ecf86efb8054731b28057aa68faf3b0",
         "apps/desktop/test/acceptance/cf3c-no-prewarm.test.ts": "960ab88c6032a92b605aa285f55678ae4ab9d614fe31f79f0a84eedb6fce6f48"
       }
+    },
+    {
+      "id": "MP3",
+      "title": "聊天和后台分析的替补",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/mp3-chain.test.ts": "e4d8e5ba3912f1f8ac57ce3b35b72256ec9dcfb00cc3e2c3f6e461f768732a65",
+        "packages/core/test/acceptance/mp3-model-error.test.ts": "b14bda20aa6869336e79dfd6680a6296390abb8fc74b974c58e06a6ba57e6e3a",
+        "apps/desktop/test/acceptance/mp3-config.test.ts": "c4d10a43bc6c05e68ccc32f33c06f75036e65cc8157772d4e24f1fa68949fc83",
+        "apps/desktop/test/acceptance/mp3-chat.test.ts": "a8d0b93a43a51e5c770ee652a2dbc9e0c34ea732593ddc5f8ed8d9290c7d33b4",
+        "apps/desktop/test/acceptance/mp3-analysis.test.ts": "cc34562687335d6d074121a0ed528e9d78a15cb15bced57bacf52c2a0c3ce979",
+        "apps/desktop/test/acceptance/mp3b-ui.test.ts": "8952d37179e744f99a21d517c27eba3f0c0e582223cb3a5ffb63478bc28c0919"
+      }
     }
   ]
 }
