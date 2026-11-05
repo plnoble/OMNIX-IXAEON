@@ -941,6 +941,44 @@
         "apps/desktop/test/acceptance/mp3-analysis.test.ts": "cc34562687335d6d074121a0ed528e9d78a15cb15bced57bacf52c2a0c3ce979",
         "apps/desktop/test/acceptance/mp3b-ui.test.ts": "3b9c9ef186a2b18f987151010c977d414ed2f4df86b1e287d7fb4ced46e90e4e"
       }
+    },
+    {
+      "id": "MP3c",
+      "title": "开发工具与编码替补",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/mp3c-devtools.test.ts": "5cf31bacb3d22cf6d62054df8693387d0938e68197613f31c0a4162015adaab0",
+        "apps/desktop/test/acceptance/mp3c-devtool-save.test.ts": "60e2c8d15bfdae403515fdd1157aa02fc0b969c3e37af84325448f7cecdd22cb",
+        "apps/desktop/test/acceptance/mp3c-devtools-ui.test.ts": "a19e7a54b9441a1d45b4d29622369eafd3db74232011564e741f7db3f8b758fe",
+        "apps/desktop/test/acceptance/mp3c-codex-locator.test.ts": "026631a8dbca524097d477977bc5276345d02b75107ee72b17120a11813d9517"
+      }
+    },
+    {
+      "id": "MP3d",
+      "title": "编码任务候选串与 Claude Code",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/mp3d-chain-executor.test.ts": "7823e2467a316a7c6f96d6ffe225ac301d5f60a0265367babb685d0194ef2d27",
+        "packages/core/test/acceptance/mp3d-launch-pure.test.ts": "82c2a2d42fe2f3483c268044e1acea64fb484b375069522a1d7b796913b83f29",
+        "apps/desktop/test/acceptance/mp3d-coding-chain.test.ts": "4f493b6922d2dde3b5993c47cd605f3baf4a3b18da3f5adf87d51c23faea6b12"
+      }
+    },
+    {
+      "id": "MP3e",
+      "title": "DSH 执行器与编码候选界面",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts": "0bdedbcd0e7dcf3a78977f6823719a12f60a4697a2348e80557700afdd1098ea"
+      }
+    },
+    {
+      "id": "MP3f",
+      "title": "调度器面板不自己审自己",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp3f-panel.test.ts": "2c9689ad5d9894a22debba91d5e3933cb614a942f26c6db647ae31357e11808a",
+        "apps/desktop/test/acceptance/mp3f-rules.test.ts": "c6991f8cdc01ed83bba9552753e45e509f2f041e3c784872f26abc2861306aa3"
+      }
     }
   ]
 }
