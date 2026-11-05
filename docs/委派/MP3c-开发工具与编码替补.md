@@ -173,3 +173,35 @@ MP3f：
 - 四单分别是分支 `dev/MP3c`、`dev/MP3d`（基于 MP3c）、`dev/MP3e`（基于 MP3d）、`dev/MP3f`（基于 main，跟前三单没有共用文件，可以先做）。
 - 测试：每单的验收条件写成 `<单号小写>-*.test.ts`，测试开头注释逐条对应。四单的测试可以一次交齐，再给整合方锁定。端到端的那份留在 `dev/MP3e` 上，跟实现一起并入。
 - 交付说明 `docs/委派/交付/<单号>.md`，四者分开写：已实现 / 自动化通过 / 真机通过 / 用户接受。
+
+## 测试入口（整合方 2026-11-05 补）
+
+第一次交的测试没覆盖条件 5、8–13、16、17，理由是规格没写死入口。下面写死，照这些写测试。名字、参数就用这些，不另起。
+
+- **条件 5**：`resolveCodexLocator(input?: { manual?: string; env?: NodeJS.ProcessEnv; exists?: (p: string) => boolean })`。不传参数时行为跟现在一样，传了就交给 `detectDevTools`。测：手填的在 → `exe` 是手填的；手填的不在 → `null`。
+- **条件 7 补两条**（第一次交的漏了）：
+  - 合法的一串存进去，读 `getSettings` 或配置能原样读回；
+  - 没存过 `codingChain` 时，`executorPlan()` 照旧：`coding.executor` 为 `codex` 交 Codex，为 `model` 交那个模型。
+- **条件 8–11**：编码候选串的执行器在 core，`packages/core/src/execution/codingChain.ts`，从 `@ixaeon/core` 导出。
+  - 构造：`new CodingChainExecutor(candidates: () => CodingCandidate[], opts: { skip: Map<string, number>; now?: () => number })`。
+    - `CodingCandidate = { key: string; label: string; executor: CodingExecutor | null }`。`label` 就是提示里「」里那段，比如 `Codex`、`Claude Code · sonnet`。`executor` 为 `null` 表示没找到或解析不出，跳过。
+    - `skip` 是「键 → 到期毫秒数」，由运行时持有、保存时清空。测试自己传一个 `Map` 和 `now`。
+  - 判定：MP3 的 `acceptableFallback` / `reasonText` 从 `apps/desktop/src/main/modelFallback.ts` 挪到 `packages/core/src/models/fallbackRules.ts` 并导出，桌面那边改成引用它，行为不变。工具的额度看三个错误码：抛出的错误信息，或者回报的 `raw` / `summary` 里有就算。
+  - 工作区改没改：每次试之前、之后各取一次 `hashWorkspace(workspace)` 比（不算 `EXECUTOR_CHANNEL_FILE`）。
+  - `name`：`run` 之前是第一个可用候选的执行器名字；`run` 结束后是实际做完（或最后一个试过）的那个。编排层在 `run` 之后再写一次执行器名字。
+  - 测试用假的 `CodingExecutor` 对象（不起进程），在工作区里写不写文件由假对象自己决定。
+- **条件 12、13**：起进程的参数和读结果写成纯函数，都在 core 导出。执行器只是把它们接上进程监督。
+  - `claudeCodeLaunch(input: { exe: string; goal: string; workspace: string; model?: 'opus' | 'sonnet' | 'haiku' }): { command: string; args: string[]; cwd: string }`；
+  - `parseClaudeCodeOutput(stdout: string, exitCode: number | null): { ok: boolean; summary: string }`；
+  - `dshLaunch(input: { install: string; goal: string; workspace: string; baseEnv: NodeJS.ProcessEnv }): { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }`。`env` = `baseEnv` 加 `ELECTRON_RUN_AS_NODE=1`，不加别的；
+  - `parseDshOutput(stdout: string, exitCode: number | null): { ok: boolean; summary: string }`；
+  - 执行器：`new ClaudeCodeExecutor({ exe, model? })`（`name` 为 `claude-code`）、`new DshExecutor({ install })`（`name` 为 `dsh`）。子进程环境跟 Codex 执行器用同一个最小环境，DSH 再经 `dshLaunch` 加那一项。
+  - 测纯函数即可：argv 逐项相等；没有那三个开关；`parseClaudeCodeOutput('{"result":"done","is_error":true}', 0).ok === false`；DSH 输出有好几行 JSON 时取最后一行 `final`。
+- **条件 16、17**：用已有的 `setRelayModel(opts, input)`（K10a / MG2），拒绝时抛 `VALIDATION_FAILED`。测试用合成 relay 目录。
+  - 比较时值里有「网关 / 」前缀的去掉前缀再比。现在整合、审查也能选 magpie 的模型（MG2），一样比。
+  - 任一边是分组（`group/` 开头）→ 不拦。开发那一行的提醒写在 `readRelayModels` 返回的开发那一行 `note` 里。
+  - 被拒时 config 和补丁文件一个字节不变（K10a 的 `.bak` 也不留）。
+- **端到端里的假程序**：执行器不经 shell 起进程，`.cmd` 起不来，所以假程序要是真的 `.exe`。
+  - 做法：在测试的辅助文件里用 Windows 自带的 `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`（CI 的 windows-latest 也有）现编一个小启动器。它读同目录 `<名字>.fake.json` 里写好的行为（往标准输出打什么、往工作区写什么文件、退出码几），把收到的参数和 `cwd` 记到一个文件里，然后退出。
+  - 编好的放临时目录，同一次测试只编一次。辅助文件放 `apps/desktop/test/helpers/` 或 `apps/desktop/e2e/helpers/`，不算源码行数。
+  - 找不到 `csc.exe` 时端到端失败并写明原因，不跳过。
