@@ -41,3 +41,7 @@ $ node scripts/build.mjs && node scripts/test-e2e.mjs desktop
 ## 用户接受
 
 未接受。
+
+## CI
+
+`dev/MP3b` @ `3038812` → **success**（run 41961643675，全绿，含 mp3b-ui 与端到端）。
