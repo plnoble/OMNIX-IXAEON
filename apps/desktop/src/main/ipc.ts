@@ -779,6 +779,7 @@ export function registerIpc(runtime: AppRuntime): void {
     deleteModelProvider: async (id) => runtime.deleteModelProvider(id),
     fetchProviderModels: async (id, input) => runtime.fetchProviderModels(id, input),
     saveModelUses: async (input) => runtime.saveModelUses(input),
+    saveModelFallbacks: async (input) => runtime.saveModelFallbacks(input),
     getSettings: async () => {
       const config = runtime.getConfig();
       return {
@@ -799,6 +800,7 @@ export function registerIpc(runtime: AppRuntime): void {
           webSearchKeyPresent: config.webSearch?.apiKeyPresent ?? false,
           // MP2（11-03 补）：界面要知道每个用途现在选的是哪家的哪个模型
           uses: config.uses ?? {},
+          fallbacks: config.fallbacks ?? {},
         },
         dataDir: runtime.state.dataDir,
         cockpit: {

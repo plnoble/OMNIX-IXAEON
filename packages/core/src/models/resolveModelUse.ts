@@ -67,3 +67,49 @@ export function resolveModelUse(config: AppConfig, use: ModelUse): ResolvedModel
   const codingModel = config.coding?.modelName?.trim();
   return fromDefault(config, codingModel || (config.model.modelName ?? ''));
 }
+
+/**
+ * MP3：按用途取一串候选（主选在前，替补依次在后）。
+ *
+ * - 第一个是 `resolveModelUse(config, use)` 的结果，后面依次是 `config.fallbacks[use]` 各项；
+ * - 解析不出来的跳过（那家没了 / 没 Key）；主选解析不出来就从第一个能解析的替补开始；
+ * - 按「哪家 + 哪个模型」去重，保留先出现的；
+ * - 聊天没单独选过（uses.chat 没有、chatModelName 也空）：整串等于后台分析那一串；
+ * - 一个都解析不出来：返回空数组。
+ */
+export function resolveModelUseChain(
+  config: AppConfig,
+  use: 'analysis' | 'chat',
+): ResolvedModelUse[] {
+  if (use === 'chat') {
+    const explicit = config.uses?.chat ?? null;
+    const chatName = config.model.chatModelName?.trim();
+    if (!explicit && !chatName) return resolveModelUseChain(config, 'analysis');
+  }
+  const out: ResolvedModelUse[] = [];
+  const seen = new Set<string>();
+  const push = (r: ResolvedModelUse | null): void => {
+    if (!r || !r.model) return;
+    const key = `${r.providerId}\u0000${r.model}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(r);
+  };
+  push(resolveModelUse(config, use));
+  for (const choice of config.fallbacks?.[use] ?? []) {
+    if (choice.providerId === 'default') {
+      push(fromDefault(config, choice.model));
+      continue;
+    }
+    const provider = (config.providers ?? []).find((p) => p.id === choice.providerId);
+    if (!provider || !provider.apiKeyPresent || !provider.apiKeyEncrypted) continue;
+    push({
+      providerId: provider.id,
+      providerName: provider.name,
+      apiBaseUrl: provider.apiBaseUrl,
+      apiKeyEncrypted: provider.apiKeyEncrypted,
+      model: choice.model,
+    });
+  }
+  return out;
+}

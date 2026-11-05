@@ -111,3 +111,50 @@
 | mp3b-ui.test.ts         | 7 failed  | 用途卡片里没有替补列表（找不到 `fallback-list-analysis`）                  |
 
 已重新 `lock` 登记这 6 个文件。
+﻿
+
+## MP3 实现（2026-11-05，第一支 dev/MP3）
+
+改了哪些文件（源码 < 300 行）：
+
+- `packages/core/src/models/resolveModelUse.ts`：新增 `resolveModelUseChain`（顺序、跳过解析不出的、去重、聊天留空跟随后台分析、全解析不出返回空数组）；
+- `packages/core/src/index.ts`：导出它；
+- `packages/core/src/extraction/model/provider.ts`：`ModelError` 加可选 `status`；
+- `packages/core/src/extraction/model/openai.ts`：HTTP 响应用状态码的地方都带上 `status`；
+- `packages/core/src/runtime/chatStream.ts`：`OpenAIChatStreamClient` 的 HTTP 错误带 `status`；`FakeStreamChatClient` 剧本一步可写 `status`；
+- `packages/contracts/src/config.ts`：`appConfigSchema` 加 `fallbacks`（有默认值），`defaultAppConfig()` 加 `fallbacks: {}`；
+- `packages/contracts/src/ipc.ts`：`IxaeonApi.saveModelFallbacks`、`SettingsView.settings.fallbacks`；
+- `apps/desktop/src/main/modelFallback.ts`（新）：`acceptableFallback` / `reasonText`、`FallbackChatClient`、`FallbackModelProvider`；
+- `apps/desktop/src/main/appRuntime.ts`：`saveModelFallbacks`（校验+审计+清 5 分钟记忆）、`getProvider` 两个以上候选时包 `FallbackModelProvider`、`directChatLaunch` 取候选串第一个、直连那一问按候选串换下一个（这一问记住不回头、已流出字不换、`notice` 以那句开头、消息自己的 `modelName` 记实际答的）、5 分钟内存记忆（保存用途/替补/供应商清空）、删供应商时被替补用着也拒绝；
+- `apps/desktop/src/main/ipc.ts`、`apps/desktop/src/preload/index.ts`：注册 `ixaeon:saveModelFallbacks` 与 `getSettings().config.fallbacks`。
+
+自动化（本机）：
+
+```
+$ node scripts/acceptance.mjs run MP3
+Test Files  1 failed | 5 passed (6)
+Tests  7 failed | 35 passed (42)
+```
+
+只有 `mp3b-ui.test.ts`（条件 11，界面）红——那是第二支 MP3b 的事；条件 1–10 全过。
+
+```
+$ node scripts/verify.mjs
+```
+
+build / unit / integration / acceptance-lock 全过；`acceptance（已完成任务的锁定验收测试）` 里 `k5-mobile-server` 的「/m/snapshot 与 buildCockpitSnapshot 一致」在整批跑时偶发红（单独跑该文件 7/7 过，两次都过），属于负载/端口时序，跟本单无关；其余 1436 条过。
+
+真机检查（`node scripts/real/run-batch.mjs scripts/real/mp3-fallback.ts`，临时目录已遮）：
+
+```
+假服务：429 在 57117 正常在 57118 ；临时数据目录 <临时目录>
+聊天：状态=succeeded｜实际答的是第 2 个候选（demo-b）｜换了 1 次
+聊天提示句： 「合成甲 · demo-a」这次不行（额度用完），由替补「合成乙 · demo-b」回答
+换替补日志： {"from":"合成甲 · demo-a","to":"合成乙 · demo-b","reason":"额度用完"}
+后台分析：插入 1 条｜实际用的是第 2 个候选（demo-b）｜换了 1 次
+提炼出的条目： 来自第二个的提炼结论
+```
+
+说明：这个脚本在本机起两个假 OpenAI 兼容服务，用产品代码（`resolveModelUseChain` / `FallbackChatClient` / `FallbackModelProvider` / `Extractor`）各跑一次聊天和后台分析；Key 是合成的，不连外网。
+
+四项：已实现=MP3 条件 1–10；自动化通过=除 MP3b 界面外全过；真机通过=上面两段；用户接受=未接受。
