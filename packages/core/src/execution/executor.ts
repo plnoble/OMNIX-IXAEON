@@ -8,7 +8,6 @@ import {
   readlinkSync,
   readdirSync,
   realpathSync,
-  statSync,
   rmdirSync,
   rmSync,
   symlinkSync,
