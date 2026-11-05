@@ -1,4 +1,4 @@
-﻿# MP3e 交付说明（收尾中，端到端还差一句展示）
+﻿# MP3e 交付说明：DSH 执行器 + 编码任务主选/替补 + 端到端
 
 分支 `dev/MP3e`，基于 `dev/MP3db`。
 
@@ -6,24 +6,47 @@
 
 - `DshExecutor`（`packages/core/src/execution/toolLaunch.ts`，`name: 'dsh'`，经 `dshLaunch` 起桌面版、取最后一行 `final`）。
 - 「模型」页「编码任务」主选 + 替补列表：`coding-chain-list`、`coding-chain-add` 与四个下拉（`coding-chain-kind` / `coding-chain-tool` / `coding-chain-claude-model` / `coding-chain-provider`），选项文字与「没找到」标记照规格；上移 / 下移 / 删掉；保存时 `saveCodingChain` 收到新顺序；满 5 项「添加」禁用。
-- 收尾时修的三处真问题：
-  1. `getSettings().config` 没有暴露 `codingChain` → 界面读不回、端到端也读不到；已补进契约与主进程。
-  2. `saveUses` 原来先存 uses 再存替补最后存编码候选，第一步因「模型没勾选保存过」抛错就永远存不到链；改成 **先存编码候选**，再存 uses / 替补，出错照原样显示。
-  3. `ClaudeCodeExecutor` / `DshExecutor` 的回报缺 `changedPaths`，编排层对它 `.map` 直接崩（端到端里的 `Cannot read properties of undefined (reading 'map')`）；已补 `changedPaths: []` 与 `testsModified: false`。
+- 任务卡：执行报告里的 `summary` 以「这次不行（」起头时，把那句「「甲」这次不行（原因），由替补「乙」来做」原样显示（从已有的 `executor_report_json` 取，不加新字段、不改 contracts）。
 
-## 自动化
+## 这轮查到的三个真 bug（端到端一直红就是它们）
 
-- `mp3e-coding-chain-ui.test.ts`：**4/4 过**；`tsc` 0；`node scripts/build.mjs` 通过。
-- `node scripts/test-e2e.mjs desktop`：**24 passed / 1 failed**。
-- 端到端现在已真正走候选串：任务卡显示 `执行器 claude-code`、`改了 1 个文件`（假 Codex 额度用完 → 换到假 Claude 写文件），但卡片上看不到「「Codex」这次不行（额度用完），由替补「Claude Code · sonnet」来做」这句话，所以 `toContainText` 仍红。
+1. **`getSettings().config` 没暴露 `codingChain`** → 界面读不回、端到端读不到（`CHAIN undefined`）；已补进契约与主进程。
+2. **`saveUses` 顺序不对**：先存 uses，因向导建的模型没「勾选保存过」抛 `IXA0012`，后面替补和编码候选永远不跑；改成**先存编码候选**，再存 uses / 替补，出错照原样显示。
+3. **`ClaudeCodeExecutor` / `DshExecutor` 回报缺 `changedPaths`**，编排层 `report.changedPaths.map` 直接崩（`Cannot read properties of undefined (reading 'map')`）；已补 `changedPaths: []`、`testsModified: false`。
 
-## 卡在最后一处（下一步）
+## 自动化通过
 
-`CodingTaskView` / 任务卡没有暴露执行报告的 `summary`（`Tasks.tsx` 只在失败时显示 error）。要让条件 15 转绿，需在任务视图加执行摘要字段并渲染到卡片；这是新增字段，涉及契约与 UI，留待下一轮或请整合方定字段名。
+```
+$ node scripts/acceptance.mjs run MP3e
+```
+
+`mp3e-coding-chain-ui.test.ts` 4/4；`tsc` 0；`node scripts/build.mjs` 通过。
+
+```
+$ node scripts/test-e2e.mjs desktop
+25 passed (1.4m)
+✓ desktop e2e 完成（81.7s）
+```
+
+（条件 15 已绿：假 Codex 报额度 → 换到假 Claude 写 `note.txt`，卡片上出现整句提示，执行器 `claude-code`、改了 1 个文件。）
 
 ## 真机通过
 
-- 界面截图：未做。
-- 「Codex → DSH」假程序那一串：未做（`DshExecutor` 已就绪，脚本可照 `scripts/real/mp3d-coding-chain.ts` 加一条）。
+**「Codex → DSH」一串**（`node scripts/real/run-batch.mjs scripts/real/mp3e-coding-chain.ts`，假程序 csc 现编，不跑真的工具）：
 
-四项：已实现=DSH 执行器、编码任务界面、三处真问题修复；自动化通过=UI 4/4、e2e 24/25；真机通过=未跑；用户接受=未接受。
+```
+谁做的： dsh
+换了几次： 1
+那一句提示： 「Codex」这次不行（额度用完），由替补「DSH」来做；DSH <假 exe 控制台中文乱码>
+```
+
+（最后一个字串是假 exe 控制台编码问题，链路与提示句本身正确；临时目录已整段遮成 `<临时目录>`。）
+
+**界面真机检查**（`node scripts/real/mp3e-models-ui.mjs`，临时数据目录）：
+
+```
+编码候选列表： ["Codex","Claude Code · sonnet","DSH"]
+截图: .logs/mp3e-models.png
+```
+
+四项：已实现=DSH 执行器、编码任务界面、任务卡提示句、三个 bug；自动化通过=UI 4/4、e2e 25/25；真机通过=上面两段；用户接受=未接受。
