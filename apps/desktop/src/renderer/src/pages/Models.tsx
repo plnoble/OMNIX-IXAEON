@@ -81,20 +81,14 @@ function FallbackEditor({
     <div className="fallback-editor">
       <div className="muted">替补（这一个不行按顺序换下一个）</div>
       <ul data-testid={`fallback-list-${use}`} style={{ listStyle: 'none', paddingLeft: 0 }}>
-        {list.map((item) => (
-          <li key={`${use}-${item.providerId}-${item.model}`}>
-            {labelOf(item.providerId, item.model)}
+        {list.map((item, i) => (
+          <li key={`${use}-${item.providerId}-${item.model}`} className="row">
+            <span>{labelOf(item.providerId, item.model)}</span>{' '}
+            <Button onClick={() => move(i, i - 1)}>上移</Button>
+            <Button onClick={() => move(i, i + 1)}>下移</Button>
+            <Button onClick={() => onChange(list.filter((_, j) => j !== i))}>删掉</Button>
           </li>
         ))}
-        <div className="row">
-          {list.map((item, i) => (
-            <span key={`act-${use}-${item.providerId}-${item.model}`}>
-              <Button onClick={() => move(i, i - 1)}>上移</Button>
-              <Button onClick={() => move(i, i + 1)}>下移</Button>
-              <Button onClick={() => onChange(list.filter((_, j) => j !== i))}>删掉</Button>
-            </span>
-          ))}
-        </div>
       </ul>
       <div data-testid={`fallback-add-${use}`}>
         <select value={chosen} onChange={(e) => setPick(e.target.value)}>

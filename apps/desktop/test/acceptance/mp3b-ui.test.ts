@@ -62,7 +62,7 @@ function mount(
     analysis: [{ providerId: 'p-b', model: 'demo-b' }],
   },
 ): void {
-  (globalThis as unknown as { window: Window & { ixaeon?: unknown } }).window.ixaeon = {
+  (globalThis as unknown as { window: { ixaeon?: unknown } }).window.ixaeon = {
     getSettings: async () => ({
       config: {
         modelName: 'demo-a',
@@ -123,10 +123,13 @@ function text(): string {
   return document.body.textContent ?? '';
 }
 
+/** 每项的文字（不算项里的按钮：上移 / 下移 / 删掉放在各自那一项里）。 */
 function itemTexts(listTestId: string): string[] {
-  return Array.from(el(listTestId).querySelectorAll('li')).map(
-    (li) => li.textContent?.trim() ?? '',
-  );
+  return Array.from(el(listTestId).querySelectorAll('li')).map((li) => {
+    const copy = li.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll('button').forEach((b) => b.remove());
+    return copy.textContent?.trim() ?? '';
+  });
 }
 
 function buttonIn(host: HTMLElement, name: string): HTMLButtonElement {

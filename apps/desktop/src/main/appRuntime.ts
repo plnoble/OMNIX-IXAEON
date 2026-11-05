@@ -1683,10 +1683,6 @@ export class AppRuntime {
     }
   }
 
-  /**
-   * 聊天（Hermes）用哪个模型：设置页的「聊天模型」，留空则跟随分析用的模型。
-   * 都为空时返回 null —— 不干预，用 Hermes 自己 config.yaml 里的。
-   */
   /** MP3：聊天的候选串（带解出来的 Key；地址/Key 缺的跳过；5 分钟内刚不行的排到最后）。 */
   private chatLaunchChain(): Array<{
     key: string;
@@ -1793,6 +1789,10 @@ export class AppRuntime {
     return name ? { providerId: 'default', model: name } : null;
   }
 
+  /**
+   * 聊天（Hermes）用哪个模型：设置页的「聊天模型」，留空则跟随分析用的模型。
+   * 都为空时返回 null —— 不干预，用 Hermes 自己 config.yaml 里的。
+   */
   chatModelName(): string | null {
     const m = (this.config as AppConfig | undefined)?.model;
     if (!m) return null;

@@ -367,7 +367,7 @@ describe('MP3 条件 4：不换的三种', () => {
     });
     await new Promise((r) => setTimeout(r, 50));
     runtime.cancelAsk(conversationId(runtime));
-    release?.();
+    (release as (() => void) | null)?.();
     await pending;
 
     expect(calls.some((c) => c.model === 'demo-b')).toBe(false);

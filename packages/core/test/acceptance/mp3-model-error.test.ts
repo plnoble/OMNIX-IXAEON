@@ -32,7 +32,7 @@ describe('MP3 条件 10：ModelError.status', () => {
     const client = new FakeStreamChatClient([{ error: '额度用完', status: 429 }], 'demo-a');
     let err: unknown = null;
     try {
-      await client.stream({ messages: [], lastUser: '问', onDelta: () => undefined });
+      await client.stream({ messages: [], onDelta: () => undefined });
     } catch (e) {
       err = e;
     }
@@ -56,7 +56,7 @@ describe('MP3 条件 10：ModelError.status', () => {
     });
     let err: unknown = null;
     try {
-      await client.stream({ messages: [], lastUser: '问', onDelta: () => undefined });
+      await client.stream({ messages: [], onDelta: () => undefined });
     } catch (e) {
       err = e;
     }
@@ -72,7 +72,7 @@ describe('MP3 条件 10：ModelError.status', () => {
     });
     let err2: unknown = null;
     try {
-      await client2.stream({ messages: [], lastUser: '问', onDelta: () => undefined });
+      await client2.stream({ messages: [], onDelta: () => undefined });
     } catch (e) {
       err2 = e;
     }
