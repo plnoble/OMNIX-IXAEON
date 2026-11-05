@@ -153,14 +153,22 @@ describe('条件 7：maxWaitMs 到了还是 busy', () => {
         lockPath,
         JSON.stringify({ pid: other.pid, startedAt: new Date().toISOString() }),
       );
+      const startedAt = Date.now();
+      let logs = 0;
       const got = await acquireVerifyLock({
         path: lockPath,
         wait: true,
         pollMs: 20,
         maxWaitMs: 120,
-        log: () => undefined,
+        log: () => {
+          logs += 1;
+        },
       });
+      const waited = Date.now() - startedAt;
       expect('busy' in got).toBe(true);
+      // 真的等到了期限，而不是第一次就放弃
+      expect(waited).toBeGreaterThanOrEqual(100);
+      expect(waited).toBeLessThan(2000);
     } finally {
       other.kill();
     }
@@ -168,11 +176,56 @@ describe('条件 7：maxWaitMs 到了还是 busy', () => {
 });
 
 describe('条件 8：CI 有值时不拿锁', () => {
-  it('verify.mjs 的源码里有 CI 判断与锁调用', () => {
-    const src = readFileSync(resolve(process.cwd(), 'scripts/verify.mjs'), 'utf8');
-    expect(src).toContain('acquireVerifyLock');
-    expect(src).toContain('process.env.CI');
-    // CI 有值时跳过：CI 判断要在「调用」之前（import 行不算）
-    expect(src.indexOf('process.env.CI')).toBeLessThan(src.indexOf('await acquireVerifyLock('));
-  });
+  function runVerify(
+    env: NodeJS.ProcessEnv,
+    args: string[],
+  ): Promise<{ code: number | null; out: string }> {
+    return new Promise((resolvePromise) => {
+      const child = spawn(process.execPath, ['scripts/verify.mjs', ...args], {
+        cwd: process.cwd(),
+        env: { ...process.env, ...env },
+      });
+      let out = '';
+      child.stdout.on('data', (b) => (out += String(b)));
+      child.stderr.on('data', (b) => (out += String(b)));
+      const timer = setTimeout(() => child.kill('SIGKILL'), 25_000);
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        resolvePromise({ code, out });
+      });
+    });
+  }
+
+  it('CI 有值时：锁被别人拿着也照常开始跑（不打印等待、不以 4 退出）', async () => {
+    const other = await spawnAlive();
+    try {
+      // 锁文件在 tmpdir 的默认名，verify 用的是它
+      writeFileSync(
+        join(tmpdir(), 'ixaeon-verify.lock'),
+        JSON.stringify({ pid: other.pid, startedAt: new Date().toISOString() }),
+      );
+      const r = await runVerify({ CI: '1' }, ['--no-wait']);
+      expect(r.out).not.toContain('另一次 verify 正在跑');
+      expect(r.code).not.toBe(4);
+    } finally {
+      other.kill();
+      rmSync(join(tmpdir(), 'ixaeon-verify.lock'), { force: true });
+    }
+  }, 40_000);
+
+  it('没有 CI 时：锁被别人拿着 + --no-wait → 立刻退出码 4', async () => {
+    const other = await spawnAlive();
+    try {
+      writeFileSync(
+        join(tmpdir(), 'ixaeon-verify.lock'),
+        JSON.stringify({ pid: other.pid, startedAt: new Date().toISOString() }),
+      );
+      const r = await runVerify({}, ['--no-wait']);
+      expect(r.code).toBe(4);
+      expect(r.out).toContain('另一次 verify 正在跑');
+    } finally {
+      other.kill();
+      rmSync(join(tmpdir(), 'ixaeon-verify.lock'), { force: true });
+    }
+  }, 40_000);
 });

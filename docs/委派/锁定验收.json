@@ -985,7 +985,7 @@
       "title": "verify 不并行重入",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/t1-verify-lock.test.ts": "22418d67679d5f29cec461ad8b8a2b5c5b93d9c2e69512949f1465a38f194386"
+        "packages/core/test/acceptance/t1-verify-lock.test.ts": "eba3ce5885fda753258d15ae4d4a10e964ee097a77735c07cc015918437fdd18"
       }
     }
   ]
