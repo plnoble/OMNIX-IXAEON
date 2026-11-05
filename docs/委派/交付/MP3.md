@@ -158,3 +158,7 @@ build / unit / integration / acceptance-lock 全过；`acceptance（已完成任
 说明：这个脚本在本机起两个假 OpenAI 兼容服务，用产品代码（`resolveModelUseChain` / `FallbackChatClient` / `FallbackModelProvider` / `Extractor`）各跑一次聊天和后台分析；Key 是合成的，不连外网。
 
 四项：已实现=MP3 条件 1–10；自动化通过=除 MP3b 界面外全过；真机通过=上面两段；用户接受=未接受。
+
+## CI（第一支）
+
+`dev/MP3` @ `36ff6bb` → run 41960391798：lint / format / typecheck / build / unit / integration / acceptance-lock 全过；只红在端到端 `mp3b-fallback`（界面在第二支，还没实现），符合约定。
