@@ -10,11 +10,7 @@ export {
   type ClaudeModel,
 } from './execution/toolLaunch.js';
 export { acceptableFallback, reasonText } from './models/fallbackRules.js';
-export {
-  detectDevTools,
-  type DevToolRow,
-  type DevTool,
-} from './execution/devTools.js';
+export { detectDevTools, type DevToolRow, type DevTool } from './execution/devTools.js';
 export { ErrorCodes, IxaError, toApiError } from '@ixaeon/contracts';
 export { openDatabase, type CoreDatabase } from './db/database.js';
 export { migrate, currentMigrationVersion, MIGRATIONS } from './db/migrations.js';

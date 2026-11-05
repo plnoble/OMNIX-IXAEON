@@ -183,7 +183,15 @@ async function runScenario(input: {
   git(projectRoot, ['init', '-b', 'main']);
   writeFileSync(join(projectRoot, 'calc.mjs'), CALC);
   git(projectRoot, ['add', '-A']);
-  git(projectRoot, ['-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-m', '初始']);
+  git(projectRoot, [
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@localhost',
+    'commit',
+    '-m',
+    '初始',
+  ]);
 
   const db = openDatabase(join(dataDir, 'ixaeon.db'));
   migrate(db);
@@ -373,7 +381,7 @@ function decryptSavedKey(encrypted: string): string {
       '      process.stdout.write(JSON.stringify({ ok: true, key }), () => app.exit(0));',
       '    }',
       '  } catch (err) {',
-      "    process.stdout.write(JSON.stringify({ ok: false, why: String((err && err.message) || err) }), () => app.exit(0));",
+      '    process.stdout.write(JSON.stringify({ ok: false, why: String((err && err.message) || err) }), () => app.exit(0));',
       '  }',
       '});',
     ].join('\n'),
@@ -527,7 +535,10 @@ try {
       check(r.task.status === 'failed', '甲 2：任务没有失败') &&
       check(r.row.error === expected, '甲 2：失败原因和规格第 5 条对不上') &&
       check(isReview(r, 'failed', 2), '甲 2：review 不是 { failed, rounds: 2 }') &&
-      check(r.executorCalls === 2, `甲 2：执行器被调了 ${r.executorCalls} 次（期望 2，没写实现）`) &&
+      check(
+        r.executorCalls === 2,
+        `甲 2：执行器被调了 ${r.executorCalls} 次（期望 2，没写实现）`,
+      ) &&
       check(r.modelCalls.length === 2, `甲 2：模型被调了 ${r.modelCalls.length} 次（期望 2）`);
     if (!ok) passed = false;
   }
