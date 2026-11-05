@@ -719,7 +719,7 @@ export class CodingOrchestrator {
           acceptanceTests: { files, locked: false, reason: error, review },
         };
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: this.executor.name,
+          executorName: executorNameAtStart,
           error,
           executorReportJson: JSON.stringify(report),
         });
@@ -728,7 +728,7 @@ export class CodingOrchestrator {
       };
       const failNow = (error: string): CodingTask => {
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: this.executor.name,
+          executorName: executorNameAtStart,
           error,
         });
         this.recordWorkRun(failed, 'failed');
@@ -999,7 +999,7 @@ export class CodingOrchestrator {
       };
       if (!report.claimedSuccess) {
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: this.executor.name,
+          executorName: executorNameAtStart,
           executorReportJson: JSON.stringify(merged),
           testsModified,
           error: '执行器未声称成功，不把验证命令当成完成',
@@ -1008,7 +1008,7 @@ export class CodingOrchestrator {
         return failed;
       }
       this.store.setStatus(taskId, 'pending_verify', {
-        executorName: this.executor.name,
+        executorName: executorNameAtStart,
         executorReportJson: JSON.stringify(merged),
         testsModified,
       });
