@@ -8,6 +8,7 @@ import {
   readlinkSync,
   readdirSync,
   realpathSync,
+  statSync,
   rmdirSync,
   rmSync,
   symlinkSync,
@@ -719,7 +720,7 @@ export class CodingOrchestrator {
           acceptanceTests: { files, locked: false, reason: error, review },
         };
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: executorNameAtStart,
+          executorName: this.executor.name,
           error,
           executorReportJson: JSON.stringify(report),
         });
@@ -728,7 +729,7 @@ export class CodingOrchestrator {
       };
       const failNow = (error: string): CodingTask => {
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: executorNameAtStart,
+          executorName: this.executor.name,
           error,
         });
         this.recordWorkRun(failed, 'failed');
@@ -999,7 +1000,7 @@ export class CodingOrchestrator {
       };
       if (!report.claimedSuccess) {
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: executorNameAtStart,
+          executorName: this.executor.name,
           executorReportJson: JSON.stringify(merged),
           testsModified,
           error: '执行器未声称成功，不把验证命令当成完成',
@@ -1008,7 +1009,7 @@ export class CodingOrchestrator {
         return failed;
       }
       this.store.setStatus(taskId, 'pending_verify', {
-        executorName: executorNameAtStart,
+        executorName: this.executor.name,
         executorReportJson: JSON.stringify(merged),
         testsModified,
       });
@@ -1846,7 +1847,10 @@ export async function runControlledVerifyCommand(
   return defaultCheck(argv, cwd, signal);
 }
 
-function hashWorkspace(root: string, opts: { lfNormalize?: boolean } = {}): Map<string, string> {
+export function hashWorkspace(
+  root: string,
+  opts: { lfNormalize?: boolean } = {},
+): Map<string, string> {
   const map = new Map<string, string>();
   const walk = (dir: string) => {
     if (!existsSync(dir)) return;

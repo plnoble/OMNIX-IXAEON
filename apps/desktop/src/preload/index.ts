@@ -150,6 +150,7 @@ const api: IxaIpcApi = {
   saveModelUses: (input) => ipcRenderer.invoke('ixaeon:saveModelUses', input),
   saveModelFallbacks: (input) => ipcRenderer.invoke('ixaeon:saveModelFallbacks', input),
   getDevTools: () => ipcRenderer.invoke('ixaeon:getDevTools'),
+  saveCodingChain: (list) => ipcRenderer.invoke('ixaeon:saveCodingChain', list),
   saveDevToolPath: (input) => ipcRenderer.invoke('ixaeon:saveDevToolPath', input),
   saveCodingSettings: (input) => ipcRenderer.invoke('ixaeon:saveCodingSettings', input),
   saveWebSearchSettings: (input) => ipcRenderer.invoke('ixaeon:saveWebSearchSettings', input),

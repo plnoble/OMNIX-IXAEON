@@ -987,6 +987,13 @@ export interface IxaIpcApi {
     }>
   >;
   /** MP3c：手填位置；null / 空串 = 删掉手填、回到自动找。 */
+  /** MP3d：保存编码任务的一串候选；传空数组等于清空。 */
+  saveCodingChain(
+    list: Array<
+      | { kind: 'tool'; tool: 'codex' | 'claude' | 'dsh'; model?: string }
+      | { kind: 'provider'; providerId: string; model: string }
+    >,
+  ): Promise<{ ok: true }>;
   saveDevToolPath(input: {
     tool: 'codex' | 'claude' | 'dsh';
     path: string | null;
