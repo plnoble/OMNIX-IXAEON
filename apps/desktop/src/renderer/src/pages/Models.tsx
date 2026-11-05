@@ -52,6 +52,73 @@ interface Draft {
 const USE_NAMES = { analysis: '后台分析', chat: '聊天', coding: '编码任务' } as const;
 const EMPTY_DRAFT: Draft = { name: '', apiBaseUrl: '', apiKey: '', kind: 'openai' };
 
+/** MP3b：一个用途的替补列表（添加 / 上移 / 下移 / 删掉）。 */
+function FallbackEditor({
+  use,
+  list,
+  labelOf,
+  options,
+  onChange,
+}: {
+  use: 'analysis' | 'chat';
+  list: Array<{ providerId: string; model: string }>;
+  labelOf: (providerId: string, model: string) => string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (list: Array<{ providerId: string; model: string }>) => void;
+}) {
+  const [pick, setPick] = useState('');
+  const chosen = options.some((o) => o.value === pick) ? pick : (options[0]?.value ?? '');
+  const move = (from: number, to: number): void => {
+    if (to < 0 || to >= list.length) return;
+    const next = [...list];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item!);
+    onChange(next);
+  };
+  const decoded = decode(chosen);
+  const canAdd = list.length < 4 && decoded !== null;
+  return (
+    <div className="fallback-editor">
+      <div className="muted">替补（这一个不行按顺序换下一个）</div>
+      <ul data-testid={`fallback-list-${use}`} style={{ listStyle: 'none', paddingLeft: 0 }}>
+        {list.map((item) => (
+          <li key={`${use}-${item.providerId}-${item.model}`}>
+            {labelOf(item.providerId, item.model)}
+          </li>
+        ))}
+        <div className="row">
+          {list.map((item, i) => (
+            <span key={`act-${use}-${item.providerId}-${item.model}`}>
+              <Button onClick={() => move(i, i - 1)}>上移</Button>
+              <Button onClick={() => move(i, i + 1)}>下移</Button>
+              <Button onClick={() => onChange(list.filter((_, j) => j !== i))}>删掉</Button>
+            </span>
+          ))}
+        </div>
+      </ul>
+      <div data-testid={`fallback-add-${use}`}>
+        <select value={chosen} onChange={(e) => setPick(e.target.value)}>
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>{' '}
+        <Button
+          disabled={!canAdd}
+          onClick={() => {
+            if (!decoded) return;
+            onChange([...list, decoded]);
+            setPick('');
+          }}
+        >
+          添加
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function ModelsPage() {
   const [providers, setProviders] = useState<ModelProviderView[]>([]);
   const [uses, setUses] = useState<Uses>({});
@@ -63,6 +130,10 @@ export function ModelsPage() {
   const [filter, setFilter] = useState<Record<string, string>>({});
   const [, setBusy] = useState(false);
   const [currentModel, setCurrentModel] = useState('');
+  const [fallbacks, setFallbacks] = useState<{
+    analysis: Array<{ providerId: string; model: string }>;
+    chat: Array<{ providerId: string; model: string }>;
+  }>({ analysis: [], chat: [] });
   const [keyCleared, setKeyCleared] = useState<Record<string, boolean>>({});
   const [edits, setEdits] = useState<Record<string, { base: string; key: string }>>({});
   // 每次检测一个序号：保存会让在途检测作废，迟到的旧清单不许盖上来
@@ -88,6 +159,11 @@ export function ModelsPage() {
         coding: cfgUses.coding,
       });
       setCurrentModel(view.config.modelName ?? '');
+      const cfgFallbacks = (view.config.fallbacks ?? {}) as {
+        analysis?: Array<{ providerId: string; model: string }>;
+        chat?: Array<{ providerId: string; model: string }>;
+      };
+      setFallbacks({ analysis: cfgFallbacks.analysis ?? [], chat: cfgFallbacks.chat ?? [] });
       setEdits((cur) => {
         const next = { ...cur };
         for (const p of list) if (!next[p.id]) next[p.id] = { base: p.apiBaseUrl, key: '' };
@@ -113,6 +189,30 @@ export function ModelsPage() {
       ),
     [providers],
   );
+
+  const labelOf = (providerId: string, model: string): string => {
+    if (providerId === 'default') return '默认 · ' + model;
+    const p = providers.find((x) => x.id === providerId);
+    return (p?.name ?? providerId) + ' · ' + model;
+  };
+
+  const primaryOf = (use: 'analysis' | 'chat'): { providerId: string; model: string } | null => {
+    const chosen = uses[use];
+    if (chosen) return { providerId: chosen.providerId, model: chosen.model };
+    if (use === 'chat') return uses.analysis ?? null;
+    if (!uses.analysis && currentModel.trim())
+      return { providerId: 'default', model: currentModel };
+    return null;
+  };
+
+  const chatFollows = !uses.chat;
+
+  const optionsFor = (use: 'analysis' | 'chat'): Array<{ value: string; label: string }> => {
+    const primary = primaryOf(use);
+    const taken = new Set<string>((fallbacks[use] ?? []).map((f) => encode(f.providerId, f.model)));
+    if (primary) taken.add(encode(primary.providerId, primary.model));
+    return choices.filter((c) => !taken.has(c.value));
+  };
 
   // 分析下拉要把「在用的模型」也列出来（不在已保存清单时标注）
   const analysisOptions = useMemo(() => {
@@ -240,6 +340,7 @@ export function ModelsPage() {
         chat: uses.chat ?? null,
         coding: uses.coding ?? null,
       });
+      await api.saveModelFallbacks({ analysis: fallbacks.analysis, chat: fallbacks.chat });
       setNotice('用途已保存');
     } catch (err) {
       setError(errMsg(err));
@@ -500,6 +601,29 @@ export function ModelsPage() {
             ))}
           </select>
         </label>
+        <FallbackEditor
+          use="analysis"
+          list={fallbacks.analysis}
+          labelOf={labelOf}
+          options={optionsFor('analysis')}
+          onChange={(list) => setFallbacks({ ...fallbacks, analysis: list })}
+        />
+        {chatFollows ? (
+          <>
+            <div className="muted" data-testid="fallback-follow-note">
+              跟着后台分析，替补也用后台分析的
+            </div>
+            <ul data-testid="fallback-list-chat" style={{ listStyle: 'none', paddingLeft: 0 }} />
+          </>
+        ) : (
+          <FallbackEditor
+            use="chat"
+            list={fallbacks.chat}
+            labelOf={labelOf}
+            options={optionsFor('chat')}
+            onChange={(list) => setFallbacks({ ...fallbacks, chat: list })}
+          />
+        )}
         <Button kind="primary" testId="uses-save" onClick={() => void saveUses()}>
           保存
         </Button>
