@@ -1686,50 +1686,6 @@ export class AppRuntime {
     }
   }
 
-  /** MP3d：保存编码任务的一串候选（校验重复 / 最多 5 项 / 模型确实保存过）。 */
-  saveCodingChain(
-    list: Array<
-      | { kind: 'tool'; tool: 'codex' | 'claude' | 'dsh'; model?: string }
-      | { kind: 'provider'; providerId: string; model: string }
-    >,
-  ): { ok: true } {
-    if (list.length > 5) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '最多 5 项');
-    const seen = new Set<string>();
-    for (const item of list) {
-      let key: string;
-      if (item.kind === 'tool') {
-        if (item.tool !== 'claude' && item.model)
-          throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'Codex / DSH 这一单不填模型');
-        if (
-          item.tool === 'claude' &&
-          item.model &&
-          !['opus', 'sonnet', 'haiku'].includes(item.model)
-        )
-          throw new IxaError(
-            ErrorCodes.VALIDATION_FAILED,
-            'Claude Code 只能选 opus / sonnet / haiku',
-          );
-        key = `tool:${item.tool}:${item.model ?? ''}`;
-      } else {
-        const providers = (this.config.providers ?? []) as Array<{
-          id: string;
-          savedModels: string[];
-        }>;
-        const provider = providers.find((p) => p.id === item.providerId);
-        if (!provider || !provider.savedModels.includes(item.model))
-          throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个模型没有勾选保存过');
-        key = `provider:${item.providerId}:${item.model}`;
-      }
-      if (seen.has(key)) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '同一项只能出现一次');
-      seen.add(key);
-    }
-    this.updateConfig((c) => ({ ...c, codingChain: list.length ? list : undefined }));
-    recordAudit(this.db, 'coding_chain.saved', { count: list.length });
-    this.clearFallbackCooldown?.();
-    this.resetChatSessions?.();
-    return { ok: true };
-  }
-
   /** MP3c：三个开发工具的位置（手填优先，只看文件在不在）。 */
   getDevTools(): Array<{
     tool: 'codex' | 'claude' | 'dsh';
