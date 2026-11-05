@@ -74,6 +74,7 @@ import {
   watchDirectionsSchema,
   type WatchDirection,
   resolveModelUse,
+  resolveModelUseChain,
   checkMagpieUrl,
   getSetting,
   setSetting,
@@ -94,6 +95,7 @@ import {
   type GoalEvent,
   type PlanStep,
 } from '@ixaeon/core';
+import { FallbackChatClient, FallbackModelProvider } from './modelFallback.js';
 import {
   type MemoryUsedItem,
   ErrorCodes,
@@ -243,6 +245,8 @@ export class AppRuntime {
   private codingDispatchRef: CodingDispatch | null = null;
   /** 假聊天客户端（同一运行时复用，剧本按 stream 调用顺序往下走）。 */
   private fakeChatClient: StreamChatClient | null = null;
+  /** MP3：5 分钟内先放过刚「不行」的候选（按用途，只在内存；保存/重启清空）。 */
+  private fallbackCooldown = new Map<'analysis' | 'chat', Map<string, number>>();
   private get codingDispatch(): CodingDispatch {
     return (this.codingDispatchRef ??= new CodingDispatch(this));
   }
@@ -857,15 +861,21 @@ export class AppRuntime {
       }
       return this.fakeProvider;
     }
-    const resolved = resolveModelUse(this.config, 'analysis');
-    if (!resolved || !resolved.model) return null;
-    const apiKey = resolved.apiKeyEncrypted ? decryptApiKey(resolved.apiKeyEncrypted) : null;
-    if (!apiKey) return null;
-    return new OpenAIResponsesProvider({
-      apiKey,
-      modelName: resolved.model,
-      baseUrl: resolved.apiBaseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
-    });
+    const candidates = this.analysisCandidates();
+    if (candidates.length === 0) return null;
+    const build = (c: (typeof candidates)[number]): OpenAIResponsesProvider =>
+      new OpenAIResponsesProvider({
+        apiKey: c.apiKey,
+        modelName: c.model,
+        baseUrl: c.baseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
+      });
+    if (candidates.length === 1) return build(candidates[0]!);
+    return new FallbackModelProvider(
+      candidates.map((c) => ({ key: c.key, providerName: c.providerName, model: c.model })),
+      (cand) => build(candidates.find((c) => c.key === cand.key)!),
+      (entry) => this.logger.info('模型替补：后台分析换下一个', { use: 'analysis', ...entry }),
+      (key) => this.demoteCandidate('analysis', key),
+    );
   }
 
   /** 用已保存的 Key、已保存的地址和给定的模型名建客户端。没有模型名、没存 Key、解不开都返回 null。 */
@@ -1486,9 +1496,10 @@ export class AppRuntime {
       return { model: 'fake-direct', baseUrl: 'http://127.0.0.1:9/v1', apiKey: 'fake' };
     }
     // 规格只要求三样齐（模型 / 地址 / Key）就走直连——不再额外要求「模型在已保存清单里」
-    const { chatModel, chatBaseUrl, chatApiKey } = this.chatLaunchOptions();
-    if (!chatModel || !chatBaseUrl || !chatApiKey) return null;
-    return { model: chatModel, baseUrl: chatBaseUrl, apiKey: chatApiKey };
+    // MP3：主选解析不出来、但替补能用时，照样能问（取候选串的第一个）。
+    const first = this.chatLaunchChain()[0];
+    if (!first) return null;
+    return first.launch;
   }
 
   /** 直连聊天给模型的五个工具（规格第 6 条）；不在清单里的名字一律拒绝执行。 */
@@ -1577,7 +1588,31 @@ export class AppRuntime {
         }
       }
       const contextBlock = blocks.join('\n\n');
-      const client = this.chatStreamClient(input.launch);
+      const chain = this.chatLaunchChain();
+      const chatCandidates =
+        chain.length > 0
+          ? chain
+          : [
+              {
+                key: 'direct:' + input.launch.model,
+                providerName: '',
+                model: input.launch.model,
+                launch: input.launch,
+              },
+            ];
+      const client =
+        chatCandidates.length > 1
+          ? new FallbackChatClient(
+              chatCandidates.map((c) => ({
+                key: c.key,
+                providerName: c.providerName,
+                model: c.model,
+                launch: c.launch,
+              })),
+              (l) => this.chatStreamClient(l),
+              (key) => this.demoteCandidate('chat', key),
+            )
+          : this.chatStreamClient(input.launch);
       const ctrl = new AbortController();
       this.directAskAborts ??= new Map();
       this.directAskAborts.set(input.runId, ctrl);
@@ -1617,9 +1652,13 @@ export class AppRuntime {
       return {
         answer: out.answer,
         citations: [],
-        notice: out.status === 'cancelled' ? '用户取消' : '本轮走直连模型。',
+        notice:
+          out.status === 'cancelled'
+            ? '用户取消'
+            : ((client instanceof FallbackChatClient ? client.notice : null) ??
+              (out.status === 'succeeded' ? '本轮走直连模型。' : (out.failure ?? '直连模型'))),
         usedChars: contextBlock.length,
-        modelName: input.launch.model,
+        modelName: client instanceof FallbackChatClient ? client.modelName : input.launch.model,
         engine: 'direct',
         runId: input.runId,
         steps,
@@ -1648,6 +1687,112 @@ export class AppRuntime {
    * 聊天（Hermes）用哪个模型：设置页的「聊天模型」，留空则跟随分析用的模型。
    * 都为空时返回 null —— 不干预，用 Hermes 自己 config.yaml 里的。
    */
+  /** MP3：聊天的候选串（带解出来的 Key；地址/Key 缺的跳过；5 分钟内刚不行的排到最后）。 */
+  private chatLaunchChain(): Array<{
+    key: string;
+    providerName: string;
+    model: string;
+    launch: { model: string; baseUrl: string; apiKey: string };
+  }> {
+    type Item = {
+      key: string;
+      providerName: string;
+      model: string;
+      launch: { model: string; baseUrl: string; apiKey: string };
+    };
+    const list: Item[] = [];
+    for (const r of resolveModelUseChain(this.config, 'chat')) {
+      const apiKey = this.decryptOrNull(r.apiKeyEncrypted);
+      const baseUrl = (r.apiBaseUrl ?? '').trim();
+      if (!apiKey || !baseUrl || !r.model) continue;
+      list.push({
+        key: r.providerId + '\u0000' + r.model,
+        providerName: r.providerName,
+        model: r.model,
+        launch: { model: r.model, baseUrl, apiKey },
+      });
+    }
+    return this.orderedByCooldown('chat', list);
+  }
+
+  /** MP3：后台分析的候选（两个以上时 getProvider 包一层）。 */
+  private analysisCandidates(): Array<{
+    key: string;
+    providerName: string;
+    model: string;
+    baseUrl: string;
+    apiKey: string;
+  }> {
+    type Item = {
+      key: string;
+      providerName: string;
+      model: string;
+      baseUrl: string;
+      apiKey: string;
+    };
+    const list: Item[] = [];
+    for (const r of resolveModelUseChain(this.config, 'analysis')) {
+      const apiKey = this.decryptOrNull(r.apiKeyEncrypted);
+      if (!apiKey) continue;
+      list.push({
+        key: r.providerId + '\u0000' + r.model,
+        providerName: r.providerName,
+        model: r.model,
+        baseUrl: r.apiBaseUrl ?? '',
+        apiKey,
+      });
+    }
+    return this.orderedByCooldown('analysis', list);
+  }
+
+  private decryptOrNull(encrypted: string | null): string | null {
+    if (!encrypted) return null;
+    try {
+      return decryptApiKey(encrypted) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** MP3：5 分钟内刚「不行」的候选排到最后（不删掉，其它项照原顺序前移）。 */
+  private orderedByCooldown<T extends { key: string }>(use: 'analysis' | 'chat', list: T[]): T[] {
+    this.fallbackCooldown ??= new Map();
+    const map = this.fallbackCooldown.get(use);
+    if (!map || map.size === 0) return list;
+    const now = Date.now();
+    const fresh = list.filter((c) => (map.get(c.key) ?? 0) <= now);
+    const cooling = list.filter((c) => (map.get(c.key) ?? 0) > now);
+    return [...fresh, ...cooling];
+  }
+
+  private demoteCandidate(use: 'analysis' | 'chat', key: string): void {
+    this.fallbackCooldown ??= new Map();
+    let map = this.fallbackCooldown.get(use);
+    if (!map) {
+      map = new Map();
+      this.fallbackCooldown.set(use, map);
+    }
+    map.set(key, Date.now() + 5 * 60 * 1000);
+  }
+
+  private clearFallbackCooldown(): void {
+    this.fallbackCooldown ??= new Map();
+    this.fallbackCooldown.clear();
+  }
+
+  /** 某个用途现在的主选（只有 providerId 与 model；聊天留空跟随后台分析）。 */
+  private primaryChoiceOf(use: 'analysis' | 'chat'): { providerId: string; model: string } | null {
+    const chosen = this.config.uses?.[use];
+    if (chosen) return { providerId: chosen.providerId, model: chosen.model };
+    if (use === 'chat') {
+      const own = (this.config.model.chatModelName ?? '').trim();
+      if (!own) return this.primaryChoiceOf('analysis');
+      return { providerId: 'default', model: own };
+    }
+    const name = (this.config.model.modelName ?? '').trim();
+    return name ? { providerId: 'default', model: name } : null;
+  }
+
   chatModelName(): string | null {
     const m = (this.config as AppConfig | undefined)?.model;
     if (!m) return null;
@@ -1748,6 +1893,8 @@ export class AppRuntime {
     apiKey?: string;
     savedModels?: string[];
   }): { ok: true; id: string; keyCleared: boolean } {
+    // MP3：保存供应商后，5 分钟「先放过刚不行的」记忆清空
+    this.clearFallbackCooldown();
     const name = input.name.trim();
     const apiBaseUrl = input.apiBaseUrl.trim();
     const providedKey =
@@ -1862,6 +2009,15 @@ export class AppRuntime {
         `${used.map((u) => names[u]).join('、')}在用它，先在用途里换掉再删`,
       );
     }
+    const usedByFallback = (['analysis', 'chat'] as const).filter((u) =>
+      (this.config.fallbacks?.[u] ?? []).some((f) => f.providerId === id),
+    );
+    if (usedByFallback.length > 0) {
+      throw new IxaError(
+        ErrorCodes.VALIDATION_FAILED,
+        `${usedByFallback.map((u) => names[u]).join('、')}的替补在用它，先在用途里换掉`,
+      );
+    }
     this.updateConfig((c) => ({ ...c, providers: (c.providers ?? []).filter((p) => p.id !== id) }));
     recordAudit(this.db, 'model_provider.deleted', { id, kind: row.kind });
     return { ok: true };
@@ -1970,9 +2126,60 @@ export class AppRuntime {
       },
       ...(codingModel !== null ? { coding: { ...c.coding, modelName: codingModel } } : {}),
     }));
+    this.clearFallbackCooldown();
     this.resetChatSessions();
     return { ok: true };
   }
+  /** MP3：保存某个用途的替补列表；传空数组等于清空，没传的用途不动。 */
+  saveModelFallbacks(input: {
+    analysis?: Array<{ providerId: string; model: string }>;
+    chat?: Array<{ providerId: string; model: string }>;
+  }): { ok: true } {
+    const next = { ...(this.config.fallbacks ?? {}) } as AppConfig['fallbacks'];
+    for (const use of ['analysis', 'chat'] as const) {
+      const list = input[use];
+      if (list === undefined) continue;
+      if (list.length > 4) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '一个用途的替补最多 4 项');
+      }
+      const primary = this.primaryChoiceOf(use);
+      const seen = new Set<string>();
+      for (const item of list) {
+        const key = item.providerId + '\u0000' + item.model;
+        if (seen.has(key)) {
+          throw new IxaError(ErrorCodes.VALIDATION_FAILED, '替补里有重复：' + item.model);
+        }
+        seen.add(key);
+        if (primary && primary.providerId === item.providerId && primary.model === item.model) {
+          throw new IxaError(
+            ErrorCodes.VALIDATION_FAILED,
+            '替补「' + item.model + '」跟这个用途的主选相同，换一个',
+          );
+        }
+        const models =
+          item.providerId === 'default'
+            ? (this.config.model.savedModels ?? [])
+            : (this.config.providers ?? []).find((p) => p.id === item.providerId)?.savedModels;
+        if (item.providerId !== 'default' && models === undefined) {
+          throw new IxaError(ErrorCodes.VALIDATION_FAILED, '没有这家供应商');
+        }
+        if (!(models ?? []).includes(item.model)) {
+          throw new IxaError(
+            ErrorCodes.VALIDATION_FAILED,
+            '这个模型没有勾选保存过，先在模型页勾上',
+          );
+        }
+      }
+      if (list.length === 0) delete next[use];
+      else next[use] = list.map((i) => ({ providerId: i.providerId, model: i.model }));
+      recordAudit(this.db, 'model_fallbacks.saved', { use, count: list.length });
+    }
+    this.updateConfig((c) => ({ ...c, fallbacks: next }));
+    this.clearFallbackCooldown();
+    this.resetChatSessions();
+    return { ok: true };
+  }
+
   saveModelSettings(input: {
     modelName: string;
     chatModelName?: string;

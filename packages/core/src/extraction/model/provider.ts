@@ -25,6 +25,8 @@ export class ModelError extends Error {
   constructor(
     message: string,
     readonly retriable: boolean,
+    /** MP3：上游 HTTP 状态码（连不上/超时没有）。 */
+    readonly status?: number,
   ) {
     super(message);
     this.name = 'ModelError';

@@ -169,6 +169,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
       throw new ModelError(
         `API 错误 ${res.status}: ${text.slice(0, 200)}`,
         res.status === 429 || res.status >= 500,
+        res.status,
       );
     }
     if (!isEventStream(res)) {
@@ -260,6 +261,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
       throw new ModelError(
         `API 错误 ${res.status}: ${text.slice(0, 200)}`,
         res.status === 429 || res.status >= 500,
+        res.status,
       );
     }
     if (isEventStream(res)) {

@@ -111,6 +111,13 @@ export const appConfigSchema = z.object({
   /** MP2：第一家（default）沿用 config.model，其余各家放这里，不用迁移。 */
   providers: z.array(modelProviderSchema).default([]),
   /** MP2：三个用途各自用哪家的哪个模型；没有这一项就走旧字段。 */
+  /** MP3：每个用途主选之后的替补列表（最多 4 项）。 */
+  fallbacks: z
+    .object({
+      analysis: z.array(modelChoiceSchema).max(4).optional(),
+      chat: z.array(modelChoiceSchema).max(4).optional(),
+    })
+    .default({}),
   uses: z
     .object({
       analysis: modelChoiceSchema.optional(),
@@ -149,6 +156,7 @@ export function defaultAppConfig(): AppConfig {
     coding: { executor: 'codex', modelName: '' },
     providers: [],
     uses: {},
+    fallbacks: {},
   };
 }
 

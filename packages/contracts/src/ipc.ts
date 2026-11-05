@@ -454,6 +454,13 @@ export const settingsViewSchema = z.object({
     webSearchKeyPresent: z.boolean().default(false),
     /** MP2（11-03 补）：三个用途各自选了哪家的哪个模型 */
     uses: modelChoiceUsesView,
+    /** MP3：每个用途的替补列表，原样回给界面 */
+    fallbacks: z
+      .object({
+        analysis: z.array(modelChoiceView).max(4).optional(),
+        chat: z.array(modelChoiceView).max(4).optional(),
+      })
+      .default({}),
   }),
   dataDir: z.string(),
   /** K3：驾驶舱读队列用的 IXAEON 仓库路径（设置页填；空串 = 不读队列）。 */
@@ -967,6 +974,11 @@ export interface IxaIpcApi {
     analysis?: { providerId: string; model: string } | null;
     chat?: { providerId: string; model: string } | null;
     coding?: { providerId: string; model: string } | null;
+  }): Promise<{ ok: true }>;
+  /** MP3：保存某个用途的替补列表；传空数组等于清空，没传的用途不动。 */
+  saveModelFallbacks(input: {
+    analysis?: Array<{ providerId: string; model: string }>;
+    chat?: Array<{ providerId: string; model: string }>;
   }): Promise<{ ok: true }>;
   getSemanticIndexStatus(): Promise<{
     enabled: boolean;

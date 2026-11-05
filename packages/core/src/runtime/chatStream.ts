@@ -144,6 +144,7 @@ export class OpenAIChatStreamClient implements StreamChatClient {
         throw new ModelError(
           `聊天网关返回 ${res.status}：${text.slice(0, 120) || '（无正文）'}`,
           res.status === 429 || res.status >= 500,
+          res.status,
         );
       }
       return await this.readStream(res, input.onDelta ?? ((): void => undefined), ctrl);
@@ -219,7 +220,12 @@ export class FakeStreamChatClient implements StreamChatClient {
   readonly calls: { messages: ChatMessage[]; tools?: ChatToolDef[] }[] = [];
   private cursor = 0;
   constructor(
-    private readonly script: { deltas?: string[]; toolCalls?: ChatToolCall[]; error?: string }[],
+    private readonly script: {
+      deltas?: string[];
+      toolCalls?: ChatToolCall[];
+      error?: string;
+      status?: number;
+    }[],
     modelName = 'fake-direct',
     /** 测试用：每段之间等这么久，好让端到端看到「正在回答」的中间态。 */
     private readonly delayMs = 0,
@@ -236,7 +242,7 @@ export class FakeStreamChatClient implements StreamChatClient {
     const step = this.script[Math.min(this.cursor, this.script.length - 1)];
     this.cursor += 1;
     if (!step) throw new ModelError('假客户端没有脚本', false);
-    if (step.error) throw new ModelError(step.error, false);
+    if (step.error) throw new ModelError(step.error, false, step.status);
     if (input.signal?.aborted) throw aborted();
     const deltas = step.deltas ?? [];
     for (const delta of deltas) {
