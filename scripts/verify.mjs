@@ -6,6 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { acquireVerifyLock } from './lib/verify-lock.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const node = process.execPath;
@@ -13,6 +14,25 @@ const node = process.execPath;
 // 会被当成纯 Node 启动，Playwright 等不到调试端口，报「Process failed to launch」。
 // 门禁里要用它的地方（零依赖档验证）都是自己显式设的，宿主带进来的一律清掉。
 delete process.env.ELECTRON_RUN_AS_NODE;
+
+// T1：整台机器一把锁——同一时间只跑一个完整 verify（CI 上跳过：一台机器只跑一份）。
+if (!process.env.CI) {
+  const lock = await acquireVerifyLock({ wait: !process.argv.includes('--no-wait') });
+  if ('busy' in lock) {
+    const holder = lock.holder;
+    process.stderr.write(
+      `另一次 verify 正在跑（进程 ${holder ? holder.pid : '—'}），本次不跑，退出。\n`,
+    );
+    process.exit(4);
+  }
+  process.on('exit', () => lock.release());
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.on(sig, () => {
+      lock.release();
+      process.exit(130);
+    });
+  }
+}
 
 function run(label, args, env = {}) {
   const started = Date.now();

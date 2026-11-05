@@ -979,6 +979,14 @@
         "apps/desktop/test/acceptance/mp3f-panel.test.ts": "5d97d768710f7cc6f44e4db3c7cc418d03e88aba691029be1b2b0c356f7071c3",
         "apps/desktop/test/acceptance/mp3f-rules.test.ts": "c6991f8cdc01ed83bba9552753e45e509f2f041e3c784872f26abc2861306aa3"
       }
+    },
+    {
+      "id": "T1",
+      "title": "verify 不并行重入",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/t1-verify-lock.test.ts": "22418d67679d5f29cec461ad8b8a2b5c5b93d9c2e69512949f1465a38f194386"
+      }
     }
   ]
 }
