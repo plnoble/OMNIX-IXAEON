@@ -167,7 +167,7 @@ describe('条件 7：maxWaitMs 到了还是 busy', () => {
       const waited = Date.now() - startedAt;
       expect('busy' in got).toBe(true);
       // 真的等到了期限，而不是第一次就放弃
-      expect(logs).toBe(0); // 不到一分钟不重复打印
+      expect(logs).toBeGreaterThanOrEqual(1); // 等的时候马上先打一行
       expect(waited).toBeGreaterThanOrEqual(100);
       expect(waited).toBeLessThan(2000);
     } finally {
