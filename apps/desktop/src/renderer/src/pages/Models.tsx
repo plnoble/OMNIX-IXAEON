@@ -178,9 +178,8 @@ export function ModelsPage() {
           []) as typeof chain,
       );
       const tools =
-        (typeof api.getDevTools === 'function'
-          ? await api.getDevTools().catch(() => [])
-          : []) ?? [];
+        (typeof api.getDevTools === 'function' ? await api.getDevTools().catch(() => []) : []) ??
+        [];
       setDevtools(tools);
 
       const cfgFallbacks = (view.config.fallbacks ?? {}) as {
