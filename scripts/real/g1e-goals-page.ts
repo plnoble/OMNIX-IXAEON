@@ -10,7 +10,12 @@ import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
-import { migrate, openDatabase, TodoStore, type CoreDatabase } from '../../packages/core/src/index.js';
+import {
+  migrate,
+  openDatabase,
+  TodoStore,
+  type CoreDatabase,
+} from '../../packages/core/src/index.js';
 import { GoalStore, PlanStore } from '../../packages/core/src/goals/index.js';
 
 const { _electron: electron } = createRequire(
@@ -21,7 +26,9 @@ const work = mkdtempSync(join(process.cwd(), '.logs', 'g1e-real-'));
 const dataDir = join(work, 'data');
 mkdirSync(dataDir, { recursive: true });
 const log = (...args: unknown[]) =>
-  console.log(...args.map((v) => (typeof v === 'string' ? v.replaceAll(work, '<临时目录>') : String(v))));
+  console.log(
+    ...args.map((v) => (typeof v === 'string' ? v.replaceAll(work, '<临时目录>') : String(v))),
+  );
 
 type ElectronApp = {
   firstWindow(): Promise<Page>;
@@ -82,7 +89,14 @@ const main = async (): Promise<void> => {
     proposed.id,
   );
 
-  const tables = ['goals', 'goal_events', 'goal_plans', 'goal_steps', 'goal_step_deps', 'goal_links'];
+  const tables = [
+    'goals',
+    'goal_events',
+    'goal_plans',
+    'goal_steps',
+    'goal_step_deps',
+    'goal_links',
+  ];
   const snap = (database: CoreDatabase): string =>
     JSON.stringify(tables.map((t) => database.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()));
   const before = snap(db);
@@ -152,11 +166,22 @@ const main = async (): Promise<void> => {
     await page.getByTestId('nav-goals').click();
     await page.getByTestId(`goal-${parent.id}`).waitFor({ timeout: 20_000 });
 
-    const activeText = (await page.getByTestId(`goal-${parent.id}`).innerText()).replaceAll(work, '<临时目录>');
+    const activeText = (await page.getByTestId(`goal-${parent.id}`).innerText()).replaceAll(
+      work,
+      '<临时目录>',
+    );
     const reviewClass = await page.getByTestId(`goal-review-${parent.id}`).getAttribute('class');
-    const blockedText = (await page.getByTestId(`goal-blocked-${blocked.id}`).innerText()).replaceAll(work, '<临时目录>');
-    const watchText = (await page.getByTestId(`goal-watch-${parent.id}`).innerText()).replaceAll(work, '<临时目录>');
-    const proposedText = (await page.getByTestId('goals-proposed').innerText()).replaceAll(work, '<临时目录>');
+    const blockedText = (
+      await page.getByTestId(`goal-blocked-${blocked.id}`).innerText()
+    ).replaceAll(work, '<临时目录>');
+    const watchText = (await page.getByTestId(`goal-watch-${parent.id}`).innerText()).replaceAll(
+      work,
+      '<临时目录>',
+    );
+    const proposedText = (await page.getByTestId('goals-proposed').innerText()).replaceAll(
+      work,
+      '<临时目录>',
+    );
     const writeButtons = await page.locator('main button').count();
 
     log('== G1e 真机检查（列表段）==');
@@ -173,7 +198,10 @@ const main = async (): Promise<void> => {
 
     await page.getByTestId(`goal-${parent.id}`).click();
     await page.getByTestId('goal-detail').waitFor({ timeout: 10_000 });
-    const detailText = (await page.getByTestId('goal-detail').innerText()).replaceAll(work, '<临时目录>');
+    const detailText = (await page.getByTestId('goal-detail').innerText()).replaceAll(
+      work,
+      '<临时目录>',
+    );
     const detailButtons = await page.locator('main button').allTextContents();
     log('详情页');
     log(detailText);
@@ -226,7 +254,9 @@ const main = async (): Promise<void> => {
       detailText.includes('事件时间线') &&
       detailText.includes('用户') &&
       detailText.includes('模型') &&
-      !detailButtons.some((b) => ['确认', '不是这个', '改', '推进', '重规划', '挂'].some((w) => b.includes(w)));
+      !detailButtons.some((b) =>
+        ['确认', '不是这个', '改', '推进', '重规划', '挂'].some((w) => b.includes(w)),
+      );
 
     await app.close();
     app = null;
@@ -234,7 +264,11 @@ const main = async (): Promise<void> => {
     const db2 = openDatabase(dbPath);
     const afterRows = snap(db2);
     db2.close();
-    log(before === afterRows ? '只读：打开列表 / 详情前后 goals 六张表逐行不变' : '只读：六张表变了（失败）');
+    log(
+      before === afterRows
+        ? '只读：打开列表 / 详情前后 goals 六张表逐行不变'
+        : '只读：六张表变了（失败）',
+    );
 
     app = await launch();
     page = await app.firstWindow();
