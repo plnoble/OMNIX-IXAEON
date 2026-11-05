@@ -461,6 +461,20 @@ export const settingsViewSchema = z.object({
         chat: z.array(modelChoiceView).max(4).optional(),
       })
       .default({}),
+    // MP3e：编码任务的主选 + 替补（界面读回来用）
+    codingChain: z
+      .array(
+        z.union([
+          z.object({
+            kind: z.literal('tool'),
+            tool: z.enum(['codex', 'claude', 'dsh']),
+            model: z.string().optional(),
+          }),
+          z.object({ kind: z.literal('provider'), providerId: z.string(), model: z.string() }),
+        ]),
+      )
+      .max(5)
+      .default([]),
   }),
   dataDir: z.string(),
   /** K3：驾驶舱读队列用的 IXAEON 仓库路径（设置页填；空串 = 不读队列）。 */

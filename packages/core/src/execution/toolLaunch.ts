@@ -157,6 +157,8 @@ export class ClaudeCodeExecutor implements CodingExecutor {
     return {
       summary: parsed.summary,
       claimedSuccess: true,
+      changedPaths: [],
+      testsModified: false,
       changes: [],
     } as unknown as ExecutorReport;
   }
@@ -192,6 +194,8 @@ export class DshExecutor implements CodingExecutor {
     return {
       summary: parsed.summary,
       claimedSuccess: true,
+      changedPaths: [],
+      testsModified: false,
       changes: [],
     } as unknown as ExecutorReport;
   }

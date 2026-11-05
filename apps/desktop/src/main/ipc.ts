@@ -804,6 +804,7 @@ export function registerIpc(runtime: AppRuntime): void {
           // MP2（11-03 补）：界面要知道每个用途现在选的是哪家的哪个模型
           uses: config.uses ?? {},
           fallbacks: config.fallbacks ?? {},
+          codingChain: config.codingChain ?? [],
         },
         dataDir: runtime.state.dataDir,
         cockpit: {

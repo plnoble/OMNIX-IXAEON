@@ -111,12 +111,6 @@ test('条件 15：Codex → Claude Code，回报写着替补来做，改动是 C
   await page.waitForTimeout(300);
   await page.getByTestId('uses-save').click();
   await page.waitForTimeout(300);
-  console.log(
-    'CHAIN',
-    JSON.stringify(
-      await page.evaluate(async () => (await window.ixaeon!.getSettings()).config.codingChain),
-    ),
-  );
 
   // 任务页：建草案 → 批准 → 派发
   await page.getByTestId('nav-tasks').click();

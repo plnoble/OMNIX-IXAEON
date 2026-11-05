@@ -356,13 +356,13 @@ export function ModelsPage() {
   const saveUses = async (): Promise<void> => {
     setError(null);
     try {
+      await api.saveCodingChain(chain);
       await api.saveModelUses({
         analysis: uses.analysis ?? null,
         chat: uses.chat ?? null,
         coding: uses.coding ?? null,
       });
       await api.saveModelFallbacks({ analysis: fallbacks.analysis, chat: fallbacks.chat });
-      await api.saveCodingChain(chain);
       setNotice('用途已保存');
     } catch (err) {
       setError(errMsg(err));
