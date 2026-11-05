@@ -976,6 +976,21 @@ export interface IxaIpcApi {
     coding?: { providerId: string; model: string } | null;
   }): Promise<{ ok: true }>;
   /** MP3：保存某个用途的替补列表；传空数组等于清空，没传的用途不动。 */
+  /** MP3c：三个开发工具找到没找到（不运行它们）。 */
+  getDevTools(): Promise<
+    Array<{
+      tool: 'codex' | 'claude' | 'dsh';
+      found: boolean;
+      path: string | null;
+      source: 'manual' | 'auto' | null;
+      note: string | null;
+    }>
+  >;
+  /** MP3c：手填位置；null / 空串 = 删掉手填、回到自动找。 */
+  saveDevToolPath(input: {
+    tool: 'codex' | 'claude' | 'dsh';
+    path: string | null;
+  }): Promise<{ ok: true }>;
   saveModelFallbacks(input: {
     analysis?: Array<{ providerId: string; model: string }>;
     chat?: Array<{ providerId: string; model: string }>;

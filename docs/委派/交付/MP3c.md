@@ -100,3 +100,32 @@ dev 报：规格第 12 条要拿掉「替补审查」「替补整合方」两行
   - 拿掉两行之前，k10a / mg2 / mp3f-panel 三份 7 条，红 2 条（新的两条）；
   - 临时拿掉两行之后 7 条全过（模拟后已还原）；
   - `mg2-panel.test.ts` 只在桩里有这两行，不用改。
+    ﻿
+
+## 实现（MP3c，2026-11-05）
+
+- `packages/core/src/execution/devTools.ts`（新）：`detectDevTools({manual, env, exists?})`，顺序 codex/claude/dsh；手填只在就 manual、不在就「手填的位置没有这个程序」不往下找；自动按 env → 默认路径；DSH 要 `DeepSeek Harness.exe` 与 `resources/app.asar` 同时存在；`IXAEON_CODEX_EXE=none` 记「已设成不用 Codex」。
+- `packages/core/src/execution/executor.ts`：`resolveCodexLocator(input?)` 传参就交给 `detectDevTools`；不传保持旧行为（去掉原来那个假的 `'codex'` 候选）。
+- `packages/core/src/index.ts` 导出 `detectDevTools`。
+- `packages/contracts`：`config.devTools`（默认 `{}`）；`getDevTools()` / `saveDevToolPath({tool,path})` 两个 IPC。
+- `apps/desktop/src/main/appRuntime.ts`：`getDevTools()`、`saveDevToolPath()`（绝对路径校验、不在就「这个位置没有 <工具名>」、null/空串删手填、审计只记工具名与「手填 / 恢复自动」不记路径）；`codexLocator` 默认改成按 `config.devTools.codex` 取（手填优先）。
+- `ipc.ts` / `preload`：注册两个通道。
+- `Models.tsx`：「供应商」和「用途」之间加「开发工具」卡片，三行 `devtool-row/path/save/auto-<tool>`；输入用 DOM ref 取当前值（jsdom 下直接改 input.value 也能存档）。
+
+自动化：`node scripts/acceptance.mjs run MP3c` → **4 files / 18 tests 全过**。
+
+真机检查（`node scripts/real/run-batch.mjs scripts/real/mp3c-devtools.ts`，只输出三行、不含路径）：
+
+```
+codex：没找到、—
+claude：没找到、—
+dsh：没找到、—
+```
+
+（本机这三样都没装/没配，符合「没找到」；脚本不打印任何路径。）
+
+四项：已实现=MP3c 条件 1–4、6（条件 5 由 `resolveCodexLocator(input)` 覆盖）；自动化通过=18/18；真机通过=上面三行；用户接受=未接受。
+
+## 进度说明
+
+MP3d / MP3e 这次没有开始：本轮先把 MP3f 收尾（含整合方改的两份锁定测试）再做 MP3c，做完 MP3c 时本轮时间用尽。MP3d / MP3e 的分支、实现与真机检查留待下一轮接着做（测试已锁在 main，`dev/MP3c` 上可直接往下接）。

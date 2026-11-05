@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { detectDevTools } from './devTools.js';
 import { ErrorCodes, IxaError, type CodingTask } from '@ixaeon/contracts';
 import { z } from 'zod';
 import type { CoreDatabase } from '../db/database.js';
@@ -284,7 +285,21 @@ export interface CodexLocator {
 const DEFAULT_CODEX_SANDBOX: CodexLocator['sandbox'] = 'workspace-write';
 
 /** 用户已确认的真机隔离默认：workspace-write + 隔离工作区 + 忽略用户更宽配置。 */
-export function resolveCodexLocator(): CodexLocator | null {
+export function resolveCodexLocator(input?: {
+  manual?: string;
+  env?: NodeJS.ProcessEnv;
+  exists?: (p: string) => boolean;
+}): CodexLocator | null {
+  // MP3c：传了参数就交给 detectDevTools（手填优先、按顺序、只看文件在不在）
+  if (input) {
+    const row = detectDevTools({
+      manual: { codex: input.manual },
+      env: input.env ?? process.env,
+      exists: input.exists ?? existsSync,
+    })[0];
+    if (!row || !row.found || !row.path) return null;
+    return { exe: row.path, sandbox: DEFAULT_CODEX_SANDBOX };
+  }
   // IXAEON_CODEX_EXE=none：明确不用真 Codex，走执行器替身（真机检查用）
   if (process.env.IXAEON_CODEX_EXE?.trim() === 'none') return null;
   const fromEnv = process.env.IXAEON_CODEX_EXE?.trim();
@@ -292,10 +307,8 @@ export function resolveCodexLocator(): CodexLocator | null {
   const candidates = [
     fromEnv,
     localApp ? join(localApp, 'OpenAI', 'Codex', 'bin', 'codex.exe') : '',
-    'codex',
   ].filter((p): p is string => Boolean(p));
   for (const exe of candidates) {
-    if (exe === 'codex') continue;
     if (existsSync(exe)) return { exe, sandbox: DEFAULT_CODEX_SANDBOX };
   }
   return null;

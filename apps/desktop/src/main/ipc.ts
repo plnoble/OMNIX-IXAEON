@@ -780,6 +780,8 @@ export function registerIpc(runtime: AppRuntime): void {
     fetchProviderModels: async (id, input) => runtime.fetchProviderModels(id, input),
     saveModelUses: async (input) => runtime.saveModelUses(input),
     saveModelFallbacks: async (input) => runtime.saveModelFallbacks(input),
+    getDevTools: async () => runtime.getDevTools(),
+    saveDevToolPath: async (input) => runtime.saveDevToolPath(input),
     getSettings: async () => {
       const config = runtime.getConfig();
       return {

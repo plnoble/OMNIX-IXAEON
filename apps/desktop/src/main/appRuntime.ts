@@ -74,6 +74,7 @@ import {
   watchDirectionsSchema,
   type WatchDirection,
   resolveModelUse,
+  detectDevTools,
   resolveModelUseChain,
   checkMagpieUrl,
   getSetting,
@@ -95,6 +96,7 @@ import {
   type GoalEvent,
   type PlanStep,
 } from '@ixaeon/core';
+import { isAbsolute } from 'node:path';
 import { FallbackChatClient, FallbackModelProvider } from './modelFallback.js';
 import {
   type MemoryUsedItem,
@@ -250,7 +252,8 @@ export class AppRuntime {
   private get codingDispatch(): CodingDispatch {
     return (this.codingDispatchRef ??= new CodingDispatch(this));
   }
-  codexLocator: (() => ReturnType<typeof resolveCodexLocator>) | null = resolveCodexLocator;
+  codexLocator: (() => ReturnType<typeof resolveCodexLocator>) | null = () =>
+    resolveCodexLocator({ manual: this.config.devTools?.codex, env: process.env });
   /** S3a：列出后的内存清单（编号 → 路径、授权），30 分钟过期。 */
   private agentSessionLists: Map<
     string,
@@ -1681,6 +1684,48 @@ export class AppRuntime {
         }
       }
     }
+  }
+
+  /** MP3c：三个开发工具的位置（手填优先，只看文件在不在）。 */
+  getDevTools(): Array<{
+    tool: 'codex' | 'claude' | 'dsh';
+    found: boolean;
+    path: string | null;
+    source: 'manual' | 'auto' | null;
+    note: string | null;
+  }> {
+    return detectDevTools({
+      manual: this.config.devTools ?? {},
+      env: process.env,
+      exists: existsSync,
+    });
+  }
+
+  /** MP3c：保存手填位置；null / 空串删掉。 */
+  saveDevToolPath(input: { tool: 'codex' | 'claude' | 'dsh'; path: string | null }): { ok: true } {
+    const tool = input.tool;
+    const raw = (input.path ?? '').trim();
+    const names = { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH' } as const;
+    const next = { ...(this.config.devTools ?? {}) };
+    if (!raw) {
+      delete next[tool];
+    } else {
+      if (!isAbsolute(raw)) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '位置要填绝对路径');
+      }
+      const ok =
+        tool === 'dsh'
+          ? existsSync(join(raw, 'DeepSeek Harness.exe')) &&
+            existsSync(join(raw, 'resources', 'app.asar'))
+          : existsSync(raw);
+      if (!ok) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, `这个位置没有 ${names[tool]}`);
+      }
+      next[tool] = raw;
+    }
+    this.updateConfig((c) => ({ ...c, devTools: next }));
+    recordAudit(this.db, 'devtool.path_saved', { tool, mode: raw ? '手填' : '恢复自动' });
+    return { ok: true };
   }
 
   /** MP3：聊天的候选串（带解出来的 Key；地址/Key 缺的跳过；5 分钟内刚不行的排到最后）。 */

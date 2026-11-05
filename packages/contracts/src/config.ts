@@ -118,6 +118,14 @@ export const appConfigSchema = z.object({
     })
     .default({}),
   /** MP2：三个用途各自用哪家的哪个模型；没有这一项就走旧字段。 */
+  /** MP3c：三个开发工具手填的位置（绝对路径；没有就不填）。 */
+  devTools: z
+    .object({
+      codex: z.string().optional(),
+      claude: z.string().optional(),
+      dsh: z.string().optional(),
+    })
+    .default({}),
   uses: z
     .object({
       analysis: modelChoiceSchema.optional(),
@@ -157,6 +165,7 @@ export function defaultAppConfig(): AppConfig {
     providers: [],
     uses: {},
     fallbacks: {},
+    devTools: {},
   };
 }
 

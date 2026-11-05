@@ -124,6 +124,16 @@ export function ModelsPage() {
   const [filter, setFilter] = useState<Record<string, string>>({});
   const [, setBusy] = useState(false);
   const [currentModel, setCurrentModel] = useState('');
+  const [devtools, setDevtools] = useState<
+    Array<{
+      tool: 'codex' | 'claude' | 'dsh';
+      found: boolean;
+      path: string | null;
+      source: 'manual' | 'auto' | null;
+      note: string | null;
+    }>
+  >([]);
+  const devRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [fallbacks, setFallbacks] = useState<{
     analysis: Array<{ providerId: string; model: string }>;
     chat: Array<{ providerId: string; model: string }>;
@@ -153,6 +163,9 @@ export function ModelsPage() {
         coding: cfgUses.coding,
       });
       setCurrentModel(view.config.modelName ?? '');
+      const tools = await api.getDevTools();
+      setDevtools(tools);
+
       const cfgFallbacks = (view.config.fallbacks ?? {}) as {
         analysis?: Array<{ providerId: string; model: string }>;
         chat?: Array<{ providerId: string; model: string }>;
@@ -543,6 +556,75 @@ export function ModelsPage() {
             {hasMagpie ? <span className="muted">已经有一家 magpie 了</span> : null}
           </div>
         </div>
+      </Card>
+
+      <Card title="开发工具" testId="models-devtools">
+        <p className="muted">
+          IXAEON 自己找 Claude Code / Codex / DSH 装在哪；找不到可以手填绝对路径。
+        </p>
+        {devtools.map((row) => (
+          <div className="card" data-testid={`devtool-row-${row.tool}`} key={row.tool}>
+            <div className="row">
+              <strong>
+                {row.tool === 'codex' ? 'Codex' : row.tool === 'claude' ? 'Claude Code' : 'DSH'}
+              </strong>
+              <span className="muted">{row.found ? '找到' : '没找到'}</span>
+              <span className="muted">
+                {row.source === 'manual' ? '手填' : row.found ? '自动找的' : (row.note ?? '')}
+              </span>
+              <span className="muted">{row.path ?? ''}</span>
+            </div>
+            <div className="row">
+              <input
+                className="input"
+                data-testid={`devtool-path-${row.tool}`}
+                placeholder="位置（绝对路径）"
+                defaultValue={row.path ?? ''}
+                ref={(el) => {
+                  devRefs.current[row.tool] = el;
+                }}
+              />
+              <Button
+                kind="primary"
+                testId={`devtool-save-${row.tool}`}
+                onClick={() =>
+                  void (async () => {
+                    setError(null);
+                    try {
+                      await api.saveDevToolPath({
+                        tool: row.tool,
+                        path: devRefs.current[row.tool]?.value ?? '',
+                      });
+                      setNotice('开发工具位置已保存');
+                      await load();
+                    } catch (err) {
+                      setError(errMsg(err));
+                    }
+                  })()
+                }
+              >
+                保存
+              </Button>
+              <Button
+                testId={`devtool-auto-${row.tool}`}
+                onClick={() =>
+                  void (async () => {
+                    setError(null);
+                    try {
+                      await api.saveDevToolPath({ tool: row.tool, path: null });
+                      setNotice('恢复自动');
+                      await load();
+                    } catch (err) {
+                      setError(errMsg(err));
+                    }
+                  })()
+                }
+              >
+                恢复自动
+              </Button>
+            </div>
+          </div>
+        ))}
       </Card>
 
       <Card title="用途" testId="models-uses">
