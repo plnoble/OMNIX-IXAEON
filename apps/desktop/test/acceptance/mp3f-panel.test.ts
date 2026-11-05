@@ -1,80 +1,128 @@
 // @vitest-environment jsdom
 /**
  * MP3f 验收条件 18：驾驶舱调度器面板不再显示「替补审查」「替补整合方」两行；
- * 调度器配置里原有的这两个角色原样保留（这里只验界面不显示，配置不动由主进程负责）。
+ * 调度器配置里原有的这两个角色原样保留（这里只验界面不显示；配置不动由 setRelayModel 不碰这两个角色保证）。
  *
- * 条件 16、17（「审查/整合不能跟开发选成同一个模型」的拒绝规则）落在主进程保存链上，
- * 规格没写死可单独调用的函数名；见交付说明「写不成测试 / 有问题」一节，未自行发明接口。
- *
- * 现在面板还在显示这两行（LABEL 里仍有 reviewerSubstitute / integratorSubstitute），本文件应当红。
+ * 整合方 11-05 重写：原来的快照桩形状不对（缺 sources 等），页面渲染时就抛 TypeError，测不到条件本身。
+ * 改成跟 k10a-cockpit-models.test.ts 同一套桩：读到的配置里仍有这两个角色（configured、有当前值），
+ * 面板上不出现这两行，也不出现它们的名字；开发 / 整合 / 审查三行照旧在。
  */
 import { createElement, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CockpitSnapshot, RelayModelRow, RelayModels, SourceHealth } from '@ixaeon/contracts';
 
-const h = vi.hoisted(() => ({
-  models: {
-    roles: [
-      { role: 'developer', label: '开发', current: 'gw/gpt-x', options: ['gw/gpt-x'] },
-      { role: 'reviewer', label: '审查', current: 'gw/review', options: ['gw/review'] },
-      { role: 'integrator', label: '整合', current: 'gw/int', options: ['gw/int'] },
-      { role: 'reviewerSubstitute', label: '替补审查', current: 'gw/r2', options: ['gw/r2'] },
-      { role: 'integratorSubstitute', label: '替补整合方', current: 'gw/i2', options: ['gw/i2'] },
-    ],
-    running: [],
-  } as unknown,
-}));
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const NOW = new Date('2026-11-05T12:00:00+08:00');
+
+const harness = vi.hoisted(() => ({ snapshot: null as unknown, models: null as unknown }));
 
 vi.mock('../../src/renderer/src/api.js', () => ({
   api: {
-    getCockpitSnapshot: async () => ({
-      generatedAt: '2026-11-05T00:00:00.000Z',
-      project: null,
-      goals: [],
-      tasks: [],
-      running: [],
-      sources: [],
-      jobs: { queued: 0, running: 0, failed: 0 },
-      relay: { turns: [] },
-    }),
-    getRelayModels: async () => JSON.parse(JSON.stringify(h.models)),
+    getCockpitSnapshot: async () => harness.snapshot,
+    getRelayModels: async () => JSON.parse(JSON.stringify(harness.models)) as RelayModels,
     setRelayModel: async () => ({ ok: true as const }),
     listProjects: async () => [],
     listMatchedFindings: async () => [],
   },
-  errMsg: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  errMsg: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
 import { CockpitPage } from '../../src/renderer/src/pages/Cockpit.js';
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-let root: Root | null = null;
+const health = (): SourceHealth => ({
+  status: 'ok',
+  readAt: NOW.toISOString(),
+  lastEventAt: null,
+  note: null,
+});
 
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await new Promise((r) => setTimeout(r, 0));
-  });
-}
+const snapshot = (): CockpitSnapshot => ({
+  generatedAt: NOW.toISOString(),
+  sources: { relay: health(), queue: health(), projects: health() },
+  attention: [],
+  running: [],
+  projects: { active: [], paused: [], archived: [] },
+  recent: [],
+  today: { finishedTurns: 0 },
+});
+
+const row = (over: Partial<RelayModelRow> & Pick<RelayModelRow, 'role'>): RelayModelRow => ({
+  agent: over.role === 'integrator' ? 'claude' : over.role === 'reviewer' ? 'codex' : 'dsh',
+  current: null,
+  options: [],
+  configured: false,
+  note: null,
+  ...over,
+});
+
+let container: HTMLDivElement;
+let root: Root;
 
 beforeEach(async () => {
-  const container = document.createElement('div');
+  vi.useFakeTimers();
+  vi.setSystemTime(NOW);
+  harness.snapshot = snapshot();
+  harness.models = {
+    roles: [
+      row({
+        role: 'developer',
+        current: 'gw-a / model-a1',
+        options: ['gw-a / model-a1'],
+        configured: true,
+      }),
+      row({
+        role: 'integrator',
+        current: '默认',
+        options: ['默认', 'opus', 'sonnet', 'haiku'],
+        configured: true,
+      }),
+      row({ role: 'reviewer', current: '跟 Codex 自己的设置', configured: true }),
+      // 配置里这两个角色还在、也配过：面板照样不显示
+      row({
+        role: 'reviewerSubstitute',
+        current: 'gw-a / model-a1',
+        options: ['gw-a / model-a1'],
+        configured: true,
+      }),
+      row({
+        role: 'integratorSubstitute',
+        current: 'gw-a / model-a1',
+        options: ['gw-a / model-a1'],
+        configured: true,
+      }),
+    ],
+  } satisfies RelayModels;
+  container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  act(() => root!.render(createElement(CockpitPage)));
-  await settle();
-  await settle();
+  await act(async () => {
+    root.render(createElement(CockpitPage));
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
 });
 
 afterEach(() => {
-  act(() => root?.unmount());
-  root = null;
-  document.body.innerHTML = '';
+  act(() => root.unmount());
+  container.remove();
+  vi.useRealTimers();
 });
 
+const $ = (testId: string) => container.querySelector(`[data-testid="${testId}"]`);
+
 describe('MP3f 条件 18：面板不再显示作废的两行', () => {
-  it('没有「替补审查」「替补整合方」两行', () => {
-    const text = document.body.textContent ?? '';
+  it('面板在，开发 / 整合 / 审查三行在；没有「替补审查」「替补整合方」两行，也没有它们的名字', () => {
+    expect($('cockpit-relay-models')).not.toBeNull();
+    for (const role of ['developer', 'integrator', 'reviewer']) {
+      expect($(`relay-model-row-${role}`), `缺少角色行 ${role}`).not.toBeNull();
+    }
+    expect($('relay-model-row-reviewerSubstitute')).toBeNull();
+    expect($('relay-model-row-integratorSubstitute')).toBeNull();
+    expect($('relay-model-row-substitutes')).toBeNull();
+    const text = $('cockpit-relay-models')!.textContent ?? '';
     expect(text).not.toContain('替补审查');
     expect(text).not.toContain('替补整合方');
   });
