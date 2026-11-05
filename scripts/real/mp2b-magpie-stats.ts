@@ -88,7 +88,9 @@ async function main(): Promise<void> {
     const groups = got.models.filter((m) => m.startsWith('group/')).length;
     // 额度卡片张数：手动登记的额度 + magpie 那份（有 magpie 就算 1 张）
     const manual = (
-      db.prepare("SELECT COUNT(*) AS n FROM app_settings WHERE key = 'cockpit.manual_quotas'").get() as {
+      db
+        .prepare("SELECT COUNT(*) AS n FROM app_settings WHERE key = 'cockpit.manual_quotas'")
+        .get() as {
         n: number;
       }
     ).n;
