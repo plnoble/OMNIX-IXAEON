@@ -177,7 +177,8 @@ export function ModelsPage() {
         ((view.config as unknown as { codingChain?: typeof chain }).codingChain ??
           []) as typeof chain,
       );
-      const tools = await api.getDevTools();
+      const tools =
+        typeof api.getDevTools === 'function' ? await api.getDevTools().catch(() => []) : [];
       setDevtools(tools);
 
       const cfgFallbacks = (view.config.fallbacks ?? {}) as {
@@ -356,7 +357,7 @@ export function ModelsPage() {
   const saveUses = async (): Promise<void> => {
     setError(null);
     try {
-      await api.saveCodingChain(chain);
+      if (typeof api.saveCodingChain === 'function') await api.saveCodingChain(chain);
       await api.saveModelUses({
         analysis: uses.analysis ?? null,
         chat: uses.chat ?? null,
