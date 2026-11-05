@@ -12,7 +12,7 @@
     - 两边任一边是「默认」/「跟 Codex 自己的设置」/ 分组（`group/` 开头）→ 不拦；
     - 改开发时反过来也拦跟现有审查 / 整合撞。
   - `readRelayModels` 的开发那一行：值模型是分组时 `note` 加「分组里有哪些模型 IXAEON 不知道，留意别跟审查、整合重了」。
-- 条件 18（面板拿掉「替补审查」「替补整合方」两行）：**没做，被冲突挡住**，见下。
+- 条件 18（面板拿掉「替补审查」「替补整合方」两行）：已做——`CockpitRelayModels.tsx` 里 `relay-model-row-substitutes` 那个 li 整块拿掉；调度器配置里这两个角色不删、不改（K10a 条件 7 的断言已由整合方退役并重锁在 dev/MP3f，`mp3f-panel.test.ts` 也已由整合方重写并锁在主线）。
 
 ## 自动化通过
 
@@ -25,7 +25,7 @@ Tests  6 passed | 1 failed (7)
 - `mp3f-rules.test.ts`（条件 16、17）**6/6 过**；
 - `mp3f-panel.test.ts`（条件 18）红。
 
-## 冲突：条件 18 与 main 上锁定的两份测试互相矛盾（请整合方定）
+## 冲突（已由整合方处理，留档）
 
 - MP3f 条件 18 要求面板不再显示「替补审查」「替补整合方」两行；
 - 但 main 上**已锁定**的 `apps/desktop/test/acceptance/k10a-cockpit-models.test.ts`（条件 7）明确要求 5 个角色行都在、`relay-model-current-reviewerSubstitute` 文本是「没配」；`apps/desktop/test/acceptance/mg2-panel.test.ts` 的夹具也含这两行。两份都在 `docs/委派/锁定验收.json` 里（已核对）。
