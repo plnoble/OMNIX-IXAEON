@@ -175,4 +175,35 @@ describe('MP3d 条件 7：saveCodingChain 拒绝与清空', () => {
     const cfg = rt.getConfig() as unknown as { codingChain?: unknown[] };
     expect(cfg.codingChain ?? []).toEqual([]);
   });
+
+  it('合法的一串存进去能原样读回', () => {
+    const rt = runtime();
+    const list: Choice[] = [
+      { kind: 'tool', tool: 'codex' },
+      { kind: 'tool', tool: 'claude', model: 'sonnet' },
+    ];
+    saveChain(rt, list);
+    const cfg = rt.getConfig() as unknown as { codingChain?: Choice[] };
+    expect(cfg.codingChain).toEqual(list);
+  });
+
+  it('没存过 codingChain 时 executorPlan() 照旧：codex → Codex，model → 那个模型', () => {
+    const rt = runtime();
+    type Plan = { use: string; executor?: { name: string } };
+    const planOf = (r: AppRuntime): Plan =>
+      (r as unknown as { executorPlan(): Plan }).executorPlan();
+    expect(planOf(rt).use).toBe('codex');
+
+    const id = withProvider(rt);
+    Object.assign(rt as unknown as { config: AppConfig }, {
+      config: {
+        ...rt.getConfig(),
+        coding: { ...rt.getConfig().coding, executor: 'model', modelName: 'demo-a' },
+        uses: { ...(rt.getConfig().uses ?? {}), coding: { providerId: id, model: 'demo-a' } },
+      } as AppConfig,
+    });
+    const plan = planOf(rt);
+    expect(plan.use).toBe('model');
+    expect(plan.executor?.name).toBeTruthy();
+  });
 });

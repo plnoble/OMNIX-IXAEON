@@ -947,9 +947,10 @@
       "title": "开发工具与编码替补",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/mp3c-devtools.test.ts": "183766a55e1f3bd8653793784861efa060c5727d4b5be3a632849a884f45777e",
-        "apps/desktop/test/acceptance/mp3c-devtool-save.test.ts": "e1764c112cb2b3d5c6efc2b7f5e0c01159820377395a96f8c2454faae1b9a164",
-        "apps/desktop/test/acceptance/mp3c-devtools-ui.test.ts": "0c334dfd932f27aba5ffb5cfd28341ce4b1d7888dad4efa4d19387c6e4c61572"
+        "packages/core/test/acceptance/mp3c-devtools.test.ts": "e6370f013bc9e5be2b12f6f493fe083058b4bb58b9d7367acd23a27aa722b27c",
+        "apps/desktop/test/acceptance/mp3c-devtool-save.test.ts": "38b1508e28506ad94ae939498fb3d420d642ee0aa896da6325a86f2cf3827719",
+        "apps/desktop/test/acceptance/mp3c-devtools-ui.test.ts": "0c334dfd932f27aba5ffb5cfd28341ce4b1d7888dad4efa4d19387c6e4c61572",
+        "apps/desktop/test/acceptance/mp3c-codex-locator.test.ts": "026631a8dbca524097d477977bc5276345d02b75107ee72b17120a11813d9517"
       }
     },
     {
@@ -957,7 +958,9 @@
       "title": "编码任务候选串与 Claude Code",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/mp3d-coding-chain.test.ts": "e018daed22ceeec0f4777c4c59149dafafbced40433402f9c4da095669ad9080"
+        "packages/core/test/acceptance/mp3d-chain-executor.test.ts": "6dbd8a6dddb13a275c1c347aba3ce1c485c0176163337db8924e99e242f801c6",
+        "packages/core/test/acceptance/mp3d-launch-pure.test.ts": "fd9537ac050c36c6c62aaf8f44f2a381aa728b9803ebc749351e294bf8b2e4ba",
+        "apps/desktop/test/acceptance/mp3d-coding-chain.test.ts": "afb6e3f2062cdd2eea41bb52e419f1d2be0898732080fddaecd27671b91b8e59"
       }
     },
     {
@@ -965,7 +968,7 @@
       "title": "DSH 执行器与编码候选界面",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts": "f3984d7fdad9baf8f734c9eb2ef25887cee4684876516a91719da3eeeedf1515"
+        "apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts": "d54b481dc3a56d2d09e33dd63e39a6097eeb51f7b8faebb140465dddfa058fd0"
       }
     },
     {
@@ -973,7 +976,8 @@
       "title": "调度器面板不自己审自己",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/mp3f-panel.test.ts": "2c9689ad5d9894a22debba91d5e3933cb614a942f26c6db647ae31357e11808a"
+        "apps/desktop/test/acceptance/mp3f-panel.test.ts": "2c9689ad5d9894a22debba91d5e3933cb614a942f26c6db647ae31357e11808a",
+        "apps/desktop/test/acceptance/mp3f-rules.test.ts": "d78fe89ec6a18ca9bc1696216de459b20df52bdb70d3031759a3830ab9f2ac2b"
       }
     }
   ]

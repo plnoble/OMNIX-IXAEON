@@ -45,3 +45,21 @@
 - 自动化通过：无（现在应当红）。
 - 真机通过：未跑（实现还没有）。
 - 用户接受：未接受。
+  ﻿
+
+## 补测（整合方 11-05 退回，按「测试入口」一节）
+
+按规格末尾「测试入口（整合方 2026-11-05 补）」补齐条件 5、7 补两条、8–13、16、17，名字与参数就用那一节写死的。
+
+| 文件                                                               | 对应条件                                                                                | 现在红在哪                                                                                                          |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/test/acceptance/mp3c-codex-locator.test.ts`          | 5（`resolveCodexLocator(input?)`）                                                      | 传参数后仍走旧逻辑/不接受参数，手填的在也没用上（红在「不是函数」或结果不对）                                       |
+| `apps/desktop/test/acceptance/mp3d-coding-chain.test.ts`（补两条） | 7 补：合法串原样读回；没存过 `codingChain` 时 `executorPlan()` 照旧                     | `saveCodingChain` 不存在                                                                                            |
+| `packages/core/test/acceptance/mp3d-chain-executor.test.ts`        | 8–11（`CodingChainExecutor` + 假 CodingExecutor）                                       | `CodingChainExecutor` 没导出（「不是构造函数」）                                                                    |
+| `packages/core/test/acceptance/mp3d-launch-pure.test.ts`           | 12、13（`claudeCodeLaunch` / `parseClaudeCodeOutput` / `dshLaunch` / `parseDshOutput`） | 四个纯函数都没导出                                                                                                  |
+| `apps/desktop/test/acceptance/mp3f-rules.test.ts`                  | 16、17（`setRelayModel` 拦「自己审自己」）                                              | 该拒的没拒（现在都能存）                                                                                            |
+| `apps/desktop/e2e/mp3e-coding-chain.spec.ts`（改假程序）           | 15                                                                                      | 假程序改成 csc 现编的 `.exe`（`apps/desktop/e2e/helpers/fake-tool.ts`），端到端仍红（开发工具块、编码候选列表未做） |
+
+合计：`vitest --project acceptance` 10 份 → **44 failed | 0 passed**，红因都是「功能没有」（`detectDevTools`/`saveDevToolPath`/`saveCodingChain`/`CodingChainExecutor`/四个纯函数不存在、两处界面找不到、面板仍显示作废两行、relay 没拦）。已按新文件重锁：MP3c 4 份、MP3d 3 份、MP3e 1 份、MP3f 2 份。
+
+原先「写不成测试」的 5 条现在都有入口了：条件 5、8–13、16、17 已按整合方给的名字写成测试；端到端假程序按 csc 现编 `.exe` 的做法改了（辅助文件在 `apps/desktop/e2e/helpers/fake-tool.ts`）。

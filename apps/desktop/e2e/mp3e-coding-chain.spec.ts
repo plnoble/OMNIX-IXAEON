@@ -12,6 +12,7 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { buildFakeTool } from './helpers/fake-tool.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -25,20 +26,16 @@ const tools = join(dataDir, 'tools');
 
 /** 假 Codex：只输出额度用完，退出 0。 */
 function fakeCodex(): string {
-  const p = join(tools, 'codex.cmd');
-  writeFileSync(p, '@echo off\r\necho usage_limit_reached\r\nexit /b 0\r\n', 'utf8');
-  return p;
+  return buildFakeTool(tools, 'codex', { stdout: ['usage_limit_reached'], exitCode: 0 });
 }
 
 /** 假 Claude Code：在工作区写 note.txt，输出 JSON。 */
 function fakeClaude(): string {
-  const p = join(tools, 'claude.cmd');
-  writeFileSync(
-    p,
-    '@echo off\r\necho done>note.txt\r\necho {"result":"done","is_error":false}\r\nexit /b 0\r\n',
-    'utf8',
-  );
-  return p;
+  return buildFakeTool(tools, 'claude', {
+    stdout: ['{"result":"done","is_error":false}'],
+    writeFiles: [{ path: 'note.txt', content: 'done\n' }],
+    exitCode: 0,
+  });
 }
 
 let app: ElectronApplication;
