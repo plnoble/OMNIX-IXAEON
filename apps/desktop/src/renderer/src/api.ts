@@ -23,7 +23,12 @@ import type {
 } from '@ixaeon/contracts';
 
 /** window.ixaeon 的类型安全访问（preload 保证存在；测试环境可能缺省）。 */
-export const api: IxaIpcApi = (window.ixaeon ?? ({} as IxaIpcApi)) as IxaIpcApi;
+export const api: IxaIpcApi = new Proxy({} as IxaIpcApi, {
+  get(_target, prop): unknown {
+    const live = (window as unknown as { ixaeon?: IxaIpcApi }).ixaeon;
+    return live ? (live as unknown as Record<string | symbol, unknown>)[prop] : undefined;
+  },
+}) as IxaIpcApi;
 
 /**
  * 把 IPC 错误转成用户可读消息（U6）。Electron 把主进程拒绝转给界面时会在前面加

@@ -60,18 +60,17 @@ test.afterAll(async () => {
 
 /** 在「模型」页新建一家供应商，勾上 demo-a、demo-b 两个模型。 */
 async function addProvider(name: string, key: string): Promise<void> {
-  await page
-    .getByRole('button', { name: /新建供应商|添加供应商/ })
-    .first()
-    .click();
-  await page.getByTestId('provider-name-input').fill(name);
-  await page.getByTestId('provider-base-input').fill(base);
-  await page.getByTestId('provider-key-input').fill(key);
-  await page.getByTestId('provider-models').click();
-  await expect(page.getByTestId('model-row-demo-a')).toBeVisible({ timeout: 20_000 });
-  await page.getByTestId('model-row-demo-a').locator('input[type="checkbox"]').check();
-  await page.getByTestId('model-row-demo-b').locator('input[type="checkbox"]').check();
-  await page.getByTestId('provider-save').click();
+  await page.getByTestId('provider-add-name').fill(name);
+  await page.getByTestId('provider-add-base').fill(base);
+  await page.getByTestId('provider-add-key').fill(key);
+  await page.getByTestId('provider-add-save').click();
+  const card = page.locator('[data-testid^="provider-card-"]').filter({ hasText: name }).last();
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  await card.getByTestId(/^provider-models-/).click();
+  await expect(card.getByTestId('model-row-demo-a')).toBeVisible({ timeout: 20_000 });
+  await card.getByTestId('model-row-demo-a').locator('input[type="checkbox"]').check();
+  await card.getByTestId('model-row-demo-b').locator('input[type="checkbox"]').check();
+  await card.getByTestId(/^provider-save-/).click();
   await expect(page.locator('.ok-banner')).toContainText('已保存', { timeout: 15_000 });
 }
 
@@ -89,6 +88,7 @@ test('条件 12：模型页配好替补，主选 429、替补回答 → 对话�
   await addProvider('合成甲', 'sk-synthetic-a1b2c3d4');
   await addProvider('合成乙', 'sk-synthetic-b9f8e7d6');
 
+  await page.getByTestId('uses-analysis').selectOption({ label: '合成甲 · demo-a' });
   await page.getByTestId('uses-chat').selectOption({ label: '合成甲 · demo-a' });
   const add = page.getByTestId('fallback-add-chat');
   await add.locator('select').selectOption({ label: '合成乙 · demo-b' });
