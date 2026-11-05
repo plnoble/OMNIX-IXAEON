@@ -938,7 +938,7 @@
         "packages/core/test/acceptance/mp3-model-error.test.ts": "b14bda20aa6869336e79dfd6680a6296390abb8fc74b974c58e06a6ba57e6e3a",
         "apps/desktop/test/acceptance/mp3-config.test.ts": "c4d10a43bc6c05e68ccc32f33c06f75036e65cc8157772d4e24f1fa68949fc83",
         "apps/desktop/test/acceptance/mp3-chat.test.ts": "a8d0b93a43a51e5c770ee652a2dbc9e0c34ea732593ddc5f8ed8d9290c7d33b4",
-        "apps/desktop/test/acceptance/mp3-analysis.test.ts": "b113d2cfadc66bdc217b6ef45e9d40d430362a5c80176643b5d47058138c48f7",
+        "apps/desktop/test/acceptance/mp3-analysis.test.ts": "cc34562687335d6d074121a0ed528e9d78a15cb15bced57bacf52c2a0c3ce979",
         "apps/desktop/test/acceptance/mp3b-ui.test.ts": "8952d37179e744f99a21d517c27eba3f0c0e582223cb3a5ffb63478bc28c0919"
       }
     }

@@ -72,10 +72,7 @@ afterEach(async () => {
 
 /** 起一个本机假服务，返回端口；同时把收到的请求数记在 counter 上。 */
 function listen(
-  handler: (
-    req: IncomingMessage,
-    res: ServerResponse,
-  ) => void,
+  handler: (req: IncomingMessage, res: ServerResponse) => void,
 ): Promise<{ port: number; counter: { n: number } }> {
   const counter = { n: 0 };
   return new Promise((resolve) => {
