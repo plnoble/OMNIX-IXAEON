@@ -79,3 +79,35 @@
     - 「跟着后台分析」：补一句聊天的替补项看不见了。
 12. 端到端 `mp3b-fallback`：规格写的是「在模型页配好替补」，现在用 `window.ixaeon` 直接调 IPC 配的。改成在「模型」页上点：选主选、添加替补、保存。提示句整句断言。
 13. `mp3-chain` 补两条：聊天单独选过时，用的是聊天自己的替补；替补里写 `default` 那一家也能解析出来。
+    ﻿
+
+## 按整合方审测试的 13 条，怎么改的（2026-11-05）
+
+1. `mp3-config`「合法的列表」改成主选 `a / demo-a`、替补 `b / demo-b`（不再是跟主选相同的组合）。
+2. `mp3b-ui` 下拉框只检查替补「添加」那个框，固定 data-testid：两个列表 `fallback-list-analysis` / `fallback-list-chat`，两个添加框 `fallback-add-analysis` / `fallback-add-chat`（实现请照这个加，测试按它找）。
+3. `mp3-config`「超过 4 项」改成一家勾 5 个不同模型、传 5 个不同项；「超过 4 项」「有重复」「跟主选相同」三条都补了「配置不变」。
+4. `mp3-config`「只传 chat」补断言：chat 的列表确实存进去了。
+5. `mp3-chat` 条件 3 补：`status === 'complete'`、`captureAsk` 被调；`meta.notice` 改成整句相等（「合成甲 · demo-a」这次不行（<原因>），由替补「合成乙 · demo-b」回答）。
+6. `mp3-chat` 条件 4 补「用户取消」：主选还在回答时取消，替补一次没被调，收尾是 cancelled、半截正文留着。
+7. `mp3-chat` 条件 5 补「不存档」：`captureAsk` 没被调。
+8. `mp3-chat` 条件 7：保存后恢复拆成「保存用途」「保存替补」各测一次，且都先让主选再失败一次；「整串都在 5 分钟里」改成顺序也相等（排序后等于 `['demo-a','demo-b']`）。
+9. `mp3-analysis` 条件 8 改成走真的后台提炼：导入一条合成资料、用 `new Extractor(db, getProvider())` 跑 `extractSource`，断言建出的条目来自第二个服务；两个都不行时断言没建条目**且第二个服务确实收到过请求**；日志同时收 `warn` 与 `info`。
+10. `mp3-model-error`：聊天客户端补 401、503；后台分析客户端补 `chatStructured` 这条路（同样断言 429 与「连不上没有 status」）。
+11. `mp3b-ui`：满 4 项先断言列表确实有 4 项（fixture 备了 3 个不同模型可加）；上移/下移/删掉断言真的动顺序，点「保存」时 `saveModelFallbacks` 收到的就是新顺序；补「重新挂载后读回顺序一致」；「跟着后台分析」补断言聊天的替补项看不见。
+12. 端到端 `mp3b-fallback` 改成在「模型」页真实点击配替补（两家供应商 → 聊天主选 → 添加替补 → 保存），提示句整句断言。
+13. `mp3-chain` 补两条：聊天单独选过时用聊天自己的替补；替补里写 `default` 那一家也能解析出来。
+
+### 改动后现在的红（实现还没有）
+
+`node node_modules/vitest/vitest.mjs run --project acceptance <6 个文件>` → **42 failed | 0 passed**：
+
+| 文件                    | 结果      | 红的原因                                                                   |
+| ----------------------- | --------- | -------------------------------------------------------------------------- |
+| mp3-chain.test.ts       | 8 failed  | `resolveModelUseChain` 不存在                                              |
+| mp3-config.test.ts      | 10 failed | `saveModelFallbacks` 不存在（NOT_IMPLEMENTED 标记）                        |
+| mp3-chat.test.ts        | 11 failed | 替补链没实现                                                               |
+| mp3-analysis.test.ts    | 2 failed  | `getProvider()` 还没按替补链走（第一个 429 直接失败；第二个服务收到 0 次） |
+| mp3-model-error.test.ts | 4 failed  | `ModelError.status` 还没有                                                 |
+| mp3b-ui.test.ts         | 7 failed  | 用途卡片里没有替补列表（找不到 `fallback-list-analysis`）                  |
+
+已重新 `lock` 登记这 6 个文件。
