@@ -177,7 +177,6 @@ const api: IxaIpcApi = {
   autoEvolveSkillCandidates: (input) =>
     ipcRenderer.invoke('ixaeon:autoEvolveSkillCandidates', input),
   getSemanticIndexStatus: () => ipcRenderer.invoke('ixaeon:getSemanticIndexStatus'),
-  prewarmChat: (input) => ipcRenderer.invoke('ixaeon:prewarmChat', input),
   setItemTimeStatus: (input) => ipcRenderer.invoke('ixaeon:setItemTimeStatus', input),
   rebuildSemanticIndex: () => ipcRenderer.invoke('ixaeon:rebuildSemanticIndex'),
   onAskDelta: (listener: (e: AskDeltaEvent) => void): (() => void) => {

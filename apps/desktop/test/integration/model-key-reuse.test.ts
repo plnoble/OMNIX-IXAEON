@@ -195,17 +195,4 @@ describe('聊天模型设置', () => {
     expect(runtimeForChat({ modelName: '', chatModelName: '' }).chatModelName()).toBeNull();
   });
 
-  it('换模型后丢掉在跑的引擎会话：长驻网关退出，落库的引擎会话号清空', () => {
-    let invalidated = 0;
-    const sessions = new Map([
-      ['c1', { invalidateContext: () => invalidated++ }],
-      ['c2', { invalidateContext: () => invalidated++ }],
-    ]);
-    const cleared = { done: false };
-    const rt = runtimeForChat({ modelName: 'a', chatModelName: 'b' }, sessions, cleared);
-    expect(rt.resetChatSessions()).toBe(2);
-    expect(invalidated).toBe(2);
-    expect(sessions.size).toBe(0);
-    expect(cleared.done).toBe(true);
-  });
 });

@@ -110,7 +110,11 @@ function setup() {
     getEngineSessionId: () => 's-test',
   } as unknown as AgentSession;
   /** 让某个对话用替身会话（不启动真引擎）。 */
-  const bind = (conversationId: string) => runtime['askSessions'].set(conversationId, fakeSession);
+  const bind = (conversationId: string) =>
+    (runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(
+      conversationId,
+      fakeSession,
+    );
   bind(conv.id);
   return { runtime, conversations, conv, projectA, projectB, seen, bind };
 }

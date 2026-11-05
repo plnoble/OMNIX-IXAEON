@@ -18,11 +18,16 @@ vi.mock('electron', () => ({
   BrowserWindow: {},
   dialog: {},
   ipcMain: {},
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import {
   openDatabase,
   migrate,
@@ -76,6 +81,8 @@ interface TestRuntime {
  * capture=true 时接上真实的问答存档链路（ImportService + 真实授权），
  * 用来验证 D5 派生来源；默认关闭，D3/D4 的用例不掺和存档。
  */
+const answers: string[] = [];
+const prompts: string[] = [];
 function makeRuntime(opts: { capture?: boolean } = {}): TestRuntime {
   const runtime = Object.create(AppRuntime.prototype) as Record<string, unknown>;
   runtime['db'] = db;
@@ -84,7 +91,25 @@ function makeRuntime(opts: { capture?: boolean } = {}): TestRuntime {
   runtime['search'] = new SearchService(db);
   runtime['projects'] = new ProjectService(db);
   runtime['coding'] = new CodingOrchestrator(db, new FakeCodingExecutor(), dir);
-  runtime['askSessions'] = new Map();
+  runtime['config'] = {
+    model: {
+      modelName: 'demo-a',
+      chatModelName: '',
+      apiBaseUrl: 'http://127.0.0.1:18081/v1',
+      apiKeyEncrypted: Buffer.from('enc:sk-synthetic').toString('base64'),
+      apiKeyPresent: true,
+      savedModels: ['demo-a'],
+    },
+  };
+  runtime['chatStreamClient'] = () => ({
+    modelName: 'demo-a',
+    stream: async (input: { messages: { content: string }[]; onDelta?: (t: string) => void }) => {
+      prompts.push(input.messages.map((m) => m.content).join('\n'));
+      const text = answers.shift() ?? '好';
+      input.onDelta?.(text);
+      return { content: text, toolCalls: [], finishReason: 'stop', toolsUnsupported: false };
+    },
+  });
   runtime['activeAskRuns'] = new Map();
   runtime['getProvider'] = () => provider;
   runtime['hermesFound'] = () => false;
@@ -111,15 +136,17 @@ function makeRuntime(opts: { capture?: boolean } = {}): TestRuntime {
 
 /** 排队一个「直接回答」的模型响应。 */
 function enqueueAnswer(text: string): void {
-  provider.enqueueStructured({ tool: 'answer', args: { text } });
+  answers.push(text);
 }
 
 /** 取第 n 次（0 起）交给模型的完整提示词。 */
 function promptAt(n: number): string {
-  return provider.structuredCalls[n]?.user ?? '';
+  return prompts[n] ?? '';
 }
 
 beforeEach(() => {
+  answers.length = 0;
+  prompts.length = 0;
   delete process.env.IXAEON_HERMES_EXE;
   delete process.env.IXAEON_HERMES_HOME;
   delete process.env.HERMES_HOME;
@@ -153,7 +180,6 @@ describe('D3 提问带最近 N 轮上下文', () => {
     });
 
     // 第一问：没有历史，提示词里不应该出现历史块
-    expect(promptAt(0)).not.toContain('本对话此前的内容');
 
     enqueueAnswer('析衍。');
     await runtime.ask({
@@ -164,7 +190,6 @@ describe('D3 提问带最近 N 轮上下文', () => {
 
     // 第二问：上一轮的问和答都必须出现在提示词里，否则「它」指代不明
     const second = promptAt(1);
-    expect(second).toContain('本对话此前的内容');
     expect(second).toContain('正式系统名是什么？');
     expect(second).toContain('正式系统名是 IXAEON（析衍）。');
     expect(second).toContain('它的中文名呢？');
@@ -188,7 +213,6 @@ describe('D3 提问带最近 N 轮上下文', () => {
 
     expect(b.conversationId).not.toBe(a.conversationId);
     const bPrompt = promptAt(1);
-    expect(bPrompt).not.toContain('本对话此前的内容');
     expect(bPrompt).not.toContain('买手机');
     expect(bPrompt).not.toContain('A 的回答');
   });
@@ -218,7 +242,6 @@ describe('D3 提问带最近 N 轮上下文', () => {
 
     const prompt = promptAt(0);
     // 本轮问题只应作为「用户问题」出现一次，不应同时出现在历史块里
-    expect(prompt).not.toContain('本对话此前的内容');
     expect(prompt.split('这是本轮的问题').length - 1).toBe(1);
   });
 });
@@ -267,11 +290,7 @@ describe('D4 引擎会话按对话隔离', () => {
     expect(fourthPrompt).not.toContain('买手机');
     expect(fourthPrompt).not.toContain('预算五千');
 
-    // 两个对话各有独立的 AgentSession 实例
-    expect(runtime.askSessions.size).toBe(2);
-    expect(runtime.askSessions.get(phone.conversationId)).not.toBe(
-      runtime.askSessions.get(ppt.conversationId),
-    );
+    // CF3c：不再有进程内引擎会话；「各看各的历史」由上面四条提示词断言保证
   });
 
   it('重启后重开旧对话能续：引擎会话清空，历史靠 priorTurns 重新喂', async () => {
@@ -289,7 +308,6 @@ describe('D4 引擎会话按对话隔离', () => {
     expect(conversations.get(conv.conversationId).engineSessionId).toBeNull();
 
     const after = makeRuntime();
-    expect(after.askSessions.size).toBe(0);
 
     enqueueAnswer('接上了。');
     await after.ask({
@@ -299,8 +317,8 @@ describe('D4 引擎会话按对话隔离', () => {
     });
 
     // 重启后的这一问，历史必须重新注入——否则「刚才我说了什么」答不上来
+    // CF3c：直连没有 Hermes 那套「本对话此前的内容」标记，直接看交给模型的 messages
     const prompt = promptAt(1);
-    expect(prompt).toContain('本对话此前的内容');
     expect(prompt).toContain('第一轮的问题');
     expect(prompt).toContain('第一轮的回答。');
   });
@@ -321,7 +339,7 @@ describe('D4 引擎会话按对话隔离', () => {
       role: 'assistant',
       content: '这是回答正文。',
       status: 'complete',
-      engine: 'core-bounded',
+      engine: 'direct',
     });
     expect(messages[1]!.id).toBe(result.messageId);
     expect(messages[0]!.id).toBe(result.userMessageId);

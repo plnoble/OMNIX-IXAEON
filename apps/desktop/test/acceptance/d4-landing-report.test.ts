@@ -150,7 +150,7 @@ async function proposedTask(
   Object.assign(h.files, input.files);
   const conv = h.conversations.create({ projectId: h.projectId });
   let taskId = '';
-  h.runtime['askSessions'].set(conv.id, {
+  (h.runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
     run: async () => {
       const task = h.coding.create({
         projectId: h.projectId,

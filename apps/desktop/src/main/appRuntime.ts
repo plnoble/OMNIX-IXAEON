@@ -57,6 +57,8 @@ import {
   buildProjectBrief,
   sanitizePublicQuery,
   OpenAIChatStreamClient,
+  FakeStreamChatClient,
+  type StreamChatClient,
   runDirectChat,
   type AgentSessionResult,
   type DirectChatTools,
@@ -64,7 +66,6 @@ import {
   type ProjectBriefCounts,
   includesAiAdvice,
   AI_ADVICE_NOTE,
-  CORE_TOOL_NAMES,
   addRejectedWatchDirection,
   buildWatchPrompt,
   collectWatchMemories,
@@ -77,7 +78,6 @@ import {
   getSetting,
   setSetting,
   type ModelUse,
-  getDisclosureEpoch,
   isPathInside,
   localDay,
   locateHermes,
@@ -85,7 +85,6 @@ import {
   setPersonalMemoryToChat,
   markOverviewFindingsSeen,
   listFindingJudgments,
-  withAskRun,
   type HermesLocator,
   type AgentSessionPreview,
   type AskResult,
@@ -100,7 +99,6 @@ import {
   ErrorCodes,
   IxaError,
   LOCAL_HTTP_PORT,
-  HERMES_BRIDGE_TOOL_WIRE_NAMES,
   type AppConfig,
   type AskDeltaEvent,
   type AskPhase,
@@ -218,7 +216,6 @@ export class AppRuntime {
    * ConversationStore.clearEngineSessions() 清掉库里的陈旧 id，
    * 并靠 D3 的 priorTurns 重新喂上下文。
    */
-  private readonly askSessions = new Map<string, AgentSession>();
   /** 每个对话当前在跑的 runId（用于按对话取消）。 */
   private readonly activeAskRuns = new Map<string, string>();
   /**
@@ -242,11 +239,10 @@ export class AppRuntime {
   /** CF3b：直连这一轮的可取消句柄（按 runId 存，cancelAsk 时 abort）。 */
   private directAskAborts = new Map<string, AbortController>();
   /** P1：预热好的空闲问答会话（最多一个），见 prewarmChat。 */
-  private warm: { session: AgentSession; contextRef: string; timer: NodeJS.Timeout } | null = null;
-  private warming = false;
   /** 这一问用掉了预热会话：答完再备一个。 */
-  private rewarmAfterAsk = false;
   private codingDispatchRef: CodingDispatch | null = null;
+  /** 假聊天客户端（同一运行时复用，剧本按 stream 调用顺序往下走）。 */
+  private fakeChatClient: StreamChatClient | null = null;
   private get codingDispatch(): CodingDispatch {
     return (this.codingDispatchRef ??= new CodingDispatch(this));
   }
@@ -1062,12 +1058,8 @@ export class AppRuntime {
    * clearEngineSessions() 统一清理，一列一个归属。stop() 也走这条路径，
    * 关机时不该再往正要关闭的库里写一遍冗余的 null。
    */
-  invalidateContext(contextRef?: string): void {
-    for (const session of this.askSessions.values()) {
-      session.invalidateContext(contextRef);
-    }
-    this.askSessions.clear();
-    this.disposeWarmSession();
+  invalidateContext(_contextRef?: string): void {
+    // CF3c：没有进程内引擎会话了；库里的旧会话 id 由启动时的 clearEngineSessions 统一清。
   }
 
   /** 显式停用入口（设置页）：撤销问答存档授权；已存记录保留但不新增。 */
@@ -1111,17 +1103,13 @@ export class AppRuntime {
   }): Promise<AskResult & { conversationId: string; userMessageId: string; messageId: string }> {
     const { projectId, question } = input;
     this.cancelledAskRuns ??= new Set();
-    // A06（审核 2026-09-13）：Hermes 引擎不依赖 IXAEON 的模型配置（那是
-    // core-bounded 兜底循环用的）。真 Hermes 可用时即使未配 key 也要放行——
-    // 否则「装了引擎却用不上」。两者都没有才如实拒绝。
-    const provider = this.getProvider();
-    // CF3b：三样齐就走直连，这时不问 Hermes 装没装（问一下就会顺手把它拉起来）。
-    const directLaunch = this.directChatLaunch();
-    const hermesAvailable = directLaunch ? false : this.hermesFound();
-    if (!directLaunch && !provider && !hermesAvailable) {
+    // CF3c：聊天只剩直连一条路——模型/地址/Key 三样齐就走（聊天模型留空、跟着后台分析也算）；
+    // 缺一样在落库任何消息之前如实拒绝，指去「模型」页，不提 Hermes、不提 API Key。
+    const launch = this.directChatLaunch();
+    if (!launch) {
       throw new IxaError(
         ErrorCodes.MODEL_NOT_CONFIGURED,
-        'IXA0010 模型未配置：请在设置中填写 OpenAI API Key，或安装 Hermes 引擎后使用问答',
+        'IXA0010 模型未配置：请到「模型」页添加供应商并选好聊天用的模型',
       );
     }
 
@@ -1269,81 +1257,22 @@ export class AppRuntime {
           userMessageId: userMessage.id,
           messageId: assistantMessage.id,
         };
-      } // CF3b：三样齐（模型/地址/Key）走直连；缺一样走原来的路径，一个字不动。
-      const launch = directLaunch;
-      let session: AgentSession | null = null;
-      let result: AgentSessionResult;
-      if (launch) {
-        result = await this.runDirectAnswer({
-          launch,
-          question,
-          projectId: effectiveProjectId,
-          runId,
-          priorTurns,
-          onDelta,
-          onProgress: (phase) => emitProgress(phase),
-        });
-      } else {
-        // A06：同一对话复用 AgentSession（进而复用引擎侧 Hermes 会话）。
-        // D4：按 conversationId 取，不再是全局单例。
-        // P1：对话还没有会话时，先接过预热好的那个（省掉 5–9 秒组装），没有才新建。
-        session =
-          this.askSessions.get(conversationId) ??
-          this.adoptWarmSession(effectiveProjectId) ??
-          this.newAskSession().session;
-        this.askSessions.set(conversationId, session);
-        // G04：这一轮里建的编码任务（propose_task，或这一轮里别的代码直接建的）
-        // 都带上本轮 runId。并发的两轮各有各的上下文，不串。
-        const active = session;
-        result = await withAskRun(runId, () =>
-          active.run({
-            goal: question,
-            projectId: effectiveProjectId,
-            runId,
-            priorTurns,
-            onDelta,
-            onProgress: (phase) => emitProgress(phase),
-          }),
-        );
       }
+      const result: AgentSessionResult = await this.runDirectAnswer({
+        launch,
+        question,
+        projectId: effectiveProjectId,
+        runId,
+        priorTurns,
+        onDelta,
+        onProgress: (phase) => emitProgress(phase),
+      });
       // 用户指示（2026-09-13）：所有问答内容都进 Core。
       // A03（审核 2026-09-13）：问答存档挂独立的启用/撤销状态——
       // 用户在授权列表撤销过 ask.ixaeon.local 后，普通提问**不再隐式重建授权**，
       // 重启/再次提问都保持停用；恢复需要走显式入口（设置页 enableAskCapture）。
       // 有实际回答时把问答对存为 ask_session 来源并入队提取（走既有
       // 「提案→用户确认」管线）；存档/提取失败不吞掉回答，如实附注。
-      // T2b：这一轮新建的编码任务逐个进待办——拍板「要做」= 批准并排队（acceptTodo）、
-      // 「不做」= 取消（rejectTodo），状态一律以任务表为准。
-      // 你拒绝过的同样的事：起草的任务自动取消，不出现在回答上。
-      // G04：只取本轮自己建的任务（propose_task 写下的 origin_run_id = 本轮 runId）。
-      // 原来按「创建时间晚于本轮开始」猜：对话 A 等回答时别的运行建的任务会被当成
-      // A 的建议，在错误的对话里被批准。没有 origin_run_id 的（旧数据、任务页手动建的）
-      // 不出现在任何一轮回答上。
-      const codingTodos: Array<{ id: string; title: string }> = [];
-      try {
-        const tasks = this.db
-          .prepare(
-            `SELECT id, goal FROM coding_tasks
-             WHERE origin_run_id = ? AND project_id IS NOT NULL
-             ORDER BY created_at DESC LIMIT 5`,
-          )
-          .all(runId) as Array<{ id: string; goal: string }>;
-        for (const t of tasks) {
-          const title = t.goal.split('\n')[0]!.trim().slice(0, 80);
-          if (title.length === 0) continue;
-          const row = this.todos.propose({
-            title,
-            conversationId,
-            messageId: assistantMessage.id,
-            linked: { kind: 'coding_task', id: t.id },
-          });
-          if (row) codingTodos.push({ id: row.id, title: row.title });
-          else this.coding.cancel(t.id);
-        }
-      } catch {
-        // ignore
-      }
-
       // T2a：回答末尾的「建议待办」由代码变成待办（见下面 finishMessage 前），
       // 存档、消息正文、返回值都用拆掉这一段之后的回答——否则同一件事会被
       // 记忆提炼再记成一条「AI 建议」，下一轮背景里也会带着它。
@@ -1394,15 +1323,15 @@ export class AppRuntime {
               }
             }
             this.enqueueExtract(captured.source.id, false);
-            result.notice = `${result.notice}；问答已存入 IXAEON 记忆（日常偏好与事实自动沉淀生效；若有冲突或关键决策，将在「待讨论」等你确认）。`;
+            result.notice = `${(result.notice ?? '').replace(/。$/, '')}；问答已存入 IXAEON 记忆（日常偏好与事实自动沉淀生效；若有冲突或关键决策，将在「待讨论」等你确认）。`;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this.logger.warn('问答落 Core 失败', { runId, error: message });
             recordAudit(this.db, 'ask.capture_failed', { runId, error: message.slice(0, 300) });
-            result.notice = `${result.notice}；注意：问答存档失败（${message.slice(0, 120)}）。`;
+            result.notice = `${(result.notice ?? '').replace(/。$/, '')}；注意：问答存档失败（${message.slice(0, 120)}）。`;
           }
         } else {
-          result.notice = `${result.notice}；问答存档已停用（授权曾被撤销）。如需恢复请在设置中开启「问答存档」。`;
+          result.notice = `${(result.notice ?? '').replace(/。$/, '')}；问答存档已停用（授权曾被撤销）。如需恢复请在设置中开启「问答存档」。`;
         }
       }
 
@@ -1420,7 +1349,7 @@ export class AppRuntime {
           : failedKind === 'round_limit'
             ? '已达轮次上限，未形成最终回答。'
             : null;
-      const proposedTodos: Array<{ id: string; title: string }> = [...codingTodos];
+      const proposedTodos: Array<{ id: string; title: string }> = [];
       if (!cancelled && !failedKind) {
         for (const title of extracted.todos) {
           const row = this.todos.propose({
@@ -1455,15 +1384,6 @@ export class AppRuntime {
           ...(userTodo ? { userTodo: { id: userTodo.id, title: userTodo.title } } : {}),
         },
       });
-      // 引擎会话 id 落库：仅用于显示「这个对话上次用的是哪个引擎会话」。
-      // 它进程内有效，下次启动会被 clearEngineSessions 清掉。
-      if (session) {
-        this.conversations.setEngineSession(
-          conversationId,
-          result.engine,
-          session.getEngineSessionId(),
-        );
-      }
 
       return {
         ...result,
@@ -1491,12 +1411,6 @@ export class AppRuntime {
       throw err;
     } finally {
       releaseJobs();
-      if (this.rewarmAfterAsk) {
-        // 刚用掉了预热的会话：这一问答完后再备一个，下一个新对话也不用等组装
-        this.rewarmAfterAsk = false;
-        const t = setTimeout(() => void this.prewarmChat(effectiveProjectId), 1_000);
-        t.unref?.();
-      }
       if (this.activeAskRuns.get(conversationId) === runId) {
         // A06：正常终态保留会话引用供复用（复用是引擎侧同 session_id 的
         // 连续性，不是执行状态残留）；这里只清掉「在跑」的标记。
@@ -1532,15 +1446,46 @@ export class AppRuntime {
     };
   }
 
-  /** CF3b：三样齐（模型 / 地址 / Key）才走直连；缺一样返回 null，原来的路径一个字不动。 */
+  /**
+   * CF3c 测试接缝（规格写死，不改名）：直连用的客户端从这里拿。
+   * 生产返回 OpenAIChatStreamClient；IXAEON_FAKE_MODEL=1 时返回 FakeStreamChatClient，
+   * 剧本从 IXAEON_FAKE_CHAT_SCRIPT（JSON 文件）读，没给就回一句固定的合成回答。
+   */
+  chatStreamClient(launch: { model: string; baseUrl: string; apiKey: string }): StreamChatClient {
+    if (process.env['IXAEON_FAKE_MODEL'] === '1') {
+      const scriptPath = process.env['IXAEON_FAKE_CHAT_SCRIPT'];
+      let script: Array<{ deltas?: string[]; toolCalls?: unknown[]; error?: string }> = [
+        { deltas: ['（假模型的合成回答）'] },
+      ];
+      if (scriptPath) {
+        try {
+          script = JSON.parse(readFileSync(scriptPath, 'utf8')) as typeof script;
+        } catch {
+          script = [{ deltas: ['（假模型的合成回答）'] }];
+        }
+      }
+      // 同一个运行时只建一个：剧本是「一次 stream 用一步」，跨多问要连续走下去
+      this.fakeChatClient ??= new FakeStreamChatClient(
+        script as never,
+        launch.model,
+        Number(process.env['IXAEON_TEST_MODEL_DELAY_MS'] ?? 0) || 0,
+      );
+      return this.fakeChatClient;
+    }
+    return new OpenAIChatStreamClient({
+      baseUrl: launch.baseUrl,
+      apiKey: launch.apiKey,
+      model: launch.model,
+    });
+  }
+
+  /** CF3c：三样齐（模型 / 地址 / Key）就走直连；缺一样返回 null，由 ask() 如实拒绝。 */
   private directChatLaunch(): { model: string; baseUrl: string; apiKey: string } | null {
-    // 只看设置页里「聊天模型」那一项是否**显式选过**：留空说明用户没给聊天指定模型
-    //（只配了分析模型的任务、编码派发等不该因此把聊天改道）；chatModelName() 的回退
-    // 是给 Hermes 启动参数用的，不拿来判断「聊天配好了没有」。
-    const config = this.config as AppConfig | undefined;
-    const explicit =
-      config?.uses?.chat !== undefined || Boolean(config?.model?.chatModelName?.trim());
-    if (!explicit) return null;
+    // 端到端 / 验收测试用：设了 IXAEON_FAKE_MODEL 就不看配置，直接给一个能用的直连参数
+    if (process.env['IXAEON_FAKE_MODEL'] === '1') {
+      return { model: 'fake-direct', baseUrl: 'http://127.0.0.1:9/v1', apiKey: 'fake' };
+    }
+    // 规格只要求三样齐（模型 / 地址 / Key）就走直连——不再额外要求「模型在已保存清单里」
     const { chatModel, chatBaseUrl, chatApiKey } = this.chatLaunchOptions();
     if (!chatModel || !chatBaseUrl || !chatApiKey) return null;
     return { model: chatModel, baseUrl: chatBaseUrl, apiKey: chatApiKey };
@@ -1632,11 +1577,7 @@ export class AppRuntime {
         }
       }
       const contextBlock = blocks.join('\n\n');
-      const client = new OpenAIChatStreamClient({
-        baseUrl: input.launch.baseUrl,
-        apiKey: input.launch.apiKey,
-        model: input.launch.model,
-      });
+      const client = this.chatStreamClient(input.launch);
       const ctrl = new AbortController();
       this.directAskAborts ??= new Map();
       this.directAskAborts.set(input.runId, ctrl);
@@ -1676,7 +1617,7 @@ export class AppRuntime {
       return {
         answer: out.answer,
         citations: [],
-        notice: out.status === 'cancelled' ? '用户取消' : '本轮走直连模型（不是 Hermes）。',
+        notice: out.status === 'cancelled' ? '用户取消' : '本轮走直连模型。',
         usedChars: contextBlock.length,
         modelName: input.launch.model,
         engine: 'direct',
@@ -2293,104 +2234,10 @@ export class AppRuntime {
    * 换了聊天模型后，丢掉在跑的引擎会话：模型是网关启动参数，旧进程不会改模型。
    * 先 invalidateContext 让长驻网关进程退出，再清空映射，下一问从新进程开始。
    */
+  /** CF3c：聊天只走直连之后不再有进程内引擎会话；换了聊天模型只清库里的旧会话 id。 */
   resetChatSessions(): number {
-    const n = this.askSessions.size;
-    for (const session of this.askSessions.values()) session.invalidateContext();
-    this.askSessions.clear();
     this.conversations.clearEngineSessions();
-    this.disposeWarmSession();
-    return n;
-  }
-
-  /** 新建一个问答会话（含它自己的 Hermes 适配器）。提问与预热共用，两条路建出来的完全一样。 */
-  private newAskSession(): { session: AgentSession; adapter: HermesRuntimeAdapter } {
-    const broker = new CoreToolBroker(
-      this.db,
-      this.items,
-      this.search,
-      this.coding,
-      this.projects,
-      desktopResearchFetchDeps(() => this.getTinyFishFetcher() ?? undefined),
-      this.getWebSearchExecutor() ?? undefined,
-    );
-    const adapter = new HermesRuntimeAdapter(broker, undefined, () => ({
-      ...this.chatLaunchOptions(),
-      bridgeToken: this.hermesBridgeToken(),
-    }));
-    const bridged = this.hermesBridgeToken() !== null;
-    const session = new AgentSession(this.db, adapter, broker, this.getProvider(), {
-      semantic: this.semanticIndex,
-      // F1 记忆桥：开着时才让模型调 IXAEON 的记忆工具（关着时 Hermes 里没有这些工具）。
-      memoryBridge: bridged,
-      // 记忆桥工具由 Hermes 经 MCP 执行（结果经协议回交），网关侧不在本地重复执行；
-      // 名字是 Hermes 里的真名 mcp__ixaeon__<工具>，账本据此标注执行方。
-      mcpBridgedTools: bridged ? [...HERMES_BRIDGE_TOOL_WIRE_NAMES] : [],
-    });
-    return { session, adapter };
-  }
-
-  /**
-   * P1 会话预热：备一个已经建好 Hermes 会话的空闲问答会话，新对话第一问直接接过去用。
-   *
-   * 2026-09-18 真机时间线：新会话建好后，Hermes 要花 5–9 秒组装助手（发现工具、查模型
-   * 信息），期间没有任何输出——用户每开一个新对话都要白等这一段。Hermes 在建会话时就
-   * 在后台组装，所以提前建好即可。
-   *
-   * 只备一个；有问题正在答时不预热（Hermes 组装时也会访问模型网关，别和正在进行的提问
-   * 抢网关账号的并发名额）；20 分钟没被用掉就释放（空闲的 Hermes 进程占内存）。
-   * 预热失败什么都不影响：第一问照常冷启动。
-   */
-  async prewarmChat(projectId: string | null): Promise<{ warmed: boolean }> {
-    if (!this.hermesFound()) return { warmed: false };
-    if (this.activeAskRuns.size > 0) return { warmed: false };
-    const contextRef = projectId ?? 'personal';
-    if (this.warm?.contextRef === contextRef) return { warmed: true };
-    if (this.warming) return { warmed: false };
-    this.disposeWarmSession();
-    const { session, adapter } = this.newAskSession();
-    this.warming = true;
-    try {
-      const ready = await adapter.prewarm({
-        runId: `prewarm-${randomUUID()}`,
-        goal: '',
-        contextRef,
-        allowedTools: [...CORE_TOOL_NAMES],
-        permissionVersion: getDisclosureEpoch(this.db),
-        budget: { maxToolCalls: 4, timeoutMs: 120_000 },
-        idempotencyKey: `prewarm-${contextRef}`,
-      });
-      if (!ready) return { warmed: false };
-      const timer = setTimeout(() => this.disposeWarmSession(), 20 * 60_000);
-      timer.unref?.();
-      this.warm = { session, contextRef, timer };
-      return { warmed: true };
-    } catch (err) {
-      session.invalidateContext();
-      this.logger.info('会话预热失败，第一问照常冷启动', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return { warmed: false };
-    } finally {
-      this.warming = false;
-    }
-  }
-
-  /** 接过预热好的会话（同一个 contextRef 才接）。接走后腾出位置，等这一问结束再备下一个。 */
-  private adoptWarmSession(projectId: string | null): AgentSession | null {
-    const warm = this.warm;
-    if (!warm || warm.contextRef !== (projectId ?? 'personal')) return null;
-    clearTimeout(warm.timer);
-    this.warm = null;
-    this.rewarmAfterAsk = true;
-    return warm.session;
-  }
-
-  private disposeWarmSession(): void {
-    const warm = this.warm;
-    if (!warm) return;
-    clearTimeout(warm.timer);
-    this.warm = null;
-    warm.session.invalidateContext();
+    return 0;
   }
 
   /**
@@ -2472,7 +2319,6 @@ export class AppRuntime {
     if (!runId) return { cancelled: false, runId: null };
     // G05：准备阶段还没有会话。先记下取消，等这一轮走到外发前自己停下来；
     // 已经在回答的，照旧通知会话停掉。
-    this.askSessions.get(target)?.cancel(runId);
     this.cancelledAskRuns.add(runId);
     this.directAskAborts?.get(runId)?.abort();
     return { cancelled: true, runId };
@@ -3324,7 +3170,6 @@ export class AppRuntime {
     this.semanticUnavailableLogged = false;
     // R1：懒建的引擎会话持着旧连接，同样不能留（下一问会重建，历史靠 priorTurns 重新喂）。
     // 测试桩用 Object.create 绕过构造函数时没有这个 Map，不能清。
-    this.askSessions?.clear();
     this.vault = vault;
     this.permissions = permissions;
     this.sources = sources;

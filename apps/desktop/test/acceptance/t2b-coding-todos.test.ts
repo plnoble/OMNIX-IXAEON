@@ -87,7 +87,7 @@ function setup(goal = '修掉导入时的乱码\n细节：只动 note.txt') {
   });
   const conv = conversations.create({ projectId: project.id });
   let taskId = '';
-  runtime['askSessions'].set(conv.id, {
+  (runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
     run: async () => {
       taskId = coding.create({
         projectId: project.id,

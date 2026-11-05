@@ -221,6 +221,8 @@ export class FakeStreamChatClient implements StreamChatClient {
   constructor(
     private readonly script: { deltas?: string[]; toolCalls?: ChatToolCall[]; error?: string }[],
     modelName = 'fake-direct',
+    /** 测试用：每段之间等这么久，好让端到端看到「正在回答」的中间态。 */
+    private readonly delayMs = 0,
   ) {
     this.modelName = modelName;
   }
@@ -237,7 +239,11 @@ export class FakeStreamChatClient implements StreamChatClient {
     if (step.error) throw new ModelError(step.error, false);
     if (input.signal?.aborted) throw aborted();
     const deltas = step.deltas ?? [];
-    for (const delta of deltas) input.onDelta?.(delta);
+    for (const delta of deltas) {
+      if (this.delayMs > 0) await new Promise((r) => setTimeout(r, this.delayMs));
+      if (input.signal?.aborted) throw aborted();
+      input.onDelta?.(delta);
+    }
     return {
       content: deltas.join(''),
       toolCalls: step.toolCalls ?? [],

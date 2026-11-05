@@ -130,3 +130,76 @@ node node_modules/vitest/vitest.mjs run --project acceptance \
 现状：12 条里 10 红 2 绿，红因都是「功能没有」。
 
 **实现排在 MP2b 之后**：CF3cb 要改的甲类旧测试里，`m2-settings-ui`、`m3-settings-ui`、`sub1-magpie-preset`、`sub1b-quota-settings`、`u2-settings-coding-saved`、`v4-settings-page`、`d7b-pages` 跟 MP2b 的 CP7 是同一批文件。MP2b 先改完、先并入，CF3cb 再在它上面改，免得两边改同一份测试。
+
+## 实现轮（2026-11-04，第一支 CF3c：源码）
+
+### 进度
+
+- [x] 1. 队列 162 改「窗口进行中（dev）」并推 main
+- [x] 2. 建 CF3c 工作目录（基于 main，已并入 MP2 / MP2b）
+- [x] 3. `ask()` 只剩直连；`directChatLaunch()` 去掉「单独选过」门槛；三样缺一样抛 `MODEL_NOT_CONFIGURED`
+- [x] 4. 删掉聊天用 Hermes 接线（newAskSession / adoptWarmSession / askSessions / prewarmChat / T2b 建任务进待办）
+- [x] 5. `chatStreamClient` 接缝（生产 OpenAIChatStreamClient；`IXAEON_FAKE_MODEL=1` 走 FakeStreamChatClient + 剧本）
+- [x] 6. 回答说明去掉「不是 Hermes」、修掉「。；」
+- [x] 7. `node scripts/acceptance.mjs run CF3c` **12/12 全过**
+- [ ] 8. **未完成**：`run-done` / `verify` / 端到端 还有红（见「还剩什么」）
+- [ ] 9. **未完成**：CF3cb（旧测试按甲/乙/丙改）、真机甲/乙、两支推送与 CI 全绿
+
+### 已实现
+
+| 文件                                                                                  | 改动                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src/main/appRuntime.ts`                                                 | `ask()` 只剩直连一条路；`directChatLaunch()` 去掉 CF3b「必须单独选过」的门槛，三样齐（`resolveModelUse('chat')` 给出模型 + 地址 + Key，且模型在这家已保存清单里）就走，缺一样在落库任何消息之前抛 `IxaError(MODEL_NOT_CONFIGURED, 'IXA0010 模型未配置：请到「模型」页…')`；新增 `chatStreamClient(launch)` 接缝；说明文字改成「本轮走直连模型。」；追加说明前先去掉结尾句号，修掉「。；」。**删掉**：`newAskSession`、`adoptWarmSession`、`disposeWarmSession`、`prewarmChat`、`askSessions`/`warm`/`warming`/`rewarmAfterAsk` 字段、Hermes 回答分支、T2b「这一轮新建的编码任务进待办」、`invalidateContext` 里的会话清理；`resetChatSessions()` 只清库里的旧会话 id（返回 0）；`hermesFound()` 保留 |
+| `apps/desktop/src/main/ipc.ts` / `preload/index.ts` / `packages/contracts/src/ipc.ts` | 去掉 `prewarmChat` 通道 / 桥接 / 接口声明                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `apps/desktop/src/renderer/src/pages/Ask.tsx`                                         | 去掉进聊天页时的 `prewarmChat` 调用                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+
+**删掉的非锁定集成测试**（测的东西随 Hermes 路径一起删掉了）：`p1-prewarm.test.ts`、`p2-ask-progress.test.ts`、`e5-memory-used.test.ts`。
+`model-key-reuse.test.ts` 里「换模型后丢掉在跑的引擎会话」那一条用例也删了（进程内引擎会话已不存在）。
+`s1-ask-delta.test.ts`、`t2a-followups.test.ts`、`a03-ask-capture.test.ts`、`ask-semantic-gate.test.ts` 改成走 `chatStreamClient` 接缝。
+
+源码净新增远小于 300 行（大部分是删除）；删除的行数见上面的清单。
+
+### 自动化通过
+
+```
+$ node scripts/acceptance.mjs run CF3c
+Tests  12 passed (12)
+```
+
+### 还剩什么（**这一轮没做完，如实记**）
+
+- `apps/desktop/test/integration/d3-d4-conversation-context.test.ts`：11 条里 7 条已过，**4 条仍红**
+  （「本轮提问不会被当成此前的内容」「两个对话交替不串台」「重启后重开旧对话能续」「提问与回答都落进对话」）——
+  它们原本断言 Hermes 提示词里的 `本对话此前的内容` / `这是本轮的问题` 这类标记，直连路径没有；要继续改成看
+  `chatStreamClient` 收到的消息序列。
+- 锁定的旧验收测试（甲/乙/丙三类，约 30 份夹具）**一条没改**：那是第二支 `CF3cb` 的活。
+- 端到端：`a4-follow-live-answer` / `d5a` / `d6` / `d7b` 也要按甲类改，没做。
+- 真机：甲 / 乙**都没跑**。
+
+因为上面这些没完成，本轮**没有**把队列第 162 行改成「待复审（整合方）」，仍是「窗口进行中（dev）」。
+
+### 整合方抽查后的一处更正（2026-11-04）
+
+- `directChatLaunch()` 里我自加的「聊天模型必须在这家已保存清单里，否则 return null」**已拿掉**——规格只要求
+  `chatLaunchOptions()` 三样齐（模型 / 地址 / Key）就走；向导配的、标着「不在已保存清单」的模型照样能聊。
+- 拿掉之后 **`acceptance run CF3c` 仍然 12/12，没有测试因此变红**（`缺 model` 那条的夹具本身就没让三样齐），
+  所以不需要加回，也没有要整合方定的红。
+- 附带：`d3-d4-conversation-context` 剩下的 4 条已改好（改看 `chatStreamClient` 收到的 messages：有前几轮问答、最后一条是本轮问题；删掉「各有独立 AgentSession 实例」「重启后 askSessions 为空」两条——进程内引擎会话已不存在）。该文件 11/11 全过。
+
+## 收尾（2026-11-04）：源码行数与门禁口径
+
+源码改动（`git diff --numstat origin/main...HEAD -- apps/desktop/src packages/contracts/src`）：
+
+- 新增 60 行、删除 232 行（净 -172）；删掉的都是聊天用 Hermes 接线（newAskSession / adoptWarmSession / prewarmChat / askSessions / T2b 建任务进待办 / Hermes 分支）与 prewarm 通道，逐项见上文「已实现」。
+- 新增的部分：直连分支复用、`directChatLaunch()`、`chatStreamClient` 接缝、假客户端跨问复用与 `IXAEON_TEST_MODEL_DELAY_MS` 支持。
+
+自动化：
+
+- `node scripts/acceptance.mjs run CF3c` → `Tests  12 passed (12)`。
+- 本分支上 lint / format / typecheck / build / unit / integration 绿；`run-done` 与 `verify` 会红在「已完成任务的验收」——那是第二支 CF3cb 负责改写的旧锁定测试，按约定第一支不承载这些改写。
+
+真机：甲 / 乙都在第二支工作目录里跑（同一份源码），输出与截图见 `CF3cb.md`「真机通过」。
+
+用户接受：未接受。
+
+补充：`typecheck-acceptance`（把已完成任务的验收测试也过一遍 tsc）与 `acceptance-lock` 在第一支会红——旧锁定测试还引用 `askSessions` 等已删字段，这类改写按约定集中在 CF3cb；红名单与 CF3cb.md 列的一致。
