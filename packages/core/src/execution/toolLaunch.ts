@@ -161,3 +161,38 @@ export class ClaudeCodeExecutor implements CodingExecutor {
     } as unknown as ExecutorReport;
   }
 }
+
+/** DSH 执行器：经 dshLaunch 起桌面版（ELECTRON_RUN_AS_NODE=1），取最后一行 final。 */
+export class DshExecutor implements CodingExecutor {
+  readonly name = 'dsh';
+  constructor(private readonly opts: { install: string }) {}
+
+  async run(
+    task: CodingTask,
+    workspace: string,
+    signal: AbortSignal,
+    _options?: ExecutorRunOptions,
+  ): Promise<ExecutorReport> {
+    const launch = dshLaunch({
+      install: this.opts.install,
+      goal: task.goal,
+      workspace,
+      baseEnv: process.env,
+    });
+    const { stdout, code } = await runProcess(
+      launch.command,
+      launch.args,
+      launch.cwd,
+      launch.env,
+      signal,
+      15 * 60_000,
+    );
+    const parsed = parseDshOutput(stdout, code);
+    if (!parsed.ok) throw new Error('DSH 执行失败（退出码 ' + String(code) + '）');
+    return {
+      summary: parsed.summary,
+      claimedSuccess: true,
+      changes: [],
+    } as unknown as ExecutorReport;
+  }
+}

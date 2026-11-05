@@ -6,6 +6,7 @@ export {
   dshLaunch,
   parseDshOutput,
   ClaudeCodeExecutor,
+  DshExecutor,
   type ClaudeModel,
 } from './execution/toolLaunch.js';
 export { acceptableFallback, reasonText } from './models/fallbackRules.js';
