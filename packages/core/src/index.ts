@@ -342,3 +342,5 @@ export {
   type ModelUse,
   type ResolvedModelUse,
 } from './models/resolveModelUse.js';
+
+export { CodingChainExecutor, type CodingCandidate } from './execution/codingChain.js';

@@ -75,6 +75,9 @@ import {
   type WatchDirection,
   resolveModelUse,
   detectDevTools,
+  CodingChainExecutor,
+  ClaudeCodeExecutor,
+  type CodingExecutor,
   resolveModelUseChain,
   checkMagpieUrl,
   getSetting,
@@ -1686,6 +1689,112 @@ export class AppRuntime {
     }
   }
 
+  /** MP3db：编码候选串的 5 分钟记忆（键 → 到期毫秒数）。 */
+  codingChainSkip: Map<string, number> = new Map();
+
+  clearCodingChainSkip(): void {
+    this.codingChainSkip ??= new Map();
+    this.codingChainSkip.clear();
+  }
+
+  /** MP3db：保存编码任务的一串候选。 */
+  saveCodingChain(
+    list: Array<
+      | { kind: 'tool'; tool: 'codex' | 'claude' | 'dsh'; model?: string }
+      | { kind: 'provider'; providerId: string; model: string }
+    >,
+  ): { ok: true } {
+    if (list.length > 5) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '最多 5 项');
+    const seen = new Set<string>();
+    for (const item of list) {
+      let key: string;
+      if (item.kind === 'tool') {
+        if (item.tool !== 'claude' && item.model)
+          throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'Codex / DSH 这一单不填模型');
+        if (
+          item.tool === 'claude' &&
+          item.model &&
+          !['opus', 'sonnet', 'haiku'].includes(item.model)
+        )
+          throw new IxaError(
+            ErrorCodes.VALIDATION_FAILED,
+            'Claude Code 只能选 opus / sonnet / haiku',
+          );
+        key = 'tool:' + item.tool + ':' + (item.model ?? '');
+      } else {
+        const providers = (this.config.providers ?? []) as Array<{
+          id: string;
+          savedModels: string[];
+        }>;
+        const provider = providers.find((p) => p.id === item.providerId);
+        if (!provider || !provider.savedModels.includes(item.model))
+          throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个模型没有勾选保存过');
+        key = 'provider:' + item.providerId + ':' + item.model;
+      }
+      if (seen.has(key)) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '同一项只能出现一次');
+      seen.add(key);
+    }
+    this.updateConfig((c) => ({ ...c, codingChain: list.length ? list : undefined }));
+    recordAudit(this.db, 'coding_chain.saved', { count: list.length });
+    this.clearCodingChainSkip();
+    return { ok: true };
+  }
+
+  private codingCandidates(): Array<{
+    key: string;
+    label: string;
+    executor: CodingExecutor | null;
+  }> {
+    const chain = (this.config.codingChain ?? []) as Array<
+      | { kind: 'tool'; tool: 'codex' | 'claude' | 'dsh'; model?: string }
+      | { kind: 'provider'; providerId: string; model: string }
+    >;
+    const tools = detectDevTools({
+      manual: this.config.devTools ?? {},
+      env: process.env,
+      exists: existsSync,
+    });
+    const rows = new Map(tools.map((r) => [r.tool, r]));
+    return chain.map((item, index) => {
+      if (item.kind === 'tool') {
+        const row = rows.get(item.tool);
+        const found = row?.found ? row.path : null;
+        let executor: CodingExecutor | null = null;
+        if (item.tool === 'codex' && found)
+          executor = new CodexCliExecutor({ exe: found, sandbox: 'workspace-write' });
+        if (item.tool === 'claude' && found)
+          executor = new ClaudeCodeExecutor({
+            exe: found,
+            model: item.model as 'opus' | 'sonnet' | 'haiku' | undefined,
+          });
+        const label =
+          item.tool === 'codex'
+            ? 'Codex'
+            : item.tool === 'claude'
+              ? 'Claude Code' + (item.model ? ' · ' + item.model : '')
+              : 'DSH';
+        return {
+          key: 'tool:' + item.tool + ':' + (item.model ?? '') + ':' + index,
+          label,
+          executor,
+        };
+      }
+      const providers = (this.config.providers ?? []) as Array<{
+        id: string;
+        name: string;
+        savedModels: string[];
+      }>;
+      const provider = providers.find((p) => p.id === item.providerId);
+      const ok = provider && provider.savedModels.includes(item.model);
+      const executor = ok ? new ModelCodingExecutor(provider as never, item.model) : null;
+      return {
+        key: 'provider:' + item.providerId + ':' + item.model + ':' + index,
+        label: (provider?.name ?? '供应商') + ' · ' + item.model,
+        executor,
+      };
+    });
+  }
+
   /** MP3c：三个开发工具的位置（手填优先，只看文件在不在）。 */
   getDevTools(): Array<{
     tool: 'codex' | 'claude' | 'dsh';
@@ -1725,6 +1834,7 @@ export class AppRuntime {
     }
     this.updateConfig((c) => ({ ...c, devTools: next }));
     recordAudit(this.db, 'devtool.path_saved', { tool, mode: raw ? '手填' : '恢复自动' });
+    this.clearCodingChainSkip();
     return { ok: true };
   }
 
@@ -1940,6 +2050,7 @@ export class AppRuntime {
   }): { ok: true; id: string; keyCleared: boolean } {
     // MP3：保存供应商后，5 分钟「先放过刚不行的」记忆清空
     this.clearFallbackCooldown();
+    this.clearCodingChainSkip();
     const name = input.name.trim();
     const apiBaseUrl = input.apiBaseUrl.trim();
     const providedKey =
@@ -2296,6 +2407,14 @@ export class AppRuntime {
    * 运行时连 config 都没有（D3、D4、P4 的测试这样搭）也按 Codex 算。
    */
   executorPlan(): ExecutorPlan {
+    const chain = (this.config as AppConfig | undefined)?.codingChain;
+    if (chain && chain.length > 0)
+      return {
+        use: 'model',
+        executor: new CodingChainExecutor(() => this.codingCandidates(), {
+          skip: (this.codingChainSkip ??= new Map()),
+        }),
+      };
     const coding = (this.config as AppConfig | undefined)?.coding;
     if (!coding || coding.executor === 'codex') return { use: 'codex' };
     const name = coding.modelName;
