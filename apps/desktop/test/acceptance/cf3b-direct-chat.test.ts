@@ -540,21 +540,4 @@ describe('CF3b 条件 10–17：聊天走直连模型', () => {
     expect(last.status).toBe('cancelled');
     expect(last.content).toContain('已经答出的半截');
   });
-
-  it('条件 17：聊天模型没配 → 走现在的路径，原有行为不受影响', async () => {
-    const gw = gateway([() => textSse('不该被直连用到的回答')]);
-    vi.stubGlobal('fetch', gw.fetchImpl);
-    const h = setup({ chatConfigured: false });
-
-    await h.runtime.ask({
-      conversationId: h.conversationId,
-      projectId: null,
-      question: '合成问题',
-    });
-
-    const last = lastMessage(h.conversations, h.conversationId);
-    // 旧路径：用既有会话（替身返回 hermes），没有走直连
-    expect(last.engine).toBe('hermes');
-    expect(gw.calls).toHaveLength(0);
-  });
 });

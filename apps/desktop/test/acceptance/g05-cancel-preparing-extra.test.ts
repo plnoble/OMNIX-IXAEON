@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import {
   CodingOrchestrator,
   ConversationStore,
@@ -26,13 +27,18 @@ import {
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { installFakeChat, type FakeStreamImpl } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: {},
   BrowserWindow: {},
   dialog: {},
   ipcMain: {},
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 
 let dir: string;
@@ -61,8 +67,6 @@ function runtime() {
     search: new SearchService(db),
     projects: new ProjectService(db),
     coding: new CodingOrchestrator(db, new FakeCodingExecutor(), dir),
-    askSessions: new Map(),
-    warmSession: null,
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -77,11 +81,19 @@ function runtime() {
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
   });
-  return { rt, conversations, conv };
+  const impl: { calls: Array<{ lastUser: string; signal?: AbortSignal }>; fn: FakeStreamImpl } = {
+    calls: [],
+    fn: (x) => {
+      impl.calls.push({ lastUser: x.lastUser, signal: x.signal });
+      return { content: '好的' };
+    },
+  };
+  installFakeChat(rt as unknown as Record<string, unknown>, (x) => impl.fn(x));
+  return { rt, conversations, conv, impl };
 }
 
 it('第一次提问还没有会话时，准备阶段取消：不建会话、不调用模型、回答是 cancelled', async () => {
-  const { rt, conversations, conv } = runtime();
+  const { rt, conversations, conv, impl } = runtime();
   let created = 0;
   // 整合方改（Q3，2026-10-29）：只为过类型检查，不改断言（替身只给 session，不给 adapter）
   (rt as unknown as { newAskSession: () => unknown })['newAskSession'] = () => {
@@ -107,44 +119,41 @@ it('第一次提问还没有会话时，准备阶段取消：不建会话、不�
   release();
   const result = await pending;
   expect(created).toBe(0);
-  expect((rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].size).toBe(0);
+  expect(impl.calls).toEqual([]);
   expect(conversations.getMessage(result.messageId).status).toBe('cancelled');
 });
 
-it('回答进行中取消时，会话收到的是这一轮的 runId', async () => {
-  const { rt, conversations, conv } = runtime();
-  const cancelled: string[] = [];
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
+it('两轮并发，取消其中一轮：只有那一轮的请求被中断，另一轮照常完成', async () => {
+  const { rt, conversations, conv, impl } = runtime();
+  const convB = conversations.create({ projectId: null });
+  let releaseA!: () => void;
+  const gateA = new Promise<void>((resolve) => {
+    releaseA = resolve;
   });
-  (rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
-    run: async (input: { runId?: string; onDelta?: (text: string) => void }) => {
-      input.onDelta?.('已到');
-      await gate;
-      return {
-        answer: '好的',
-        citations: [],
-        notice: '用户取消 Hermes 会话',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: input.runId ?? 'run',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: (runId: string) => {
-      cancelled.push(runId);
-    },
-    getEngineSessionId: () => 's-test',
-  } as unknown as AgentSession);
-  const pending = rt.ask({ conversationId: conv.id, projectId: null, question: '取消我' });
+  impl.fn = async (x) => {
+    impl.calls.push({ lastUser: x.lastUser, signal: x.signal });
+    if (x.lastUser === '取消我') {
+      x.onDelta?.('已到');
+      await gateA;
+      if (x.signal?.aborted) throw Object.assign(new Error('已取消'), { name: 'AbortError' });
+      return { content: '已到迟到' };
+    }
+    x.onDelta?.('正常');
+    return { content: '正常的回答' };
+  };
+  const pendingA = rt.ask({ conversationId: conv.id, projectId: null, question: '取消我' });
+  const rB = await rt.ask({ conversationId: convB.id, projectId: null, question: '别动我' });
   await new Promise((r) => setTimeout(r, 20));
   const res = rt.cancelAsk(conv.id);
   expect(res.cancelled).toBe(true);
-  expect(cancelled).toEqual([res.runId]);
-  release();
-  const result = await pending;
-  expect(conversations.getMessage(result.messageId).status).toBe('cancelled');
+  releaseA();
+  const resultA = await pendingA;
+  // 被取消的那一轮：消息 cancelled、请求被中断（AbortSignal 已 abort）
+  expect(conversations.getMessage(resultA.messageId).status).toBe('cancelled');
+  const callA = impl.calls.find((c) => c.lastUser === '取消我')!;
+  expect(callA.signal?.aborted).toBe(true);
+  // 另一轮照常完成、信号没被中断
+  expect(conversations.getMessage(rB.messageId).status).toBe('complete');
+  const callB = impl.calls.find((c) => c.lastUser === '别动我')!;
+  expect(callB.signal?.aborted).toBe(false);
 });

@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import {
   CodingOrchestrator,
   ConversationStore,
@@ -25,22 +26,27 @@ import {
   FakeProvider,
   IxaError,
   ItemService,
+  ContextSelector,
   ProjectService,
   SearchService,
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { fakeChatModel, installFakeChat } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: {},
   BrowserWindow: {},
   dialog: {},
   ipcMain: {},
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 
 let dir: string;
@@ -53,6 +59,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   if (db.open) db.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -67,6 +74,12 @@ function setup() {
   conversations.appendMessage(conv.id, { role: 'user', content: '之前问的' });
   conversations.appendMessage(conv.id, { role: 'assistant', content: '之前答的' });
   const seen: Array<string | null> = [];
+  vi.spyOn(ContextSelector.prototype, 'selectForQuestionHybrid').mockImplementation(
+    async (_q: string, projectId: string | null) => {
+      seen.push(projectId ?? null);
+      return { items: [], retrievalNotice: null } as never;
+    },
+  );
   const runtime = Object.create(AppRuntime.prototype) as AppRuntime;
   Object.assign(runtime, {
     db,
@@ -76,7 +89,6 @@ function setup() {
     search: new SearchService(db),
     projects,
     coding: new CodingOrchestrator(db, new FakeCodingExecutor(), dir),
-    askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -91,30 +103,10 @@ function setup() {
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
   });
-  const fakeSession = {
-    run: async (input: { projectId: string | null }) => {
-      seen.push(input.projectId);
-      return {
-        answer: '好的',
-        citations: [],
-        notice: '本轮经 Hermes TUI gateway',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: 'run',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    getEngineSessionId: () => 's-test',
-  } as unknown as AgentSession;
-  /** 让某个对话用替身会话（不启动真引擎）。 */
-  const bind = (conversationId: string) =>
-    (runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(
-      conversationId,
-      fakeSession,
-    );
+  installFakeChat(runtime as unknown as Record<string, unknown>, () => ({ content: '好的' }));
+  const bind = (_conversationId: string): void => {
+    // CF3c：不再有替身会话；「派给模型的是哪个项目的上下文」由下面这个 spy 记录
+  };
   bind(conv.id);
   return { runtime, conversations, conv, projectA, projectB, seen, bind };
 }
@@ -165,6 +157,46 @@ describe('G06 对话的项目固定（后端）', () => {
     const toB = await askError(runtime, loose.id, projectB.id);
     expect((toB as IxaError).code).toBe(ErrorCodes.VALIDATION_FAILED);
     expect(seen).toEqual([]);
+  });
+
+  it('补充：交给模型的内容里有这个项目的条目，没有别的项目和个人对话的', async () => {
+    // 这一条要看真的选材（前面的 spy 把它替掉了），先恢复
+    vi.restoreAllMocks();
+    const { runtime, conv, projectA, projectB } = setup();
+    const items = new ItemService(db);
+    for (const [projectId, statement] of [
+      [projectA.id, 'A 项目的合成条目'],
+      [projectB.id, 'B 项目的合成条目'],
+      [null, '个人对话的合成条目'],
+    ] as const) {
+      const item = items.createManual({
+        projectId: projectId as string | null,
+        type: 'decision',
+        statement,
+        rationale: null,
+      });
+      items.grantDisclosure({ itemId: item.id, audience: 'model', note: '合成披露' });
+    }
+    const sent: string[] = [];
+    Object.assign(runtime as unknown as Record<string, unknown>, {
+      config: { model: fakeChatModel() },
+      chatStreamClient: () => ({
+        modelName: 'demo-a',
+        stream: async (input: { messages: Array<{ content: string }> }) => {
+          sent.push(input.messages.map((m) => String(m.content)).join('\n'));
+          return { content: '好', toolCalls: [], finishReason: 'stop', toolsUnsupported: false };
+        },
+      }),
+    });
+    await runtime.ask({
+      conversationId: conv.id,
+      projectId: projectA.id,
+      question: 'A 项目的合成条目',
+    });
+    const text = sent[0] ?? '';
+    expect(text).toContain('A 项目的合成条目');
+    expect(text).not.toContain('B 项目的合成条目');
+    expect(text).not.toContain('个人对话的合成条目');
   });
 
   it('整合方补：刚点「新对话」还没发第一句，以第一句的项目为准并写回；之后固定', async () => {

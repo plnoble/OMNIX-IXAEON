@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 /**
  * D6 验收：问答页连续聊天（三周任务单 / 委派单 D6）。
  *
- * 模型入口：IXAEON_FAKE_MODEL=1 + IXAEON_FAKE_MODEL_SCRIPT。
+ * 模型入口：IXAEON_FAKE_MODEL=1 + IXAEON_FAKE_CHAT_SCRIPT。
  * 关闭 Hermes 环境变量，避免本机真引擎抢走 FakeProvider。
  */
 
@@ -35,7 +35,7 @@ function launchEnv(dataDir: string, scriptPath: string): Record<string, string> 
     // 没装的机器（CI）上也不会因为「没装 Codex」而不派发、一直排队
     IXAEON_CODEX_EXE: 'none',
     IXAEON_FAKE_MODEL: '1',
-    IXAEON_FAKE_MODEL_SCRIPT: scriptPath,
+    IXAEON_FAKE_CHAT_SCRIPT: scriptPath,
     IXAEON_HERMES_EXE: '',
     IXAEON_HERMES_HOME: '',
     HERMES_HOME: '',
@@ -83,21 +83,17 @@ test.describe('D6 聊天界面', () => {
     mkdirSync(shotDir, { recursive: true });
     dataDir = mkdtempSync(join(tmpdir(), 'ixaeon-d6-'));
     scriptPath = join(dataDir, 'model-script.json');
-    const emptyExtract = { items: [] };
+    // CF3c 起聊天走直连：每问一次 stream 调用，剧本一步一段正文。
     writeFileSync(
       scriptPath,
-      JSON.stringify({
-        structured: [
-          { tool: 'answer', args: { text: '第一答：正式系统名是 IXAEON（析衍）。' } },
-          emptyExtract,
-          { tool: 'answer', args: { text: '第二答：析衍读作 xī yǎn。' } },
-          emptyExtract,
-          { tool: 'answer', args: { text: '第三答：从原文析出，再往前衍。' } },
-          emptyExtract,
-          { tool: 'answer', args: { text: '第二对话的回答，不应出现在第一对话。' } },
-          emptyExtract,
-        ],
-      }),
+      JSON.stringify([
+        { deltas: ['第一答：正式系统名是 IXAEON（析衍）。'] },
+        { deltas: ['第二答：析衍读作 xī yǎn。'] },
+        { deltas: ['第三答：从原文析出，再往前衍。'] },
+        { deltas: ['第二对话的回答，不应出现在第一对话。'] },
+        { deltas: ['备用回答一'] },
+        { deltas: ['备用回答二'] },
+      ]),
       'utf8',
     );
   });
@@ -139,9 +135,7 @@ test.describe('D6 聊天界面', () => {
     await expect(page.getByTestId('message-notice')).toHaveCount(1);
     // 引擎摘要每条回答都常显（不能把 Core 兜底冒充成 Hermes）
     await expect(page.locator('.ask-msg-details > summary')).toHaveCount(3);
-    await expect(page.locator('.ask-msg-details > summary').first()).toContainText(
-      '引擎 core-bounded',
-    );
+    await expect(page.locator('.ask-msg-details > summary').first()).toContainText('引擎 直连');
 
     const firstConvId = await page
       .getByTestId('conversation-item')

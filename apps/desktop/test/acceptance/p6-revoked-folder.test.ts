@@ -34,7 +34,6 @@ import {
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CodingExecutor,
   type CoreDatabase,
   type IndependentCheck,
@@ -187,7 +186,6 @@ function setup(): Harness {
     todos,
     coding,
     search: new SearchService(db),
-    askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -264,9 +262,6 @@ const taskRow = (id: string) =>
   };
 const count = (table: string): number =>
   (db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
-const audits = (kind: string): number =>
-  (db.prepare('SELECT count(*) AS n FROM audit_events WHERE kind = ?').get(kind) as { n: number })
-    .n;
 /** 数据目录里一共建了几个任务副本。 */
 const copies = (h: Harness): string[] =>
   existsSync(join(h.dataDir, 'workspaces')) ? readdirSync(join(h.dataDir, 'workspaces')) : [];
@@ -284,104 +279,36 @@ const reports = (conversationId: string) =>
     .map((m) => ({ content: m.content, meta: JSON.parse(m.meta_json) as Record<string, unknown> }))
     .filter((m) => m.meta['kind'] === 'task_report');
 
-/** 聊天那条路：真的走一轮提问，会话替身在这一轮里建出草案（带 origin_run_id，对话里挂着待办卡）。 */
+/**
+ * 乙类（CF3cb）：任务改由任务页直接建（draft）+ 挂待办 + 一条来源消息（回报靠 messages.run_id 找回对话）。
+ */
 async function chatDraft(
   h: Harness,
   projectId: string,
   goal: string,
 ): Promise<{ taskId: string; todoId: string; conversationId: string }> {
   const conv = h.conversations.create({ projectId });
-  let taskId = '';
-  (h.runtime as unknown as { askSessions: Map<string, AgentSession> }).askSessions.set(conv.id, {
-    run: async () => {
-      taskId = draft(h, projectId, goal).id;
-      return {
-        answer: '可以，我起草了一个编码任务，等你拍板。',
-        citations: [],
-        notice: '',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: 'fake',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    invalidateContext: () => undefined,
-    getEngineSessionId: () => 's-p6',
-  } as unknown as AgentSession);
-  const answered = await h.runtime.ask({
+  const runId = `run-p6-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  h.conversations.appendMessage(conv.id, { role: 'user', content: '把这个做了' });
+  const draftMessage = h.conversations.appendMessage(conv.id, {
+    role: 'assistant',
+    content: '可以，我起草了一个编码任务，等你拍板。',
+    runId,
+  });
+  const task = draft(h, projectId, goal);
+  db.prepare('UPDATE coding_tasks SET origin_run_id = ? WHERE id = ?').run(runId, task.id);
+  const todo = h.todos.propose({
+    title: goal,
     conversationId: conv.id,
-    projectId,
-    question: '把这个做了',
-  });
-  const todo = h.todos.list({ status: ['proposed'] }).find((t) => t.linked_id === taskId);
-  return { taskId, todoId: todo!.id, conversationId: answered.conversationId };
+    messageId: draftMessage.id,
+    linked: { kind: 'coding_task', id: task.id },
+  })!;
+  return { taskId: task.id, todoId: todo.id, conversationId: conv.id };
 }
 
-/** 让一次提问停在半路，好在这一轮里调 propose_coding_task。返回放行它的函数。 */
-async function withInFlightAsk(h: Harness, projectId: string): Promise<() => Promise<void>> {
-  const conv = h.conversations.create({ projectId });
-  let finish!: () => void;
-  const hold = new Promise<void>((r) => {
-    finish = r;
-  });
-  (h.runtime as unknown as { askSessions: Map<string, AgentSession> }).askSessions.set(conv.id, {
-    run: async (input: { runId?: string }) => {
-      await hold;
-      return {
-        answer: '好。',
-        citations: [],
-        notice: '',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: input.runId ?? 'fake',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    invalidateContext: () => undefined,
-    getEngineSessionId: () => 's-p6',
-  } as unknown as AgentSession);
-  const asking = h.runtime
-    .ask({ conversationId: conv.id, projectId, question: '加个文件' })
-    .catch(() => undefined);
-  const active = (h.runtime as unknown as { activeAskRuns: Map<string, string> }).activeAskRuns;
-  await vi.waitFor(() => expect(active.size).toBe(1));
-  return async () => {
-    finish();
-    await asking;
-  };
-}
-
-const propose = (h: Harness) =>
-  h.runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] });
 const WAIT = { timeout: 60_000 };
 
 describe('条件 1：绑着文件夹、授权撤销了', () => {
-  it('propose_coding_task：授权还在时照常建草案；从来源页撤销之后不建草案、不记审计，错误就是那一句', async () => {
-    const h = setup();
-    const { project, grantId } = await bound(h);
-    // 先证明这一套搭得对：授权还在，同一个调用建得出草案
-    const endFirst = await withInFlightAsk(h, project.id);
-    await expect(propose(h)).resolves.toMatchObject({ status: 'draft' });
-    await endFirst();
-    expect(count('coding_tasks')).toBe(1);
-    expect(audits('hermes.propose_coding_task')).toBe(1);
-
-    await revokeViaSourcePage(h, grantId, project.id);
-    const end = await withInFlightAsk(h, project.id);
-    const todosBefore = count('todos');
-    await expect(propose(h)).rejects.toThrow(REVOKED);
-    expect(count('coding_tasks')).toBe(1);
-    expect(audits('hermes.propose_coding_task')).toBe(1);
-    expect(count('todos')).toBe(todosBefore);
-    await end();
-  });
-
   it('已有的草案点「要做」、任务页批准：都报那一句；没批准、没建副本，待办还是「等你拍板」', async () => {
     const h = setup();
     const { project, grantId } = await bound(h);
@@ -557,9 +484,7 @@ describe('条件 5：上级文件夹的授权还有效', () => {
     h.permissions.grantFolder(dirname(root));
     expect(h.permissions.activePermissionForPath(root)!.id).not.toBe(grantId);
 
-    const end = await withInFlightAsk(h, project.id);
-    await expect(propose(h)).resolves.toMatchObject({ status: 'draft' });
-    await end();
+    // 丙类（CF3cb）：原来这里有一轮聊天在回答时调 propose_coding_task（工具已删），不再适用
 
     const viaPage = draft(h, project.id, '任务页批准再派发');
     await h.runtime.approveCodingTask(viaPage.id);
@@ -580,9 +505,7 @@ describe('条件 7：没绑文件夹的项目', () => {
   it('三个入口报的还是 P4 那一句，不是这一句', async () => {
     const h = setup();
     const bare = h.projects.create({ name: '没绑的', rootPath: null, description: null });
-    const end = await withInFlightAsk(h, bare.id);
-    await expect(propose(h)).rejects.toThrow(UNBOUND);
-    await end();
+    // 丙类（CF3cb）：聊天入口的 propose_coding_task 已删；下面两条入口照旧
     const d = draft(h, bare.id, '没绑的草案');
     const todo = h.todos.propose({
       title: '没绑的草案',

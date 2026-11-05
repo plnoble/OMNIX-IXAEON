@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import {
   CodingOrchestrator,
   ConversationStore,
@@ -21,17 +22,21 @@ import {
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CoreDatabase,
 } from '@ixaeon/core';
 import { AppRuntime } from '../../src/main/appRuntime.js';
+import { installFakeChat, type FakeStreamImpl } from './cf3cb-fake-chat.js';
 
 vi.mock('electron', () => ({
   app: {},
   BrowserWindow: {},
   dialog: {},
   ipcMain: {},
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 
 let dir: string;
@@ -64,14 +69,12 @@ function runtime() {
   const conversations = new ConversationStore(db);
   const conv = conversations.create({ projectId: null });
   const calls: string[] = [];
-  const session = {
-    run: async () => {
+  const impl: { fn: FakeStreamImpl } = {
+    fn: () => {
       calls.push('run');
-      return ANSWER;
+      return { content: ANSWER.answer };
     },
-    cancel: () => undefined,
-    getEngineSessionId: () => 's-test',
-  } as unknown as AgentSession;
+  };
   const rt = Object.create(AppRuntime.prototype) as AppRuntime;
   Object.assign(rt, {
     db,
@@ -81,7 +84,6 @@ function runtime() {
     search: new SearchService(db),
     projects: new ProjectService(db),
     coding: new CodingOrchestrator(db, new FakeCodingExecutor(), dir),
-    askSessions: new Map([[conv.id, session]]),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -96,7 +98,8 @@ function runtime() {
     logger: { warn: () => undefined, info: () => undefined },
     kickSemanticBackfill: () => Promise.resolve(),
   });
-  return { rt, conversations, conv, calls, session };
+  installFakeChat(rt as unknown as Record<string, unknown>, (i) => impl.fn(i));
+  return { rt, conversations, conv, calls, impl };
 }
 
 describe('G05 准备阶段也能取消', () => {
@@ -125,21 +128,18 @@ describe('G05 准备阶段也能取消', () => {
   });
 
   it('条件 3：回答进行中取消，返回成功，取消之后的内容不再写入', async () => {
-    const { rt, conversations, conv } = runtime();
+    const { rt, conversations, conv, impl } = runtime();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    (rt as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
-      run: async (input: { onDelta?: (text: string) => void }) => {
-        input.onDelta?.('已到');
-        await gate;
-        input.onDelta?.('迟到');
-        return { ...ANSWER, notice: '用户取消 Hermes 会话' };
-      },
-      cancel: () => undefined,
-      getEngineSessionId: () => 's-test',
-    } as unknown as AgentSession);
+    impl.fn = async ({ onDelta, signal }) => {
+      onDelta?.('已到');
+      await gate;
+      if (signal?.aborted) throw Object.assign(new Error('已取消'), { name: 'AbortError' });
+      onDelta?.('迟到');
+      return { content: '已到迟到' };
+    };
     const pending = rt.ask({ conversationId: conv.id, projectId: null, question: '取消我' });
     await new Promise((r) => setTimeout(r, 20));
     expect(rt.cancelAsk(conv.id).cancelled).toBe(true);

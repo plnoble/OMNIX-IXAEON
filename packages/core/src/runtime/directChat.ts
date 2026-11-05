@@ -133,6 +133,11 @@ export async function runDirectChat(input: {
       if (calls.length === 0 || toolRounds >= maxToolRounds) {
         // 正文通常已经经 onDelta 累积；没有流式正文时用结果里的 content。
         if (result.content.length > answer.length) answer = result.content;
+        // 最后一轮不给工具也没说出话：不当回答存档，记成失败（a5 条件 7）
+        if (calls.length > 0 && answer.trim() === '') {
+          const failure = `到了轮次上限（${maxToolRounds} 轮）还没形成回答`;
+          return { status: 'failed', answer, failure, steps, memoryUsed, toolsUnsupported };
+        }
         return { status: 'succeeded', answer, failure: null, steps, memoryUsed, toolsUnsupported };
       }
 

@@ -82,7 +82,7 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
   });
   test.afterAll(() => server.close());
 
-  test('选「我的模型」→保存→重开还在；点「要做」→对话回报/任务页都写我的模型，副本真被改', async () => {
+  test('选「我的模型」→保存→重开还在；任务页建草案→批准→派发，执行器是我的模型，副本真被改', async () => {
     // ===== 首次启动：向导 + 设置模型清单 + 编码任务交给谁 =====
     let { app, page } = await launch();
     await page.getByTestId('setup-next-1').click();
@@ -91,7 +91,6 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     await page.getByTestId('setup-project-name').fill('E2E 项目');
     await page.getByTestId('setup-finish').click();
     await expect(page.getByTestId('main-nav')).toBeVisible({ timeout: 20_000 });
-
     // MP2b：模型接入搬到「模型」页
     await page.getByTestId('nav-models').click();
     await expect(page.getByTestId('models-page')).toBeVisible({ timeout: 20_000 });
@@ -102,9 +101,7 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     await page.locator(`[data-testid="model-row-${SAVED_MODEL}"] input[type="checkbox"]`).check();
     await page.getByTestId('provider-save-default').click();
     await expect(page.locator('.ok-banner')).toContainText('已保存', { timeout: 15_000 });
-
     // 编码任务交给谁：我的模型
-    // MP2b：模型在「模型」页配好，编码执行器还在设置页
     await page.getByTestId('nav-settings').click();
     await expect(page.getByTestId('settings-coding')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('settings-coding-executor').selectOption('model');
@@ -113,7 +110,6 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     await expect(page.locator('.ok-banner')).toContainText('编码任务交给谁已保存', {
       timeout: 15_000,
     });
-
     // 绑定合成项目文件夹（用 SQL 补上 root_path——原生目录对话框无法自动化，
     // 等价于用户在项目页点过「绑定文件夹」后的状态）
     await app.close();
@@ -130,37 +126,11 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
        VALUES (?, 'folder', ?, 'continuous', 'active', ?, NULL)`,
     ).run(randomUUID(), projectRoot, new Date().toISOString());
     db.close();
-
-    // ===== 重新打开设置页：选过的还在 =====
-    ({ app, page } = await launch());
-    await expect(page.getByTestId('main-nav')).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId('nav-settings').click();
-    await expect(page.getByTestId('settings-coding')).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByTestId('settings-coding-executor')).toHaveValue('model');
-    await expect(page.getByTestId('settings-coding-model')).toHaveValue(SAVED_MODEL);
-
-    // ===== 聊天里起草编码任务 → 点「要做」 =====
-    const db2 = new Database(dbPath);
-    const proj2 = db2.prepare("SELECT id FROM projects WHERE name = 'E2E 项目'").get() as {
-      id: string;
-    };
-    db2.close();
+    // 编码执行器的假模型剧本（CF3c 起聊天走独立剧本；这里只留执行器要的那一段）
     writeFileSync(
       scriptPath,
       JSON.stringify({
         structured: [
-          {
-            tool: 'propose_task',
-            args: {
-              projectId: proj2.id,
-              goal: '在 README.md 末尾加一行「D7b e2e 加的一行」',
-              scope: ['README.md'],
-              verifyCommand: ['node', '-e', 'process.exit(0)'],
-            },
-          },
-          { tool: 'answer', args: { text: '已经起草好，等你拍板。' } },
-          { items: [] },
-          // 编码任务（派发时）由同一个假模型供给：改写 README 的响应
           {
             changes: [
               {
@@ -176,57 +146,49 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
         ],
       }),
     );
-    await page.getByTestId('nav-ask').click();
-    await page.getByTestId('ask-input').fill('改一下 README');
-    await page.getByTestId('ask-run').click();
-    await expect(page.getByTestId('message-list')).toContainText('等你拍板', { timeout: 30_000 });
-    // 假模型的响应是按顺序取的：等答后的记忆提取把它那一条取走，编码任务的响应排在其后。
-    // 整合方复审改：原来是固定等 1.5 秒，提取慢一点编码任务就会取错响应；改成等后台任务跑完。
-    await expect
-      .poll(
-        async () => {
-          const jobs = await page.evaluate(async () => window.ixaeon!.listJobs(50));
-          return (
-            jobs.length > 0 && jobs.every((j) => j.status !== 'queued' && j.status !== 'running')
-          );
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(true);
-    // 点「要做」（建议待办卡）
-    await page.locator('[data-testid^="todo-card-accept-"]').first().click();
-    // 对话里出现回报：写着 我的模型（<模型名>）
-    await expect(page.getByTestId('message-list')).toContainText('我的模型（e2e-model）', {
-      timeout: 60_000,
-    });
-    await expect(page.getByTestId('message-list')).toContainText('等你验收', { timeout: 30_000 });
 
-    // 副本里的 README 真的被改了（整合方复审改：原来只看了任务状态，没读副本里的文件）；
-    // 真实项目里的那份没动
-    const first = await page.evaluate(async () => {
-      const { tasks } = await window.ixaeon!.listCodingTasks();
-      return { status: tasks[0]?.status ?? '', workspace: tasks[0]?.workspace_path ?? '' };
-    });
-    expect(first.status).toBe('pending_accept');
-    expect(readFileSync(join(first.workspace, 'README.md'), 'utf8')).toContain('D7b e2e 加的一行');
-    expect(readFileSync(join(projectRoot, 'README.md'), 'utf8')).toBe('# 合成项目\n');
-
-    // 任务页卡片也写着 我的模型（…）
-    await page.getByTestId('nav-tasks').click();
-    await expect(page.getByTestId('page-tasks')).toBeVisible({ timeout: 20_000 });
-    const taskId = await page.evaluate(async () => {
-      const { tasks } = await window.ixaeon!.listCodingTasks();
-      return tasks[0]?.id ?? '';
-    });
-    await expect(page.locator(`[data-testid="task-${taskId}"]`)).toContainText(
-      '我的模型（e2e-model）',
-    );
-
-    // ===== 真机检查步骤 1 的第三段：把设置里的模型清空后点「要做」→ 停在排队 + 回报 =====
-    // 重启一次：让新的脚本（下面再写）随启动加载；顺带证明设置页记忆住了选择
-    await app.close();
+    // ===== 重开：设置记住了选择 =====
     ({ app, page } = await launch());
     await expect(page.getByTestId('main-nav')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('nav-settings').click();
+    await expect(page.getByTestId('settings-coding')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('settings-coding-model')).toHaveValue(SAVED_MODEL);
+
+    // ===== 整条走任务页：创建草案 → 批准并排队 → 派发（我的模型）=====
+    const GOAL = '在 README.md 末尾加一行「D7b e2e 加的一行」';
+    const createDraft = async (goal: string) => {
+      await page.getByTestId('nav-tasks').click();
+      await expect(page.getByTestId('page-tasks')).toBeVisible({ timeout: 20_000 });
+      const form = page.locator('section.card', { hasText: '新建草案' });
+      await page.getByTestId('task-goal').fill(goal);
+      await form.locator('input').nth(1).fill('README.md');
+      await page.getByTestId('task-verify').fill('node -e "process.exit(0)"');
+      await form.getByRole('button', { name: '创建草案' }).click();
+      const card = page.locator('section.card', { hasText: goal }).last();
+      await expect(card).toBeVisible({ timeout: 20_000 });
+      return card;
+    };
+
+    const first = await createDraft(GOAL);
+    await first.getByRole('button', { name: '批准并排队' }).click();
+    await expect(first).toContainText('排队', { timeout: 20_000 });
+    await first.getByRole('button', { name: '派发（我的模型）' }).click();
+    // 执行器是我的模型（原来「对话里出现回报写着我的模型」那一句，改看任务卡上同样的信息）
+    await expect(first).toContainText('执行器 我的模型（e2e-model）', { timeout: 60_000 });
+    // 原来「等你验收」那句：任务页同一状态
+    await expect(first).toContainText('待用户接受', { timeout: 60_000 });
+
+    // 副本里的 README 真的被改了；真实项目里的那份没动
+    const rows = await page.evaluate(async () => {
+      const { tasks } = await window.ixaeon!.listCodingTasks();
+      return tasks.map((t) => ({ status: t.status, workspace: t.workspace_path ?? '' }));
+    });
+    const done = rows.find((r) => r.status === 'pending_accept' && r.workspace.length > 0);
+    expect(done).toBeTruthy();
+    expect(readFileSync(join(done!.workspace, 'README.md'), 'utf8')).toContain('D7b e2e 加的一行');
+    expect(readFileSync(join(projectRoot, 'README.md'), 'utf8')).toBe('# 合成项目\n');
+
+    // ===== 清空「我的模型」的模型选择后再点派发：停在排队，并写明缺什么、去哪设置 =====
     await page.getByTestId('nav-settings').click();
     await expect(page.getByTestId('settings-coding')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('settings-coding-model').selectOption('');
@@ -234,37 +196,17 @@ test.describe('D7b 按设置选执行器（端到端）', () => {
     await expect(page.locator('.ok-banner')).toContainText('编码任务交给谁已保存', {
       timeout: 15_000,
     });
-    writeFileSync(
-      scriptPath,
-      JSON.stringify({
-        structured: [
-          {
-            tool: 'propose_task',
-            args: {
-              projectId: proj2.id,
-              goal: '清空设置后再次提议的任务',
-              scope: ['README.md'],
-              verifyCommand: ['node', '-e', 'process.exit(0)'],
-            },
-          },
-          { tool: 'answer', args: { text: '已经起草好，等你拍板。' } },
-          { items: [] },
-        ],
-      }),
-    );
-    await page.getByTestId('nav-ask').click();
-    await page.getByTestId('ask-input').fill('再提一个任务');
-    await page.getByTestId('ask-run').click();
-    await expect(page.getByTestId('message-list')).toContainText('等你拍板', { timeout: 30_000 });
-    await page.locator('[data-testid^="todo-card-accept-"]').first().click();
-    // 回报停在排队 + 写明缺什么、去哪设置
-    await expect(page.getByTestId('message-list')).toContainText('停在排队里', {
-      timeout: 30_000,
-    });
-    await expect(page.getByTestId('message-list')).toContainText('编码任务交给谁', {
-      timeout: 15_000,
-    });
 
+    const second = await createDraft('清空设置后再次创建的任务');
+    await second.getByRole('button', { name: '批准并排队' }).click();
+    await expect(second).toContainText('排队', { timeout: 20_000 });
+    await second.getByRole('button', { name: '派发（我的模型）' }).click();
+    // 派发被拒：任务还在排队，页面写明缺什么、去哪设置
+    // （原来「对话里回报停在排队里 / 编码任务交给谁」那两句，改看任务页同样的信息）
+    await expect(second).toContainText('排队', { timeout: 20_000 });
+    await expect(page.getByTestId('page-tasks')).toContainText('编码任务交给谁', {
+      timeout: 20_000,
+    });
     await app.close();
   });
 });

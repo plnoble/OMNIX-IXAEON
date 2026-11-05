@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
 import { ipcMain } from 'electron';
 import {
   CodingOrchestrator,
@@ -47,7 +48,11 @@ vi.mock('electron', () => ({
   BrowserWindow: {},
   dialog: {},
   ipcMain: { handle: vi.fn() },
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 
 let dir: string;
@@ -102,7 +107,6 @@ function setup(): Harness {
     todos: new TodoStore(db),
     coding: new CodingOrchestrator(db, new FakeCodingExecutor(), join(dir, 'data')),
     search: new SearchService(db),
-    askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -334,15 +338,11 @@ describe('条件 6：预览只读', () => {
     const project = await bound(h, '绑着的项目', root);
     const source = sourceUnder(h, ownGrantId(h, root), project.id);
     const before = snapshot();
-    const invalidate = vi.fn();
-    const sessions = (h.runtime as unknown as { askSessions: Map<string, unknown> }).askSessions;
-    sessions.set('合成会话', { invalidateContext: invalidate });
+    // 丙类：原来这里给替身会话挂 invalidateContext 观察「上下文作废」（Hermes 专有），不再适用
 
     await h.runtime.previewRevokeSourceReading(source);
     await h.runtime.previewRevokeSourceReading(source);
     expect(snapshot()).toEqual(before);
-    expect(invalidate).not.toHaveBeenCalled();
-    expect(sessions.size).toBe(1);
 
     await expect(h.runtime.previewRevokeSourceReading('no-such-source')).rejects.toThrow(
       '来源不存在',
@@ -374,7 +374,9 @@ describe('条件 11：IPC', () => {
 });
 
 describe('条件 12：照界面那条路撤销之后（预览 → revokeSourceReading）', () => {
-  it('这条授权 revoked；它下面的资料都是已撤销、资料和条目一条不少；别的授权下的资料不受影响；上下文作废了', async () => {
+  // 整合方 11-05：「上下文作废」原指作废 Hermes 缓存的会话；直连每一问现组上下文、没有会话可作废，这半句退役。
+  // 撤销后条目还给不给模型看，是另一个隐私决定，不在本单（见 CF3cb.md 整合方复审）。
+  it('这条授权 revoked；它下面的资料都是已撤销、资料和条目一条不少；别的授权下的资料不受影响', async () => {
     const h = setup();
     const grant = h.permissions.grantFolder(folder('imported'));
     const project = h.projects.create({ name: '合成项目', rootPath: null, description: null });
@@ -382,11 +384,6 @@ describe('条件 12：照界面那条路撤销之后（预览 → revokeSourceRe
     const second = sourceUnder(h, grant.id, null);
     const itemId = itemFrom(h, first, project.id);
     const elsewhere = sourceUnder(h, h.permissions.grantFolder(folder('other')).id, null);
-    const invalidate = vi.fn();
-    (h.runtime as unknown as { askSessions: Map<string, unknown> }).askSessions.set('合成会话', {
-      invalidateContext: invalidate,
-    });
-
     const preview = await h.runtime.previewRevokeSourceReading(first);
     expect(preview).toMatchObject({
       status: 'active',
@@ -409,7 +406,6 @@ describe('条件 12：照界面那条路撤销之后（预览 → revokeSourceRe
     expect({ sources: count('sources'), items: count('items') }).toEqual(before);
     expect(h.sources.countItems(first)).toBe(1);
     expect(h.items.get(itemId).statement).toBe('从合成资料里提炼出的一条');
-    expect(invalidate).toHaveBeenCalled();
     // 撤销之后再预览：说已经撤销了
     expect((await h.runtime.previewRevokeSourceReading(first)).status).toBe('revoked');
   });

@@ -32,7 +32,6 @@ import {
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CodingExecutor,
   type CoreDatabase,
 } from '@ixaeon/core';
@@ -172,7 +171,6 @@ function setup(
     permissions,
     items: new ItemService(db),
     search: new SearchService(db),
-    askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -215,44 +213,35 @@ function setup(
   };
 }
 
-/** 走真实提问链路建一个带 origin_run_id 的编码任务草案，并挂成待办。 */
+/**
+ * 乙类（CF3cb）：任务改由任务页直接建（h.coding.create），补一条来源消息保住回报去向。
+ */
 async function proposedTask(
   h: Harness,
   input: { goal: string; scope: string[] },
 ): Promise<{ todoId: string; taskId: string; conversationId: string }> {
   const conv = h.conversations.create({ projectId: h.projectId });
-  let taskId = '';
-  (h.runtime as unknown as { askSessions: Map<string, unknown> })['askSessions'].set(conv.id, {
-    run: async () => {
-      const task = h.coding.create({
-        projectId: h.projectId,
-        goal: input.goal,
-        scope: input.scope,
-        allowedCommands: [[process.execPath, '-e', 'process.exit(0)']],
-      });
-      taskId = task.id;
-      return {
-        answer: '可以，我起草了一个编码任务，等你拍板。',
-        citations: [],
-        notice: '',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: 'fake',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    getEngineSessionId: () => 's-d7b',
-  } as unknown as AgentSession);
-  const r = await h.runtime.ask({
-    conversationId: conv.id,
-    projectId: h.projectId,
-    question: '把这个做了',
+  const runId = `run-d7b-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  h.conversations.appendMessage(conv.id, { role: 'user', content: '把这个做了' });
+  const draftMessage = h.conversations.appendMessage(conv.id, {
+    role: 'assistant',
+    content: '可以，我起草了一个编码任务，等你拍板。',
+    runId,
   });
-  const [todo] = h.todos.list({ status: ['proposed'] }).filter((t) => t.linked_id === taskId);
-  return { todoId: todo!.id, taskId, conversationId: r.conversationId };
+  const task = h.coding.create({
+    projectId: h.projectId,
+    goal: input.goal,
+    scope: input.scope,
+    allowedCommands: [[process.execPath, '-e', 'process.exit(0)']],
+    originRunId: runId,
+  });
+  const todo = h.todos.propose({
+    title: input.goal,
+    conversationId: conv.id,
+    messageId: draftMessage.id,
+    linked: { kind: 'coding_task', id: task.id },
+  });
+  return { todoId: todo!.id, taskId: task.id, conversationId: conv.id };
 }
 
 interface TaskRow {

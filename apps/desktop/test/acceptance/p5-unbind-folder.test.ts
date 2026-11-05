@@ -25,6 +25,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { Buffer } from 'node:buffer';
 import { ipcMain } from 'electron';
 import {
   CodingOrchestrator,
@@ -38,7 +39,6 @@ import {
   TodoStore,
   migrate,
   openDatabase,
-  type AgentSession,
   type CodingExecutor,
   type CoreDatabase,
   type IndependentCheck,
@@ -52,7 +52,11 @@ vi.mock('electron', () => ({
   BrowserWindow: {},
   dialog: {},
   ipcMain: { handle: vi.fn() },
-  safeStorage: {},
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => Buffer.from(b).toString().slice(4),
+  },
 }));
 
 /** P4 拦三处入口的那一句（逐字）。 */
@@ -232,7 +236,6 @@ function setup(): Harness {
     coding,
     items,
     search: new SearchService(db),
-    askSessions: new Map(),
     activeAskRuns: new Map(),
     cancelledAskRuns: new Set(),
     askDeltaSink: null,
@@ -353,8 +356,8 @@ async function runToEnd(h: Harness, projectId: string, goal: string): Promise<st
 }
 
 /**
- * 聊天那条路（照 D3）：真的走一轮提问，会话替身在这一轮里建出草案——任务带着这一轮的
- * origin_run_id，对话里挂着它的待办卡。返回任务号、待办号、对话号。
+ * 乙类（CF3cb）：任务改由任务页直接建（draft）+ 挂待办 + 一条来源消息（回报靠 messages.run_id 找回对话）。
+ * 原来借聊天这一轮建任务；CF3c 之后聊天不建任务。
  */
 async function chatDraft(
   h: Harness,
@@ -363,33 +366,22 @@ async function chatDraft(
   commands: string[][] = [],
 ): Promise<{ taskId: string; todoId: string; conversationId: string }> {
   const conv = h.conversations.create({ projectId });
-  let taskId = '';
-  (h.runtime as unknown as { askSessions: Map<string, AgentSession> }).askSessions.set(conv.id, {
-    run: async () => {
-      taskId = draft(h, projectId, goal, commands).id;
-      return {
-        answer: '可以，我起草了一个编码任务，等你拍板。',
-        citations: [],
-        notice: '',
-        usedChars: 1,
-        modelName: 'hermes',
-        engine: 'hermes',
-        runId: 'fake',
-        steps: [],
-        memoryUsed: [],
-      };
-    },
-    cancel: () => undefined,
-    invalidateContext: () => undefined,
-    getEngineSessionId: () => 's-p5',
-  } as unknown as AgentSession);
-  const answered = await h.runtime.ask({
-    conversationId: conv.id,
-    projectId,
-    question: '把这个做了',
+  const runId = `run-p5-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  h.conversations.appendMessage(conv.id, { role: 'user', content: '把这个做了' });
+  const draftMessage = h.conversations.appendMessage(conv.id, {
+    role: 'assistant',
+    content: '可以，我起草了一个编码任务，等你拍板。',
+    runId,
   });
-  const todo = h.todos.list({ status: ['proposed'] }).find((t) => t.linked_id === taskId);
-  return { taskId, todoId: todo!.id, conversationId: answered.conversationId };
+  const task = draft(h, projectId, goal, commands);
+  db.prepare('UPDATE coding_tasks SET origin_run_id = ? WHERE id = ?').run(runId, task.id);
+  const todo = h.todos.propose({
+    title: goal,
+    conversationId: conv.id,
+    messageId: draftMessage.id,
+    linked: { kind: 'coding_task', id: task.id },
+  })!;
+  return { taskId: task.id, todoId: todo.id, conversationId: conv.id };
 }
 
 /** 往这条授权下放一份导入的资料（projectId 是 null = 没归到哪个项目）。返回来源号。 */
@@ -489,48 +481,7 @@ describe('条件 2：解除之后这个项目派不了编码任务', () => {
     })!;
     await h.runtime.unbindProjectFolder(project.id);
 
-    // 聊天里提：真的有一轮在回答（照 P4 条件 4）
-    const conv = h.conversations.create({ projectId: project.id });
-    let finish!: () => void;
-    const hold = new Promise<void>((r) => {
-      finish = r;
-    });
-    (h.runtime as unknown as { askSessions: Map<string, AgentSession> }).askSessions.set(conv.id, {
-      run: async (input: { runId?: string }) => {
-        await hold;
-        return {
-          answer: '好。',
-          citations: [],
-          notice: '',
-          usedChars: 1,
-          modelName: 'hermes',
-          engine: 'hermes',
-          runId: input.runId ?? 'fake',
-          steps: [],
-          memoryUsed: [],
-        };
-      },
-      cancel: () => undefined,
-      invalidateContext: () => undefined,
-      getEngineSessionId: () => 's-p5',
-    } as unknown as AgentSession);
-    const asking = h.runtime
-      .ask({ conversationId: conv.id, projectId: project.id, question: '加个文件' })
-      .catch(() => undefined);
-    const active = (h.runtime as unknown as { activeAskRuns: Map<string, string> }).activeAskRuns;
-    await vi.waitFor(() => expect(active.size).toBe(1));
-    const tasksBefore = (
-      db.prepare('SELECT count(*) AS n FROM coding_tasks').get() as { n: number }
-    ).n;
-    await expect(
-      h.runtime.hermesTool('propose_coding_task', { goal: '加个文件', acceptance: ['有文件'] }),
-    ).rejects.toThrow(UNBOUND_MESSAGE);
-    expect((db.prepare('SELECT count(*) AS n FROM coding_tasks').get() as { n: number }).n).toBe(
-      tasksBefore,
-    );
-    finish();
-    await asking;
-
+    // 丙类（CF3cb）：原来这里有一轮聊天在回答时调 propose_coding_task（工具已删），这一段不再适用
     await expect(h.runtime.acceptTodo(todo.id)).rejects.toThrow(UNBOUND_MESSAGE);
     await expect(h.runtime.approveCodingTask(existing.id)).rejects.toThrow(UNBOUND_MESSAGE);
     expect(taskRow(existing.id).status).toBe('draft');
@@ -878,23 +829,7 @@ describe('条件 9：解除之后重新绑定', () => {
   });
 });
 
-describe('条件 10：解除绑定让对话上下文失效', () => {
-  it('正在用的会话被作废（照 revokeSourceReading 的做法调 invalidateContext）', async () => {
-    const h = setup();
-    const { project } = await bound(h);
-    const invalidate = vi.fn();
-    const sessions = (h.runtime as unknown as { askSessions: Map<string, AgentSession> })
-      .askSessions;
-    sessions.set('合成会话', { invalidateContext: invalidate } as unknown as AgentSession);
-
-    await h.runtime.previewUnbindProjectFolder(project.id);
-    expect(invalidate).not.toHaveBeenCalled();
-    expect(sessions.size).toBe(1);
-    await h.runtime.unbindProjectFolder(project.id);
-    expect(invalidate).toHaveBeenCalled();
-    expect(sessions.size).toBe(0);
-  });
-});
+// 条件 10「上下文失效」整合方 11-05 退役：原指作废 Hermes 缓存的会话，直连每一问现组上下文、没有会话可作废。
 
 describe('条件 12：IPC', () => {
   it('registerIpc 注册了两个接口，调它们得到的和运行时上的方法一样；输入只有项目号', async () => {

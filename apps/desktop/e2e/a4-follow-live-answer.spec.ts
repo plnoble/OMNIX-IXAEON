@@ -69,18 +69,14 @@ async function firstConversationId(page: Page): Promise<string> {
 
 function withDataDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'ixa-a4-'));
-  // core-bounded 工具循环（CI 上没有 Hermes 走这条路）：每问消耗
-  // answer(1) + 回答后的记忆提取(1)；照 d6 的脚本形状，备足两问的量。
+  // CF3c 起聊天走直连：剧本一步一段正文（每问一次 stream 调用），备足两问的量。
   writeFileSync(
     join(dir, 'model-script.json'),
-    JSON.stringify({
-      structured: [
-        { tool: 'answer', args: { text: ANSWER_TEXT } },
-        { items: [] },
-        { tool: 'answer', args: { text: ANSWER_TEXT } },
-        { items: [] },
-      ],
-    }),
+    JSON.stringify([
+      { deltas: [ANSWER_TEXT] },
+      { deltas: [ANSWER_TEXT] },
+      { deltas: [ANSWER_TEXT] },
+    ]),
   );
   return dir;
 }
@@ -91,7 +87,7 @@ test.describe('A4：切回来接着看还在写的回答', () => {
     const { app, page } = await launch({
       IXAEON_DATA_DIR: dataDir,
       IXAEON_FAKE_MODEL: '1',
-      IXAEON_FAKE_MODEL_SCRIPT: join(dataDir, 'model-script.json'),
+      IXAEON_FAKE_CHAT_SCRIPT: join(dataDir, 'model-script.json'),
       IXAEON_TEST_MODEL_DELAY_MS: DELAY,
     });
     try {
@@ -157,16 +153,22 @@ test.describe('A4：切回来接着看还在写的回答', () => {
 
   test('条件 3：失败告终的轮，切回来的页面显示错误、不再转圈', async () => {
     const dataDir = withDataDir();
+    // 失败这一轮：剧本里写明模型报错
+    writeFileSync(
+      join(dataDir, 'model-script.json'),
+      JSON.stringify([{ error: 'FakeProvider 队列为空' }]),
+    );
     const { app, page } = await launch({
       IXAEON_DATA_DIR: dataDir,
       IXAEON_FAKE_MODEL: '1',
+      IXAEON_FAKE_CHAT_SCRIPT: join(dataDir, 'model-script.json'),
       IXAEON_TEST_MODEL_DELAY_MS: DELAY,
     });
     try {
       await setupOnce(page);
       await page.getByTestId('nav-ask').click();
-      // 假模型不带脚本 → 结构化队列为空 → 模型调用报「FakeProvider 队列为空」，
-      // 这一轮以模型出错告终。提问不带「失败」字样，断言不会撞上用户消息。
+      // 剧本里写明这一轮模型报错（报错文字就是断言用的那一句），这一轮以模型出错告终。
+      // 提问不带「失败」字样，断言不会撞上用户消息。
       await page.getByTestId('ask-input').fill('A4 提问，模型会报错');
       await page.getByTestId('ask-run').click();
       await page.getByTestId('nav-projects').click();
@@ -206,7 +208,7 @@ test.describe('A4：切回来接着看还在写的回答', () => {
     const { app, page } = await launch({
       IXAEON_DATA_DIR: dataDir,
       IXAEON_FAKE_MODEL: '1',
-      IXAEON_FAKE_MODEL_SCRIPT: join(dataDir, 'model-script.json'),
+      IXAEON_FAKE_CHAT_SCRIPT: join(dataDir, 'model-script.json'),
       IXAEON_TEST_MODEL_DELAY_MS: DELAY,
     });
     try {
