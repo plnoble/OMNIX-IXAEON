@@ -164,9 +164,8 @@ export function ModelsPage() {
       });
       setCurrentModel(view.config.modelName ?? '');
       const tools =
-        (typeof api.getDevTools === 'function'
-          ? await api.getDevTools().catch(() => [])
-          : []) ?? [];
+        (typeof api.getDevTools === 'function' ? await api.getDevTools().catch(() => []) : []) ??
+        [];
       setDevtools(tools);
 
       const cfgFallbacks = (view.config.fallbacks ?? {}) as {
