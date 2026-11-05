@@ -63,6 +63,7 @@ describe('MP3d 条件 12：claudeCodeLaunch / parseClaudeCodeOutput', () => {
     expect(parse('{"result":"done","is_error":false}', 0)).toEqual({ ok: true, summary: 'done' });
     expect(parse('{"result":"done","is_error":true}', 0).ok).toBe(false);
     expect(parse('{"result":"done","is_error":false}', 1).ok).toBe(false);
+    expect(parse('不是 JSON', 0).ok).toBe(false);
   });
 });
 
@@ -94,6 +95,9 @@ describe('MP3e 条件 13：dshLaunch / parseDshOutput', () => {
     expect(launch.cwd).toBe('C:/ws');
     expect(launch.env['ELECTRON_RUN_AS_NODE']).toBe('1');
     expect(launch.env['PATH']).toBe('x');
+    // 只多这一项，别的一个不加；也不改传进来的 baseEnv
+    expect(Object.keys(launch.env).sort()).toEqual(['ELECTRON_RUN_AS_NODE', 'HOME', 'PATH']);
+    expect(baseEnv['ELECTRON_RUN_AS_NODE']).toBeUndefined();
     expect(launch.env['IXAEON_WORKTREES']).toBeUndefined();
     expect(launch.env['GIT_CONFIG_PARAMETERS']).toBeUndefined();
   });
@@ -106,5 +110,13 @@ describe('MP3e 条件 13：dshLaunch / parseDshOutput', () => {
     const stdout = ['{"type":"log","text":"准备"}', '{"type":"final","text":"做完了"}'].join('\n');
     expect(parse(stdout, 0)).toEqual({ ok: true, summary: '做完了' });
     expect(parse('{"type":"log","text":"准备"}', 0).ok).toBe(false);
+    // 好几行 final 取最后一行；退出码非 0 算失败；夹着不是 JSON 的行也不出错
+    const many = [
+      '{"type":"final","text":"第一次"}',
+      '不是 JSON',
+      '{"type":"final","text":"第二次"}',
+    ].join('\n');
+    expect(parse(many, 0)).toEqual({ ok: true, summary: '第二次' });
+    expect(parse(stdout, 1).ok).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as core from '@ixaeon/core';
+import { ModelError } from '@ixaeon/core';
 
 interface FakeExecutor {
   name: string;
@@ -86,13 +87,14 @@ describe('MP3d 条件 8：额度换下一个', () => {
     const codex = failExecutor('codex-cli', 'usage_limit_reached');
     const claude = okExecutor('claude-code', 'note.txt');
     const skip = new Map<string, number>();
-    const chain = new chainCtor()(
+    const chain = new (chainCtor())(
       () => [
         { key: 'tool:codex', label: 'Codex', executor: codex },
         { key: 'tool:claude:sonnet', label: 'Claude Code · sonnet', executor: claude },
       ],
       { skip },
     );
+    expect(chain.name).toBe('codex-cli');
     const report = await chain.run(TASK, dir, new AbortController().signal);
     expect(codex.calls).toBe(1);
     expect(claude.calls).toBe(1);
@@ -109,14 +111,16 @@ describe('MP3d 条件 9：不换的几种', () => {
   it('工作区已经有改动 → 不换，照失败回报', async () => {
     const codex = failExecutor('codex-cli', 'usage_limit_reached', 'half.txt');
     const claude = okExecutor('claude-code');
-    const chain = new chainCtor()(
+    const chain = new (chainCtor())(
       () => [
         { key: 'tool:codex', label: 'Codex', executor: codex },
         { key: 'tool:claude:sonnet', label: 'Claude Code · sonnet', executor: claude },
       ],
       { skip: new Map() },
     );
-    const report = await chain.run(TASK, dir, new AbortController().signal);
+    const report = await chain
+      .run(TASK, dir, new AbortController().signal)
+      .catch((e: unknown) => ({ summary: e instanceof Error ? e.message : String(e) }));
     expect(claude.calls).toBe(0);
     expect(String(report.summary)).not.toContain('由替补');
   });
@@ -125,7 +129,7 @@ describe('MP3d 条件 9：不换的几种', () => {
     it(`${msg} → 不换`, async () => {
       const codex = failExecutor('codex-cli', msg);
       const claude = okExecutor('claude-code');
-      const chain = new chainCtor()(
+      const chain = new (chainCtor())(
         () => [
           { key: 'tool:codex', label: 'Codex', executor: codex },
           { key: 'tool:claude:sonnet', label: 'Claude Code · sonnet', executor: claude },
@@ -138,16 +142,89 @@ describe('MP3d 条件 9：不换的几种', () => {
   }
 });
 
+describe('MP3d 条件 8、9 补（整合方 11-05）：判定的其它几种', () => {
+  const pair = (first: FakeExecutor, second: FakeExecutor) =>
+    new (chainCtor())(
+      () => [
+        { key: 'a', label: 'A', executor: first },
+        { key: 'b', label: 'B', executor: second },
+      ],
+      { skip: new Map() },
+    );
+
+  it('额度不是抛出来的、而是写在失败回报的 raw 里 → 也换', async () => {
+    const first: FakeExecutor = {
+      name: 'codex-cli',
+      calls: 0,
+      run: async () => {
+        first.calls += 1;
+        return { summary: '没做完', claimedSuccess: false, raw: 'error: rate_limit_exceeded' };
+      },
+    };
+    const second = okExecutor('claude-code');
+    const report = await pair(first, second).run(TASK, dir, new AbortController().signal);
+    expect(second.calls).toBe(1);
+    expect(String(report.summary)).toContain('额度用完');
+  });
+
+  it('供应商那一项 401 → 换，原因「Key 不对或没权限」；400 → 不换', async () => {
+    const bad = failExecutor('model', 'x');
+    bad.run = async () => {
+      bad.calls += 1;
+      throw new ModelError('API 错误 401', false, 401);
+    };
+    const second = okExecutor('claude-code');
+    const report = await pair(bad, second).run(TASK, dir, new AbortController().signal);
+    expect(second.calls).toBe(1);
+    expect(String(report.summary)).toContain('Key 不对或没权限');
+
+    const bad400 = failExecutor('model', 'x');
+    bad400.run = async () => {
+      bad400.calls += 1;
+      throw new ModelError('API 错误 400', false, 400);
+    };
+    const second2 = okExecutor('claude-code');
+    await pair(bad400, second2)
+      .run(TASK, dir, new AbortController().signal)
+      .catch(() => undefined);
+    expect(second2.calls).toBe(0);
+  });
+
+  it('已经取消（signal 已中止）时，就算错误里有额度错误码也不换', async () => {
+    const ctrl = new AbortController();
+    const first = failExecutor('codex-cli', 'x');
+    first.run = async () => {
+      first.calls += 1;
+      ctrl.abort();
+      throw new Error('usage_limit_reached');
+    };
+    const second = okExecutor('claude-code');
+    await pair(first, second)
+      .run(TASK, dir, ctrl.signal)
+      .catch(() => undefined);
+    expect(second.calls).toBe(0);
+  });
+
+  it('成功的回报原样带回（没换过时 summary 不加那一句）', async () => {
+    const first = okExecutor('codex-cli');
+    const second = okExecutor('claude-code');
+    const report = await pair(first, second).run(TASK, dir, new AbortController().signal);
+    expect(report.summary).toBe('done');
+    expect(second.calls).toBe(0);
+  });
+});
+
 describe('MP3d 条件 10：没找到直接用第二项', () => {
   it('executor 为 null → 用第二项，不写那一句提示', async () => {
     const claude = okExecutor('claude-code');
-    const chain = new chainCtor()(
+    const chain = new (chainCtor())(
       () => [
         { key: 'tool:codex', label: 'Codex', executor: null },
         { key: 'tool:claude:sonnet', label: 'Claude Code · sonnet', executor: claude },
       ],
       { skip: new Map() },
     );
+    expect(chain.name).toBe('claude-code');
     const report = await chain.run(TASK, dir, new AbortController().signal);
     expect(claude.calls).toBe(1);
     expect(String(report.summary)).not.toContain('由替补');
@@ -161,7 +238,7 @@ describe('MP3d 条件 11：5 分钟内先跳过', () => {
     const codex = failExecutor('codex-cli', 'usage_limit_reached');
     const claude = okExecutor('claude-code');
     const make = () =>
-      new chainCtor()(
+      new (chainCtor())(
         () => [
           { key: 'tool:codex', label: 'Codex', executor: codex },
           { key: 'tool:claude:sonnet', label: 'Claude Code · sonnet', executor: claude },
@@ -199,7 +276,7 @@ describe('MP3d 条件 11：5 分钟内先跳过', () => {
   it('都不行：回报写明试过哪几项、各自为什么不行', async () => {
     const codex = failExecutor('codex-cli', 'usage_limit_reached');
     const claude = failExecutor('claude-code', '别的失败');
-    const chain = new chainCtor()(
+    const chain = new (chainCtor())(
       () => [
         { key: 'tool:codex', label: 'Codex', executor: codex },
         { key: 'tool:claude:sonnet', label: 'Claude Code · sonnet', executor: claude },
@@ -207,8 +284,9 @@ describe('MP3d 条件 11：5 分钟内先跳过', () => {
       { skip: new Map() },
     );
     const report = await chain.run(TASK, dir, new AbortController().signal).catch((e) => e);
-    const text = JSON.stringify(report);
+    const text = report instanceof Error ? report.message : JSON.stringify(report);
     expect(text).toContain('Codex');
+    expect(text).toContain('额度用完');
     expect(text).toContain('Claude Code · sonnet');
   });
 });

@@ -139,6 +139,9 @@ describe('MP3c 条件 4：saveDevToolPath', () => {
     writeFileSync(exe, 'fake', 'utf8');
 
     save(rt, { tool: 'codex', path: exe });
+    const devTools = () =>
+      (rt.getConfig() as unknown as { devTools?: Record<string, string> }).devTools ?? {};
+    expect(devTools()['codex']).toBe(exe);
     const audited = auditText();
     expect(audited).toContain('codex');
     expect(audited).toContain('手填');
@@ -147,6 +150,9 @@ describe('MP3c 条件 4：saveDevToolPath', () => {
 
     save(rt, { tool: 'codex', path: null });
     expect(auditText()).toContain('恢复自动');
+    expect(devTools()['codex']).toBeUndefined();
+    save(rt, { tool: 'codex', path: exe });
     save(rt, { tool: 'codex', path: '' });
+    expect(devTools()['codex']).toBeUndefined();
   });
 });

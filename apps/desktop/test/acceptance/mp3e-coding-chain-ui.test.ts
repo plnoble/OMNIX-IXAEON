@@ -6,7 +6,7 @@
  * - 上移 / 下移 / 删掉真的改顺序；保存时 `saveCodingChain` 收到的就是新顺序；
  * - 没找到的开发工具标「没找到」。
  *
- * data-testid（规格第 10 条写死）：`coding-chain-list`、`coding-chain-add`。
+ * data-testid（规格第 10 条写死）：`coding-chain-list`、`coding-chain-add`；添加区四个下拉见下（规格「测试入口」）。
  * 现在界面还没做，本文件红在找不到 `coding-chain-list`。
  */
 import { createElement, act } from 'react';
@@ -116,46 +116,131 @@ function buttonIn(host: HTMLElement, name: string): HTMLButtonElement {
   return b as HTMLButtonElement;
 }
 
-function items(): string[] {
-  return Array.from(el('coding-chain-list').querySelectorAll('li')).map((li) =>
-    (li.textContent ?? '').trim(),
+/**
+ * 整合方 11-05 改：原来只点「添加」用默认选中的那一项，没真的选种类、工具、模型，也没核对保存的内容。
+ * 规格「测试入口」补写死：`coding-chain-add` 里有四个下拉——
+ * `coding-chain-kind`（选项文字「开发工具」「供应商」）、`coding-chain-tool`（「Codex」「Claude Code」「DSH」，
+ * 没找到的选项文字带「没找到」）、`coding-chain-claude-model`（「默认」「opus」「sonnet」「haiku」，只在选了 Claude Code 时出现）、
+ * `coding-chain-provider`（「<供应商名> · <模型>」）。测试按选项文字选。
+ * 列表每项文字（不算项里的按钮）：「Codex」「Claude Code · sonnet」「DSH」「合成甲 · demo-a」；没找到的工具项后面带「没找到」。
+ */
+function pick(testId: string, text: string): void {
+  const sel = el(testId) as HTMLSelectElement;
+  const opt = Array.from(sel.options).find((o) => (o.textContent ?? '').trim().startsWith(text));
+  if (!opt) throw new Error(`${testId} 里没有「${text}」`);
+  act(() => {
+    sel.value = opt.value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+async function addTool(tool: string, model?: string): Promise<void> {
+  pick('coding-chain-kind', '开发工具');
+  await settle();
+  pick('coding-chain-tool', tool);
+  await settle();
+  if (model) {
+    pick('coding-chain-claude-model', model);
+    await settle();
+  }
+  act(() =>
+    buttonIn(el('coding-chain-add'), '添加').dispatchEvent(
+      new MouseEvent('click', { bubbles: true }),
+    ),
   );
+  await settle();
+}
+
+async function addProvider(label: string): Promise<void> {
+  pick('coding-chain-kind', '供应商');
+  await settle();
+  pick('coding-chain-provider', label);
+  await settle();
+  act(() =>
+    buttonIn(el('coding-chain-add'), '添加').dispatchEvent(
+      new MouseEvent('click', { bubbles: true }),
+    ),
+  );
+  await settle();
+}
+
+/** 每项文字，不算项里的按钮。 */
+function labels(): string[] {
+  return Array.from(el('coding-chain-list').querySelectorAll('li')).map((li) => {
+    const copy = li.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll('button').forEach((b) => b.remove());
+    return (copy.textContent ?? '').trim();
+  });
+}
+
+function clickIn(host: Element, name: string, index = 0): void {
+  const b = Array.from(host.querySelectorAll('button')).filter(
+    (x) => x.textContent?.trim() === name,
+  )[index];
+  if (!b) throw new Error(`找不到第 ${index + 1} 个「${name}」`);
+  act(() => b.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+}
+
+async function save(): Promise<void> {
+  act(() => el('uses-save').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await settle();
 }
 
 describe('MP3e 条件 14：编码任务的主选 + 替补列表', () => {
-  it('能加「开发工具」（含 Claude Code 选模型）和「供应商」两种；没找到的标「没找到」', async () => {
-    const add = el('coding-chain-add');
-    // 加一个供应商项
-    act(() => buttonIn(add, '添加').dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    await settle();
-    expect(items().length).toBeGreaterThan(0);
-    // 列表里能看到 DSH 且标「没找到」（DSH 是没找到的工具，仍可选）
-    expect(el('coding-chain-add').textContent).toContain('DSH');
-    expect(el('coding-chain-add').textContent).toContain('没找到');
+  it('能加开发工具（Claude Code 选模型）和供应商两种；没找到的工具标「没找到」；保存收到的就是这几项', async () => {
+    await addTool('Claude Code', 'sonnet');
+    await addProvider('合成甲 · demo-a');
+    await addTool('DSH');
+    const got = labels();
+    expect(got[0]).toBe('Claude Code · sonnet');
+    expect(got[1]).toBe('合成甲 · demo-a');
+    expect(got[2]).toContain('DSH');
+    expect(got[2]).toContain('没找到');
+    // 没找到的工具在下拉里也标出来
+    expect(el('coding-chain-tool').textContent).toContain('没找到');
+    await save();
+    expect(h.savedChain).toEqual([
+      { kind: 'tool', tool: 'claude', model: 'sonnet' },
+      { kind: 'provider', providerId: 'p-a', model: 'demo-a' },
+      { kind: 'tool', tool: 'dsh' },
+    ]);
+  });
+
+  it('Claude Code 选「默认」时保存的那一项不带 model', async () => {
+    await addTool('Claude Code', '默认');
+    await save();
+    expect(h.savedChain).toEqual([{ kind: 'tool', tool: 'claude' }]);
   });
 
   it('上移 / 下移 / 删掉真的改顺序，保存时 saveCodingChain 收到的就是新顺序', async () => {
-    const add = el('coding-chain-add');
-    act(() => buttonIn(add, '添加').dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    await settle();
-    act(() => buttonIn(add, '添加').dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    await settle();
-    const before = items();
-    expect(before.length).toBe(2);
-
+    await addTool('Codex');
+    await addTool('Claude Code', 'opus');
+    await addProvider('合成甲 · demo-a');
+    expect(labels()).toEqual(['Codex', 'Claude Code · opus', '合成甲 · demo-a']);
     const list = el('coding-chain-list');
-    const downButtons = Array.from(list.querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === '下移',
-    );
-    act(() => downButtons[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    clickIn(list, '下移', 0);
     await settle();
-    expect(items()).toEqual([before[1], before[0]]);
+    expect(labels()).toEqual(['Claude Code · opus', 'Codex', '合成甲 · demo-a']);
+    clickIn(el('coding-chain-list'), '上移', 2);
+    await settle();
+    expect(labels()).toEqual(['Claude Code · opus', '合成甲 · demo-a', 'Codex']);
+    clickIn(el('coding-chain-list'), '删掉', 0);
+    await settle();
+    expect(labels()).toEqual(['合成甲 · demo-a', 'Codex']);
+    await save();
+    expect(h.savedChain).toEqual([
+      { kind: 'provider', providerId: 'p-a', model: 'demo-a' },
+      { kind: 'tool', tool: 'codex' },
+    ]);
+  });
 
-    act(() =>
-      buttonIn(el('models-uses'), '保存').dispatchEvent(new MouseEvent('click', { bubbles: true })),
-    );
-    await settle();
-    expect(h.savedChain.length).toBe(2);
-    expect((h.savedChain[0] as { kind: string }).kind).toBeTruthy();
+  it('满 5 项时「添加」不能点', async () => {
+    await addTool('Codex');
+    await addTool('Claude Code', 'opus');
+    await addTool('Claude Code', 'sonnet');
+    await addTool('Claude Code', 'haiku');
+    await addProvider('合成甲 · demo-a');
+    expect(labels()).toHaveLength(5);
+    expect(buttonIn(el('coding-chain-add'), '添加').disabled).toBe(true);
   });
 });

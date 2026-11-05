@@ -122,6 +122,62 @@ describe('MP3c 条件 2：没手填时按顺序自动找', () => {
   });
 });
 
+/** 整合方 11-05 补：路径分隔符写法不同（\\ 与 /）不算不一样。 */
+const norm = (p: string | null): string | null => (p === null ? null : p.replaceAll('\\', '/'));
+
+describe('MP3c 条件 2 补（整合方 11-05）：几个候选都在时，前面的赢', () => {
+  it('Codex：IXAEON_CODEX_EXE 在就用它，不看 LOCALAPPDATA', () => {
+    const fromEnv = join(ENV.USERPROFILE!, 'codex-env.exe');
+    const rows = detect({
+      manual: {},
+      env: { ...ENV, IXAEON_CODEX_EXE: fromEnv },
+      exists: existsOf([fromEnv, CODEX_AUTO]),
+    });
+    expect(norm(rows[0]!.path)).toBe(norm(fromEnv));
+    expect(rows[0]!.source).toBe('auto');
+  });
+
+  it('Claude Code：.local 在就用它；不在才用 npm 那个', () => {
+    const npm = join(
+      ENV.APPDATA!,
+      'npm',
+      'node_modules',
+      '@anthropic-ai',
+      'claude-code',
+      'bin',
+      'claude.exe',
+    );
+    const both = detect({ manual: {}, env: ENV, exists: existsOf([CLAUDE_AUTO, npm]) });
+    expect(norm(both[1]!.path)).toBe(norm(CLAUDE_AUTO));
+    const onlyNpm = detect({ manual: {}, env: ENV, exists: existsOf([npm]) });
+    expect(norm(onlyNpm[1]!.path)).toBe(norm(npm));
+    const fromEnv = join(ENV.USERPROFILE!, 'claude-env.exe');
+    const env = detect({
+      manual: {},
+      env: { ...ENV, IXAEON_CLAUDE_EXE: fromEnv },
+      exists: existsOf([fromEnv, CLAUDE_AUTO, npm]),
+    });
+    expect(norm(env[1]!.path)).toBe(norm(fromEnv));
+  });
+
+  it('DSH：IXAEON_DSH_INSTALL 在就用它；D 盘那个不在时用 LOCALAPPDATA 那个', () => {
+    const custom = join(ENV.USERPROFILE!, 'dsh-install');
+    const local = join(ENV.LOCALAPPDATA!, 'Programs', 'DeepSeek Harness');
+    const files = (root: string) => [
+      join(root, 'DeepSeek Harness.exe'),
+      join(root, 'resources', 'app.asar'),
+    ];
+    const env = detect({
+      manual: {},
+      env: { ...ENV, IXAEON_DSH_INSTALL: custom },
+      exists: existsOf([...files(custom), DSH_EXE, DSH_ASAR]),
+    });
+    expect(norm(env[2]!.path)).toBe(norm(custom));
+    const fallback = detect({ manual: {}, env: ENV, exists: existsOf(files(local)) });
+    expect(norm(fallback[2]!.path)).toBe(norm(local));
+  });
+});
+
 describe('MP3c 条件 3：DSH 要同时有 exe 与 app.asar', () => {
   it('少 app.asar → 没找到', () => {
     const rows = detect({ manual: {}, env: ENV, exists: existsOf([DSH_EXE]) });
@@ -137,10 +193,8 @@ describe('MP3c 条件 3：DSH 要同时有 exe 与 app.asar', () => {
 
   it('两个都在 → auto，path 是安装目录', () => {
     const rows = detect({ manual: {}, env: ENV, exists: existsOf([DSH_EXE, DSH_ASAR]) });
-    expect(rows.find((r) => r.tool === 'dsh')).toMatchObject({
-      found: true,
-      path: DSH_AUTO,
-      source: 'auto',
-    });
+    const dsh = rows.find((r) => r.tool === 'dsh')!;
+    expect(dsh).toMatchObject({ found: true, source: 'auto' });
+    expect(norm(dsh.path)).toBe(norm(DSH_AUTO));
   });
 });

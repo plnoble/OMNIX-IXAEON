@@ -24,9 +24,9 @@ const dataDir = mkdtempSync(join(tmpdir(), 'ixa-mp3e-e2e-'));
 const projectRoot = join(dataDir, 'synth-repo');
 const tools = join(dataDir, 'tools');
 
-/** 假 Codex：只输出额度用完，退出 0。 */
+/** 假 Codex：只输出额度用完，失败退出（整合方 11-05：原来退出 0，那是成功，正确的实现不会换）。 */
 function fakeCodex(): string {
-  return buildFakeTool(tools, 'codex', { stdout: ['usage_limit_reached'], exitCode: 0 });
+  return buildFakeTool(tools, 'codex', { stdout: ['usage_limit_reached'], exitCode: 1 });
 }
 
 /** 假 Claude Code：在工作区写 note.txt，输出 JSON。 */
@@ -101,8 +101,13 @@ test('条件 15：Codex → Claude Code，回报写着替补来做，改动是 C
 
   // 编码任务排「Codex → Claude Code · sonnet」
   const addBox = page.getByTestId('coding-chain-add');
-  await addBox.getByRole('button', { name: '添加' }).click(); // Codex
-  await addBox.getByRole('button', { name: '添加' }).click(); // Claude Code（默认 sonnet）
+  await page.getByTestId('coding-chain-kind').selectOption({ label: '开发工具' });
+  await page.getByTestId('coding-chain-tool').selectOption({ label: 'Codex' });
+  await addBox.getByRole('button', { name: '添加' }).click();
+  await page.getByTestId('coding-chain-tool').selectOption({ label: 'Claude Code' });
+  await page.getByTestId('coding-chain-claude-model').selectOption({ label: 'sonnet' });
+  await addBox.getByRole('button', { name: '添加' }).click();
+  await expect(page.getByTestId('coding-chain-list')).toContainText('Claude Code · sonnet');
   await page.getByTestId('uses-save').click();
 
   // 任务页：建草案 → 批准 → 派发

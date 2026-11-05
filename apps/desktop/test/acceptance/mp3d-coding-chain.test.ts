@@ -194,12 +194,16 @@ describe('MP3d 条件 7：saveCodingChain 拒绝与清空', () => {
       (r as unknown as { executorPlan(): Plan }).executorPlan();
     expect(planOf(rt).use).toBe('codex');
 
-    const id = withProvider(rt);
+    rt.saveModelSettings({
+      modelName: 'demo-a',
+      apiBaseUrl: 'http://127.0.0.1:18081/v1',
+      apiKey: 'sk-synthetic-a1b2c3d4',
+      savedModels: ['demo-a'],
+    } as never);
     Object.assign(rt as unknown as { config: AppConfig }, {
       config: {
         ...rt.getConfig(),
         coding: { ...rt.getConfig().coding, executor: 'model', modelName: 'demo-a' },
-        uses: { ...(rt.getConfig().uses ?? {}), coding: { providerId: id, model: 'demo-a' } },
       } as AppConfig,
     });
     const plan = planOf(rt);

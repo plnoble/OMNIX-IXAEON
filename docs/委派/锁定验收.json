@@ -947,9 +947,9 @@
       "title": "开发工具与编码替补",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/mp3c-devtools.test.ts": "e6370f013bc9e5be2b12f6f493fe083058b4bb58b9d7367acd23a27aa722b27c",
-        "apps/desktop/test/acceptance/mp3c-devtool-save.test.ts": "38b1508e28506ad94ae939498fb3d420d642ee0aa896da6325a86f2cf3827719",
-        "apps/desktop/test/acceptance/mp3c-devtools-ui.test.ts": "0c334dfd932f27aba5ffb5cfd28341ce4b1d7888dad4efa4d19387c6e4c61572",
+        "packages/core/test/acceptance/mp3c-devtools.test.ts": "5cf31bacb3d22cf6d62054df8693387d0938e68197613f31c0a4162015adaab0",
+        "apps/desktop/test/acceptance/mp3c-devtool-save.test.ts": "60e2c8d15bfdae403515fdd1157aa02fc0b969c3e37af84325448f7cecdd22cb",
+        "apps/desktop/test/acceptance/mp3c-devtools-ui.test.ts": "a19e7a54b9441a1d45b4d29622369eafd3db74232011564e741f7db3f8b758fe",
         "apps/desktop/test/acceptance/mp3c-codex-locator.test.ts": "026631a8dbca524097d477977bc5276345d02b75107ee72b17120a11813d9517"
       }
     },
@@ -958,9 +958,9 @@
       "title": "编码任务候选串与 Claude Code",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/mp3d-chain-executor.test.ts": "6dbd8a6dddb13a275c1c347aba3ce1c485c0176163337db8924e99e242f801c6",
-        "packages/core/test/acceptance/mp3d-launch-pure.test.ts": "fd9537ac050c36c6c62aaf8f44f2a381aa728b9803ebc749351e294bf8b2e4ba",
-        "apps/desktop/test/acceptance/mp3d-coding-chain.test.ts": "afb6e3f2062cdd2eea41bb52e419f1d2be0898732080fddaecd27671b91b8e59"
+        "packages/core/test/acceptance/mp3d-chain-executor.test.ts": "7823e2467a316a7c6f96d6ffe225ac301d5f60a0265367babb685d0194ef2d27",
+        "packages/core/test/acceptance/mp3d-launch-pure.test.ts": "82c2a2d42fe2f3483c268044e1acea64fb484b375069522a1d7b796913b83f29",
+        "apps/desktop/test/acceptance/mp3d-coding-chain.test.ts": "4f493b6922d2dde3b5993c47cd605f3baf4a3b18da3f5adf87d51c23faea6b12"
       }
     },
     {
@@ -968,7 +968,7 @@
       "title": "DSH 执行器与编码候选界面",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts": "d54b481dc3a56d2d09e33dd63e39a6097eeb51f7b8faebb140465dddfa058fd0"
+        "apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts": "0bdedbcd0e7dcf3a78977f6823719a12f60a4697a2348e80557700afdd1098ea"
       }
     },
     {
@@ -977,7 +977,7 @@
       "status": "queued",
       "files": {
         "apps/desktop/test/acceptance/mp3f-panel.test.ts": "2c9689ad5d9894a22debba91d5e3933cb614a942f26c6db647ae31357e11808a",
-        "apps/desktop/test/acceptance/mp3f-rules.test.ts": "d78fe89ec6a18ca9bc1696216de459b20df52bdb70d3031759a3830ab9f2ac2b"
+        "apps/desktop/test/acceptance/mp3f-rules.test.ts": "c6991f8cdc01ed83bba9552753e45e509f2f041e3c784872f26abc2861306aa3"
       }
     }
   ]

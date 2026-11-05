@@ -1,7 +1,7 @@
 /**
  * 端到端用的假开发工具：用 Windows 自带的 csc.exe 现编一个真 .exe 启动器。
  *
- * 启动器读同目录 `<名字>.fake.json`（行为：往标准输出打的几行、往工作区写的文件、退出码），
+ * 启动器读同目录 `<名字>.fake.txt`（每行「种类\t内容」，csc 只认 C# 5，不用 JSON）（行为：往标准输出打的几行、往工作区写的文件、退出码），
  * 把收到的参数和 cwd 记到 `<名字>.args.txt`，然后退出。
  * 执行器不经 shell 起进程，`.cmd` 起不来，所以这里必须是真的 .exe。
  */
@@ -15,32 +15,30 @@ const SOURCE = `
 using System;
 using System.IO;
 using System.Text;
-using System.Text.Json;
-
 class FakeTool {
   static int Main(string[] args) {
     string exe = System.Reflection.Assembly.GetExecutingAssembly().Location;
     string dir = Path.GetDirectoryName(exe);
     string name = Path.GetFileNameWithoutExtension(exe);
-    string specPath = Path.Combine(dir, name + ".fake.json");
+    string spec = Path.Combine(dir, name + ".fake.txt");
     string log = "cwd=" + Environment.CurrentDirectory + "\\nargs=" + string.Join("|", args) + "\\n";
     File.WriteAllText(Path.Combine(dir, name + ".args.txt"), log, new UTF8Encoding(false));
-    if (!File.Exists(specPath)) return 3;
-    using var doc = JsonDocument.Parse(File.ReadAllText(specPath));
-    var root = doc.RootElement;
-    if (root.TryGetProperty("writeFiles", out var files)) {
-      foreach (var f in files.EnumerateArray()) {
-        string rel = f.GetProperty("path").GetString();
-        string content = f.GetProperty("content").GetString();
-        string full = Path.Combine(Environment.CurrentDirectory, rel);
+    if (!File.Exists(spec)) return 3;
+    int code = 0;
+    foreach (string line in File.ReadAllLines(spec, Encoding.UTF8)) {
+      string[] parts = line.Split('\\t');
+      if (parts[0] == "out" && parts.Length >= 2) {
+        Console.Out.Write(parts[1] + "\\n");
+      } else if (parts[0] == "write" && parts.Length >= 3) {
+        string full = Path.Combine(Environment.CurrentDirectory, parts[1]);
         Directory.CreateDirectory(Path.GetDirectoryName(full));
-        File.WriteAllText(full, content, new UTF8Encoding(false));
+        File.WriteAllText(full, parts[2], new UTF8Encoding(false));
+      } else if (parts[0] == "exit" && parts.Length >= 2) {
+        code = int.Parse(parts[1]);
       }
     }
-    if (root.TryGetProperty("stdout", out var lines)) {
-      foreach (var line in lines.EnumerateArray()) Console.WriteLine(line.GetString());
-    }
-    return root.TryGetProperty("exitCode", out var code) ? code.GetInt32() : 0;
+    Console.Out.Flush();
+    return code;
   }
 }
 `;
@@ -58,6 +56,11 @@ export function buildFakeTool(dir: string, name: string, behavior: FakeBehavior)
   const exe = join(dir, `${name}.exe`);
   writeFileSync(cs, SOURCE, 'utf8');
   execFileSync(CSC, ['/nologo', `/out:${exe}`, cs], { cwd: dir });
-  writeFileSync(join(dir, `${name}.fake.json`), JSON.stringify(behavior), 'utf8');
+  const lines = [
+    ...(behavior.writeFiles ?? []).map((w) => `write\t${w.path}\t${w.content}`),
+    ...(behavior.stdout ?? []).map((o) => `out\t${o}`),
+    `exit\t${behavior.exitCode ?? 0}`,
+  ];
+  writeFileSync(join(dir, `${name}.fake.txt`), lines.join('\n'), 'utf8');
   return exe;
 }

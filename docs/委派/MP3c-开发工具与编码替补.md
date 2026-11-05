@@ -205,3 +205,16 @@ MP3f：
   - 做法：在测试的辅助文件里用 Windows 自带的 `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`（CI 的 windows-latest 也有）现编一个小启动器。它读同目录 `<名字>.fake.json` 里写好的行为（往标准输出打什么、往工作区写什么文件、退出码几），把收到的参数和 `cwd` 记到一个文件里，然后退出。
   - 编好的放临时目录，同一次测试只编一次。辅助文件放 `apps/desktop/test/helpers/` 或 `apps/desktop/e2e/helpers/`，不算源码行数。
   - 找不到 `csc.exe` 时端到端失败并写明原因，不跳过。
+
+### 整合方锁定时再定的几处（2026-11-05）
+
+- **「模型」页编码任务的添加区**（条件 14、15），`coding-chain-add` 里有四个下拉，测试按选项文字选：
+  - `coding-chain-kind`：「开发工具」「供应商」；
+  - `coding-chain-tool`：「Codex」「Claude Code」「DSH」，没找到的那个选项文字后面带「没找到」；
+  - `coding-chain-claude-model`：「默认」「opus」「sonnet」「haiku」，只在选了 Claude Code 时出现。选「默认」时存的那一项不带 `model`；
+  - `coding-chain-provider`：「<供应商名> · <模型>」。
+  - 列表每项的文字（不算项里的按钮）：「Codex」「Claude Code · sonnet」「DSH」「合成甲 · demo-a」，没找到的工具项后面带「没找到」。满 5 项时「添加」不能点。
+- **调度器面板比模型名**（条件 16、17）：去前缀按「 / 」（两边带空格）切，不按单个斜杠切，因为 magpie 的模型 id 里本身带斜杠，比如 `vendor/gpt-x`。
+- **都不行**（条件 11）：最后一项不管因为什么失败，只要前面换过，失败的说明里都要写出试过哪几项、各自原因。
+- **四个纯函数一起在 MP3d 做**：`dshLaunch` / `parseDshOutput` 的测试锁在 MP3d 名下，MP3d 并入时就要过。DSH 执行器本身和界面还是 MP3e 的事。
+- **`hashWorkspace` 现在没导出**：实现时从 `execution/executor.ts` 导出给编码候选串用，不另写一份。

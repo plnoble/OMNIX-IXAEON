@@ -104,6 +104,7 @@ describe('MP3c 条件 6：开发工具三行', () => {
     }
     expect(el('devtool-row-codex').textContent).toContain('没找到');
     expect(el('devtool-row-claude').textContent).toContain('找到');
+    expect(el('devtool-row-claude').textContent).not.toContain('没找到');
   });
 
   it('手填保存后这一行变成手填；「恢复自动」后变回自动', async () => {
