@@ -2,9 +2,10 @@
  * MP3 验收条件 1、9，以及规格「要什么」第 8 条（审计）。
  *
  * 条件 1（saveModelFallbacks）：
- * - 合法的列表存进 config.fallbacks，getSettings() 原样读回来；
+ * - 合法的列表存进 config.fallbacks，getSettings() 原样读回来（主选 a/demo-a、替补 b/demo-b）；
  * - 拒绝（配置不变）：没勾选过的模型、不存在的供应商、超过 4 项、有重复、跟主选相同；
- * - 只传 chat 时 analysis 的列表不变；传空数组清空。
+ *   超过 4 项用一家勾 5 个不同模型、传 5 个不同项，才真正测到上限；
+ * - 只传 chat 时 analysis 的列表不变、chat 的列表确实存进去；传空数组清空。
  * 条件 9（删供应商）：某家被替补用着 → deleteModelProvider 拒绝，提示写明是哪个用途的替补。
  * 规格第 8 条（审计）：保存替补记一条，只记用途和项数，不记模型名。
  *
@@ -49,10 +50,7 @@ import {
 import { defaultAppConfig, type AppConfig } from '@ixaeon/contracts';
 import { AppRuntime } from '../../src/main/appRuntime.js';
 import { registerIpc } from '../../src/main/ipc.js';
-import { IxaError } from '@ixaeon/core';
 
-const KEY_A = Buffer.from('enc:sk-synthetic-a1b2c3d4').toString('base64');
-const KEY_B = Buffer.from('enc:sk-synthetic-b9f8e7d6').toString('base64');
 const ADDR_A = 'http://127.0.0.1:18081/v1';
 const ADDR_B = 'http://127.0.0.1:18082/v1';
 
@@ -120,6 +118,7 @@ function saveFallbacks(
   return (fn as (this: AppRuntime, i: unknown) => { ok: true }).call(runtime, input);
 }
 
+/** 「应当被拒绝」：捕获到的错误必须不是「方法还没实现」那个标记。 */
 function expectRejected(fn: () => void): string {
   let msg = '';
   try {
@@ -168,10 +167,10 @@ function auditRows(): Array<{ kind: string; detail: string }> {
 }
 
 describe('MP3 条件 1：saveModelFallbacks', () => {
-  it('合法的列表存进 config.fallbacks，getSettings() 原样读回来', async () => {
+  it('合法的列表存进 config.fallbacks，getSettings() 原样读回来（主选 a、替补 b）', async () => {
     const runtime = makeRuntime();
-    const { b } = withTwoProviders(runtime);
-    runtime.saveModelUses({ analysis: { providerId: b, model: 'demo-b' } });
+    const { a, b } = withTwoProviders(runtime);
+    runtime.saveModelUses({ analysis: { providerId: a, model: 'demo-a' } });
 
     saveFallbacks(runtime, { analysis: [{ providerId: b, model: 'demo-b' }] });
     expect(runtime.getConfig().fallbacks?.analysis).toEqual([{ providerId: b, model: 'demo-b' }]);
@@ -181,9 +180,7 @@ describe('MP3 条件 1：saveModelFallbacks', () => {
       config?: { fallbacks?: unknown };
       settings?: { fallbacks?: unknown };
     };
-    const fb = (view.config?.fallbacks ?? view.settings?.fallbacks) as {
-      analysis?: unknown;
-    };
+    const fb = (view.config?.fallbacks ?? view.settings?.fallbacks) as { analysis?: unknown };
     expect(fb?.analysis).toEqual([{ providerId: b, model: 'demo-b' }]);
   });
 
@@ -199,7 +196,6 @@ describe('MP3 条件 1：saveModelFallbacks', () => {
 
   it('不存在的供应商 → 拒绝，配置不变', () => {
     const runtime = makeRuntime();
-    saveFallbacks ?? null;
     const before = JSON.stringify(runtime.getConfig().fallbacks ?? {});
     expectRejected(() =>
       saveFallbacks(runtime, { analysis: [{ providerId: 'p-nope', model: 'demo-a' }] }),
@@ -207,16 +203,31 @@ describe('MP3 条件 1：saveModelFallbacks', () => {
     expect(JSON.stringify(runtime.getConfig().fallbacks ?? {})).toBe(before);
   });
 
-  it('超过 4 项 → 拒绝', () => {
+  it('超过 4 项 → 拒绝（一家勾 5 个不同模型、传 5 个不同项），配置不变', () => {
     const runtime = makeRuntime();
-    const { b } = withTwoProviders(runtime);
-    const five = Array.from({ length: 5 }, () => ({ providerId: b, model: 'demo-b' }));
-    expectRejected(() => saveFallbacks(runtime, { analysis: five }));
+    const c = runtime.saveModelProvider({
+      name: '合成丙',
+      kind: 'openai',
+      apiBaseUrl: ADDR_B,
+      apiKey: 'sk-synthetic-b9f8e7d6',
+      savedModels: ['demo-1', 'demo-2', 'demo-3', 'demo-4', 'demo-5'],
+    });
+    const before = JSON.stringify(runtime.getConfig().fallbacks ?? {});
+    expectRejected(() =>
+      saveFallbacks(runtime, {
+        analysis: ['demo-1', 'demo-2', 'demo-3', 'demo-4', 'demo-5'].map((m) => ({
+          providerId: c.id,
+          model: m,
+        })),
+      }),
+    );
+    expect(JSON.stringify(runtime.getConfig().fallbacks ?? {})).toBe(before);
   });
 
-  it('同一列表里有重复 → 拒绝', () => {
+  it('同一列表里有重复 → 拒绝，配置不变', () => {
     const runtime = makeRuntime();
     const { b } = withTwoProviders(runtime);
+    const before = JSON.stringify(runtime.getConfig().fallbacks ?? {});
     expectRejected(() =>
       saveFallbacks(runtime, {
         analysis: [
@@ -225,23 +236,22 @@ describe('MP3 条件 1：saveModelFallbacks', () => {
         ],
       }),
     );
+    expect(JSON.stringify(runtime.getConfig().fallbacks ?? {})).toBe(before);
   });
 
-  it('跟这个用途现在的主选相同 → 拒绝，提示写明是哪一项', () => {
+  it('跟这个用途现在的主选相同 → 拒绝，提示写明是哪一项，配置不变', () => {
     const runtime = makeRuntime();
     const { b } = withTwoProviders(runtime);
     runtime.saveModelUses({ analysis: { providerId: b, model: 'demo-b' } });
-    let msg = '';
-    try {
-      saveFallbacks(runtime, { analysis: [{ providerId: b, model: 'demo-b' }] });
-    } catch (err) {
-      msg = err instanceof Error ? err.message : String(err);
-    }
-    expect(msg).toBeTruthy();
+    const before = JSON.stringify(runtime.getConfig().fallbacks ?? {});
+    const msg = expectRejected(() =>
+      saveFallbacks(runtime, { analysis: [{ providerId: b, model: 'demo-b' }] }),
+    );
     expect(msg).toContain('demo-b');
+    expect(JSON.stringify(runtime.getConfig().fallbacks ?? {})).toBe(before);
   });
 
-  it('只传 chat 时 analysis 的列表不变；传空数组清空', () => {
+  it('只传 chat 时 analysis 的列表不变、chat 的列表确实存进去；传空数组清空', () => {
     const runtime = makeRuntime();
     const { a, b } = withTwoProviders(runtime);
     runtime.saveModelUses({
@@ -250,7 +260,9 @@ describe('MP3 条件 1：saveModelFallbacks', () => {
     });
     saveFallbacks(runtime, { analysis: [{ providerId: b, model: 'demo-b' }] });
     saveFallbacks(runtime, { chat: [{ providerId: a, model: 'demo-a' }] });
+
     expect(runtime.getConfig().fallbacks?.analysis).toEqual([{ providerId: b, model: 'demo-b' }]);
+    expect(runtime.getConfig().fallbacks?.chat).toEqual([{ providerId: a, model: 'demo-a' }]);
 
     saveFallbacks(runtime, { analysis: [] });
     expect(runtime.getConfig().fallbacks?.analysis ?? []).toEqual([]);
@@ -264,12 +276,7 @@ describe('MP3 条件 9：删供应商（被替补用着）', () => {
     runtime.saveModelUses({ chat: { providerId: a, model: 'demo-a' } });
     saveFallbacks(runtime, { chat: [{ providerId: b, model: 'demo-b' }] });
 
-    let msg = '';
-    try {
-      runtime.deleteModelProvider(b);
-    } catch (err) {
-      msg = err instanceof Error ? err.message : String(err);
-    }
+    const msg = expectRejected(() => runtime.deleteModelProvider(b));
     expect(msg).toContain('聊天');
     expect(msg).toContain('替补');
     expect(runtime.listModelProviders().some((p) => p.id === b)).toBe(true);
@@ -281,12 +288,7 @@ describe('MP3 条件 9：删供应商（被替补用着）', () => {
     runtime.saveModelUses({ analysis: { providerId: a, model: 'demo-a' } });
     saveFallbacks(runtime, { analysis: [{ providerId: b, model: 'demo-b' }] });
 
-    let msg = '';
-    try {
-      runtime.deleteModelProvider(b);
-    } catch (err) {
-      msg = err instanceof Error ? err.message : String(err);
-    }
+    const msg = expectRejected(() => runtime.deleteModelProvider(b));
     expect(msg).toContain('后台分析');
     expect(msg).toContain('替补');
   });

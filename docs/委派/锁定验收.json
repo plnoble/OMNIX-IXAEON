@@ -934,12 +934,12 @@
       "title": "聊天和后台分析的替补",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/mp3-chain.test.ts": "06d70a3c8e7b5da7c325cf578e4ec8ce2ef5175fa31caf207cb8441778cdc5c5",
+        "packages/core/test/acceptance/mp3-chain.test.ts": "e4d8e5ba3912f1f8ac57ce3b35b72256ec9dcfb00cc3e2c3f6e461f768732a65",
         "packages/core/test/acceptance/mp3-model-error.test.ts": "b14bda20aa6869336e79dfd6680a6296390abb8fc74b974c58e06a6ba57e6e3a",
-        "apps/desktop/test/acceptance/mp3-config.test.ts": "b624f3b2b4a9e026c99f394758a7ec141bbf137ce78dbdf416900a1095ed22ec",
-        "apps/desktop/test/acceptance/mp3-chat.test.ts": "392476e6dadc8638dffb0aab73b3de53c7386a1d09f25ea1f015dcaae0652385",
-        "apps/desktop/test/acceptance/mp3-analysis.test.ts": "c24f966148c8ed7cb5bd9b33ed3e85956e951082ba3db4cc1576f094519a90d6",
-        "apps/desktop/test/acceptance/mp3b-ui.test.ts": "2ef6edf75bc82cd77283e5e1655d68925192b8dd0529c8ec63a8b289f43f8130"
+        "apps/desktop/test/acceptance/mp3-config.test.ts": "c4d10a43bc6c05e68ccc32f33c06f75036e65cc8157772d4e24f1fa68949fc83",
+        "apps/desktop/test/acceptance/mp3-chat.test.ts": "5b2b4cb2c175f1e3eea609a5682ba02f5f8135c8c18576485c8653c9c423e26a",
+        "apps/desktop/test/acceptance/mp3-analysis.test.ts": "0cf02e6e58f903776fd611333ee04e9d01565693d05941a291917ed6bc94d629",
+        "apps/desktop/test/acceptance/mp3b-ui.test.ts": "8952d37179e744f99a21d517c27eba3f0c0e582223cb3a5ffb63478bc28c0919"
       }
     }
   ]

@@ -163,4 +163,30 @@ describe('MP3 条件 2：resolveModelUseChain', () => {
     });
     expect(chainFn()(cfg, 'analysis')).toEqual([]);
   });
+
+  it('聊天单独选过时，用的是聊天自己的替补列表', () => {
+    const cfg = config({
+      uses: {
+        analysis: { providerId: 'p-a', model: 'demo-a' },
+        chat: { providerId: 'p-b', model: 'demo-b' },
+      },
+      fallbacks: {
+        analysis: [{ providerId: 'p-c', model: 'demo-c' }],
+        chat: [{ providerId: 'p-a', model: 'demo-a' }],
+      },
+    });
+    expect(chainFn()(cfg, 'chat').map((c) => `${c.providerId}/${c.model}`)).toEqual([
+      'p-b/demo-b',
+      'p-a/demo-a',
+    ]);
+  });
+
+  it('替补里写 default 那一家也能解析出来', () => {
+    const cfg = config({
+      uses: { analysis: { providerId: 'p-x', model: 'demo-x' } },
+      fallbacks: { analysis: [{ providerId: 'default', model: 'demo-a' }] },
+    });
+    const chain = chainFn()(cfg, 'analysis');
+    expect(chain.map((c) => `${c.providerId}/${c.model}`)).toEqual(['default/demo-a']);
+  });
 });

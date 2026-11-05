@@ -1,9 +1,9 @@
 /**
  * MP3b 验收条件 12（端到端）：用假聊天剧本，让第一个候选回 429、第二个正常回答。
- * 配好替补后问一句：对话里出现替补答的回答和那句提示。
+ * 在「模型」页上配好替补（选主选、添加替补、保存），问一句：对话里出现替补答的回答和那句提示。
  *
- * 现在实现还没做，本文件应当红（modelName 不是替补 / 没有 notice）。
- * 供应商与替补通过 IPC 配好（「模型」页那套界面在条件 11 里点过；这里只验端到端的回答与提示）。
+ * 现在实现还没做，本文件应当红（模型页没有替补列表）。
+ * 配替补走「模型」页的真实点击（与条件 11 用同一批 data-testid：fallback-list-chat / fallback-add-chat）。
  */
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -58,7 +58,24 @@ test.afterAll(async () => {
   server.close();
 });
 
-test('条件 12：主选 429、替补回答 → 对话里有替补的回答和那句提示', async () => {
+/** 在「模型」页新建一家供应商，勾上 demo-a、demo-b 两个模型。 */
+async function addProvider(name: string, key: string): Promise<void> {
+  await page
+    .getByRole('button', { name: /新建供应商|添加供应商/ })
+    .first()
+    .click();
+  await page.getByTestId('provider-name-input').fill(name);
+  await page.getByTestId('provider-base-input').fill(base);
+  await page.getByTestId('provider-key-input').fill(key);
+  await page.getByTestId('provider-models').click();
+  await expect(page.getByTestId('model-row-demo-a')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('model-row-demo-a').locator('input[type="checkbox"]').check();
+  await page.getByTestId('model-row-demo-b').locator('input[type="checkbox"]').check();
+  await page.getByTestId('provider-save').click();
+  await expect(page.locator('.ok-banner')).toContainText('已保存', { timeout: 15_000 });
+}
+
+test('条件 12：模型页配好替补，主选 429、替补回答 → 对话里有替补的回答和整句提示', async () => {
   await page.getByTestId('setup-next-1').click();
   await page.getByTestId('setup-model-name').fill('demo-a');
   await page.getByTestId('setup-next-2').click();
@@ -66,28 +83,21 @@ test('条件 12：主选 429、替补回答 → 对话里有替补的回答和�
   await page.getByTestId('setup-finish').click();
   await expect(page.getByTestId('main-nav')).toBeVisible({ timeout: 20_000 });
 
-  await page.evaluate(
-    async ({ b }) => {
-      const a = await window.ixaeon!.saveModelProvider({
-        name: '合成甲',
-        kind: 'openai',
-        apiBaseUrl: b,
-        apiKey: 'synthetic-a',
-        savedModels: ['demo-a'],
-      });
-      const c = await window.ixaeon!.saveModelProvider({
-        name: '合成乙',
-        kind: 'openai',
-        apiBaseUrl: b,
-        apiKey: 'synthetic-b',
-        savedModels: ['demo-b'],
-      });
-      await window.ixaeon!.saveModelUses({ chat: { providerId: a.id, model: 'demo-a' } });
-      await window.ixaeon!.saveModelFallbacks({ chat: [{ providerId: c.id, model: 'demo-b' }] });
-    },
-    { b: base },
-  );
+  // ===== 在「模型」页配：两家供应商、聊天主选甲·demo-a、替补乙·demo-b =====
+  await page.getByTestId('nav-models').click();
+  await expect(page.getByTestId('models-page')).toBeVisible({ timeout: 20_000 });
+  await addProvider('合成甲', 'sk-synthetic-a1b2c3d4');
+  await addProvider('合成乙', 'sk-synthetic-b9f8e7d6');
 
+  await page.getByTestId('uses-chat').selectOption({ label: '合成甲 · demo-a' });
+  const add = page.getByTestId('fallback-add-chat');
+  await add.locator('select').selectOption({ label: '合成乙 · demo-b' });
+  await add.getByRole('button', { name: '添加' }).click();
+  await expect(page.getByTestId('fallback-list-chat')).toContainText('合成乙 · demo-b');
+  await page.getByTestId('uses-save').click();
+  await expect(page.locator('.ok-banner')).toContainText('已保存', { timeout: 15_000 });
+
+  // ===== 问一句：对话里出现替补答的回答和整句提示 =====
   await page.getByTestId('nav-ask').click();
   await page.getByTestId('ask-input').fill('合成问题');
   await page.getByTestId('ask-run').click();
@@ -95,6 +105,8 @@ test('条件 12：主选 429、替补回答 → 对话里有替补的回答和�
   await expect(page.getByTestId('message-list')).toContainText('这是替补答的回答', {
     timeout: 30_000,
   });
-  await expect(page.getByTestId('message-list')).toContainText('由替补', { timeout: 15_000 });
-  await expect(page.getByTestId('message-list')).toContainText('额度用完', { timeout: 15_000 });
+  await expect(page.getByTestId('message-list')).toContainText(
+    '「合成甲 · demo-a」这次不行（额度用完），由替补「合成乙 · demo-b」回答',
+    { timeout: 15_000 },
+  );
 });

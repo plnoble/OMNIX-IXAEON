@@ -5,15 +5,18 @@
  * 对应规格「验收条件」第 11 条的前五小条：
  * - 两个用途下面各有替补列表；每项「供应商名 · 模型」，带上移 / 下移 / 删掉；
  * - 列表下面一个下拉框加「添加」，选项是所有供应商勾选过的模型，去掉主选和已在列表里的；满 4 项「添加」不能点；
- * - 和主选共用「保存」，一次存主选和替补；
- * - 聊天选「跟着后台分析」时替补列表收起，原地写一行说明；
+ * - 和主选共用「保存」，一次存主选和替补（保存时 `saveModelFallbacks` 收到的就是界面上看到的顺序）；
+ * - 聊天选「跟着后台分析」时替补列表收起，原地写一行说明，聊天自己的替补项看不见；
  * - 保存被拒时主进程的提示原样显示。
  *
- * 第 11 条最后一小条「聊天里带替补提示的回答下面显示那句话」是聊天页的渲染，
- * 由 `apps/desktop/e2e/mp3b-fallback.spec.ts`（条件 12 的端到端）覆盖——那里会断言对话里出现那句话。
+ * 约定的 data-testid（写进交付说明）：`fallback-list-analysis`、`fallback-list-chat`（两个列表），
+ * `fallback-add-analysis`、`fallback-add-chat`（两个「添加」下拉框）。列表项里的按钮按文字找
+ * （上移 / 下移 / 删掉 / 添加）。
  *
- * 现在界面还没做（ModelsPage 里没有替补列表），本文件应当红：找不到「替补（这一个不行按顺序换下一个）」。
- * 用 jsdom 渲染真的 ModelsPage，`window.ixaeon` 换成合成桩。
+ * 第 11 条最后一小条「聊天里带替补提示的回答下面显示那句话」是聊天页的渲染，
+ * 由 `apps/desktop/e2e/mp3b-fallback.spec.ts`（条件 12 的端到端）覆盖。
+ *
+ * 现在界面还没做（ModelsPage 里没有替补列表），本文件应当红：找不到 `fallback-list-analysis`。
  */
 import { createElement, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -38,6 +41,12 @@ function provider(id: string, name: string, models: string[]): ModelProviderView
   };
 }
 
+const PROVIDERS = [
+  provider('p-a', '合成甲', ['demo-a']),
+  provider('p-b', '合成乙', ['demo-b']),
+  provider('p-c', '合成丙', ['demo-c', 'demo-d', 'demo-e']),
+];
+
 interface Stub {
   saveModelUses: ReturnType<typeof vi.fn>;
   saveModelFallbacks: ReturnType<typeof vi.fn>;
@@ -47,7 +56,12 @@ interface Stub {
 let root: Root | null = null;
 let container: HTMLElement;
 
-function mount(stub: Stub): void {
+function mount(
+  stub: Stub,
+  fallbacks: { analysis?: unknown[]; chat?: unknown[] } = {
+    analysis: [{ providerId: 'p-b', model: 'demo-b' }],
+  },
+): void {
   (globalThis as unknown as { window: Window & { ixaeon?: unknown } }).window.ixaeon = {
     getSettings: async () => ({
       config: {
@@ -66,15 +80,11 @@ function mount(stub: Stub): void {
         webSearchProvider: 'none',
         webSearchKeyPresent: false,
         uses: { analysis: { providerId: 'p-a', model: 'demo-a' } },
-        fallbacks: { analysis: [{ providerId: 'p-b', model: 'demo-b' }] },
+        fallbacks,
       },
       dataDir: '',
     }),
-    listModelProviders: async () => [
-      provider('p-a', '合成甲', ['demo-a']),
-      provider('p-b', '合成乙', ['demo-b']),
-      provider('p-c', '合成丙', ['demo-c']),
-    ],
+    listModelProviders: async () => PROVIDERS,
     fetchProviderModels: async () => ({ models: [], error: null }),
     saveModelUses: stub.saveModelUses,
     saveModelFallbacks: stub.saveModelFallbacks,
@@ -103,6 +113,28 @@ function stub(): Stub {
   };
 }
 
+function el(testId: string): HTMLElement {
+  const node = document.querySelector(`[data-testid="${testId}"]`);
+  if (!node) throw new Error(`找不到 [data-testid="${testId}"]`);
+  return node as HTMLElement;
+}
+
+function text(): string {
+  return document.body.textContent ?? '';
+}
+
+function itemTexts(listTestId: string): string[] {
+  return Array.from(el(listTestId).querySelectorAll('li')).map(
+    (li) => li.textContent?.trim() ?? '',
+  );
+}
+
+function buttonIn(host: HTMLElement, name: string): HTMLButtonElement {
+  const b = Array.from(host.querySelectorAll('button')).find((x) => x.textContent?.trim() === name);
+  if (!b) throw new Error(`找不到按钮「${name}」`);
+  return b as HTMLButtonElement;
+}
+
 beforeEach(() => {
   mount(stub());
 });
@@ -113,60 +145,121 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-function card(): HTMLElement {
-  const el = document.querySelector('[data-testid="models-uses"]');
-  if (!el) throw new Error('没有「用途」卡片');
-  return el as HTMLElement;
-}
-
-function text(): string {
-  return document.body.textContent ?? '';
-}
-
 describe('MP3b 条件 11：用途里的替补列表', () => {
   it('两个用途下面各有替补列表，项是「供应商名 · 模型」，有上移/下移/删掉', async () => {
     await settle();
-    expect(text()).toContain('替补（这一个不行按顺序换下一个）');
-    expect(text()).toContain('合成乙 · demo-b');
+    expect(el('fallback-list-analysis')).toBeTruthy();
+    expect(el('fallback-list-chat')).toBeTruthy();
+    expect(itemTexts('fallback-list-analysis').join('|')).toContain('合成乙 · demo-b');
     expect(text()).toContain('上移');
     expect(text()).toContain('下移');
     expect(text()).toContain('删掉');
   });
 
-  it('满 4 项时「添加」不能点', async () => {
+  it('满 4 项时「添加」不能点（列表里确实有 4 项，不是没得选）', async () => {
     await settle();
-    const addButtons = Array.from(card().querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === '添加',
-    );
-    expect(addButtons.length).toBeGreaterThan(0);
-    // 列表里已有 1 项；再加 3 项到满 4，然后「添加」应变灰
+    const list = el('fallback-list-analysis');
+    const add = el('fallback-add-analysis');
     for (let i = 0; i < 3; i += 1) {
-      act(() => addButtons[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+      act(() => buttonIn(add, '添加').dispatchEvent(new MouseEvent('click', { bubbles: true })));
       await settle();
     }
-    const after = Array.from(card().querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === '添加',
-    );
-    expect(after[0]!.hasAttribute('disabled')).toBe(true);
+    expect(list.querySelectorAll('li')).toHaveLength(4);
+    expect(buttonIn(el('fallback-add-analysis'), '添加').hasAttribute('disabled')).toBe(true);
   });
 
   it('下拉框里没有主选和已在列表里的', async () => {
     await settle();
-    const selects = Array.from(card().querySelectorAll('select')).filter(
-      (s) => s.querySelectorAll('option').length > 0,
+    const add = el('fallback-add-analysis');
+    const options = Array.from(add.querySelectorAll('option')).map(
+      (o) => o.textContent?.trim() ?? '',
     );
-    const options = selects.flatMap((s) =>
-      Array.from(s.querySelectorAll('option')).map((o) => o.textContent?.trim() ?? ''),
-    );
-    // 有一个可选的（合成丙 · demo-c），且不含主选和已在列表里的
     expect(options.some((o) => o.includes('合成丙 · demo-c'))).toBe(true);
     expect(options.join('|')).not.toContain('合成甲 · demo-a');
     expect(options.join('|')).not.toContain('合成乙 · demo-b');
   });
 
-  it('聊天选「跟着后台分析」时替补列表收起，显示那一行说明', async () => {
+  it('上移/下移/删掉真的动顺序，保存时 saveModelFallbacks 收到的就是新顺序', async () => {
+    const s = stub();
+    act(() => root?.unmount());
+    document.body.innerHTML = '';
+    mount(s, {
+      analysis: [
+        { providerId: 'p-b', model: 'demo-b' },
+        { providerId: 'p-c', model: 'demo-c' },
+      ],
+    });
     await settle();
-    const chat = card().querySelector('[data-testid="uses-chat"]') as HTMLSelectElement | null;
+
+    const list = el('fallback-list-analysis');
+    expect(itemTexts('fallback-list-analysis')).toEqual(['合成乙 · demo-b', '合成丙 · demo-c']);
+
+    // 下移第一项 → 顺序反过来
+    act(() => buttonIn(list, '下移').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await settle();
+    expect(itemTexts('fallback-list-analysis')).toEqual(['合成丙 · demo-c', '合成乙 · demo-b']);
+
+    // 上移第二项 → 回到原顺序
+    act(() => {
+      const upButtons = Array.from(list.querySelectorAll('button')).filter(
+        (b) => b.textContent?.trim() === '上移',
+      );
+      upButtons[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await settle();
+    expect(itemTexts('fallback-list-analysis')).toEqual(['合成乙 · demo-b', '合成丙 · demo-c']);
+
+    // 删掉第一项
+    act(() => buttonIn(list, '删掉').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await settle();
+    expect(itemTexts('fallback-list-analysis')).toEqual(['合成丙 · demo-c']);
+
+    act(() =>
+      buttonIn(el('models-uses'), '保存').dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    );
+    await settle();
+    expect(s.saveModelFallbacks).toHaveBeenCalled();
+    const payload = s.saveModelFallbacks.mock.calls.at(-1)?.[0] as {
+      analysis?: Array<{ providerId: string; model: string }>;
+    };
+    expect(payload.analysis).toEqual([{ providerId: 'p-c', model: 'demo-c' }]);
+  });
+
+  it('保存后刷新页面：读回来的顺序跟存的一样', async () => {
+    const s = stub();
+    act(() => root?.unmount());
+    document.body.innerHTML = '';
+    mount(s, {
+      analysis: [
+        { providerId: 'p-c', model: 'demo-c' },
+        { providerId: 'p-b', model: 'demo-b' },
+      ],
+    });
+    await settle();
+    expect(itemTexts('fallback-list-analysis')).toEqual(['合成丙 · demo-c', '合成乙 · demo-b']);
+
+    // 重新挂载（等价刷新）：设置里仍是这个顺序
+    act(() => root?.unmount());
+    document.body.innerHTML = '';
+    mount(stub(), {
+      analysis: [
+        { providerId: 'p-c', model: 'demo-c' },
+        { providerId: 'p-b', model: 'demo-b' },
+      ],
+    });
+    await settle();
+    expect(itemTexts('fallback-list-analysis')).toEqual(['合成丙 · demo-c', '合成乙 · demo-b']);
+  });
+
+  it('聊天选「跟着后台分析」时替补列表收起、显示那行说明，聊天的替补项看不见', async () => {
+    act(() => root?.unmount());
+    document.body.innerHTML = '';
+    mount(stub(), {
+      analysis: [{ providerId: 'p-b', model: 'demo-b' }],
+      chat: [{ providerId: 'p-c', model: 'demo-c' }],
+    });
+    await settle();
+    const chat = document.querySelector('[data-testid="uses-chat"]') as HTMLSelectElement | null;
     expect(chat).toBeTruthy();
     act(() => {
       chat!.value = '';
@@ -174,6 +267,8 @@ describe('MP3b 条件 11：用途里的替补列表', () => {
     });
     await settle();
     expect(text()).toContain('跟着后台分析，替补也用后台分析的');
+    const chatList = document.querySelector('[data-testid="fallback-list-chat"]');
+    expect(chatList ? (chatList.textContent ?? '') : '').not.toContain('合成丙 · demo-c');
   });
 
   it('保存被拒时主进程的提示原样显示', async () => {
@@ -183,8 +278,9 @@ describe('MP3b 条件 11：用途里的替补列表', () => {
     mount(s);
     s.saveModelFallbacks.mockRejectedValueOnce(new Error('这个模型没有勾选保存过，先在模型页勾上'));
     await settle();
-    const save = card().querySelector('[data-testid="uses-save"]') as HTMLButtonElement;
-    act(() => save.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    act(() =>
+      buttonIn(el('models-uses'), '保存').dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    );
     await settle();
     expect(text()).toContain('这个模型没有勾选保存过');
   });
