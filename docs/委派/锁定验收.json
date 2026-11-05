@@ -941,6 +941,40 @@
         "apps/desktop/test/acceptance/mp3-analysis.test.ts": "cc34562687335d6d074121a0ed528e9d78a15cb15bced57bacf52c2a0c3ce979",
         "apps/desktop/test/acceptance/mp3b-ui.test.ts": "3b9c9ef186a2b18f987151010c977d414ed2f4df86b1e287d7fb4ced46e90e4e"
       }
+    },
+    {
+      "id": "MP3c",
+      "title": "开发工具与编码替补",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/mp3c-devtools.test.ts": "183766a55e1f3bd8653793784861efa060c5727d4b5be3a632849a884f45777e",
+        "apps/desktop/test/acceptance/mp3c-devtool-save.test.ts": "e1764c112cb2b3d5c6efc2b7f5e0c01159820377395a96f8c2454faae1b9a164",
+        "apps/desktop/test/acceptance/mp3c-devtools-ui.test.ts": "0c334dfd932f27aba5ffb5cfd28341ce4b1d7888dad4efa4d19387c6e4c61572"
+      }
+    },
+    {
+      "id": "MP3d",
+      "title": "编码任务候选串与 Claude Code",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp3d-coding-chain.test.ts": "e018daed22ceeec0f4777c4c59149dafafbced40433402f9c4da095669ad9080"
+      }
+    },
+    {
+      "id": "MP3e",
+      "title": "DSH 执行器与编码候选界面",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts": "f3984d7fdad9baf8f734c9eb2ef25887cee4684876516a91719da3eeeedf1515"
+      }
+    },
+    {
+      "id": "MP3f",
+      "title": "调度器面板不自己审自己",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/mp3f-panel.test.ts": "2c9689ad5d9894a22debba91d5e3933cb614a942f26c6db647ae31357e11808a"
+      }
     }
   ]
 }

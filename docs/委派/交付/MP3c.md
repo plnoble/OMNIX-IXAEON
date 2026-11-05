@@ -1,0 +1,47 @@
+# MP3c / MP3d / MP3e / MP3f 测试交付（B 档，先只推测试）
+
+规格：[MP3c-开发工具与编码替补.md](../MP3c-开发工具与编码替补.md)，验收条件 1–18。四单的测试都在这一个分支 `dev/MP3c` 上一起交；实现还没写，**现在应当红**。
+
+## 写了哪些测试、对应哪几条
+
+| 文件                                                        | 对应条件                                                                                                                                                                                                                                        |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/test/acceptance/mp3c-devtools.test.ts`       | MP3c 条件 1、2、3：`detectDevTools` 手填优先/自动顺序/DSH 要 exe 与 app.asar 同时存在                                                                                                                                                           |
+| `apps/desktop/test/acceptance/mp3c-devtool-save.test.ts`    | MP3c 条件 4：`saveDevToolPath` 相对路径拒绝、不在的位置拒绝且提示带工具名、null/空串删手填、审计里没有路径                                                                                                                                      |
+| `apps/desktop/test/acceptance/mp3c-devtools-ui.test.ts`     | MP3c 条件 6：「模型」页三行开发工具（`devtool-row/path/save/auto-<tool>`），找到/没找到、手填/自动，手填后变手填、恢复自动变回                                                                                                                  |
+| `apps/desktop/test/acceptance/mp3d-coding-chain.test.ts`    | MP3d 条件 7：`saveCodingChain` 的拒绝（>5、重复、供应商模型没保存过、Codex/DSH 填模型、Claude 模型不在 opus/sonnet/haiku）、空数组清空                                                                                                          |
+| `apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts` | MP3e 条件 14：编码任务的主选+替补列表（`coding-chain-list`/`coding-chain-add`），加开发工具与供应商、上移/下移/删掉改顺序、保存时 `saveCodingChain` 收到新顺序、没找到的工具标「没找到」                                                        |
+| `apps/desktop/test/acceptance/mp3f-panel.test.ts`           | MP3f 条件 18：面板不再显示「替补审查」「替补整合方」两行                                                                                                                                                                                        |
+| `apps/desktop/e2e/mp3e-coding-chain.spec.ts`                | MP3e 条件 15（端到端）：假 Codex 输出 `usage_limit_reached`、假 Claude Code 写文件并输出 JSON；模型页手填两个假工具、编码任务排「Codex → Claude Code」，任务页派发，回报写「「Codex」这次不行（额度用完），由替补「Claude Code · sonnet」来做」 |
+
+假程序一律在临时目录里现做（假的 `.cmd` 脚本），不跑真的 Codex / Claude Code / DSH；测试和日志里没有本机路径与账户名。
+
+锁定：`lock MP3c`（3 份）、`lock MP3d`（1 份）、`lock MP3e`（1 份）、`lock MP3f`（1 份）已登记。
+
+## 现在红在哪
+
+`vitest --project acceptance`（6 份）：**22 failed | 0 passed**，红的原因都是「功能没有」：
+
+- `mp3c-devtools` 8 红：`detectDevTools` 不存在（运行时取到 undefined）；
+- `mp3c-devtool-save` 3 红：`saveDevToolPath` 不存在（抛 `NOT_IMPLEMENTED` 标记；拒绝类用例先排除该标记，避免拿「方法不存在」冒充拒绝）；
+- `mp3c-devtools-ui` 2 红：找不到 `devtool-row-codex`；
+- `mp3d-coding-chain` 6 红：`saveCodingChain` 不存在；
+- `mp3e-coding-chain-ui` 2 红：找不到 `coding-chain-list`；
+- `mp3f-panel` 1 红：面板仍显示「替补审查 / 替补整合方」。
+
+端到端 `mp3e-coding-chain.spec.ts` 现在也红（开发工具块、编码任务列表都还没做）。
+
+## 写不成测试 / 有问题（请整合方定）
+
+1. **MP3c 条件 5**（Codex 执行器用 `detectDevTools` 的结果、手填优先）：Codex 执行器怎么取路径是内部实现，规格没写死可单测的函数/构造；写成「派发时报错文案含手填提示」也能测，但需要先有派发夹具，且文案细节容易与实现耦合。没写，列在这里。
+2. **MP3d 条件 8–11**（派发时按顺序换下一个、工作区指纹、5 分钟记忆）：规则落在 `ConfiguredCodingExecutor` 那一层，但候选串的 `ExecutorPlan` 新形状、工作区指纹与「按需求 run」的入口规格没写死。硬写只能自己发明接口，按要求没做。
+3. **MP3d 条件 12 / MP3e 条件 13**（`ClaudeCodeExecutor` / `DshExecutor` 的 argv、环境、输出解析）：类名规格写了，但所在模块、构造参数、如何注入假程序都没写死；我按「用假 `.cmd` + 端到端」覆盖了「能起来」的一半（条件 15），单测的 argv 断言没有写，避免发明构造函数。
+4. **MP3f 条件 16、17**（审查/整合不能跟开发同一个模型的拒绝规则）：落在主进程保存链上，规格没给可单独调用的函数名；`setRelayModel` 的拒绝由主进程做，测试只能验证界面把拒绝原样显示，验证不到规则本身。没写，列在这里。
+5. **端到端条件 15 的假工具可执行性**：Windows 上假程序是 `.cmd`，如果执行器用 `spawn` 不带 shell 会启不起来；实现时若要求「真 .exe」，端到端的假程序要改成「复制 node.exe + JS 脚本」的方式，届时同步这一份测试即可（断言不变）。
+
+## 四项
+
+- 已实现：无（本单只写测试）。
+- 自动化通过：无（现在应当红）。
+- 真机通过：未跑（实现还没有）。
+- 用户接受：未接受。
