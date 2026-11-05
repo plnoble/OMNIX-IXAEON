@@ -14,7 +14,9 @@
 | `apps/desktop/e2e/mp3b-ui.spec.ts`                      | 条件 11（界面，端到端）                  | 「模型」页「用途」里两个替补列表：加/上移/下移/删、保存后刷新顺序不变；满 4 项「添加」不可点；下拉里没有主选与已在列表里的；聊天选「跟着后台分析」时列表收起并显示说明；保存被拒提示原样显示                                                                                                                                                                                 |
 | `apps/desktop/e2e/mp3b-fallback.spec.ts`                | 条件 12（端到端）                        | 假聊天剧本第一个候选回 429、第二个正常回答；配好替补后问一句，对话里出现替补的回答和那句提示                                                                                                                                                                                                                                                                                 |
 
-锁定：`node scripts/acceptance.mjs lock MP3 "聊天和后台分析的替补"` 已登记 5 个验收测试文件（两个 e2e spec 不属于 acceptance 锁）。
+条件 11 最后一小条「聊天里带替补提示的回答下面显示那句话」是聊天页渲染，由 `apps/desktop/e2e/mp3b-fallback.spec.ts`（条件 12 端到端）覆盖。
+
+锁定：`node scripts/acceptance.mjs lock MP3 "聊天和后台分析的替补"` 已登记 6 个验收测试文件（e2e spec 不属于 acceptance 锁）。
 
 测试里的地址只用 `127.0.0.1` 加端口，Key 是合成的，模型名 `demo-a` / `demo-b`。条件 7 用 `vi.useFakeTimers()` / `vi.setSystemTime`。
 
@@ -35,7 +37,7 @@
 ## 给整合方/实现方的说明（不是改条件）
 
 - 条件 10 里「连不上/超时没有 status」：`OpenAIChatStreamClient` 与 `OpenAIResponsesProvider` 现在遇到网络错误抛 `ModelError(msg, true)`，加 `status` 时保持不传即可。
-- 条件 11 的界面测试按用户看得到的文字与角色找元素（卡片「用途」里的「上移/下移/删掉/添加/保存」），没有新造 `data-testid`；实现时若换文案需同步这两条 e2e。
+- 条件 11 的界面测试按用户看得到的文字与按钮找元素（「用途」卡片里的「上移/下移/删掉/添加/保存」），只复用已有的 `models-uses` / `uses-chat` / `uses-save`；没有新造 data-testid。实现时若换文案要同步这条测试。
 - 条件 12 的供应商与替补用 IPC（`saveModelProvider` / `saveModelUses` / `saveModelFallbacks`）配好；「模型」页那套点击在条件 11 已覆盖，避免同一条路测两遍。
 
 ## 四项
