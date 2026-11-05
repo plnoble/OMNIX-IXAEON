@@ -284,10 +284,14 @@ describe('MP3 条件 3：聊天换替补（四种「不行」各一次）', () =
       expect(String(last.content)).toContain('来自替补的回答');
       expect(captureAsk).toHaveBeenCalled();
       const meta = last.meta as Record<string, unknown> | undefined;
-      expect(meta?.['modelName']).toBe('demo-b');
-      expect(meta?.['notice']).toBe(
-        `「合成甲 · demo-a」这次不行（${c.reason}），由替补「合成乙 · demo-b」回答`,
-      );
+      // 整合方改：模型名记在消息自己的 modelName 上（不在 meta 里，规格同步改了）
+      expect(last['modelName']).toBe('demo-b');
+      // 整合方改：存档成功时现有代码会在提示后面接「；问答已存入…」，所以比开头整句
+      expect(
+        String(meta?.['notice'] ?? '').startsWith(
+          `「合成甲 · demo-a」这次不行（${c.reason}），由替补「合成乙 · demo-b」回答`,
+        ),
+      ).toBe(true);
       const primaryCall = calls.find((x) => x.model === 'demo-a');
       const subCall = calls.find((x) => x.model === 'demo-b');
       expect(primaryCall && subCall).toBeTruthy();
@@ -485,7 +489,7 @@ describe('MP3 条件 6：一问之内不回头', () => {
 
 describe('MP3 条件 7：记住 5 分钟（假时钟）', () => {
   it('换过后下一问先试替补；过 5 分钟又先试主选；保存用途/保存替补各一次都立刻恢复先试主选', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-11-05T10:00:00Z'));
     const calls: Call[] = [];
     const { runtime } = fixture(baseConfig(), {});
@@ -543,15 +547,25 @@ describe('MP3 条件 7：记住 5 分钟（假时钟）', () => {
     await ask(runtime);
     expect(calls[0]!.model).toBe('demo-a');
 
-    // 拨过 5 分钟：又先试主选
-    vi.setSystemTime(new Date('2026-11-05T10:06:00Z'));
+    // 整合方补：先让主选再不行一次、确认它被排到后面，再拨过 5 分钟，又先试主选
+    vi.setSystemTime(new Date('2026-11-05T10:10:00Z'));
+    primaryFails = true;
+    calls.length = 0;
+    await ask(runtime);
+    expect(calls.map((c) => c.model)).toEqual(['demo-a', 'demo-b']);
+    primaryFails = false;
+    vi.setSystemTime(new Date('2026-11-05T10:12:00Z'));
+    calls.length = 0;
+    await ask(runtime);
+    expect(calls[0]!.model).toBe('demo-b');
+    vi.setSystemTime(new Date('2026-11-05T10:16:00Z'));
     calls.length = 0;
     await ask(runtime);
     expect(calls[0]!.model).toBe('demo-a');
   });
 
   it('整串都在 5 分钟里：下一问照原顺序全部再试（顺序也相等）', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-11-05T10:00:00Z'));
     const calls: Call[] = [];
     const { runtime } = fixture(baseConfig(), {});

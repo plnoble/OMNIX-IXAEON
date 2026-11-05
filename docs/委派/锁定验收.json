@@ -937,8 +937,8 @@
         "packages/core/test/acceptance/mp3-chain.test.ts": "e4d8e5ba3912f1f8ac57ce3b35b72256ec9dcfb00cc3e2c3f6e461f768732a65",
         "packages/core/test/acceptance/mp3-model-error.test.ts": "b14bda20aa6869336e79dfd6680a6296390abb8fc74b974c58e06a6ba57e6e3a",
         "apps/desktop/test/acceptance/mp3-config.test.ts": "c4d10a43bc6c05e68ccc32f33c06f75036e65cc8157772d4e24f1fa68949fc83",
-        "apps/desktop/test/acceptance/mp3-chat.test.ts": "5b2b4cb2c175f1e3eea609a5682ba02f5f8135c8c18576485c8653c9c423e26a",
-        "apps/desktop/test/acceptance/mp3-analysis.test.ts": "0cf02e6e58f903776fd611333ee04e9d01565693d05941a291917ed6bc94d629",
+        "apps/desktop/test/acceptance/mp3-chat.test.ts": "a8d0b93a43a51e5c770ee652a2dbc9e0c34ea732593ddc5f8ed8d9290c7d33b4",
+        "apps/desktop/test/acceptance/mp3-analysis.test.ts": "b113d2cfadc66bdc217b6ef45e9d40d430362a5c80176643b5d47058138c48f7",
         "apps/desktop/test/acceptance/mp3b-ui.test.ts": "8952d37179e744f99a21d517c27eba3f0c0e582223cb3a5ffb63478bc28c0919"
       }
     }

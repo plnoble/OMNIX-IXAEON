@@ -177,7 +177,8 @@ function seedSource(): string {
   const sources = new SourceStore(db);
   const imports = new ImportService(db, vault, permissions, sources);
   const path = join(dir, '合成资料.md');
-  writeFileSync(path, `# 合成资料\n\n${BODY}\n`, 'utf8');
+  // 整合方改：只放一段正文，S1 就是这段（原来带标题时 S1 是标题，摘录对不上）
+  writeFileSync(path, `${BODY}\n`, 'utf8');
   const result = imports.importFile(path, {
     projectId: null,
     permissionId: permissions.grantFile(path).id,
