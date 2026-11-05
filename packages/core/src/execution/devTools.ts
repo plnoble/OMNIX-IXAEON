@@ -2,6 +2,7 @@
  * MP3c 规格第 1 条：找三个开发工具装在哪（只看文件在不在，不运行它们）。
  * 顺序固定 codex、claude、dsh；手填优先。
  */
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 export type DevTool = 'codex' | 'claude' | 'dsh';
@@ -59,7 +60,7 @@ function dshCandidates(env: NodeJS.ProcessEnv): string[] {
 
 /** 只探文件在不在；不运行。 */
 export function detectDevTools(input: DetectDevToolsInput): DevToolRow[] {
-  const exists = input.exists ?? (() => false);
+  const exists = input.exists ?? existsSync;
   const norm = (p: string): string => p.replaceAll('\\', '/');
 
   const manualRow = (tool: DevTool, manualPath: string | undefined): DevToolRow | null => {
