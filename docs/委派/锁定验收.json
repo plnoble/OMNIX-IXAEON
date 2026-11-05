@@ -923,7 +923,7 @@
     {
       "id": "CF3c",
       "title": "聊天只走直连",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/cf3c-direct-only.test.ts": "1fe75c9bc25bbfb9a9de0a49909e28644ecf86efb8054731b28057aa68faf3b0",
         "apps/desktop/test/acceptance/cf3c-no-prewarm.test.ts": "960ab88c6032a92b605aa285f55678ae4ab9d614fe31f79f0a84eedb6fce6f48"
