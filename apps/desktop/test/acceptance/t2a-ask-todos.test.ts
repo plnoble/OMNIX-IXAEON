@@ -81,45 +81,10 @@ function runtimeAnswering(answer: string) {
   return { runtime, conversations, todos, conv };
 }
 
-const ANSWER = '先把报价核一遍。\n\n建议待办：\n- 周五前把报价发给客户\n- 预约下周体检';
-
 describe('AI 在回答末尾列的待办', () => {
-  it('落成等你拍板的待办，记着来自哪次对话、哪条回答；回答里去掉那一段', async () => {
-    const { runtime, conversations, todos, conv } = runtimeAnswering(ANSWER);
-    const r = await runtime.ask({
-      conversationId: conv.id,
-      projectId: null,
-      question: '这周做啥？',
-    });
+  // 整合方 2026-11-06（CF2：回答末尾的「建议待办」不再变成待办、不再从回答里拆掉，用户 11-03 定）退役：「落成等你拍板的待办，记着来自哪次对话、哪条回答；回答里去掉那一段」
 
-    const msg = conversations.getMessage(r.messageId);
-    expect(msg.content).toBe('先把报价核一遍。');
-    const proposed = todos.list({ status: ['proposed'] });
-    expect(proposed.map((t) => t.title).sort()).toEqual(['周五前把报价发给客户', '预约下周体检']);
-    for (const t of proposed) {
-      expect(t).toMatchObject({
-        origin: 'agent',
-        conversation_id: conv.id,
-        message_id: r.messageId,
-      });
-    }
-    const meta = msg.meta['proposedTodos'] as Array<{ id: string; title: string }>;
-    expect(meta.map((t) => t.id).sort()).toEqual(proposed.map((t) => t.id).sort());
-  });
-
-  it('你拒绝过的同一件事不再提，也不出现在这条回答上', async () => {
-    const { runtime, conversations, todos, conv } = runtimeAnswering(ANSWER);
-    todos.reject(todos.propose({ title: '预约下周体检' })!.id);
-    const r = await runtime.ask({
-      conversationId: conv.id,
-      projectId: null,
-      question: '这周做啥？',
-    });
-    const meta = conversations.getMessage(r.messageId).meta['proposedTodos'] as Array<{
-      title: string;
-    }>;
-    expect(meta.map((t) => t.title)).toEqual(['周五前把报价发给客户']);
-  });
+  // 整合方 2026-11-06（CF2：回答末尾的「建议待办」不再变成待办、不再从回答里拆掉，用户 11-03 定）退役：「你拒绝过的同一件事不再提，也不出现在这条回答上」
 
   it('回答里没有这一段：不建待办，也不记 proposedTodos', async () => {
     const { runtime, conversations, todos, conv } = runtimeAnswering('今天不用做什么。');
