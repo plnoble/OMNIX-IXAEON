@@ -68,6 +68,18 @@ function landingLine(t: CodingTask): string {
   return changed.length === 0 ? '这次没有改动文件（没有改动）' : '改动还在隔离副本里，未落地';
 }
 
+/** MP3e：执行报告里「这次不行（…），由替补…来做」那一句，卡片上照原样显示。 */
+function fallbackNote(json: string | null): string | null {
+  if (!json) return null;
+  try {
+    const summary = String((JSON.parse(json) as { summary?: unknown }).summary ?? '');
+    const at = summary.indexOf('这次不行（');
+    return at >= 0 ? summary : null;
+  } catch {
+    return null;
+  }
+}
+
 function acceptanceLines(json: string | null): string[] {
   if (!json) return [];
   try {
@@ -433,6 +445,11 @@ export function TasksPage({
           {landingLine(t) && (
             <p className="note" data-testid={`task-landing-${t.id}`}>
               {landingLine(t)}
+            </p>
+          )}
+          {fallbackNote(t.executor_report_json) && (
+            <p className="note" data-testid={`task-fallback-note-${t.id}`}>
+              {fallbackNote(t.executor_report_json)}
             </p>
           )}
           {t.error && <p className="warn">{t.error}</p>}

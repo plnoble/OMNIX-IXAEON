@@ -26,6 +26,9 @@ export function executorGapText(missing: ExecutorGap): string {
  * 读一次名字并写库）。
  */
 export class ConfiguredCodingExecutor implements CodingExecutor {
+  /** MP3db：这一轮实际做完（或最后试过）的执行器名字，由 run 写入。 */
+  lastRunName: string | null = null;
+
   constructor(
     private readonly codex: CodingExecutor,
     private readonly plan: () => ExecutorPlan,
@@ -44,13 +47,28 @@ export class ConfiguredCodingExecutor implements CodingExecutor {
     options?: ExecutorRunOptions,
   ): Promise<ExecutorReport> {
     // 第一个 await 之前取一次 plan：这一次派发用哪个执行器就钉死了
+    this.lastRunName = null;
     const current = this.plan();
     if (current.use === 'none') {
       throw new IxaError(ErrorCodes.VALIDATION_FAILED, executorGapText(current.missing));
     }
-    // D5a：只读范围原样传下去（交给模型、交给 Codex 都传）
-    return current.use === 'model'
-      ? current.executor.run(task, workspace, signal, options)
-      : this.codex.run(task, workspace, signal, options);
+    try {
+      const report =
+        current.use === 'model'
+          ? await current.executor.run(task, workspace, signal, options)
+          : await this.codex.run(task, workspace, signal, options);
+      this.lastRunName =
+        current.use === 'model'
+          ? (current.executor.lastRunName ?? current.executor.name)
+          : this.codex.name;
+      return report;
+    } finally {
+      if (this.lastRunName === null) {
+        this.lastRunName =
+          current.use === 'model'
+            ? (current.executor.lastRunName ?? current.executor.name)
+            : this.codex.name;
+      }
+    }
   }
 }
