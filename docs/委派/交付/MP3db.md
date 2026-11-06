@@ -44,3 +44,13 @@ Tests  25 passed (25)
 - 真机只跑了「Codex → Claude Code」一串；「Codex → DSH」要等 MP3e 的 DSH 执行器。
 
 四项：已实现=上面；自动化通过=25/25；真机通过=上面输出；用户接受=未接受。
+
+## 照 11-06 复审改了什么（第 4、5、6、7、8 条）
+
+- 第 4 条：`codingCandidates()` 补上 DSH——用 `detectDevTools` 找到的安装目录建 `DshExecutor`；
+- 第 5 条：供应商项照后台分析建真客户端（`OpenAIResponsesProvider` + 解密出的 Key），解不开或没勾过该模型给 `null`；
+- 第 6 条：`saveCodingChain` 与候选都认 `default`（用 `config.model.savedModels` 校验）、标签「我的模型 · <model>」；
+- 第 7 条：候选串比指纹前删掉 `EXECUTOR_CHANNEL_FILE` 一项；
+- 第 8 条：`CodingExecutor` 加可选 `lastRunName`；`ConfiguredCodingExecutor.run` 开头清空、跑完把「开工时那个执行器」当时的 name 写进 `lastRunName`（不重读设置）；编排层在 `pending_verify` / `failed` 两处写 `this.executor.lastRunName ?? executorNameAtStart`，`running` 照旧。
+- 补测 `apps/desktop/test/acceptance/mp3db-chain-fixes.test.ts`（4 条：失败回报带 raw 照样换、通道文件不算改工作区、换过后 lastRunName=claude-code、没换过=开工那个），已 `lock MP3db`。
+- 验证：`acceptance run MP3d` 25/25（含 `d7b-executor-selection` 23/23）、`tsc` 0。
