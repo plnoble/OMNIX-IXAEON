@@ -56,3 +56,13 @@ $ node scripts/test-e2e.mjs desktop
 - 并入 `dev/MP3db`（含 MP3d 的执行器修复）：`ClaudeCodeExecutor` / `DshExecutor` 都用 `minimalChildEnv()`，只额外补 `APPDATA` / `LOCALAPPDATA`（路径，不是密钥）；失败返回 `claimedSuccess:false` 的回报，`raw` 带 stdout/stderr 各末约 4000 字；取消/超时用 `killProcessTree` 杀整棵进程树、`stdio` 不接 stdin、`shell:false`、超时用 `task.timeout_ms`。
 - `Models.tsx` 保留本支的编码任务界面（主选 + 替补、四个下拉），并把 MP3db 的缺省保护带上（`getDevTools` 缺失/返回 undefined、`providers` 兜底）。
 - 端到端 `mp3e-coding-chain.spec.ts` 参数化：`MP3E_CHAIN=dsh` 时排「Codex → DSH」。本机跑：Claude 那一串过；DSH 那一串红在「DSH：没做完」（假 DSH 的输出没被 `parseDshOutput` 认成 final，还要再查）。
+
+## 真机（走派发那一层）三串
+
+`apps/desktop/e2e/mp3e-coding-chain.spec.ts` 参数化后逐档跑（都是真实 UI：模型页配工具/供应商、排链、任务页派发）：
+
+- `MP3E_CHAIN=claude`：**1 passed**（卡片「「Codex」这次不行（额度用完），由替补「Claude Code · sonnet」来做」，执行器 `claude-code`，改了 note.txt）。
+- `MP3E_CHAIN=dsh`：**1 passed**（同上，替补「DSH」，执行器 `dsh`）。修的一处：假 DSH 原来把「exe 路径」当位置填进 `devtool-path-dsh`，而 DSH 的位置是**安装目录**；改成填安装目录、exe 编在安装目录里、旁边放 `resources/app.asar`，就通了。
+- `MP3E_CHAIN=provider`：**1 passed**（本机假 OpenAI 服务返回结构化回答，替补「合成甲 · demo-a」，改了 note.txt）。
+
+`test-e2e desktop` 全量 **25 passed**。

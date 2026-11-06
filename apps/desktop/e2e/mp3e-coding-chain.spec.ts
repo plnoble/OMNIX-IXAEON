@@ -9,6 +9,7 @@
  *
  * 现在实现还没做（开发工具、编码任务替补列表都没有），本文件应当红。
  */
+import { createServer, type Server } from 'node:http';
 import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
@@ -38,10 +39,18 @@ function fakeClaude(): string {
   });
 }
 
-const MODE = process.env.MP3E_CHAIN === 'dsh' ? 'dsh' : 'claude';
-const SECOND_LABEL = MODE === 'dsh' ? 'DSH' : 'Claude Code · sonnet';
+const MODE =
+  process.env.MP3E_CHAIN === 'dsh'
+    ? 'dsh'
+    : process.env.MP3E_CHAIN === 'provider'
+      ? 'provider'
+      : 'claude';
+let server: Server | null = null;
+let providerBase = '';
+const SECOND_LABEL =
+  MODE === 'dsh' ? 'DSH' : MODE === 'provider' ? '合成甲 · demo-a' : 'Claude Code · sonnet';
 
-/** 假 DSH：安装目录里放真的 exe，输出一行 final。 */
+/** 假 DSH：安装目录里放真的 exe，输出一行 final；返回的是「安装目录」（不是 exe 路径）。 */
 function fakeDsh(): string {
   const install = join(dataDir, 'dsh-install');
   mkdirSync(
@@ -59,11 +68,12 @@ function fakeDsh(): string {
       recursive: true,
     },
   );
-  return buildFakeTool(install, 'DeepSeek Harness', {
+  buildFakeTool(install, 'DeepSeek Harness', {
     stdout: ['{"type":"final","text":"DSH done"}'],
     writeFiles: [{ path: 'note.txt', content: 'done\n' }],
     exitCode: 0,
   });
+  return install;
 }
 
 let app: ElectronApplication;
@@ -79,6 +89,33 @@ test.beforeAll(async () => {
     cwd: projectRoot,
   });
 
+  if (MODE === 'provider') {
+    const answer = {
+      changes: [{ path: 'note.txt', action: 'write', content: 'done\n' }],
+      summary: '供应商做的',
+      claimedSuccess: true,
+    };
+    server = createServer((req, res) => {
+      if (req.url?.includes('/models')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ data: [{ id: 'demo-a' }] }));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      const text = JSON.stringify(answer);
+      res.end(
+        JSON.stringify({
+          choices: [{ message: { content: text } }],
+          output_text: text,
+          output: [{ content: [{ type: 'output_text', text }] }],
+        }),
+      );
+    });
+    const port = await new Promise<number>((r) =>
+      server!.listen(0, '127.0.0.1', () => r((server!.address() as { port: number }).port)),
+    );
+    providerBase = `http://127.0.0.1:${port}/v1`;
+  }
   app = await electron.launch({
     args: [desktopMain],
     env: { ...process.env, IXAEON_DATA_DIR: dataDir, IXAEON_CODEX_EXE: 'none' },
@@ -89,6 +126,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await app.close();
+  server?.close();
 });
 
 test('条件 15：Codex → Claude Code，回报写着替补来做，改动是 Claude 写的', async () => {
@@ -120,16 +158,30 @@ test('条件 15：Codex → Claude Code，回报写着替补来做，改动是 C
   page = await app.firstWindow();
   await expect(page.getByTestId('main-nav')).toBeVisible({ timeout: 20_000 });
 
-  // 「模型」页：手填两个假工具的位置
+  // 「模型」页
   await page.getByTestId('nav-models').click();
   await page.getByTestId('devtool-path-codex').fill(fakeCodex());
   await page.getByTestId('devtool-save-codex').click();
   if (MODE === 'dsh') {
     await page.getByTestId('devtool-path-dsh').fill(fakeDsh());
     await page.getByTestId('devtool-save-dsh').click();
-  } else {
+  } else if (MODE === 'claude') {
     await page.getByTestId('devtool-path-claude').fill(fakeClaude());
     await page.getByTestId('devtool-save-claude').click();
+  } else {
+    await page.getByTestId('provider-add-name').fill('合成甲');
+    await page.getByTestId('provider-add-base').fill(providerBase);
+    await page.getByTestId('provider-add-key').fill('sk-synthetic');
+    await page.getByTestId('provider-add-save').click();
+    const pcard = page
+      .locator('[data-testid^="provider-card-"]')
+      .filter({ hasText: '合成甲' })
+      .last();
+    await pcard.waitFor({ state: 'visible', timeout: 20_000 });
+    await pcard.getByTestId(/^provider-models-/).click();
+    await pcard.getByTestId('model-row-demo-a').waitFor({ state: 'visible', timeout: 20_000 });
+    await pcard.getByTestId('model-row-demo-a').locator('input[type="checkbox"]').check();
+    await pcard.getByTestId(/^provider-save-/).click();
   }
 
   // 编码任务排「Codex → Claude Code · sonnet」
@@ -139,6 +191,9 @@ test('条件 15：Codex → Claude Code，回报写着替补来做，改动是 C
   await addBox.getByRole('button', { name: '添加' }).click();
   if (MODE === 'dsh') {
     await page.getByTestId('coding-chain-tool').selectOption({ label: 'DSH' });
+  } else if (MODE === 'provider') {
+    await page.getByTestId('coding-chain-kind').selectOption({ label: '供应商' });
+    await page.getByTestId('coding-chain-provider').selectOption({ label: '合成甲 · demo-a' });
   } else {
     await page.getByTestId('coding-chain-tool').selectOption({ label: 'Claude Code' });
     await page.getByTestId('coding-chain-claude-model').selectOption({ label: 'sonnet' });
@@ -169,7 +224,14 @@ test('条件 15：Codex → Claude Code，回报写着替补来做，改动是 C
   await expect(card).toContainText(`「Codex」这次不行（额度用完），由替补「${SECOND_LABEL}」来做`, {
     timeout: 60_000,
   });
-  await expect(card).toContainText(SECOND_LABEL === 'DSH' ? 'DSH' : 'Claude Code', {
-    timeout: 30_000,
-  });
+  await expect(card).toContainText(
+    SECOND_LABEL === 'Claude Code · sonnet'
+      ? 'Claude Code'
+      : SECOND_LABEL === 'DSH'
+        ? 'DSH'
+        : '合成甲',
+    {
+      timeout: 30_000,
+    },
+  );
 });
