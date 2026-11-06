@@ -213,16 +213,6 @@ export class ClaudeCodeExecutor implements CodingExecutor {
     }
     return {
       claimedSuccess: true,
-<<<<<<< HEAD
-      changedPaths: [],
-      testsModified: false,
-      changes: [],
-    } as unknown as ExecutorReport;
-  }
-}
-
-/** DSH 执行器：经 dshLaunch 起桌面版（ELECTRON_RUN_AS_NODE=1），取最后一行 final。 */
-=======
       summary: parsed.summary,
       changedPaths: [],
       testsModified: false,
@@ -232,7 +222,6 @@ export class ClaudeCodeExecutor implements CodingExecutor {
 }
 
 /** DSH 执行器：经 dshLaunch 起桌面版（最小环境 + ELECTRON_RUN_AS_NODE=1），取最后一行 final。 */
->>>>>>> origin/dev/MP3db
 export class DshExecutor implements CodingExecutor {
   readonly name = 'dsh';
   constructor(private readonly opts: { install: string }) {}
@@ -247,33 +236,14 @@ export class DshExecutor implements CodingExecutor {
       install: this.opts.install,
       goal: task.goal,
       workspace,
-<<<<<<< HEAD
-      baseEnv: process.env,
-    });
-    const { stdout, code } = await runProcess(
-=======
       baseEnv: toolEnv(),
     });
     const r = await runProcess(
->>>>>>> origin/dev/MP3db
       launch.command,
       launch.args,
       launch.cwd,
       launch.env,
       signal,
-<<<<<<< HEAD
-      15 * 60_000,
-    );
-    const parsed = parseDshOutput(stdout, code);
-    if (!parsed.ok) throw new Error('DSH 执行失败（退出码 ' + String(code) + '）');
-    return {
-      summary: parsed.summary,
-      claimedSuccess: true,
-      changedPaths: [],
-      testsModified: false,
-      changes: [],
-    } as unknown as ExecutorReport;
-=======
       task.timeout_ms ?? DEFAULT_TIMEOUT_MS,
     );
     if (r.timedOut) return failureReport('DSH 超时了，已停掉本次子进程', r.stdout, r.stderr);
@@ -288,6 +258,5 @@ export class DshExecutor implements CodingExecutor {
       testsModified: false,
       raw: '',
     };
->>>>>>> origin/dev/MP3db
   }
 }

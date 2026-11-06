@@ -173,13 +173,10 @@ export function ModelsPage() {
         coding: cfgUses.coding,
       });
       setCurrentModel(view.config.modelName ?? '');
-<<<<<<< HEAD
       setChain(
         ((view.config as unknown as { codingChain?: typeof chain }).codingChain ??
           []) as typeof chain,
       );
-=======
->>>>>>> origin/main
       const tools =
         (typeof api.getDevTools === 'function' ? await api.getDevTools().catch(() => []) : []) ??
         [];
