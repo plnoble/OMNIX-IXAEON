@@ -780,6 +780,9 @@ export function registerIpc(runtime: AppRuntime): void {
     fetchProviderModels: async (id, input) => runtime.fetchProviderModels(id, input),
     saveModelUses: async (input) => runtime.saveModelUses(input),
     saveModelFallbacks: async (input) => runtime.saveModelFallbacks(input),
+    getDevTools: async () => runtime.getDevTools(),
+    saveCodingChain: async (list) => runtime.saveCodingChain(list),
+    saveDevToolPath: async (input) => runtime.saveDevToolPath(input),
     getSettings: async () => {
       const config = runtime.getConfig();
       return {
@@ -801,6 +804,7 @@ export function registerIpc(runtime: AppRuntime): void {
           // MP2（11-03 补）：界面要知道每个用途现在选的是哪家的哪个模型
           uses: config.uses ?? {},
           fallbacks: config.fallbacks ?? {},
+          codingChain: config.codingChain ?? [],
         },
         dataDir: runtime.state.dataDir,
         cockpit: {

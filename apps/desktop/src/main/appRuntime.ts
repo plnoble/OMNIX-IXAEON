@@ -74,6 +74,11 @@ import {
   watchDirectionsSchema,
   type WatchDirection,
   resolveModelUse,
+  detectDevTools,
+  CodingChainExecutor,
+  ClaudeCodeExecutor,
+  DshExecutor,
+  type CodingExecutor,
   resolveModelUseChain,
   checkMagpieUrl,
   getSetting,
@@ -95,6 +100,7 @@ import {
   type GoalEvent,
   type PlanStep,
 } from '@ixaeon/core';
+import { isAbsolute } from 'node:path';
 import { FallbackChatClient, FallbackModelProvider } from './modelFallback.js';
 import {
   type MemoryUsedItem,
@@ -250,7 +256,8 @@ export class AppRuntime {
   private get codingDispatch(): CodingDispatch {
     return (this.codingDispatchRef ??= new CodingDispatch(this));
   }
-  codexLocator: (() => ReturnType<typeof resolveCodexLocator>) | null = resolveCodexLocator;
+  codexLocator: (() => ReturnType<typeof resolveCodexLocator>) | null = () =>
+    resolveCodexLocator({ manual: this.config.devTools?.codex, env: process.env });
   /** S3a：列出后的内存清单（编号 → 路径、授权），30 分钟过期。 */
   private agentSessionLists: Map<
     string,
@@ -1683,6 +1690,179 @@ export class AppRuntime {
     }
   }
 
+  /** MP3db：编码候选串的 5 分钟记忆（键 → 到期毫秒数）。 */
+  codingChainSkip: Map<string, number> = new Map();
+
+  clearCodingChainSkip(): void {
+    this.codingChainSkip ??= new Map();
+    this.codingChainSkip.clear();
+  }
+
+  /** MP3db：保存编码任务的一串候选。 */
+  saveCodingChain(
+    list: Array<
+      | { kind: 'tool'; tool: 'codex' | 'claude' | 'dsh'; model?: string }
+      | { kind: 'provider'; providerId: string; model: string }
+    >,
+  ): { ok: true } {
+    if (list.length > 5) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '最多 5 项');
+    const seen = new Set<string>();
+    for (const item of list) {
+      let key: string;
+      if (item.kind === 'tool') {
+        if (item.tool !== 'claude' && item.model)
+          throw new IxaError(ErrorCodes.VALIDATION_FAILED, 'Codex / DSH 这一单不填模型');
+        if (
+          item.tool === 'claude' &&
+          item.model &&
+          !['opus', 'sonnet', 'haiku'].includes(item.model)
+        )
+          throw new IxaError(
+            ErrorCodes.VALIDATION_FAILED,
+            'Claude Code 只能选 opus / sonnet / haiku',
+          );
+        key = 'tool:' + item.tool + ':' + (item.model ?? '');
+      } else {
+        const saved =
+          item.providerId === 'default'
+            ? ((this.config.model?.savedModels ?? []) as string[])
+            : (((this.config.providers ?? []) as Array<{ id: string; savedModels: string[] }>).find(
+                (p) => p.id === item.providerId,
+              )?.savedModels ?? []);
+        if (!saved.includes(item.model))
+          throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个模型没有勾选保存过');
+        key = 'provider:' + item.providerId + ':' + item.model;
+      }
+      if (seen.has(key)) throw new IxaError(ErrorCodes.VALIDATION_FAILED, '同一项只能出现一次');
+      seen.add(key);
+    }
+    this.updateConfig((c) => ({ ...c, codingChain: list.length ? list : undefined }));
+    recordAudit(this.db, 'coding_chain.saved', { count: list.length });
+    this.clearCodingChainSkip();
+    return { ok: true };
+  }
+
+  private codingCandidates(): Array<{
+    key: string;
+    label: string;
+    executor: CodingExecutor | null;
+  }> {
+    const chain = (this.config.codingChain ?? []) as Array<
+      | { kind: 'tool'; tool: 'codex' | 'claude' | 'dsh'; model?: string }
+      | { kind: 'provider'; providerId: string; model: string }
+    >;
+    const tools = detectDevTools({
+      manual: this.config.devTools ?? {},
+      env: process.env,
+      exists: existsSync,
+    });
+    const rows = new Map(tools.map((r) => [r.tool, r]));
+    return chain.map((item, index) => {
+      if (item.kind === 'tool') {
+        const row = rows.get(item.tool);
+        const found = row?.found ? row.path : null;
+        let executor: CodingExecutor | null = null;
+        if (item.tool === 'codex' && found)
+          executor = new CodexCliExecutor({ exe: found, sandbox: 'workspace-write' });
+        if (item.tool === 'claude' && found)
+          executor = new ClaudeCodeExecutor({
+            exe: found,
+            model: item.model as 'opus' | 'sonnet' | 'haiku' | undefined,
+          });
+        if (item.tool === 'dsh' && found) executor = new DshExecutor({ install: found });
+        const label =
+          item.tool === 'codex'
+            ? 'Codex'
+            : item.tool === 'claude'
+              ? 'Claude Code' + (item.model ? ' · ' + item.model : '')
+              : 'DSH';
+        return {
+          key: 'tool:' + item.tool + ':' + (item.model ?? '') + ':' + index,
+          label,
+          executor,
+        };
+      }
+      // 供应商那一项：照后台分析的候选建真客户端；解不开 Key / 没这个模型就跳过
+      const isDefault = item.providerId === 'default';
+      const p = isDefault
+        ? null
+        : ((
+            (this.config.providers ?? []) as Array<{
+              id: string;
+              name: string;
+              savedModels: string[];
+              apiBaseUrl?: string;
+              apiKeyEncrypted?: string | null;
+            }>
+          ).find((x) => x.id === item.providerId) ?? null);
+      const baseUrl = isDefault ? this.config.model?.apiBaseUrl : p?.apiBaseUrl;
+      const keyEnc = isDefault ? this.config.model?.apiKeyEncrypted : (p?.apiKeyEncrypted ?? null);
+      const saved = isDefault
+        ? ((this.config.model?.savedModels ?? []) as string[])
+        : (p?.savedModels ?? []);
+      const apiKey = keyEnc ? this.decryptOrNull(keyEnc) : null;
+      const executor =
+        apiKey && saved.includes(item.model)
+          ? new ModelCodingExecutor(
+              new OpenAIResponsesProvider({
+                apiKey,
+                modelName: item.model,
+                baseUrl: baseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
+              }),
+              item.model,
+            )
+          : null;
+      return {
+        key: 'provider:' + item.providerId + ':' + item.model + ':' + index,
+        label: (isDefault ? '我的模型' : (p?.name ?? '供应商')) + ' · ' + item.model,
+        executor,
+      };
+    });
+  }
+
+  /** MP3c：三个开发工具的位置（手填优先，只看文件在不在）。 */
+  getDevTools(): Array<{
+    tool: 'codex' | 'claude' | 'dsh';
+    found: boolean;
+    path: string | null;
+    source: 'manual' | 'auto' | null;
+    note: string | null;
+  }> {
+    return detectDevTools({
+      manual: this.config.devTools ?? {},
+      env: process.env,
+      exists: existsSync,
+    });
+  }
+
+  /** MP3c：保存手填位置；null / 空串删掉。 */
+  saveDevToolPath(input: { tool: 'codex' | 'claude' | 'dsh'; path: string | null }): { ok: true } {
+    const tool = input.tool;
+    const raw = (input.path ?? '').trim();
+    const names = { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH' } as const;
+    const next = { ...(this.config.devTools ?? {}) };
+    if (!raw) {
+      delete next[tool];
+    } else {
+      if (!isAbsolute(raw)) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, '位置要填绝对路径');
+      }
+      const ok =
+        tool === 'dsh'
+          ? existsSync(join(raw, 'DeepSeek Harness.exe')) &&
+            existsSync(join(raw, 'resources', 'app.asar'))
+          : existsSync(raw);
+      if (!ok) {
+        throw new IxaError(ErrorCodes.VALIDATION_FAILED, `这个位置没有 ${names[tool]}`);
+      }
+      next[tool] = raw;
+    }
+    this.updateConfig((c) => ({ ...c, devTools: next }));
+    recordAudit(this.db, 'devtool.path_saved', { tool, mode: raw ? '手填' : '恢复自动' });
+    this.clearCodingChainSkip();
+    return { ok: true };
+  }
+
   /** MP3：聊天的候选串（带解出来的 Key；地址/Key 缺的跳过；5 分钟内刚不行的排到最后）。 */
   private chatLaunchChain(): Array<{
     key: string;
@@ -1895,6 +2075,7 @@ export class AppRuntime {
   }): { ok: true; id: string; keyCleared: boolean } {
     // MP3：保存供应商后，5 分钟「先放过刚不行的」记忆清空
     this.clearFallbackCooldown();
+    this.clearCodingChainSkip();
     const name = input.name.trim();
     const apiBaseUrl = input.apiBaseUrl.trim();
     const providedKey =
@@ -2251,6 +2432,14 @@ export class AppRuntime {
    * 运行时连 config 都没有（D3、D4、P4 的测试这样搭）也按 Codex 算。
    */
   executorPlan(): ExecutorPlan {
+    const chain = (this.config as AppConfig | undefined)?.codingChain;
+    if (chain && chain.length > 0)
+      return {
+        use: 'model',
+        executor: new CodingChainExecutor(() => this.codingCandidates(), {
+          skip: (this.codingChainSkip ??= new Map()),
+        }),
+      };
     const coding = (this.config as AppConfig | undefined)?.coding;
     if (!coding || coding.executor === 'codex') return { use: 'codex' };
     const name = coding.modelName;

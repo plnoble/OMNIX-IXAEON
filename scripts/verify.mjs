@@ -125,7 +125,9 @@ results.push(
 
 // 构建放在测试之前：有的集成测试会真的拉起构建产物（比如 Hermes 拉起 apps/mcp/dist 的
 // 记忆桥），放在后面就是拿上一次留下的旧产物去测（2026-10-02 本机恒失败的根因）。
-results.push(run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]));
+results.push(
+  await run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]),
+);
 
 results.push(
   await run('unit（Vitest 单元测试）', [

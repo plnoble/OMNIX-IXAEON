@@ -139,29 +139,21 @@ const $ = <T extends Element>(testId: string) =>
   container.querySelector<T>(`[data-testid="${testId}"]`);
 
 describe('条件 7：调度器与模型卡片、替补没配、选了新组合就写回', () => {
-  it('卡片四行（开发 / 整合 / 审查 / 替补），5 个角色都有；替补两行「没配」；开发 5 个选项按 3 个网关分组；每行「下一棒生效」', async () => {
+  it('卡片三行（开发 / 整合 / 审查；替补两行 11-05 由 MP3f 拿掉）；开发 5 个选项按 3 个网关分组；每行「下一棒生效」', async () => {
     await render();
     expect($('cockpit-relay-models')).not.toBeNull();
-    // 规格表格最后一行「替补审查 / 替补整合方」是同一行，下面再分两行。
-    expect($('relay-model-list')!.children).toHaveLength(4);
-    for (const role of [
-      'developer',
-      'integrator',
-      'reviewer',
-      'reviewerSubstitute',
-      'integratorSubstitute',
-    ]) {
+    // 整合方 11-05 退役：「替补审查 / 替补整合方」两行由 MP3f 条件 18 拿掉（用户 11-04 定代审、替补整合改成手动开 DSH），
+    // 这里只留开发 / 整合 / 审查三行；两行不显示由 mp3f-panel.test.ts 管。
+    for (const role of ['developer', 'integrator', 'reviewer']) {
       expect($(`relay-model-row-${role}`), `缺少角色行 ${role}`).not.toBeNull();
     }
-    expect($('relay-model-current-reviewerSubstitute')!.textContent).toBe('没配');
-    expect($('relay-model-current-integratorSubstitute')!.textContent).toBe('没配');
 
     const select = $<HTMLSelectElement>('relay-model-select-developer');
     expect(select).not.toBeNull();
     expect(select!.querySelectorAll('option')).toHaveLength(5);
     expect(select!.querySelectorAll('optgroup')).toHaveLength(3);
 
-    expect(container.textContent!.match(/下一棒生效/g)).toHaveLength(5);
+    expect(container.textContent!.match(/下一棒生效/g)).toHaveLength(3);
   });
 
   it('选 magpie / local-a → setRelayModel、刷新后显示新值', async () => {

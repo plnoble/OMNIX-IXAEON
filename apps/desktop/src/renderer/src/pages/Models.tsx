@@ -124,6 +124,26 @@ export function ModelsPage() {
   const [filter, setFilter] = useState<Record<string, string>>({});
   const [, setBusy] = useState(false);
   const [currentModel, setCurrentModel] = useState('');
+  const [chain, setChain] = useState<
+    Array<
+      | { kind: 'tool'; tool: 'codex' | 'claude' | 'dsh'; model?: string }
+      | { kind: 'provider'; providerId: string; model: string }
+    >
+  >([]);
+  const [chainKind, setChainKind] = useState<'tool' | 'provider'>('tool');
+  const [chainTool, setChainTool] = useState<'codex' | 'claude' | 'dsh'>('codex');
+  const [chainModel, setChainModel] = useState('默认');
+  const [chainProvider, setChainProvider] = useState('');
+  const [devtools, setDevtools] = useState<
+    Array<{
+      tool: 'codex' | 'claude' | 'dsh';
+      found: boolean;
+      path: string | null;
+      source: 'manual' | 'auto' | null;
+      note: string | null;
+    }>
+  >([]);
+  const devRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [fallbacks, setFallbacks] = useState<{
     analysis: Array<{ providerId: string; model: string }>;
     chat: Array<{ providerId: string; model: string }>;
@@ -153,6 +173,15 @@ export function ModelsPage() {
         coding: cfgUses.coding,
       });
       setCurrentModel(view.config.modelName ?? '');
+      setChain(
+        ((view.config as unknown as { codingChain?: typeof chain }).codingChain ??
+          []) as typeof chain,
+      );
+      const tools =
+        (typeof api.getDevTools === 'function' ? await api.getDevTools().catch(() => []) : []) ??
+        [];
+      setDevtools(tools);
+
       const cfgFallbacks = (view.config.fallbacks ?? {}) as {
         analysis?: Array<{ providerId: string; model: string }>;
         chat?: Array<{ providerId: string; model: string }>;
@@ -329,6 +358,7 @@ export function ModelsPage() {
   const saveUses = async (): Promise<void> => {
     setError(null);
     try {
+      if (typeof api.saveCodingChain === 'function') await api.saveCodingChain(chain);
       await api.saveModelUses({
         analysis: uses.analysis ?? null,
         chat: uses.chat ?? null,
@@ -545,6 +575,75 @@ export function ModelsPage() {
         </div>
       </Card>
 
+      <Card title="开发工具" testId="models-devtools">
+        <p className="muted">
+          IXAEON 自己找 Claude Code / Codex / DSH 装在哪；找不到可以手填绝对路径。
+        </p>
+        {devtools.map((row) => (
+          <div className="card" data-testid={`devtool-row-${row.tool}`} key={row.tool}>
+            <div className="row">
+              <strong>
+                {row.tool === 'codex' ? 'Codex' : row.tool === 'claude' ? 'Claude Code' : 'DSH'}
+              </strong>
+              <span className="muted">{row.found ? '找到' : '没找到'}</span>
+              <span className="muted">
+                {row.source === 'manual' ? '手填' : row.found ? '自动找的' : (row.note ?? '')}
+              </span>
+              <span className="muted">{row.path ?? ''}</span>
+            </div>
+            <div className="row">
+              <input
+                className="input"
+                data-testid={`devtool-path-${row.tool}`}
+                placeholder="位置（绝对路径）"
+                defaultValue={row.path ?? ''}
+                ref={(el) => {
+                  devRefs.current[row.tool] = el;
+                }}
+              />
+              <Button
+                kind="primary"
+                testId={`devtool-save-${row.tool}`}
+                onClick={() =>
+                  void (async () => {
+                    setError(null);
+                    try {
+                      await api.saveDevToolPath({
+                        tool: row.tool,
+                        path: devRefs.current[row.tool]?.value ?? '',
+                      });
+                      setNotice('开发工具位置已保存');
+                      await load();
+                    } catch (err) {
+                      setError(errMsg(err));
+                    }
+                  })()
+                }
+              >
+                保存
+              </Button>
+              <Button
+                testId={`devtool-auto-${row.tool}`}
+                onClick={() =>
+                  void (async () => {
+                    setError(null);
+                    try {
+                      await api.saveDevToolPath({ tool: row.tool, path: null });
+                      setNotice('恢复自动');
+                      await load();
+                    } catch (err) {
+                      setError(errMsg(err));
+                    }
+                  })()
+                }
+              >
+                恢复自动
+              </Button>
+            </div>
+          </div>
+        ))}
+      </Card>
+
       <Card title="用途" testId="models-uses">
         <p className="muted">三个用途各自用哪家的哪个模型。聊天不选就跟着后台分析走。</p>
         <label>
@@ -595,6 +694,132 @@ export function ModelsPage() {
             ))}
           </select>
         </label>
+        <div className="card" data-testid="coding-chain">
+          <strong>编码任务（主选在前）</strong>
+          <ul data-testid="coding-chain-list" style={{ listStyle: 'none', paddingLeft: 0 }}>
+            {chain.map((item) => (
+              <li key={JSON.stringify(item)}>
+                {item.kind === 'tool'
+                  ? item.tool === 'codex'
+                    ? 'Codex'
+                    : item.tool === 'dsh'
+                      ? 'DSH' + (devtools.find((d) => d.tool === 'dsh')?.found ? '' : '（没找到）')
+                      : 'Claude Code' + (item.model ? ' · ' + item.model : '')
+                  : labelOf(item.providerId, item.model)}
+              </li>
+            ))}
+            <div className="row">
+              {chain.map((item, i) => (
+                <span key={'act' + i}>
+                  <Button
+                    onClick={() =>
+                      setChain(
+                        chain.map((x, j) =>
+                          j === i - 1 ? chain[i]! : j === i ? chain[i - 1]! : x,
+                        ),
+                      )
+                    }
+                  >
+                    上移
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      setChain(
+                        chain.map((x, j) =>
+                          j === i ? chain[i + 1]! : j === i + 1 ? chain[i]! : x,
+                        ),
+                      )
+                    }
+                  >
+                    下移
+                  </Button>
+                  <Button onClick={() => setChain(chain.filter((_, j) => j !== i))}>删掉</Button>
+                </span>
+              ))}
+            </div>
+            <div data-testid="coding-chain-add" className="row">
+              <select
+                data-testid="coding-chain-kind"
+                value={chainKind}
+                onChange={(e) => setChainKind(e.target.value as 'tool' | 'provider')}
+              >
+                <option value="tool">开发工具</option>
+                <option value="provider">供应商</option>
+              </select>
+              {chainKind === 'tool' ? (
+                <>
+                  <select
+                    data-testid="coding-chain-tool"
+                    value={chainTool}
+                    onChange={(e) => setChainTool(e.target.value as 'codex' | 'claude' | 'dsh')}
+                  >
+                    <option value="codex">Codex</option>
+                    <option value="claude">Claude Code</option>
+                    <option value="dsh">
+                      DSH{devtools.find((d) => d.tool === 'dsh')?.found ? '' : ' 没找到'}
+                    </option>
+                  </select>
+                  {chainTool === 'claude' ? (
+                    <select
+                      data-testid="coding-chain-claude-model"
+                      value={chainModel}
+                      onChange={(e) => setChainModel(e.target.value)}
+                    >
+                      <option>默认</option>
+                      <option>opus</option>
+                      <option>sonnet</option>
+                      <option>haiku</option>
+                    </select>
+                  ) : null}
+                </>
+              ) : (
+                <select
+                  data-testid="coding-chain-provider"
+                  value={chainProvider}
+                  onChange={(e) => setChainProvider(e.target.value)}
+                >
+                  {providers
+                    .flatMap((p) =>
+                      p.savedModels.map((m) => p.name + ' · ' + m + '|' + p.id + '|' + m),
+                    )
+                    .map((raw) => {
+                      const parts = raw.split('|');
+                      return (
+                        <option key={raw} value={raw}>
+                          {parts[0]}
+                        </option>
+                      );
+                    })}
+                </select>
+              )}
+              <Button
+                disabled={chain.length >= 5}
+                onClick={() => {
+                  if (chain.length >= 5) return;
+                  if (chainKind === 'tool') {
+                    setChain([
+                      ...chain,
+                      chainTool === 'claude'
+                        ? chainModel === '默认'
+                          ? { kind: 'tool', tool: 'claude' }
+                          : { kind: 'tool', tool: 'claude', model: chainModel }
+                        : { kind: 'tool', tool: chainTool },
+                    ]);
+                  } else {
+                    const parts = chainProvider.split('|');
+                    if (!parts[1] || !parts[2]) return;
+                    setChain([
+                      ...chain,
+                      { kind: 'provider', providerId: parts[1], model: parts[2] },
+                    ]);
+                  }
+                }}
+              >
+                添加
+              </Button>
+            </div>
+          </ul>
+        </div>
         <FallbackEditor
           use="analysis"
           list={fallbacks.analysis}

@@ -40,7 +40,7 @@
       "files": {
         "packages/core/test/acceptance/t2a-suggested-todos.test.ts": "894abc8826f20296a9f026131ce5bac61e8caa1740ce92d248547a73563cb9a2",
         "packages/core/test/acceptance/t2a-hermes-instruction.test.ts": "66e66cf930e02aefd540795612d3c37c6ff60cf736b958667160873a99934175",
-        "apps/desktop/test/acceptance/t2a-ask-todos.test.ts": "8b1781bdcaf7849d2821dbc09a30433f0a3501f61cefc2dda9752e18f9343789",
+        "apps/desktop/test/acceptance/t2a-ask-todos.test.ts": "049d84e1bb1996defdf67c0860aaf096b56f6da73b96e499c7678223335d3256",
         "apps/desktop/test/acceptance/t2a-todo-cards.test.ts": "f5940c3e73c54c00c962fa1d05abe6af9ee225fed0b13f2985d7a053a9b53c60"
       }
     },
@@ -813,7 +813,7 @@
       "title": "调度器面板：看得见每个角色用什么模型、在界面上选",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/k10a-cockpit-models.test.ts": "5a9b5d271f1b73e5474e79d24b5f4038bb965de62d0bbfa0d3dcdf3e0d4dfc96",
+        "apps/desktop/test/acceptance/k10a-cockpit-models.test.ts": "79ac61c70670ee119b7b13f745c9ff481888895842032e88386f04da7909e513",
         "apps/desktop/test/acceptance/k10a-relay-models-ipc.test.ts": "f235311c4ff9e866aa73c30c845ca5235331a86f4ae2a13dfd8cc2bbac914d26",
         "packages/core/test/acceptance/k10a-relay-models.test.ts": "efa4d1168691182fb8808d3d1f99914f4e240f149f862279aa3e904a78d1345a",
         "packages/relay/test/acceptance/k10a-codex-review.test.ts": "430dda7055acde0540df96823aee0d35fa8dd1cd9734c1c34642ae0b5a0f0314"
@@ -945,7 +945,7 @@
     {
       "id": "MP3c",
       "title": "开发工具与编码替补",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/mp3c-devtools.test.ts": "5cf31bacb3d22cf6d62054df8693387d0938e68197613f31c0a4162015adaab0",
         "apps/desktop/test/acceptance/mp3c-devtool-save.test.ts": "60e2c8d15bfdae403515fdd1157aa02fc0b969c3e37af84325448f7cecdd22cb",
@@ -956,7 +956,7 @@
     {
       "id": "MP3d",
       "title": "编码任务候选串与 Claude Code",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/mp3d-chain-executor.test.ts": "7823e2467a316a7c6f96d6ffe225ac301d5f60a0265367babb685d0194ef2d27",
         "packages/core/test/acceptance/mp3d-launch-pure.test.ts": "82c2a2d42fe2f3483c268044e1acea64fb484b375069522a1d7b796913b83f29",
@@ -966,7 +966,7 @@
     {
       "id": "MP3e",
       "title": "DSH 执行器与编码候选界面",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts": "0bdedbcd0e7dcf3a78977f6823719a12f60a4697a2348e80557700afdd1098ea"
       }
@@ -974,10 +974,26 @@
     {
       "id": "MP3f",
       "title": "调度器面板不自己审自己",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/mp3f-panel.test.ts": "5d97d768710f7cc6f44e4db3c7cc418d03e88aba691029be1b2b0c356f7071c3",
         "apps/desktop/test/acceptance/mp3f-rules.test.ts": "c6991f8cdc01ed83bba9552753e45e509f2f041e3c784872f26abc2861306aa3"
+      }
+    },
+    {
+      "id": "MP3db",
+      "title": "编码候选串复审补测",
+      "status": "done",
+      "files": {
+        "apps/desktop/test/acceptance/mp3db-chain-fixes.test.ts": "5048a175df3923bd0ccef34b925f384d29820eb61b806ebb8d9d23b5df5da9f1"
+      }
+    },
+    {
+      "id": "CF2",
+      "title": "聊天行为基线",
+      "status": "queued",
+      "files": {
+        "apps/desktop/test/acceptance/cf2-chat-baseline.test.ts": "3388bf507e2ef4282c72856dad463785ef38efe0c12bb3ab18acbcef7f186948"
       }
     },
     {

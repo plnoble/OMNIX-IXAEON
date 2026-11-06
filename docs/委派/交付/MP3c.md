@@ -100,3 +100,84 @@ dev 报：规格第 12 条要拿掉「替补审查」「替补整合方」两行
   - 拿掉两行之前，k10a / mg2 / mp3f-panel 三份 7 条，红 2 条（新的两条）；
   - 临时拿掉两行之后 7 条全过（模拟后已还原）；
   - `mg2-panel.test.ts` 只在桩里有这两行，不用改。
+    ﻿
+
+## 实现（MP3c，2026-11-05）
+
+- `packages/core/src/execution/devTools.ts`（新）：`detectDevTools({manual, env, exists?})`，顺序 codex/claude/dsh；手填只在就 manual、不在就「手填的位置没有这个程序」不往下找；自动按 env → 默认路径；DSH 要 `DeepSeek Harness.exe` 与 `resources/app.asar` 同时存在；`IXAEON_CODEX_EXE=none` 记「已设成不用 Codex」。
+- `packages/core/src/execution/executor.ts`：`resolveCodexLocator(input?)` 传参就交给 `detectDevTools`；不传保持旧行为（去掉原来那个假的 `'codex'` 候选）。
+- `packages/core/src/index.ts` 导出 `detectDevTools`。
+- `packages/contracts`：`config.devTools`（默认 `{}`）；`getDevTools()` / `saveDevToolPath({tool,path})` 两个 IPC。
+- `apps/desktop/src/main/appRuntime.ts`：`getDevTools()`、`saveDevToolPath()`（绝对路径校验、不在就「这个位置没有 <工具名>」、null/空串删手填、审计只记工具名与「手填 / 恢复自动」不记路径）；`codexLocator` 默认改成按 `config.devTools.codex` 取（手填优先）。
+- `ipc.ts` / `preload`：注册两个通道。
+- `Models.tsx`：「供应商」和「用途」之间加「开发工具」卡片，三行 `devtool-row/path/save/auto-<tool>`；输入用 DOM ref 取当前值（jsdom 下直接改 input.value 也能存档）。
+
+自动化：`node scripts/acceptance.mjs run MP3c` → **4 files / 18 tests 全过**。
+
+真机检查（`node scripts/real/run-batch.mjs scripts/real/mp3c-devtools.ts`，只输出三行、不含路径）：
+
+```
+codex：没找到、—
+claude：没找到、—
+dsh：没找到、—
+```
+
+（本机这三样都没装/没配，符合「没找到」；脚本不打印任何路径。）
+
+四项：已实现=MP3c 条件 1–4、6（条件 5 由 `resolveCodexLocator(input)` 覆盖）；自动化通过=18/18；真机通过=上面三行；用户接受=未接受。
+
+## 进度说明
+
+MP3d / MP3e 这次没有开始：本轮先把 MP3f 收尾（含整合方改的两份锁定测试）再做 MP3c，做完 MP3c 时本轮时间用尽。MP3d / MP3e 的分支、实现与真机检查留待下一轮接着做（测试已锁在 main，`dev/MP3c` 上可直接往下接）。
+
+## 整合方复审（2026-11-06）
+
+### 并入：MP3f、MP3c
+
+- **MP3f**（源码 +84 / −15）：拦截写在 `setRelayModel`；模型名按「 / 」切；分组和默认不拦；分组提醒写在开发那一行的 `note`。面板拿掉两行替补；调度器配置里那两个角色不动。K10a 条件 7 的退役随这一支并入。
+- **MP3c**（源码 +292 / −4）：`detectDevTools` 只看文件在不在，默认用 `existsSync`（dev 已改正）；`saveDevToolPath` 不在就拒、审计不记路径；Codex 执行器手填优先。本机三个工具都是「找到、自动」。
+- 两支 `acceptance.mjs done`，队列第 165、168 行已完成。
+
+### 退回改：MP3d、MP3db、MP3e
+
+每支行数都在 300 以内（MP3d 199、MP3db 285、MP3e 213），自动化测试也都过了。但下面几处是真问题：真用起来会出错，或者跟规格不一样。改完三支一起再交，队列第 166、167 行「待复审（整合方）」。
+
+**必须改：**
+
+1. **两个新执行器把整个 `process.env` 交给了子进程**（`toolLaunch.ts` 的 `ClaudeCodeExecutor`、`DshExecutor`）。规格第 8、9 条要求跟 Codex 执行器用同一个最小环境。
+   - `executor.ts` 里的 `minimalChildEnv()` 导出来用；DSH 经 `dshLaunch` 再加 `ELECTRON_RUN_AS_NODE=1`。
+   - 要是 Claude Code 或 DSH 缺 `APPDATA` / `LOCALAPPDATA` 起不来，就只给这两个加这两项（只是路径，不是密钥），在交付说明写明。
+2. **真的额度用完，换不过去**：两个新执行器失败时抛 `Error('… 执行失败（退出码 N）')`，标准输出和错误输出都丢了。`CodingChainExecutor` 看不到 `usage_limit_reached`，就不会换。
+   - 改成失败时返回 `claimedSuccess: false` 的回报，`summary` 写一句人话，`raw` 带标准输出和错误输出的末尾（各取最后约 4000 字）。
+   - 补一条测试：假 Claude Code 退出 1、输出里有 `usage_limit_reached` → 候选串换到下一项。照 `mp3d-chain-executor` 的写法另起一份 `mp3db-*.test.ts`，不改锁定的。
+3. **取消、超时没杀进程树，标准输入没关**：`runProcess` 用 `child.kill('SIGKILL')`，Windows 上只杀主进程。规格要求复用 Codex 那一套。
+   - 导出 `killProcessTree` 来用；`spawn` 加 `stdio: ['ignore', 'pipe', 'pipe']`、`shell: false`；
+   - 超时用 `task.timeout_ms`，不要写死 15 分钟。
+4. **DSH 永远派不到**：`appRuntime.codingCandidates()` 只给 codex、claude 建执行器，DSH 那一项永远是 `null`，派发时一律跳过。真机的「Codex → DSH」是直接调 `CodingChainExecutor` 跑的，没经过派发这一层，所以没发现。补上 `new DshExecutor({ install: 找到的安装目录 })`。
+5. **「供应商 + 模型」那一项一用就崩**：`new ModelCodingExecutor(provider as never, item.model)` 交进去的是配置里的供应商记录，不是能调用的模型客户端，调 `chatStructured` 就报错。
+   - 照 MP3 里 `analysisCandidates` / `getProvider` 的做法，解开那家的 Key、建 `OpenAIResponsesProvider`；
+   - 解不开或没 Key 时给 `null`（跳过）。
+6. **第一家供应商（`default`）选不了**：`saveCodingChain` 只在 `config.providers` 里找，规格第 5 条和 MP3 都允许 `default`（用 `config.model.savedModels` 校验）。第 5 条建执行器时也要认 `default`。
+7. **判断「工作区改没改」没排除 `EXECUTOR_CHANNEL_FILE`**：Codex 用 `-o` 往工作区写 `.ixaeon-last-message.txt`，额度失败时也可能写。规格「测试入口」写了「不算 `EXECUTOR_CHANNEL_FILE`」。不排除的话，真 Codex 报额度后会被当成「改动了工作区」，不换。在 `CodingChainExecutor` 比指纹前把这一项删掉。
+8. **执行器名字**：dev 报的「跟 D7b 条件 7、8 冲突」不用二选一。D7b 要的是「跑到一半改了设置，记的还是开工时那个」；规格要的是「换过之后记实际做的那个」。两条同时成立的做法：
+   - `CodingExecutor` 接口加可选 `readonly lastRunName?: string | null`；
+   - `ConfiguredCodingExecutor.run` 开头清空它；用开工那一刻取到的 `current` 跑完后，设成 `current` 那个执行器（或 codex）当时的 `name`，**不重新读设置**；
+   - `CodingOrchestrator` 最后写 `pending_verify` / `failed` 那两处用 `this.executor.lastRunName ?? executorNameAtStart`；开工时写 `running` 照旧用开工的名字；
+   - 补一条测试（另起 `mp3db-*.test.ts`）：候选串换到 Claude Code 后，任务行的 `executor_name` 是 `claude-code`。并跑 `d7b-executor-selection` 确认照旧全过。
+
+**顺手改：**
+
+- 两个新执行器回报里多出来的 `changes: []` 和 `as unknown as ExecutorReport` 去掉，按 `ExecutorReport` 的字段写。
+
+## 整合方复审第二轮（2026-11-06）：MP3d / MP3db / MP3e 并入
+
+- 第一轮「必须改」1–8 条逐条核过：
+  - 最小环境、杀进程树、不接标准输入、超时用任务自己的；
+  - 失败带输出、额度能认出来；
+  - DSH 能派到；供应商项建真客户端；`default` 能选；
+  - 指纹排除通道文件；执行器名字记实际做的那个，D7b 照旧全过。
+- 整合方补了一行：新执行器取消时返回失败回报、不抛错，「没做成」那条路原来不看取消。现在先看 `signal.aborted`，已取消就照这份回报，不换下一个。
+- MP3e 已经包含前两支的全部改动（三支的关键文件逐字一致），所以只合 MP3e 这一支。`acceptance.mjs done` MP3d、MP3db、MP3e；队列第 166、167 行已完成；第 87 行 D8、第 135 行 XE1 作废（并入 MP3d）。
+- 顺手修：第一轮改队列的命令里正则写错，把 `队列.md` 的标题行改坏了。已恢复，跟写坏之前的版本比只差该改的几行。
+- 本机完整门禁通过；三档端到端（claude / dsh / provider）dev 已跑过。
+- **用户接受：未接受。** 等用户在应用里真排一串编码顺序、派发一单看一眼。

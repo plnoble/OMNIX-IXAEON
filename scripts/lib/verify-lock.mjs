@@ -4,7 +4,7 @@
  * 锁文件里只写 { pid, startedAt }，不写工作目录（路径里有账户名）。
  * 拿锁用独占创建（openSync 'wx'）；拿不到按轮询等；锁里的 pid 已经不在或内容读不懂就接手。
  */
-import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -29,6 +29,15 @@ function alive(pid) {
     return true;
   } catch (err) {
     return err.code !== 'ESRCH';
+  }
+}
+
+/** 锁文件建了多久（毫秒）；读不到当作很久以前。 */
+function ageMs(path) {
+  try {
+    return Date.now() - statSync(path).mtimeMs;
+  } catch {
+    return Number.POSITIVE_INFINITY;
   }
 }
 
@@ -88,7 +97,9 @@ export async function acquireVerifyLock(opts = {}) {
       return got;
     }
     const holder = readHolder(path);
-    const stale = holder === null || !alive(holder.pid);
+    // 整合方 11-06：内容读不懂时，若锁文件 5 秒内刚建（对方刚 open 还没写进去），先当它活着，免得两份都拿到锁
+    const fresh = holder === null && ageMs(path) < 5_000;
+    const stale = !fresh && (holder === null || !alive(holder.pid));
     if (stale) {
       try {
         unlinkSync(path);
@@ -102,7 +113,11 @@ export async function acquireVerifyLock(opts = {}) {
     if (Date.now() - started >= maxWaitMs) return { busy: true, holder };
     if (Date.now() - lastLogAt >= 60_000) {
       lastLogAt = Date.now();
-      log(`另一次 verify 正在跑（进程 ${holder.pid}，${hhmm(holder.startedAt)} 开始），等它跑完`);
+      log(
+        holder
+          ? `另一次 verify 正在跑（进程 ${holder.pid}，${hhmm(holder.startedAt)} 开始），等它跑完`
+          : '另一次 verify 刚开始，等它跑完',
+      );
     }
     await sleep(pollMs);
   }

@@ -277,7 +277,7 @@ export function readRelayModels(opts: {
     integratorOptions.push(integratorMagpie);
   return {
     roles: [
-      dshRow(config, 'developer', 'developer', '没配开发角色', magpie),
+      withDevGroupNote(dshRow(config, 'developer', 'developer', '没配开发角色', magpie)),
       row(
         'integrator',
         'claude',
@@ -291,6 +291,86 @@ export function readRelayModels(opts: {
       dshRow(config, 'integratorSubstitute', 'integratorSubstitute', '没配', magpie),
     ],
   };
+}
+
+/** MP3f：值里的「网关 / 」前缀去掉，只比模型名；magpie 的模型 id 本身带斜杠，所以按「 / 」切。 */
+function modelNameOf(value: string): string {
+  const at = value.indexOf(' / ');
+  return at >= 0 ? value.slice(at + 3) : value;
+}
+function isGroupValue(value: string | null): boolean {
+  if (!value) return false;
+  return modelNameOf(value).startsWith('group/');
+}
+function isDefaultValue(value: string | null): boolean {
+  return value === null || value === '' || value === '默认' || value === DEFAULT_INTEGRATOR;
+}
+function developerValue(config: Json, magpie: MagpieModels): string | null {
+  const path = patchPath(argvOf(config, 'developer'));
+  if (!path || !existsSync(path)) return null;
+  const p = readPatch(path, magpie);
+  return p.current ? `${p.current.provider} / ${p.current.model}` : null;
+}
+function integratorValue(config: Json): string | null {
+  const integrator = rec(rec(config.roles)?.integrator);
+  if (!Array.isArray(integrator?.argv)) return null;
+  const magpieModel = str(integrator?.magpieModel);
+  if (magpieModel) return magpieModel;
+  const argv = integrator!.argv as unknown[];
+  const at = argv.indexOf('--model');
+  return at >= 0 && typeof argv[at + 1] === 'string' ? (argv[at + 1] as string) : null;
+}
+function reviewerValue(config: Json): string | null {
+  const review = rec(config.review) ?? {};
+  return str(review.magpieModel) ?? str(review.codexModel) ?? null;
+}
+function collideMessage(a: string, b: string, name: string): never {
+  invalid(`${a}和${b}都是 ${name}，换一个（关卡不能自己审自己）`);
+}
+function guardReviewer(config: Json, magpie: MagpieModels, nextReviewer: string | null): void {
+  const dev = developerValue(config, magpie);
+  if (isDefaultValue(nextReviewer) || isGroupValue(nextReviewer) || isGroupValue(dev)) return;
+  if (!dev || !nextReviewer) return;
+  const a = modelNameOf(dev).toLowerCase();
+  const b = modelNameOf(nextReviewer).toLowerCase();
+  if (a && b && a === b) collideMessage('审查', '开发', modelNameOf(dev));
+}
+function guardIntegrator(config: Json, magpie: MagpieModels, nextIntegrator: string | null): void {
+  const dev = developerValue(config, magpie);
+  if (isDefaultValue(nextIntegrator) || isGroupValue(nextIntegrator) || isGroupValue(dev)) return;
+  if (!dev || !nextIntegrator) return;
+  const devModel = modelNameOf(dev).toLowerCase();
+  const chosen = modelNameOf(nextIntegrator);
+  if (INTEGRATOR_OPTIONS.includes(chosen) && chosen !== DEFAULT_INTEGRATOR) {
+    if (devModel.includes('claude') && devModel.includes(chosen.toLowerCase()))
+      collideMessage('整合', '开发', chosen);
+    return;
+  }
+  if (devModel === chosen.toLowerCase()) collideMessage('整合', '开发', chosen);
+}
+function guardDeveloper(config: Json, magpie: MagpieModels, nextDeveloper: string): void {
+  if (isGroupValue(nextDeveloper)) return;
+  const devModel = modelNameOf(nextDeveloper).toLowerCase();
+  const reviewer = reviewerValue(config);
+  if (!isDefaultValue(reviewer) && !isGroupValue(reviewer) && reviewer) {
+    if (modelNameOf(reviewer).toLowerCase() === devModel)
+      collideMessage('审查', '开发', modelNameOf(nextDeveloper));
+  }
+  const integrator = integratorValue(config);
+  if (!isDefaultValue(integrator) && !isGroupValue(integrator) && integrator) {
+    const chosen = modelNameOf(integrator);
+    if (INTEGRATOR_OPTIONS.includes(chosen) && chosen !== DEFAULT_INTEGRATOR) {
+      if (devModel.includes('claude') && devModel.includes(chosen.toLowerCase()))
+        collideMessage('整合', '开发', chosen);
+    } else if (chosen.toLowerCase() === devModel) {
+      collideMessage('整合', '开发', chosen);
+    }
+  }
+}
+function withDevGroupNote(rowValue: C.RelayModelRow): C.RelayModelRow {
+  if (!isGroupValue(rowValue.current)) return rowValue;
+  const reminder = '分组里有哪些模型 IXAEON 不知道，留意别跟审查、整合重了';
+  return { ...rowValue, note: rowValue.note ? `${rowValue.note}；${reminder}` : reminder };
 }
 
 function backup(path: string): void {
@@ -353,6 +433,7 @@ function setDsh(
   if (!patch.ok || !provider || !model || !patch.options.includes(value!))
     invalid('这个选项不在补丁登记的模型里');
 
+  if (role === 'developer') guardDeveloper(config, magpie, value!);
   const raw = readFileSync(path, 'utf8');
   const lines = raw.split('\n');
   const range = itemRange(lines, 'agent-default-model');
@@ -395,6 +476,7 @@ function setIntegrator(
   const isMagpie = value !== null && magpie.models.includes(value);
   if (!isDefault && !isAlias && !isMagpie)
     invalid('整合方只能选 默认 / opus / sonnet / haiku，或 magpie 清单里的模型 / 分组');
+  guardIntegrator(config, magpie, isDefault ? null : value);
   const next = [...(argv as unknown[])];
   const at = next.indexOf('--model');
   const insertAt = at >= 0 ? at : next.length;
@@ -441,6 +523,7 @@ function setReviewer(
   const next = isDefault ? null : value;
   if (!isDefault && !isMagpie && !/^[A-Za-z0-9._-]+$/.test(next!))
     invalid('Codex 模型名只能用字母、数字、.、-、_');
+  guardReviewer(config, magpie, isDefault ? null : next);
   const before = JSON.stringify(review);
   if (isMagpie) {
     review.magpieModel = value;
