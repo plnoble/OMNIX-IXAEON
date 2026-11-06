@@ -56,3 +56,31 @@
 - 原型下这三份照旧全过。dev 列的其它几份核过：`g04-task-origin` 原型下没红，不用改；`t2a-todo-cards`、`t2a-hermes-instruction`、`cf3-prompt` 不冲突；`t2a-suggested-todos` 只测解析函数，实现时要是删了解析函数，再来找整合方退役。
 
 可以写实现了。
+
+## 实现（2026-11-06）
+
+- 改了 `apps/desktop/src/main/appRuntime.ts` 的提问路径：删掉 `extractSuggestedTodos` 的调用与 `proposedTodos` 的建待办循环、`finishMessage` 的 `meta.proposedTodos`；正文、存档、返回值都用原样的回答。`parseUserTodo`（用户自己写「待办：」）一字未动；系统提示、Hermes 约定、工具清单都没改。
+- `suggestedTodos.ts` 没删：`SUGGESTED_TODOS_INSTRUCTION` 等仍被 `cf3-prompt` 引用，删了会红；只是没人再调 `extractSuggestedTodos`。
+
+## 自动化通过
+
+```
+$ node scripts/acceptance.mjs run CF2
+Tests  6 passed (6)
+```
+
+`tsc`、`eslint` 干净。
+
+## 真机检查（没通过，如实记）
+
+`scripts/real/cf2-baseline-counts.mjs`：临时数据目录 + 本机 magpie（模型 `antigravity/claude-opus-5-5`），点「新对话」后按顺序问 8 句。脚本能跑到结束，但：
+
+```
+聊天模型（保存后）： magpie
+用的模型： antigravity/claude-opus-5-5
+待办行数： 0 ｜其中来源用户： 0
+编码任务行数： 0
+8 轮里回答正文含「建议待办」的轮数： 0
+```
+
+问题 8 期望建 1 条用户待办，实际 0——说明这 8 句没有真的走到建待办的提问路径（消息列表为空/回答没出现）。下一步要在脚本里读 `uses.chat` 与那一轮的消息状态再定，是「模型页保存没生效」还是「聊天页那条路没接上」。真机这一项**未通过**，交审时请以自动化与代码改动为准，真机待补。

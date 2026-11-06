@@ -69,18 +69,31 @@ try {
   await page.getByTestId('nav-ask').click();
   await page.getByTestId('conversation-new').click();
   await page.waitForTimeout(500);
+  // 先确认聊天模型真的保存上了（否则直连起不来、点了也没反应）
+  const settings = await page.evaluate(async () => (await window.ixaeon.getSettings()).config);
+  console.log('聊天模型（保存后）：', settings.chatModelName || settings.modelName || '（空）');
+  console.log('uses.chat：', JSON.stringify(settings.uses?.chat ?? null));
+  await page.getByTestId('ask-input').waitFor({ state: 'visible', timeout: 20_000 });
   for (const q of Q) {
     const before = await page.getByTestId('message-list').locator('article').count();
     await page.getByTestId('ask-input').fill(q);
     await page.getByTestId('ask-run').click();
-    await page
-      .waitForFunction(
+    try {
+      await page.waitForFunction(
         (n) => document.querySelectorAll('[data-testid="message-list"] article').length >= n + 2,
         before,
-        { timeout: 180_000 },
-      )
-      .catch(() => undefined);
+        { timeout: 240_000 },
+      );
+    } catch {
+      throw new Error(
+        '这一问没答出来：' + (await page.getByTestId('message-list').innerText()).slice(0, 200),
+      );
+    }
     await page.waitForTimeout(500);
+    const last = await page.getByTestId('message-list').locator('article').last().innerText();
+    if (/失败|出错|没有|没配置/.test(last.slice(0, 40))) {
+      console.log('第几句出问题：', q.slice(0, 12), '｜', last.slice(0, 60));
+    }
   }
   await app.close();
   app = null;
