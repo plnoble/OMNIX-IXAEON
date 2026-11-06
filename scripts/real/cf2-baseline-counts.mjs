@@ -90,10 +90,6 @@ try {
       );
     }
     await page.waitForTimeout(500);
-    const last = await page.getByTestId('message-list').locator('article').last().innerText();
-    if (/失败|出错|没有|没配置/.test(last.slice(0, 40))) {
-      console.log('第几句出问题：', q.slice(0, 12), '｜', last.slice(0, 60));
-    }
   }
   await app.close();
   app = null;
