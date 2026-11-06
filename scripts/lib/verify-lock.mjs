@@ -32,6 +32,15 @@ function alive(pid) {
   }
 }
 
+/** 锁文件多大；读不到当作有内容。 */
+function sizeOf(path) {
+  try {
+    return statSync(path).size;
+  } catch {
+    return -1;
+  }
+}
+
 /** 锁文件建了多久（毫秒）；读不到当作很久以前。 */
 function ageMs(path) {
   try {
@@ -97,8 +106,9 @@ export async function acquireVerifyLock(opts = {}) {
       return got;
     }
     const holder = readHolder(path);
-    // 整合方 11-06：内容读不懂时，若锁文件 5 秒内刚建（对方刚 open 还没写进去），先当它活着，免得两份都拿到锁
-    const fresh = holder === null && ageMs(path) < 5_000;
+    // 整合方 11-06：锁文件是空的、且 5 秒内刚建——对方刚 open 还没写进去，先当它活着，免得两份都拿到锁。
+    // 有内容但读不懂的照规格条件 4 马上接手。
+    const fresh = holder === null && sizeOf(path) === 0 && ageMs(path) < 5_000;
     const stale = !fresh && (holder === null || !alive(holder.pid));
     if (stale) {
       try {
