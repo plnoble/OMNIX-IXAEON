@@ -956,7 +956,7 @@
     {
       "id": "MP3d",
       "title": "编码任务候选串与 Claude Code",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/mp3d-chain-executor.test.ts": "7823e2467a316a7c6f96d6ffe225ac301d5f60a0265367babb685d0194ef2d27",
         "packages/core/test/acceptance/mp3d-launch-pure.test.ts": "82c2a2d42fe2f3483c268044e1acea64fb484b375069522a1d7b796913b83f29",
@@ -966,7 +966,7 @@
     {
       "id": "MP3e",
       "title": "DSH 执行器与编码候选界面",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/mp3e-coding-chain-ui.test.ts": "0bdedbcd0e7dcf3a78977f6823719a12f60a4697a2348e80557700afdd1098ea"
       }
@@ -978,6 +978,14 @@
       "files": {
         "apps/desktop/test/acceptance/mp3f-panel.test.ts": "5d97d768710f7cc6f44e4db3c7cc418d03e88aba691029be1b2b0c356f7071c3",
         "apps/desktop/test/acceptance/mp3f-rules.test.ts": "c6991f8cdc01ed83bba9552753e45e509f2f041e3c784872f26abc2861306aa3"
+      }
+    },
+    {
+      "id": "MP3db",
+      "title": "编码候选串复审补测",
+      "status": "done",
+      "files": {
+        "apps/desktop/test/acceptance/mp3db-chain-fixes.test.ts": "5048a175df3923bd0ccef34b925f384d29820eb61b806ebb8d9d23b5df5da9f1"
       }
     }
   ]

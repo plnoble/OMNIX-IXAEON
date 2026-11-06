@@ -203,6 +203,8 @@ function hideWorkspacePath(text: string, workspace: string): string {
 
 export interface CodingExecutor {
   readonly name: string;
+  /** MP3db：这一轮实际做完（或最后试过）的执行器名字；没跑过 / 没换过时为空。 */
+  readonly lastRunName?: string | null;
   run(
     task: CodingTask,
     workspace: string,
@@ -719,7 +721,7 @@ export class CodingOrchestrator {
           acceptanceTests: { files, locked: false, reason: error, review },
         };
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: executorNameAtStart,
+          executorName: this.executor.lastRunName ?? executorNameAtStart,
           error,
           executorReportJson: JSON.stringify(report),
         });
@@ -728,7 +730,7 @@ export class CodingOrchestrator {
       };
       const failNow = (error: string): CodingTask => {
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: executorNameAtStart,
+          executorName: this.executor.lastRunName ?? executorNameAtStart,
           error,
         });
         this.recordWorkRun(failed, 'failed');
@@ -999,7 +1001,7 @@ export class CodingOrchestrator {
       };
       if (!report.claimedSuccess) {
         const failed = this.store.setStatus(taskId, 'failed', {
-          executorName: executorNameAtStart,
+          executorName: this.executor.lastRunName ?? executorNameAtStart,
           executorReportJson: JSON.stringify(merged),
           testsModified,
           error: '执行器未声称成功，不把验证命令当成完成',
@@ -1008,7 +1010,7 @@ export class CodingOrchestrator {
         return failed;
       }
       this.store.setStatus(taskId, 'pending_verify', {
-        executorName: executorNameAtStart,
+        executorName: this.executor.lastRunName ?? executorNameAtStart,
         executorReportJson: JSON.stringify(merged),
         testsModified,
       });
@@ -1846,7 +1848,10 @@ export async function runControlledVerifyCommand(
   return defaultCheck(argv, cwd, signal);
 }
 
-function hashWorkspace(root: string, opts: { lfNormalize?: boolean } = {}): Map<string, string> {
+export function hashWorkspace(
+  root: string,
+  opts: { lfNormalize?: boolean } = {},
+): Map<string, string> {
   const map = new Map<string, string>();
   const walk = (dir: string) => {
     if (!existsSync(dir)) return;
@@ -1890,7 +1895,7 @@ function diffWorkspace(before: Map<string, string>, after: Map<string, string>):
   return changed;
 }
 
-function minimalChildEnv(): NodeJS.ProcessEnv {
+export function minimalChildEnv(): NodeJS.ProcessEnv {
   const keep = [
     'PATH',
     'PATHEXT',
@@ -1919,7 +1924,7 @@ function minimalChildEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function killProcessTree(pid: number): void {
+export function killProcessTree(pid: number): void {
   if (process.platform === 'win32') {
     spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
       windowsHide: true,

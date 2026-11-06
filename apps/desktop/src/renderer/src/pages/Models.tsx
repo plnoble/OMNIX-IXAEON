@@ -124,6 +124,16 @@ export function ModelsPage() {
   const [filter, setFilter] = useState<Record<string, string>>({});
   const [, setBusy] = useState(false);
   const [currentModel, setCurrentModel] = useState('');
+  const [chain, setChain] = useState<
+    Array<
+      | { kind: 'tool'; tool: 'codex' | 'claude' | 'dsh'; model?: string }
+      | { kind: 'provider'; providerId: string; model: string }
+    >
+  >([]);
+  const [chainKind, setChainKind] = useState<'tool' | 'provider'>('tool');
+  const [chainTool, setChainTool] = useState<'codex' | 'claude' | 'dsh'>('codex');
+  const [chainModel, setChainModel] = useState('默认');
+  const [chainProvider, setChainProvider] = useState('');
   const [devtools, setDevtools] = useState<
     Array<{
       tool: 'codex' | 'claude' | 'dsh';
@@ -163,6 +173,10 @@ export function ModelsPage() {
         coding: cfgUses.coding,
       });
       setCurrentModel(view.config.modelName ?? '');
+      setChain(
+        ((view.config as unknown as { codingChain?: typeof chain }).codingChain ??
+          []) as typeof chain,
+      );
       const tools =
         (typeof api.getDevTools === 'function' ? await api.getDevTools().catch(() => []) : []) ??
         [];
@@ -344,6 +358,7 @@ export function ModelsPage() {
   const saveUses = async (): Promise<void> => {
     setError(null);
     try {
+      if (typeof api.saveCodingChain === 'function') await api.saveCodingChain(chain);
       await api.saveModelUses({
         analysis: uses.analysis ?? null,
         chat: uses.chat ?? null,
@@ -679,6 +694,132 @@ export function ModelsPage() {
             ))}
           </select>
         </label>
+        <div className="card" data-testid="coding-chain">
+          <strong>编码任务（主选在前）</strong>
+          <ul data-testid="coding-chain-list" style={{ listStyle: 'none', paddingLeft: 0 }}>
+            {chain.map((item) => (
+              <li key={JSON.stringify(item)}>
+                {item.kind === 'tool'
+                  ? item.tool === 'codex'
+                    ? 'Codex'
+                    : item.tool === 'dsh'
+                      ? 'DSH' + (devtools.find((d) => d.tool === 'dsh')?.found ? '' : '（没找到）')
+                      : 'Claude Code' + (item.model ? ' · ' + item.model : '')
+                  : labelOf(item.providerId, item.model)}
+              </li>
+            ))}
+            <div className="row">
+              {chain.map((item, i) => (
+                <span key={'act' + i}>
+                  <Button
+                    onClick={() =>
+                      setChain(
+                        chain.map((x, j) =>
+                          j === i - 1 ? chain[i]! : j === i ? chain[i - 1]! : x,
+                        ),
+                      )
+                    }
+                  >
+                    上移
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      setChain(
+                        chain.map((x, j) =>
+                          j === i ? chain[i + 1]! : j === i + 1 ? chain[i]! : x,
+                        ),
+                      )
+                    }
+                  >
+                    下移
+                  </Button>
+                  <Button onClick={() => setChain(chain.filter((_, j) => j !== i))}>删掉</Button>
+                </span>
+              ))}
+            </div>
+            <div data-testid="coding-chain-add" className="row">
+              <select
+                data-testid="coding-chain-kind"
+                value={chainKind}
+                onChange={(e) => setChainKind(e.target.value as 'tool' | 'provider')}
+              >
+                <option value="tool">开发工具</option>
+                <option value="provider">供应商</option>
+              </select>
+              {chainKind === 'tool' ? (
+                <>
+                  <select
+                    data-testid="coding-chain-tool"
+                    value={chainTool}
+                    onChange={(e) => setChainTool(e.target.value as 'codex' | 'claude' | 'dsh')}
+                  >
+                    <option value="codex">Codex</option>
+                    <option value="claude">Claude Code</option>
+                    <option value="dsh">
+                      DSH{devtools.find((d) => d.tool === 'dsh')?.found ? '' : ' 没找到'}
+                    </option>
+                  </select>
+                  {chainTool === 'claude' ? (
+                    <select
+                      data-testid="coding-chain-claude-model"
+                      value={chainModel}
+                      onChange={(e) => setChainModel(e.target.value)}
+                    >
+                      <option>默认</option>
+                      <option>opus</option>
+                      <option>sonnet</option>
+                      <option>haiku</option>
+                    </select>
+                  ) : null}
+                </>
+              ) : (
+                <select
+                  data-testid="coding-chain-provider"
+                  value={chainProvider}
+                  onChange={(e) => setChainProvider(e.target.value)}
+                >
+                  {providers
+                    .flatMap((p) =>
+                      p.savedModels.map((m) => p.name + ' · ' + m + '|' + p.id + '|' + m),
+                    )
+                    .map((raw) => {
+                      const parts = raw.split('|');
+                      return (
+                        <option key={raw} value={raw}>
+                          {parts[0]}
+                        </option>
+                      );
+                    })}
+                </select>
+              )}
+              <Button
+                disabled={chain.length >= 5}
+                onClick={() => {
+                  if (chain.length >= 5) return;
+                  if (chainKind === 'tool') {
+                    setChain([
+                      ...chain,
+                      chainTool === 'claude'
+                        ? chainModel === '默认'
+                          ? { kind: 'tool', tool: 'claude' }
+                          : { kind: 'tool', tool: 'claude', model: chainModel }
+                        : { kind: 'tool', tool: chainTool },
+                    ]);
+                  } else {
+                    const parts = chainProvider.split('|');
+                    if (!parts[1] || !parts[2]) return;
+                    setChain([
+                      ...chain,
+                      { kind: 'provider', providerId: parts[1], model: parts[2] },
+                    ]);
+                  }
+                }}
+              >
+                添加
+              </Button>
+            </div>
+          </ul>
+        </div>
         <FallbackEditor
           use="analysis"
           list={fallbacks.analysis}
