@@ -1893,7 +1893,7 @@ function diffWorkspace(before: Map<string, string>, after: Map<string, string>):
   return changed;
 }
 
-function minimalChildEnv(): NodeJS.ProcessEnv {
+export function minimalChildEnv(): NodeJS.ProcessEnv {
   const keep = [
     'PATH',
     'PATHEXT',
@@ -1922,7 +1922,7 @@ function minimalChildEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function killProcessTree(pid: number): void {
+export function killProcessTree(pid: number): void {
   if (process.platform === 'win32') {
     spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
       windowsHide: true,
