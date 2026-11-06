@@ -197,20 +197,6 @@ export function RelayModelsSection({ running }: { running: RunningItem[] }) {
           />{' '}
           <span className="muted">回车保存 · 下一棒生效</span>
         </li>
-        {/* 规格表格最后一行「替补审查 / 替补整合方」是同一行；两行没配时各自写「没配」。 */}
-        <li className="work-run" data-testid="relay-model-row-substitutes">
-          <span className="badge">替补</span>
-          <ul className="work-run-list" style={{ margin: 0 }}>
-            <li className="work-run" data-testid="relay-model-row-reviewerSubstitute">
-              <span className="muted">{LABEL.reviewerSubstitute}</span> {dsh('reviewerSubstitute')}{' '}
-              <span className="muted">下一棒生效</span>
-            </li>
-            <li className="work-run" data-testid="relay-model-row-integratorSubstitute">
-              <span className="muted">{LABEL.integratorSubstitute}</span>{' '}
-              {dsh('integratorSubstitute')} <span className="muted">下一棒生效</span>
-            </li>
-          </ul>
-        </li>
       </ul>
     </Card>
   );

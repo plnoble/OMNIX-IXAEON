@@ -813,7 +813,7 @@
       "title": "调度器面板：看得见每个角色用什么模型、在界面上选",
       "status": "done",
       "files": {
-        "apps/desktop/test/acceptance/k10a-cockpit-models.test.ts": "5a9b5d271f1b73e5474e79d24b5f4038bb965de62d0bbfa0d3dcdf3e0d4dfc96",
+        "apps/desktop/test/acceptance/k10a-cockpit-models.test.ts": "79ac61c70670ee119b7b13f745c9ff481888895842032e88386f04da7909e513",
         "apps/desktop/test/acceptance/k10a-relay-models-ipc.test.ts": "f235311c4ff9e866aa73c30c845ca5235331a86f4ae2a13dfd8cc2bbac914d26",
         "packages/core/test/acceptance/k10a-relay-models.test.ts": "efa4d1168691182fb8808d3d1f99914f4e240f149f862279aa3e904a78d1345a",
         "packages/relay/test/acceptance/k10a-codex-review.test.ts": "430dda7055acde0540df96823aee0d35fa8dd1cd9734c1c34642ae0b5a0f0314"
@@ -945,7 +945,7 @@
     {
       "id": "MP3c",
       "title": "开发工具与编码替补",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/mp3c-devtools.test.ts": "5cf31bacb3d22cf6d62054df8693387d0938e68197613f31c0a4162015adaab0",
         "apps/desktop/test/acceptance/mp3c-devtool-save.test.ts": "60e2c8d15bfdae403515fdd1157aa02fc0b969c3e37af84325448f7cecdd22cb",
@@ -974,7 +974,7 @@
     {
       "id": "MP3f",
       "title": "调度器面板不自己审自己",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/mp3f-panel.test.ts": "5d97d768710f7cc6f44e4db3c7cc418d03e88aba691029be1b2b0c356f7071c3",
         "apps/desktop/test/acceptance/mp3f-rules.test.ts": "c6991f8cdc01ed83bba9552753e45e509f2f041e3c784872f26abc2861306aa3"
