@@ -27,7 +27,6 @@ import {
   Vault,
   migrate,
   openDatabase,
-  type ChatStreamResult,
   type CoreDatabase,
   type StreamChatClient,
 } from '@ixaeon/core';
@@ -58,21 +57,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** 假模型客户端：吐一段固定回答，或直接抛错。 */
-function answerClient(answer: string): StreamChatClient {
-  return {
-    modelName: 'demo-a',
-    async stream(input) {
-      input.onDelta?.(answer);
-      return {
-        content: answer,
-        toolCalls: [],
-        finishReason: 'stop',
-        toolsUnsupported: false,
-      } satisfies ChatStreamResult;
-    },
-  };
-}
+/** 假模型客户端：直接抛错。 */
 
 function errorClient(message: string): StreamChatClient {
   return {
@@ -132,35 +117,15 @@ function runtimeWith(client: StreamChatClient) {
 }
 
 describe('T2a 补：建议待办不进记忆、失败也留提示', () => {
-  it('问答存档与返回值里都没有「建议待办」那一段', async () => {
-    const { runtime, conv } = runtimeWith(
-      answerClient('先把报价核一遍。\n\n建议待办：\n- 周五前把报价发给客户\n- 预约下周体检'),
-    );
-    const r = await runtime.ask({
-      conversationId: conv.id,
-      projectId: null,
-      question: '这周做啥？',
-    });
-    expect(r.answer).toBe('先把报价核一遍。');
-
-    const source = db
-      .prepare("SELECT id FROM sources WHERE provider = 'ask_session' AND external_id = ?")
-      .get(conv.id) as { id: string } | undefined;
-    expect(source).toBeDefined();
-    const texts = (
-      db
-        .prepare('SELECT role, text FROM segments WHERE source_id = ? ORDER BY sequence')
-        .all(source!.id) as Array<{ role: string; text: string }>
-    ).map((s) => [s.role, s.text]);
-    expect(texts).toEqual([
-      ['user', '这周做啥？'],
-      ['assistant', '先把报价核一遍。'],
-    ]);
-  });
+  // 整合方 2026-11-06（CF2：回答正文和存档里都留着「建议待办」那一段，用户 11-03 定）退役：「问答存档与返回值里都没有「建议待办」那一段」
 
   it('回答失败：你写的「待办：…」已经加上，这条回答上留着「已加到待办」的依据', async () => {
     const { runtime, conversations, todos, conv } = runtimeWith(errorClient('合成的网关错误'));
-    await runtime.ask({ conversationId: conv.id, projectId: null, question: '待办：周五前交报销单' });
+    await runtime.ask({
+      conversationId: conv.id,
+      projectId: null,
+      question: '待办：周五前交报销单',
+    });
 
     const [added] = todos.list();
     expect(added).toMatchObject({ title: '周五前交报销单', status: 'accepted' });

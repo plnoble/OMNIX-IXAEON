@@ -3,9 +3,10 @@
  * IXAEON 一键验证：lint → format:check → typecheck → build → test:unit → test:integration → 验收与回归。
  * 直接调用各工具 CLI（不经嵌套 pnpm，避免外层 pnpm shim 干扰）。
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { acquireVerifyLock } from './lib/verify-lock.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const node = process.execPath;
@@ -14,14 +15,55 @@ const node = process.execPath;
 // 门禁里要用它的地方（零依赖档验证）都是自己显式设的，宿主带进来的一律清掉。
 delete process.env.ELECTRON_RUN_AS_NODE;
 
-function run(label, args, env = {}) {
+// T1：整台机器一把锁——同一时间只跑一个完整 verify（CI 上跳过：一台机器只跑一份）。
+// IXAEON_VERIFY_LOCK 只给测试用：把锁放到临时目录，测试才不会碰到正在跑的门禁手里那把真锁。
+// --dry：只做拿锁这一步（拿到 / 被挡 / CI 跳过），不跑后面的检查。
+const dryRun = process.argv.includes('--dry');
+if (!process.env.CI) {
+  const lock = await acquireVerifyLock({
+    path: process.env.IXAEON_VERIFY_LOCK?.trim() || undefined,
+    wait: !process.argv.includes('--no-wait'),
+  });
+  if ('busy' in lock) {
+    const holder = lock.holder;
+    process.stderr.write(
+      `另一次 verify 正在跑（进程 ${holder ? holder.pid : '—'}），本次不跑，退出。\n`,
+    );
+    process.exit(4);
+  }
+  process.on('exit', () => lock.release());
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.on(sig, () => {
+      // 当前步骤的子进程一起收掉，再放锁——信号期间也能执行（步骤用异步 spawn）
+      try {
+        currentChild?.kill('SIGTERM');
+      } catch {
+        /* 已经退出 */
+      }
+      lock.release();
+      process.exit(130);
+    });
+  }
+}
+if (dryRun) {
+  process.stdout.write(process.env.CI ? '--dry：CI 上不拿锁\n' : '--dry：拿到锁\n');
+  process.exit(0);
+}
+
+let currentChild = null;
+async function run(label, args, env = {}) {
   const started = Date.now();
   process.stdout.write(`\n\u001b[36m▶ ${label}\u001b[0m\n`);
-  const result = spawnSync(node, args, {
+  const child = spawn(node, args, {
     cwd: root,
     stdio: 'inherit',
     env: { ...process.env, ...env },
   });
+  currentChild = child;
+  const result = await new Promise((resolve) => {
+    child.on('close', (code, signal) => resolve({ status: code ?? (signal ? 1 : 0) }));
+  });
+  currentChild = null;
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   if (result.status !== 0) {
     process.stdout.write(`\u001b[31m✗ ${label} 失败（${seconds}s）\u001b[0m\n`);
@@ -51,11 +93,11 @@ function electronUiEnv() {
 const results = [];
 
 results.push(
-  run('lint（ESLint）', [resolve(root, 'node_modules', 'eslint', 'bin', 'eslint.js'), '.']),
+  await run('lint（ESLint）', [resolve(root, 'node_modules', 'eslint', 'bin', 'eslint.js'), '.']),
 );
 
 results.push(
-  run('format:check（Prettier）', [
+  await run('format:check（Prettier）', [
     resolve(root, 'node_modules', 'prettier', 'bin', 'prettier.cjs'),
     '--check',
     'apps/*/src/**/*.{ts,tsx,css,html}',
@@ -69,13 +111,13 @@ results.push(
 // 仓库是公开的：提交的文件里不能带着本机的账户名（贴真机输出时带进来的 C:\Users\<账户名>\…）。
 // 查的是这台机器的账户名，所以要在本机跑才拦得住；CI 上不查（那里的账户名是公用的）。
 results.push(
-  run('local-user（提交的文件里没有本机的账户名）', [
+  await run('local-user（提交的文件里没有本机的账户名）', [
     resolve(root, 'scripts', 'check-local-user.mjs'),
   ]),
 );
 
 results.push(
-  run('typecheck（tsc --noEmit）', [
+  await run('typecheck（tsc --noEmit）', [
     resolve(root, 'node_modules', 'typescript', 'bin', 'tsc'),
     '--noEmit',
     '-p',
@@ -86,17 +128,19 @@ results.push(
 // Q3（2026-10-29）：tsconfig.json 把验收测试整个排除了、vitest 又不查类型，这一步补上。
 // 排队中任务的测试不查（实现还没并入），`acceptance.mjs done` 之后自动纳入。
 results.push(
-  run('typecheck-acceptance（已完成任务的验收测试也过 tsc）', [
+  await run('typecheck-acceptance（已完成任务的验收测试也过 tsc）', [
     resolve(root, 'scripts', 'typecheck-acceptance.mjs'),
   ]),
 );
 
 // 构建放在测试之前：有的集成测试会真的拉起构建产物（比如 Hermes 拉起 apps/mcp/dist 的
 // 记忆桥），放在后面就是拿上一次留下的旧产物去测（2026-10-02 本机恒失败的根因）。
-results.push(run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]));
+results.push(
+  await run('build（desktop / mcp / extension）', [resolve(root, 'scripts', 'build.mjs')]),
+);
 
 results.push(
-  run('unit（Vitest 单元测试）', [
+  await run('unit（Vitest 单元测试）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--project',
@@ -105,7 +149,7 @@ results.push(
 );
 
 results.push(
-  run('integration（Vitest 集成测试）', [
+  await run('integration（Vitest 集成测试）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--project',
@@ -115,21 +159,21 @@ results.push(
 
 // 委派流水线（AGENTS.md）：锁定的验收测试不许改；已完成任务的验收测试进门禁
 results.push(
-  run('acceptance-lock（锁定的验收测试没被改）', [
+  await run('acceptance-lock（锁定的验收测试没被改）', [
     resolve(root, 'scripts', 'acceptance.mjs'),
     'check',
   ]),
 );
 
 results.push(
-  run('acceptance（已完成任务的锁定验收测试）', [
+  await run('acceptance（已完成任务的锁定验收测试）', [
     resolve(root, 'scripts', 'acceptance.mjs'),
     'run-done',
   ]),
 );
 
 results.push(
-  run('review（二次验收独立业务测试 11 项，修复 R1-R9 回归）', [
+  await run('review（二次验收独立业务测试 11 项，修复 R1-R9 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -138,7 +182,7 @@ results.push(
 );
 
 results.push(
-  run('review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归）', [
+  await run('review-round3（三次验收相邻场景 13 项，修复 N1-N6 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -147,7 +191,7 @@ results.push(
 );
 
 results.push(
-  run('review-round4（四次验收连续性 7 项，修复 F1-F4 回归）', [
+  await run('review-round4（四次验收连续性 7 项，修复 F1-F4 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -156,7 +200,7 @@ results.push(
 );
 
 results.push(
-  run('review-v02（v0.2 验收 15 项，修复 G1-G8 回归）', [
+  await run('review-v02（v0.2 验收 15 项，修复 G1-G8 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -168,7 +212,7 @@ results.push(
 // A01 工具边界 H01–H05 / A02 原文受众 M01 / A03 撤权持久 M03 /
 // A04 验证器沙箱 E02 / A05 范围核验 E01 E03 / Q01 S01 R01 + 对照 C01 C02）。
 results.push(
-  run('review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归）', [
+  await run('review-restructure（重整审核 15 项，修复 A01-A05/A07/A08/A09 第一批回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -177,7 +221,7 @@ results.push(
 );
 
 results.push(
-  run('review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归）', [
+  await run('review-bbe651f（M0 可信边界 14 项，修复 Q01-Q07 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -186,7 +230,7 @@ results.push(
 );
 
 results.push(
-  run('review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项）', [
+  await run('review-p0-f71da15（P0 可信基础与 M0/M1 边界预算合并套件 19 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -195,7 +239,7 @@ results.push(
 );
 
 results.push(
-  run('review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项）', [
+  await run('review-p1-action-loop（P1-A 目标驱动桌面办事闭环与真实产物独立断言 4 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -204,7 +248,7 @@ results.push(
 );
 
 results.push(
-  run('review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项）', [
+  await run('review-p1-memory-projects（P1-B 自动分寸记忆与 P1-C 三个项目统筹 7 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -213,7 +257,7 @@ results.push(
 );
 
 results.push(
-  run('review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项）', [
+  await run('review-p1-research-skills（P1-D 主动研究去重与 P1-E 方法复用 5 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -222,7 +266,7 @@ results.push(
 );
 
 results.push(
-  run('review-p2（P2 受控实验与安全回滚 5 项）', [
+  await run('review-p2（P2 受控实验与安全回滚 5 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -231,25 +275,31 @@ results.push(
 );
 
 results.push(
-  run('review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项）', [
-    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
-    'run',
-    '--config',
-    'apps/desktop/test/review/vitest.review-p3-connectors-lifecycle-20260916.config.ts',
-  ]),
+  await run(
+    'review-p3-connectors-lifecycle（P3 连接器命名空间、知识边界、持久任务与目标搁置 6 项）',
+    [
+      resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+      'run',
+      '--config',
+      'apps/desktop/test/review/vitest.review-p3-connectors-lifecycle-20260916.config.ts',
+    ],
+  ),
 );
 
 results.push(
-  run('review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项）', [
-    resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
-    'run',
-    '--config',
-    'apps/desktop/test/review/vitest.review-p3a-connector-registry-20260916.config.ts',
-  ]),
+  await run(
+    'review-p3a-connector-registry（P3-A 连接器注册表：游标/覆盖/失败/撤销/导入接线 6 项）',
+    [
+      resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
+      'run',
+      '--config',
+      'apps/desktop/test/review/vitest.review-p3a-connector-registry-20260916.config.ts',
+    ],
+  ),
 );
 
 results.push(
-  run('review-direction-merged（方向质量/复审/二轮复审合并套件 44 项）', [
+  await run('review-direction-merged（方向质量/复审/二轮复审合并套件 44 项）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -258,7 +308,7 @@ results.push(
 );
 
 results.push(
-  run('review-project-audit（全项目审核 15 项，修复 C01-C13 回归）', [
+  await run('review-project-audit（全项目审核 15 项，修复 C01-C13 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -267,7 +317,7 @@ results.push(
 );
 
 results.push(
-  run('review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归）', [
+  await run('review-recheck（v0.2 复审 11 项，修复 RF01-RF08 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -276,7 +326,7 @@ results.push(
 );
 
 results.push(
-  run('review-recheck-round2（二次复审 10 项，修复 F01-F03 回归）', [
+  await run('review-recheck-round2（二次复审 10 项，修复 F01-F03 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -285,7 +335,7 @@ results.push(
 );
 
 results.push(
-  run('review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归）', [
+  await run('review-needs-lifecycle（三次复审核心 5 项，修复 N01 回归）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -294,7 +344,7 @@ results.push(
 );
 
 results.push(
-  run('review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界）', [
+  await run('review-closure（修复收尾验收 5 项：迁移命中范围/回滚/重开库/原因保留/查询边界）', [
     resolve(root, 'node_modules', 'vitest', 'vitest.mjs'),
     'run',
     '--config',
@@ -304,7 +354,7 @@ results.push(
 
 // N02 界面验收（LUI01-LUI03：搁置/恢复/纠正退出待处理），依赖 build 产物
 results.push(
-  run(
+  await run(
     'review-needs-lifecycle-ui（三次复审界面 LUI01-LUI03，真实 Electron）',
     [
       resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
@@ -319,7 +369,7 @@ results.push(
 
 // 理解页连续工作（确认不跳页 + 纠正对话框可见），依赖 build 产物
 results.push(
-  run(
+  await run(
     'review-understanding-ui（理解页 UND01-UND02，真实 Electron）',
     [
       resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
@@ -334,7 +384,7 @@ results.push(
 
 // C3：真实用户反馈的两组界面回归（文件夹导入/重新分析 + 设置向导）接入门禁
 results.push(
-  run(
+  await run(
     'review-sources-wizard-ui（来源页 SRC01-02 + 向导 WIZ01-02，真实 Electron）',
     [
       resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),
@@ -350,7 +400,7 @@ results.push(
 // RF09：UI01 / BUI01 / BUI02 真实 Electron 界面检查纳入默认验证入口。
 // 依赖 build 产物 out/main/index.js（上面 build 步骤已生成）。
 results.push(
-  run(
+  await run(
     'review-recheck-ui（复审界面 UI01 + BUI01 + BUI02，真实 Electron）',
     [
       resolve(root, 'apps', 'desktop', 'node_modules', 'playwright', 'cli.js'),

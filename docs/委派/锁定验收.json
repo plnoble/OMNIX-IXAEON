@@ -40,7 +40,7 @@
       "files": {
         "packages/core/test/acceptance/t2a-suggested-todos.test.ts": "894abc8826f20296a9f026131ce5bac61e8caa1740ce92d248547a73563cb9a2",
         "packages/core/test/acceptance/t2a-hermes-instruction.test.ts": "66e66cf930e02aefd540795612d3c37c6ff60cf736b958667160873a99934175",
-        "apps/desktop/test/acceptance/t2a-ask-todos.test.ts": "8b1781bdcaf7849d2821dbc09a30433f0a3501f61cefc2dda9752e18f9343789",
+        "apps/desktop/test/acceptance/t2a-ask-todos.test.ts": "049d84e1bb1996defdf67c0860aaf096b56f6da73b96e499c7678223335d3256",
         "apps/desktop/test/acceptance/t2a-todo-cards.test.ts": "f5940c3e73c54c00c962fa1d05abe6af9ee225fed0b13f2985d7a053a9b53c60"
       }
     },
@@ -989,12 +989,19 @@
       }
     },
     {
-      "id": "CF6",
-      "title": "会话管理",
+      "id": "CF2",
+      "title": "聊天行为基线",
       "status": "queued",
       "files": {
-        "packages/core/test/acceptance/cf6-search.test.ts": "6e2a7dadc692b54e7731c05c6b94ca14fa67540f47f41bb67de6b54ea91ed471",
-        "apps/desktop/test/acceptance/cf6-conversation-ui.test.ts": "fee061ce2b7e567f238ec53c56accefe20a03ca7d3530e27643c256dbfb897bd"
+        "apps/desktop/test/acceptance/cf2-chat-baseline.test.ts": "3388bf507e2ef4282c72856dad463785ef38efe0c12bb3ab18acbcef7f186948"
+      }
+    },
+    {
+      "id": "T1",
+      "title": "verify 不并行重入",
+      "status": "done",
+      "files": {
+        "packages/core/test/acceptance/t1-verify-lock.test.ts": "aef26665f3fcda259857beee1923a53ce409c928231246caf61bf9e449c1f920"
       }
     }
   ]
