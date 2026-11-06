@@ -110,6 +110,11 @@ export class CodingChainExecutor implements CodingExecutor {
         continue;
       }
       if (!report.claimedSuccess) {
+        // 整合方 11-06：新执行器取消时返回失败回报、不抛错——已经取消就照这份回报，不换下一个
+        if (signal.aborted) {
+          this.currentName = candidate.executor.name;
+          return report;
+        }
         if (!sameHash(hashWorkspace(workspace), before)) {
           this.currentName = candidate.executor.name;
           return report;
