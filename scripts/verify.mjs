@@ -16,8 +16,14 @@ const node = process.execPath;
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 // T1：整台机器一把锁——同一时间只跑一个完整 verify（CI 上跳过：一台机器只跑一份）。
+// IXAEON_VERIFY_LOCK 只给测试用：把锁放到临时目录，测试才不会碰到正在跑的门禁手里那把真锁。
+// --dry：只做拿锁这一步（拿到 / 被挡 / CI 跳过），不跑后面的检查。
+const dryRun = process.argv.includes('--dry');
 if (!process.env.CI) {
-  const lock = await acquireVerifyLock({ wait: !process.argv.includes('--no-wait') });
+  const lock = await acquireVerifyLock({
+    path: process.env.IXAEON_VERIFY_LOCK?.trim() || undefined,
+    wait: !process.argv.includes('--no-wait'),
+  });
   if ('busy' in lock) {
     const holder = lock.holder;
     process.stderr.write(
@@ -38,6 +44,10 @@ if (!process.env.CI) {
       process.exit(130);
     });
   }
+}
+if (dryRun) {
+  process.stdout.write(process.env.CI ? '--dry：CI 上不拿锁\n' : '--dry：拿到锁\n');
+  process.exit(0);
 }
 
 let currentChild = null;

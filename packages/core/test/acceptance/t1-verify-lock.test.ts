@@ -11,7 +11,7 @@
  * 8. verify.mjs 在 CI 有值时不拿锁（读源码核对）。
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -182,9 +182,12 @@ describe('条件 8：CI 有值时不拿锁', () => {
     args: string[],
   ): Promise<{ code: number | null; out: string }> {
     return new Promise((resolvePromise) => {
-      const child = spawn(process.execPath, ['scripts/verify.mjs', ...args], {
+      // 整合方 11-06：锁放临时目录（IXAEON_VERIFY_LOCK），只拿锁不跑检查（--dry）——
+      // 原来改写、删掉的是整台机器那把真锁：本机门禁跑到这条测试时，外层门禁的锁会被删掉；
+      // CI=1 那条还会真起一遍门禁跑 25 秒再强杀，底下的 lint 留着吃 CPU。
+      const child = spawn(process.execPath, ['scripts/verify.mjs', '--dry', ...args], {
         cwd: process.cwd(),
-        env: { ...process.env, ...env },
+        env: { ...process.env, IXAEON_VERIFY_LOCK: lockFile, ...env },
       });
       let out = '';
       child.stdout.on('data', (b) => (out += String(b)));
@@ -197,20 +200,26 @@ describe('条件 8：CI 有值时不拿锁', () => {
     });
   }
 
+  let lockFile = '';
+  beforeEach(() => {
+    lockFile = join(mkdtempSync(join(tmpdir(), 'ixaeon-t1-verify-')), 'ixaeon-verify.lock');
+  });
+
   it('CI 有值时：锁被别人拿着也照常开始跑（不打印等待、不以 4 退出）', async () => {
     const other = await spawnAlive();
     try {
-      // 锁文件在 tmpdir 的默认名，verify 用的是它
       writeFileSync(
-        join(tmpdir(), 'ixaeon-verify.lock'),
+        lockFile,
         JSON.stringify({ pid: other.pid, startedAt: new Date().toISOString() }),
       );
       const r = await runVerify({ CI: '1' }, ['--no-wait']);
       expect(r.out).not.toContain('另一次 verify 正在跑');
-      expect(r.code).not.toBe(4);
+      expect(r.out).toContain('CI 上不拿锁');
+      expect(r.code).toBe(0);
+      // 别人的锁原样还在
+      expect(JSON.parse(readFileSync(lockFile, 'utf8')).pid).toBe(other.pid);
     } finally {
       other.kill();
-      rmSync(join(tmpdir(), 'ixaeon-verify.lock'), { force: true });
     }
   }, 40_000);
 
@@ -218,15 +227,21 @@ describe('条件 8：CI 有值时不拿锁', () => {
     const other = await spawnAlive();
     try {
       writeFileSync(
-        join(tmpdir(), 'ixaeon-verify.lock'),
+        lockFile,
         JSON.stringify({ pid: other.pid, startedAt: new Date().toISOString() }),
       );
-      const r = await runVerify({}, ['--no-wait']);
+      const r = await runVerify({ CI: '' }, ['--no-wait']);
       expect(r.code).toBe(4);
       expect(r.out).toContain('另一次 verify 正在跑');
     } finally {
       other.kill();
-      rmSync(join(tmpdir(), 'ixaeon-verify.lock'), { force: true });
     }
+  }, 40_000);
+
+  it('没有 CI、也没人拿着锁：拿到锁，退出时锁文件删掉', async () => {
+    const r = await runVerify({ CI: '' }, []);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('拿到锁');
+    expect(existsSync(lockFile)).toBe(false);
   }, 40_000);
 });
