@@ -999,7 +999,7 @@
     {
       "id": "T1",
       "title": "verify 不并行重入",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/t1-verify-lock.test.ts": "8d5dfba9a14d8b19d87854ce517c5e0d342f43afe88e739a7d3276ae75edb19e"
       }
