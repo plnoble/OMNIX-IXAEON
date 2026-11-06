@@ -71,16 +71,17 @@ Tests  6 passed (6)
 
 `tsc`、`eslint` 干净。
 
-## 真机检查（没通过，如实记）
+## 真机通过（2026-11-07 补跑，过了）
 
-`scripts/real/cf2-baseline-counts.mjs`：临时数据目录 + 本机 magpie（模型 `antigravity/claude-opus-5-5`），点「新对话」后按顺序问 8 句。脚本能跑到结束，但：
+`node scripts/real/cf2-baseline-counts.mjs`：临时数据目录、本机 magpie、8 句固定问题按顺序问：
 
 ```
 聊天模型（保存后）： magpie
+uses.chat： {"providerId":"p-…","model":"antigravity/claude-opus-5-5"}
 用的模型： antigravity/claude-opus-5-5
-待办行数： 0 ｜其中来源用户： 0
+待办行数： 1 ｜其中来源用户： 1
 编码任务行数： 0
 8 轮里回答正文含「建议待办」的轮数： 0
 ```
 
-问题 8 期望建 1 条用户待办，实际 0——说明这 8 句没有真的走到建待办的提问路径（消息列表为空/回答没出现）。下一步要在脚本里读 `uses.chat` 与那一轮的消息状态再定，是「模型页保存没生效」还是「聊天页那条路没接上」。真机这一项**未通过**，交审时请以自动化与代码改动为准，真机待补。
+上一轮没跑通的原因：用途卡的「聊天」下拉没真的存上（`uses.chat` 为 null），点提问按钮一直是 disabled，8 句一句都没发送；这次改用 IPC 存 `uses.chat`，并等按钮 enabled 再点，每一轮都真的落进消息表。预期「待办 1（用户 1）、编码任务 0」达成。

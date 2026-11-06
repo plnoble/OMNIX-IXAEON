@@ -59,11 +59,16 @@ try {
   await firstRow.locator('input[type="checkbox"]').check();
   await card.getByTestId(/^provider-save-/).click();
   await page.waitForTimeout(500);
-  const chat = page.getByTestId('uses-chat');
-  const target = (await chat.locator('option').allTextContents()).find((t) => t.includes(modelId));
-  if (target) await chat.selectOption({ label: target });
-  await page.getByTestId('uses-save').click();
-  await page.waitForTimeout(500);
+  // 用 IPC 直接存「聊天用这家这个模型」（等价于用途卡片里选中再保存）
+  const saved = await page.evaluate(async (model) => {
+    const provs = await window.ixaeon.listModelProviders();
+    const p = provs.find((x) => x.name.includes('magpie') && x.savedModels.includes(model));
+    if (!p) return { ok: false, reason: '没找到供应商', provs: provs.map((x) => x.name) };
+    await window.ixaeon.saveModelUses({ chat: { providerId: p.id, model } });
+    const uses = (await window.ixaeon.getSettings()).config.uses;
+    return { ok: Boolean(uses?.chat), uses };
+  }, modelId);
+  if (!saved.ok) throw new Error('uses.chat 没存上：' + JSON.stringify(saved).slice(0, 200));
 
   // 新对话，按顺序问 8 句
   await page.getByTestId('nav-ask').click();
@@ -75,6 +80,14 @@ try {
   console.log('uses.chat：', JSON.stringify(settings.uses?.chat ?? null));
   await page.getByTestId('ask-input').waitFor({ state: 'visible', timeout: 20_000 });
   for (const q of Q) {
+    await page.waitForFunction(
+      () => {
+        const b = document.querySelector('[data-testid="ask-run"]');
+        return Boolean(b) && !b.disabled;
+      },
+      undefined,
+      { timeout: 60_000 },
+    );
     const before = await page.getByTestId('message-list').locator('article').count();
     await page.getByTestId('ask-input').fill(q);
     await page.getByTestId('ask-run').click();
