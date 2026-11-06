@@ -1,4 +1,15 @@
 // IXAEON core — 导入、存储、提取、检索、纠正、简报逻辑
+export {
+  claudeCodeLaunch,
+  parseClaudeCodeOutput,
+  dshLaunch,
+  parseDshOutput,
+  ClaudeCodeExecutor,
+  DshExecutor,
+  type ClaudeModel,
+} from './execution/toolLaunch.js';
+export { acceptableFallback, reasonText } from './models/fallbackRules.js';
+export { hashWorkspace } from './execution/executor.js';
 export { detectDevTools, type DevToolRow, type DevTool } from './execution/devTools.js';
 export { ErrorCodes, IxaError, toApiError } from '@ixaeon/contracts';
 export { openDatabase, type CoreDatabase } from './db/database.js';
