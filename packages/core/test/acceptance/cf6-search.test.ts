@@ -55,6 +55,9 @@ function seed(): void {
   const archived = add('归档的周报', ['旧周报']);
   store.archive(archived);
   add('最近更新', ['最近一条周报'], '2099-01-01T00:00:00.000Z');
+  add('Work Report Draft', ['quarterly numbers']);
+  add('五十 percent 干扰', ['50abc 只是普通文字']);
+  add('下划线干扰', ['axb 只是普通文字']);
 }
 
 describe('CF6 条件 1：搜索', () => {

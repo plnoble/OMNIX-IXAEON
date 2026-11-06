@@ -29,12 +29,23 @@ apps/desktop/test/acceptance/cf6-continue.test.ts           1 passed（条件 5�
 加粗命中词： 周报
 开关文字： 已归档（1）
 恢复后开关文字： ← 返回正常列表
-恢复后列表里有「旧的周报」： false（当时停在已归档视图，切回正常列表后出现）
+恢复后列表里有「旧的周报」： false（当时停在已归档视图；切回正常列表后出现）
+续聊这一轮的消息条数（含前文轮次）： 4
+最后一轮有回答正文： true
+模型：IXAEON_FAKE_MODEL=1（fake-direct，走直连链路）
 截图: .logs/cf6-search.png / .logs/cf6-archived.png / .logs/cf6-continue.png
 ```
 
 ## 本地 verify 的一处环境限制
 
-本机 `localServer.test` 绑 `127.0.0.1:43991` 会 `EADDRINUSE`（无进程监听、探针也失败，Windows 保留端口；与 T1 记录同一处），因此本机完整 verify 固定红在这一条，与本单改动无关，以 CI 为准。
+本机 `node scripts/verify.mjs` 跑到 integration 一步固定红：
+
+```
+FAIL  |integration| apps/desktop/test/integration/localServer.test.ts
+Error: listen EADDRINUSE: address already in use 127.0.0.1:43991
+✗ integration（Vitest 集成测试） 失败（55.2s）
+```
+
+原因是这个端口被 Windows 保留：**没有任何进程监听**、单独丢一个 `net.createServer().listen(43991)` 探针也照样 `EADDRINUSE`（与 T1 记录同一处；`net stop winnat` 需要管理员，本会话拿不到）。其余步骤（lint / format / typecheck / build / unit / acceptance）都是绿的。这一条与本单改动无关，CI（windows-latest）已绿；本机这一项如实记为「环境阻塞、未通过」，不冒充通过。
 
 ## 已知缺口

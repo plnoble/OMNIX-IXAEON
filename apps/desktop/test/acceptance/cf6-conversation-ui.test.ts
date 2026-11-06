@@ -48,7 +48,9 @@ vi.mock('../../src/renderer/src/api.js', () => ({
     getConversation: async () => ({ conversation: { id: 'c1', title: 't' }, messages: [] }),
     unarchiveConversation: async (id: string) => {
       h.unarchived.push(id);
+      const back = h.archived.find((c) => c.id === id);
       h.archived = h.archived.filter((c) => c.id !== id);
+      if (back) h.list = [...h.list, { ...back, archivedAt: null }];
       return { id, title: 'x' };
     },
     listTodos: async () => [],
@@ -156,6 +158,14 @@ describe('CF6 条件 3：搜索框与片段', () => {
     expect(items().length).toBe(1);
     const snip = el('conversation-search-snippet');
     expect(snip.querySelector('strong')?.textContent).toBe('周报');
+    // 清空回到原样
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await settle();
+    expect(items().length).toBe(2);
   });
 });
 
@@ -165,11 +175,28 @@ describe('CF6 条件 4：已归档开关与恢复', () => {
     expect(toggle.textContent).toContain('已归档（1）');
     act(() => toggle.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     await settle();
-    expect(items().join('|')).toContain('旧会话');
+    const archivedItems = items().join('|');
+    expect(archivedItems).toContain('旧会话');
+    expect(archivedItems).not.toContain('周报写法');
     const restore = el('conversation-restore-a1');
     act(() => restore.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     await settle();
     expect(h.unarchived).toEqual(['a1']);
+    // 恢复后切回正常列表：它回来了，归档数变 0（没归档时不显示开关）
+    if (
+      (await Promise.resolve(
+        document.querySelector('[data-testid="conversation-archived-toggle"]'),
+      )) !== null
+    ) {
+      act(() =>
+        el('conversation-archived-toggle').dispatchEvent(
+          new MouseEvent('click', { bubbles: true }),
+        ),
+      );
+      await settle();
+    }
+    expect(items().join('|')).toContain('旧会话');
+    expect(document.querySelector('[data-testid="conversation-archived-toggle"]')).toBeNull();
   });
 
   it('没有已归档时不显示开关', async () => {

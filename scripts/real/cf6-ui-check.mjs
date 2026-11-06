@@ -108,15 +108,22 @@ try {
   await page.waitForTimeout(500);
   await page.getByTestId('conversation-item').filter({ hasText: '旧的周报' }).first().click();
   await page.waitForTimeout(500);
-  const input = page.getByTestId('ask-input');
-  if (await input.count()) {
-    await input.fill('接着刚才的说');
-    await page
-      .getByTestId('ask-run')
-      .click()
-      .catch(() => undefined);
-    await page.waitForTimeout(1500);
+  const before = await page.getByTestId('message-list').locator('article').count();
+  await page.getByTestId('ask-input').fill('接着刚才的说');
+  await page.getByTestId('ask-run').click();
+  try {
+    await page.waitForFunction(
+      (n) => document.querySelectorAll('[data-testid="message-list"] article').length >= n + 2,
+      before,
+      { timeout: 120_000 },
+    );
+  } catch {
+    throw new Error('恢复后这一问没答出来');
   }
+  const articles = await page.getByTestId('message-list').locator('article').allInnerTexts();
+  console.log('续聊这一轮的消息条数（含前文轮次）：', articles.length);
+  console.log('最后一轮有回答正文：', String(articles.at(-1) ?? '').trim().length > 0);
+  console.log('模型：IXAEON_FAKE_MODEL=1（fake-direct，走直连链路）');
   await page.screenshot({ path: '.logs/cf6-continue.png' });
   console.log('截图: .logs/cf6-search.png / .logs/cf6-archived.png / .logs/cf6-continue.png');
 } finally {
