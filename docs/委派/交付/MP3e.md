@@ -50,3 +50,9 @@ $ node scripts/test-e2e.mjs desktop
 ```
 
 四项：已实现=DSH 执行器、编码任务界面、任务卡提示句、三个 bug；自动化通过=UI 4/4、e2e 25/25；真机通过=上面两段；用户接受=未接受。
+
+## 照 11-06 复审改了什么（MP3e 部分）
+
+- 并入 `dev/MP3db`（含 MP3d 的执行器修复）：`ClaudeCodeExecutor` / `DshExecutor` 都用 `minimalChildEnv()`，只额外补 `APPDATA` / `LOCALAPPDATA`（路径，不是密钥）；失败返回 `claimedSuccess:false` 的回报，`raw` 带 stdout/stderr 各末约 4000 字；取消/超时用 `killProcessTree` 杀整棵进程树、`stdio` 不接 stdin、`shell:false`、超时用 `task.timeout_ms`。
+- `Models.tsx` 保留本支的编码任务界面（主选 + 替补、四个下拉），并把 MP3db 的缺省保护带上（`getDevTools` 缺失/返回 undefined、`providers` 兜底）。
+- 端到端 `mp3e-coding-chain.spec.ts` 参数化：`MP3E_CHAIN=dsh` 时排「Codex → DSH」。本机跑：Claude 那一串过；DSH 那一串红在「DSH：没做完」（假 DSH 的输出没被 `parseDshOutput` 认成 final，还要再查）。

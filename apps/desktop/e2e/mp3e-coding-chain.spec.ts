@@ -38,6 +38,34 @@ function fakeClaude(): string {
   });
 }
 
+const MODE = process.env.MP3E_CHAIN === 'dsh' ? 'dsh' : 'claude';
+const SECOND_LABEL = MODE === 'dsh' ? 'DSH' : 'Claude Code · sonnet';
+
+/** 假 DSH：安装目录里放真的 exe，输出一行 final。 */
+function fakeDsh(): string {
+  const install = join(dataDir, 'dsh-install');
+  mkdirSync(
+    join(
+      install,
+      'resources',
+      'app.asar',
+      'dsh',
+      'node_modules',
+      '@deepseek-ai',
+      'dsh-desktop-host',
+      'lib',
+    ),
+    {
+      recursive: true,
+    },
+  );
+  return buildFakeTool(install, 'DeepSeek Harness', {
+    stdout: ['{"type":"final","text":"DSH done"}'],
+    writeFiles: [{ path: 'note.txt', content: 'done\n' }],
+    exitCode: 0,
+  });
+}
+
 let app: ElectronApplication;
 let page: Page;
 
@@ -96,18 +124,27 @@ test('条件 15：Codex → Claude Code，回报写着替补来做，改动是 C
   await page.getByTestId('nav-models').click();
   await page.getByTestId('devtool-path-codex').fill(fakeCodex());
   await page.getByTestId('devtool-save-codex').click();
-  await page.getByTestId('devtool-path-claude').fill(fakeClaude());
-  await page.getByTestId('devtool-save-claude').click();
+  if (MODE === 'dsh') {
+    await page.getByTestId('devtool-path-dsh').fill(fakeDsh());
+    await page.getByTestId('devtool-save-dsh').click();
+  } else {
+    await page.getByTestId('devtool-path-claude').fill(fakeClaude());
+    await page.getByTestId('devtool-save-claude').click();
+  }
 
   // 编码任务排「Codex → Claude Code · sonnet」
   const addBox = page.getByTestId('coding-chain-add');
   await page.getByTestId('coding-chain-kind').selectOption({ label: '开发工具' });
   await page.getByTestId('coding-chain-tool').selectOption({ label: 'Codex' });
   await addBox.getByRole('button', { name: '添加' }).click();
-  await page.getByTestId('coding-chain-tool').selectOption({ label: 'Claude Code' });
-  await page.getByTestId('coding-chain-claude-model').selectOption({ label: 'sonnet' });
+  if (MODE === 'dsh') {
+    await page.getByTestId('coding-chain-tool').selectOption({ label: 'DSH' });
+  } else {
+    await page.getByTestId('coding-chain-tool').selectOption({ label: 'Claude Code' });
+    await page.getByTestId('coding-chain-claude-model').selectOption({ label: 'sonnet' });
+  }
   await addBox.getByRole('button', { name: '添加' }).click();
-  await expect(page.getByTestId('coding-chain-list')).toContainText('Claude Code · sonnet');
+  await expect(page.getByTestId('coding-chain-list')).toContainText(SECOND_LABEL);
   await page.waitForTimeout(300);
   await page.getByTestId('uses-save').click();
   await page.waitForTimeout(300);
@@ -129,11 +166,10 @@ test('条件 15：Codex → Claude Code，回报写着替补来做，改动是 C
   await card.getByRole('button', { name: '批准并排队' }).click();
   await card.getByRole('button', { name: /派发/ }).click();
 
-  await expect(card).toContainText(
-    '「Codex」这次不行（额度用完），由替补「Claude Code · sonnet」来做',
-    {
-      timeout: 60_000,
-    },
-  );
-  await expect(card).toContainText('Claude Code', { timeout: 30_000 });
+  await expect(card).toContainText(`「Codex」这次不行（额度用完），由替补「${SECOND_LABEL}」来做`, {
+    timeout: 60_000,
+  });
+  await expect(card).toContainText(SECOND_LABEL === 'DSH' ? 'DSH' : 'Claude Code', {
+    timeout: 30_000,
+  });
 });
