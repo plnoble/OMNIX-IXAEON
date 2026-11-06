@@ -37,7 +37,7 @@ async function launch() {
 }
 
 try {
-  let page = await launch();
+  const page = await launch();
   await page.getByTestId('setup-next-1').click();
   await page.getByTestId('setup-model-name').fill('magpie');
   await page.getByTestId('setup-next-2').click();
