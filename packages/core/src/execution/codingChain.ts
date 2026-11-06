@@ -2,7 +2,7 @@
  * MP3db：编码任务的一串候选（按顺序换下一个，5 分钟内先跳过刚不行的）。
  */
 import type { CodingExecutor, ExecutorReport, ExecutorRunOptions } from './executor.js';
-import { hashWorkspace } from './executor.js';
+import { EXECUTOR_CHANNEL_FILE, hashWorkspace } from './executor.js';
 import { acceptableFallback, reasonText } from '../models/fallbackRules.js';
 import type { CodingTask } from '@ixaeon/contracts';
 
@@ -17,9 +17,17 @@ export interface CodingChainOptions {
   now?: () => number;
 }
 
+function withoutChannel(m: Map<string, string>): Map<string, string> {
+  const c = new Map(m);
+  c.delete(EXECUTOR_CHANNEL_FILE);
+  return c;
+}
+
 function sameHash(a: Map<string, string>, b: Map<string, string>): boolean {
-  if (a.size !== b.size) return false;
-  for (const [k, v] of a) if (b.get(k) !== v) return false;
+  const x = withoutChannel(a);
+  const y = withoutChannel(b);
+  if (x.size !== y.size) return false;
+  for (const [k, v] of x) if (y.get(k) !== v) return false;
   return true;
 }
 

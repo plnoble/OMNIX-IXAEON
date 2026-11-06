@@ -77,6 +77,7 @@ import {
   detectDevTools,
   CodingChainExecutor,
   ClaudeCodeExecutor,
+  DshExecutor,
   type CodingExecutor,
   resolveModelUseChain,
   checkMagpieUrl,
@@ -1722,12 +1723,13 @@ export class AppRuntime {
           );
         key = 'tool:' + item.tool + ':' + (item.model ?? '');
       } else {
-        const providers = (this.config.providers ?? []) as Array<{
-          id: string;
-          savedModels: string[];
-        }>;
-        const provider = providers.find((p) => p.id === item.providerId);
-        if (!provider || !provider.savedModels.includes(item.model))
+        const saved =
+          item.providerId === 'default'
+            ? ((this.config.model?.savedModels ?? []) as string[])
+            : (((this.config.providers ?? []) as Array<{ id: string; savedModels: string[] }>).find(
+                (p) => p.id === item.providerId,
+              )?.savedModels ?? []);
+        if (!saved.includes(item.model))
           throw new IxaError(ErrorCodes.VALIDATION_FAILED, '这个模型没有勾选保存过');
         key = 'provider:' + item.providerId + ':' + item.model;
       }
@@ -1767,6 +1769,7 @@ export class AppRuntime {
             exe: found,
             model: item.model as 'opus' | 'sonnet' | 'haiku' | undefined,
           });
+        if (item.tool === 'dsh' && found) executor = new DshExecutor({ install: found });
         const label =
           item.tool === 'codex'
             ? 'Codex'
@@ -1779,17 +1782,39 @@ export class AppRuntime {
           executor,
         };
       }
-      const providers = (this.config.providers ?? []) as Array<{
-        id: string;
-        name: string;
-        savedModels: string[];
-      }>;
-      const provider = providers.find((p) => p.id === item.providerId);
-      const ok = provider && provider.savedModels.includes(item.model);
-      const executor = ok ? new ModelCodingExecutor(provider as never, item.model) : null;
+      // 供应商那一项：照后台分析的候选建真客户端；解不开 Key / 没这个模型就跳过
+      const isDefault = item.providerId === 'default';
+      const p = isDefault
+        ? null
+        : ((
+            (this.config.providers ?? []) as Array<{
+              id: string;
+              name: string;
+              savedModels: string[];
+              apiBaseUrl?: string;
+              apiKeyEncrypted?: string | null;
+            }>
+          ).find((x) => x.id === item.providerId) ?? null);
+      const baseUrl = isDefault ? this.config.model?.apiBaseUrl : p?.apiBaseUrl;
+      const keyEnc = isDefault ? this.config.model?.apiKeyEncrypted : (p?.apiKeyEncrypted ?? null);
+      const saved = isDefault
+        ? ((this.config.model?.savedModels ?? []) as string[])
+        : (p?.savedModels ?? []);
+      const apiKey = keyEnc ? this.decryptOrNull(keyEnc) : null;
+      const executor =
+        apiKey && saved.includes(item.model)
+          ? new ModelCodingExecutor(
+              new OpenAIResponsesProvider({
+                apiKey,
+                modelName: item.model,
+                baseUrl: baseUrl?.trim() || process.env.IXAEON_OPENAI_BASE_URL,
+              }),
+              item.model,
+            )
+          : null;
       return {
         key: 'provider:' + item.providerId + ':' + item.model + ':' + index,
-        label: (provider?.name ?? '供应商') + ' · ' + item.model,
+        label: (isDefault ? '我的模型' : (p?.name ?? '供应商')) + ' · ' + item.model,
         executor,
       };
     });
