@@ -1003,6 +1003,16 @@
       "files": {
         "packages/core/test/acceptance/t1-verify-lock.test.ts": "aef26665f3fcda259857beee1923a53ce409c928231246caf61bf9e449c1f920"
       }
+    },
+    {
+      "id": "CF6",
+      "title": "会话管理",
+      "status": "queued",
+      "files": {
+        "packages/core/test/acceptance/cf6-search.test.ts": "03688c7921b5023c7b420ca17a2d6938f0f95ef536779a078a2c279954b547c8",
+        "apps/desktop/test/acceptance/cf6-conversation-ui.test.ts": "83effdb2d6983d645efe36f457490cfb682992c2a3ebbd7987798396ca4d9beb",
+        "apps/desktop/test/acceptance/cf6-continue.test.ts": "2338707e32bb30939bffc82736a44824b5c344a2cfbb037522e11345e936d9f4"
+      }
     }
   ]
 }

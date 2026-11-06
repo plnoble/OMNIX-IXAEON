@@ -71,6 +71,12 @@ export function AskPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [list, setList] = useState<ConversationSummary[]>([]);
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<
+    Array<ConversationSummary & { snippet: string | null }>
+  >([]);
+  const [archivedView, setArchivedView] = useState(false);
+  const [archivedList, setArchivedList] = useState<ConversationSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   // CF0：设置里已检测并保存的模型 / 当前聊天模型。读不到设置前保持 undefined，
@@ -118,7 +124,33 @@ export function AskPage({
 
   const reloadList = useCallback(async () => {
     setList(await api.listConversations());
+    try {
+      const all = await api.listConversations({ includeArchived: true });
+      setArchivedList(all.filter((c) => Boolean((c as { archivedAt?: string | null }).archivedAt)));
+    } catch {
+      setArchivedList([]);
+    }
   }, []);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResults([]);
+      return;
+    }
+    let stale = false;
+    void api
+      .searchConversations({ query: q, archived: archivedView })
+      .then((rows) => {
+        if (!stale) setSearchResults(rows);
+      })
+      .catch(() => {
+        if (!stale) setSearchResults([]);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [query, archivedView]);
 
   // CF0：换模型重问只从「已检测并保存的模型」里选，聊天模型和设置页是同一个。
   const reloadChatSettings = useCallback(async () => {
@@ -482,11 +514,18 @@ export function AskPage({
           >
             新对话
           </Button>
+          <input
+            className="input"
+            data-testid="conversation-search"
+            placeholder="搜会话（标题或内容）"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
           <div className="ask-conv-list" data-testid="conversation-list">
-            {list.length === 0 ? (
+            {(archivedView ? archivedList : query.trim() ? searchResults : list).length === 0 ? (
               <Empty>还没有对话。点「新对话」开始提问。</Empty>
             ) : (
-              list.map((c) => (
+              (archivedView ? archivedList : query.trim() ? searchResults : list).map((c) => (
                 <div
                   key={c.id}
                   className={c.id === activeId ? 'ask-conv-item active' : 'ask-conv-item'}
@@ -540,6 +579,35 @@ export function AskPage({
                       </span>
                     </button>
                   )}
+                  {query.trim() && !archivedView && 'snippet' in c && c.snippet ? (
+                    <div className="muted" data-testid="conversation-search-snippet">
+                      {String(c.snippet)
+                        .split('\u0001')
+                        .map((part: string, i: number) => {
+                          if (i === 0) return <span key={i}>{part}</span>;
+                          const [hit, rest] = part.split('\u0002');
+                          return (
+                            <span key={i}>
+                              <strong>{hit}</strong>
+                              {rest}
+                            </span>
+                          );
+                        })}
+                    </div>
+                  ) : null}
+                  {archivedView ? (
+                    <Button
+                      testId={`conversation-restore-${c.id}`}
+                      onClick={() => {
+                        void actOnConv(async () => {
+                          await api.unarchiveConversation(c.id);
+                          await reloadList();
+                        });
+                      }}
+                    >
+                      恢复
+                    </Button>
+                  ) : null}
                   <div className="ask-conv-actions">
                     <button
                       type="button"
@@ -581,6 +649,16 @@ export function AskPage({
               ))
             )}
           </div>
+          {archivedList.length > 0 || archivedView ? (
+            <button
+              type="button"
+              className="link"
+              data-testid="conversation-archived-toggle"
+              onClick={() => setArchivedView(!archivedView)}
+            >
+              {archivedView ? '← 返回正常列表' : `已归档（${archivedList.length}）`}
+            </button>
+          ) : null}
         </aside>
 
         <section className="ask-main">
