@@ -1007,7 +1007,7 @@
     {
       "id": "CF6",
       "title": "会话管理",
-      "status": "queued",
+      "status": "done",
       "files": {
         "packages/core/test/acceptance/cf6-search.test.ts": "03688c7921b5023c7b420ca17a2d6938f0f95ef536779a078a2c279954b547c8",
         "apps/desktop/test/acceptance/cf6-conversation-ui.test.ts": "83effdb2d6983d645efe36f457490cfb682992c2a3ebbd7987798396ca4d9beb",
