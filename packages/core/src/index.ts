@@ -1,4 +1,5 @@
 // IXAEON core — 导入、存储、提取、检索、纠正、简报逻辑
+<<<<<<< HEAD
 export { hashWorkspace } from './execution/executor.js';
 export {
   claudeCodeLaunch,
@@ -10,6 +11,8 @@ export {
   type ClaudeModel,
 } from './execution/toolLaunch.js';
 export { acceptableFallback, reasonText } from './models/fallbackRules.js';
+=======
+>>>>>>> origin/main
 export { detectDevTools, type DevToolRow, type DevTool } from './execution/devTools.js';
 export { ErrorCodes, IxaError, toApiError } from '@ixaeon/contracts';
 export { openDatabase, type CoreDatabase } from './db/database.js';
