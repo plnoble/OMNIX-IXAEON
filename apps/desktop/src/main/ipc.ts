@@ -558,6 +558,7 @@ export function registerIpc(runtime: AppRuntime): void {
       messages: runtime.conversations.messages(id),
     }),
     createConversation: async (input) => runtime.conversations.create(input ?? {}),
+    searchConversations: async (input) => runtime.conversations.search(input),
     renameConversation: async (input) => runtime.conversations.rename(input.id, input.title),
     archiveConversation: async (id) => runtime.conversations.archive(id),
     unarchiveConversation: async (id) => runtime.conversations.unarchive(id),

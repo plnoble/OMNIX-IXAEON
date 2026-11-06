@@ -766,6 +766,12 @@ export interface IxaIpcApi {
     includeArchived?: boolean;
     limit?: number;
   }): Promise<ConversationSummary[]>;
+  /** CF6：按标题与消息正文搜会话；片段给界面看。 */
+  searchConversations(input: {
+    query: string;
+    archived: boolean;
+    limit?: number;
+  }): Promise<Array<ConversationSummary & { snippet: string | null }>>;
   getConversation(id: string): Promise<{
     conversation: Conversation;
     messages: ConversationMessage[];

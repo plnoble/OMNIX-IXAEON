@@ -124,7 +124,9 @@ beforeAll(async () => {
   });
   app = Fastify();
   await server.register(app);
-  await app.listen({ port: 43991, host: '127.0.0.1' }); // 独立端口：不与桌面主服务冲突
+  // 整合方改（2026-11-06）：用系统给的空闲端口。原来写死 43991，本机这个端口落在 Windows 保留的范围里，
+  // listen 直接 EADDRINUSE、本机门禁跑不过；这里的请求全走 app.inject，用不到固定端口。
+  await app.listen({ port: 0, host: '127.0.0.1' });
   await pairDirect();
 });
 

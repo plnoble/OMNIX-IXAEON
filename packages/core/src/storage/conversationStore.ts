@@ -165,6 +165,57 @@ export class ConversationStore {
     }));
   }
 
+  /** CF6：按标题与消息正文搜（不区分大小写；空格分隔的词全部出现）。片段里命中词用 U+0001/U+0002 包住。 */
+  search(input: {
+    query: string;
+    archived: boolean;
+    limit?: number;
+  }): Array<ConversationSummary & { snippet: string | null }> {
+    const words = input.query
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean);
+    if (words.length === 0) return [];
+    const limit = input.limit ?? 50;
+    const esc = (s: string): string => s.replace(/[\\%_]/g, (m) => '\\' + m);
+    const like = words.map(
+      () =>
+        "(c.title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.content LIKE ? ESCAPE '\\'))",
+    );
+    const params: unknown[] = [];
+    for (const w of words) params.push('%' + esc(w) + '%', '%' + esc(w) + '%');
+    const where = [input.archived ? 'c.archived_at IS NOT NULL' : 'c.archived_at IS NULL', ...like];
+    const rows = this.db
+      .prepare(
+        'SELECT c.*, ' +
+          '(SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count, ' +
+          '(SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) AS last_message_at, ' +
+          '(SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.seq DESC LIMIT 1) AS last_message ' +
+          'FROM conversations c WHERE ' +
+          where.join(' AND ') +
+          ' ORDER BY c.updated_at DESC LIMIT ?',
+      )
+      .all(...params, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => {
+      const base = {
+        ...toConversation(row),
+        messageCount: row['message_count'] as number,
+        lastMessageAt: (row['last_message_at'] as string | null) ?? null,
+        lastMessagePreview: preview((row['last_message'] as string | null) ?? null),
+      };
+      const msgs = this.db
+        .prepare('SELECT content FROM messages WHERE conversation_id = ? ORDER BY seq')
+        .all(row['id'] as string) as Array<{ content: string }>;
+      return {
+        ...base,
+        snippet: snippetFor(
+          msgs.map((m) => m.content),
+          words,
+        ),
+      };
+    });
+  }
+
   rename(id: string, title: string): Conversation {
     const trimmed = title.trim();
     if (trimmed.length === 0) {
@@ -410,4 +461,28 @@ export class ConversationStore {
       .prepare('UPDATE conversations SET source_id = ? WHERE id = ?')
       .run(sourceId, conversationId);
   }
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 取第一条含全部词的正文，截命中词前后各约 20 字；命中词用 U+0001..U+0002 标出。 */
+function snippetFor(contents: string[], words: string[]): string | null {
+  for (const content of contents) {
+    const lower = content.toLowerCase();
+    if (!words.every((w) => lower.includes(w.toLowerCase()))) continue;
+    const first = words
+      .map((w) => lower.indexOf(w.toLowerCase()))
+      .filter((i) => i >= 0)
+      .sort((a, b) => a - b)[0]!;
+    const start = Math.max(0, first - 20);
+    const end = Math.min(content.length, first + 60);
+    let piece = content.slice(start, end);
+    for (const w of words) {
+      piece = piece.replace(new RegExp(escapeRegExp(w), 'gi'), (m) => '\u0001' + m + '\u0002');
+    }
+    return (start > 0 ? '…' : '') + piece + (end < content.length ? '…' : '');
+  }
+  return null;
 }

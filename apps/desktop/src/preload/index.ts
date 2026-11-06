@@ -77,6 +77,7 @@ const api: IxaIpcApi = {
   listConversations: (input) => ipcRenderer.invoke('ixaeon:listConversations', input),
   getConversation: (id) => ipcRenderer.invoke('ixaeon:getConversation', id),
   createConversation: (input) => ipcRenderer.invoke('ixaeon:createConversation', input),
+  searchConversations: (input) => ipcRenderer.invoke('ixaeon:searchConversations', input),
   renameConversation: (input) => ipcRenderer.invoke('ixaeon:renameConversation', input),
   archiveConversation: (id) => ipcRenderer.invoke('ixaeon:archiveConversation', id),
   unarchiveConversation: (id) => ipcRenderer.invoke('ixaeon:unarchiveConversation', id),
