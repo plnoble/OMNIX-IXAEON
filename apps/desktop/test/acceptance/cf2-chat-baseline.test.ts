@@ -246,12 +246,12 @@ describe('CF2 条件 2：问题 8 建且只建一条用户待办', () => {
     const after = counts();
     expect(after.tasks).toBe(before.tasks);
     expect(after.todos).toBe(before.todos + 1);
-    const row = db.prepare('SELECT title, source FROM todos ORDER BY rowid DESC LIMIT 1').get() as {
+    const row = db.prepare('SELECT title, origin FROM todos ORDER BY rowid DESC LIMIT 1').get() as {
       title: string;
-      source: string;
+      origin: string;
     };
     expect(row.title).toBe('周五前把发票寄出去');
-    expect(row.source).toBe('user');
+    expect(row.origin).toBe('user');
   });
 });
 
@@ -298,6 +298,9 @@ describe('CF2 条件 4：清单外工具一律拒绝、不建东西、不起子�
       // 第二轮请求里应能看到拒绝内容（工具结果作为消息回给模型）
       const second = calls[1]!;
       expect(second.messages.some((m) => m.content.includes('清单'))).toBe(true);
+      const last = msgs(runtime).at(-1) as Record<string, unknown>;
+      expect(last.status).toBe('complete');
+      expect(String(last.content)).toContain('普通回答');
     }
     expect(cp.spawn).not.toHaveBeenCalled();
     expect(cp.execFile).not.toHaveBeenCalled();
@@ -306,34 +309,40 @@ describe('CF2 条件 4：清单外工具一律拒绝、不建东西、不起子�
 
 describe('CF2 条件 5：已有的 AI 旧待办不动', () => {
   it('状态 proposed、来源 AI 的旧待办，问完 8 句后状态/标题/更新时间都没变', async () => {
+    // 标题跟替身回答里「建议待办」的两条（甲、乙）不同；用 TodoStore 之外的直写，免得依赖 propose 的去重
     const old = {
       id: 'old-1',
       title: '旧的 AI 待办',
-      source: 'ai',
+      origin: 'agent',
       status: 'proposed',
       updated_at: '2026-01-01T00:00:00.000Z',
     };
     db.prepare(
-      `INSERT INTO todos (id, title, source, status, created_at, updated_at)
+      `INSERT INTO todos (id, title, origin, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(old.id, old.title, old.source, old.status, old.updated_at, old.updated_at);
+    ).run(old.id, old.title, old.origin, old.status, old.updated_at, old.updated_at);
     const calls: SeenCall[] = [];
     const { runtime } = fixture({ 'demo-a': makeClient('demo-a', () => answer(SUGGEST), calls) });
     for (const q of Q) await ask(runtime, q);
     const row = db
-      .prepare('SELECT title, source, status, updated_at FROM todos WHERE id = ?')
+      .prepare('SELECT title, origin, status, updated_at FROM todos WHERE id = ?')
       .get(old.id) as {
       title: string;
-      source: string;
+      origin: string;
       status: string;
       updated_at: string;
     };
     expect(row).toEqual({
       title: old.title,
-      source: old.source,
+      origin: old.origin,
       status: old.status,
       updated_at: old.updated_at,
     });
+    // 问题 1–8 里只有第 8 句建了一条（用户的），别的一条都没有
+    const all = db.prepare('SELECT origin FROM todos WHERE id <> ?').all(old.id) as Array<{
+      origin: string;
+    }>;
+    expect(all).toEqual([{ origin: 'user' }]);
   });
 });
 
@@ -345,6 +354,7 @@ describe('CF2 条件 6：存档照旧，正文里带着「建议待办：」', (
     });
     await ask(runtime, Q[0]!);
     expect(captureAsk).toHaveBeenCalled();
+    expect(JSON.stringify(captureAsk.mock.calls)).toContain('建议待办：');
     const last = msgs(runtime).at(-1) as Record<string, unknown>;
     expect(String(last.content)).toContain('建议待办：');
   });
