@@ -27,3 +27,11 @@ Tests  5 passed (5)
 - `mp3d-chain-executor` / `mp3d-coding-chain` 两份测试归 MP3db，本支上没有实现，红是预期的。
 
 四项：已实现=上面三处；自动化通过=5/5；真机通过=见 MP3db；用户接受=未接受。
+
+## 照 11-06 复审改了什么（第 1、2、3 条 Claude Code 部分）
+
+- `ClaudeCodeExecutor`（以及同文件的 `DshExecutor`，MP3db 接线要用）改用 `minimalChildEnv()`，只额外补 `APPDATA` / `LOCALAPPDATA`；
+- 失败不再抛，返回 `claimedSuccess:false` 的回报：`summary` 一句人话，`raw` 带 stdout/stderr 各末约 4000 字（候选串据此看到 `usage_limit_reached` 才知道换）；
+- `spawn` 用 `stdio: ['ignore','pipe','pipe']`、`shell:false`；取消/超时用导出的 `killProcessTree` 杀整棵进程树；超时用 `task.timeout_ms`（默认 15 分钟）；
+- 回报按 `ExecutorReport` 字段写，去掉 `changes: []` 与 `as unknown`；
+- `executor.ts` 导出 `minimalChildEnv` / `killProcessTree`。
