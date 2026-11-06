@@ -1010,7 +1010,8 @@
       "status": "queued",
       "files": {
         "packages/core/test/acceptance/cf6-search.test.ts": "6e2a7dadc692b54e7731c05c6b94ca14fa67540f47f41bb67de6b54ea91ed471",
-        "apps/desktop/test/acceptance/cf6-conversation-ui.test.ts": "700f29f0119732fe89a5401c0b2bd14631bac3641fe67ec2ee679df5f76f54e6"
+        "apps/desktop/test/acceptance/cf6-conversation-ui.test.ts": "700f29f0119732fe89a5401c0b2bd14631bac3641fe67ec2ee679df5f76f54e6",
+        "apps/desktop/test/acceptance/cf6-continue.test.ts": "2338707e32bb30939bffc82736a44824b5c344a2cfbb037522e11345e936d9f4"
       }
     }
   ]
