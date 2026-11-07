@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ConversationMessage, MemoryUsedItem, TodoStatus } from '@ixaeon/contracts';
 import { isModelUnavailable } from '@ixaeon/contracts';
 import { api, errMsg } from '../api.js';
-import { Button, Spinner } from '../ui.js';
+import { Button, Field, Spinner } from '../ui.js';
 
 type ProposedTask = { id: string; goal: string; status: string; scope: string[] };
 
@@ -223,6 +223,10 @@ export function AskMessage({
   todoCoding,
   onDecideTodo,
   onOpenTask,
+  conversationMessages,
+  conversationId,
+  conversationProjectId,
+  projects,
   savedModels,
   chatModelName,
   retryDisabled,
@@ -248,6 +252,12 @@ export function AskMessage({
   todoCoding?: Record<string, boolean>;
   onDecideTodo?: (id: string, decision: 'accept' | 'reject') => void;
   onOpenTask?: (taskId: string) => void;
+  /** CF4：把这段讨论转成任务要用到的数据（缺省不显示入口）。 */
+  conversationMessages?: ConversationMessage[];
+  conversationId?: string;
+  /** 对话所属项目；为空表示个人视角，表单里要选项目。 */
+  conversationProjectId?: string;
+  projects?: Array<{ id: string; name: string }>;
   /** CF0：设置里已检测并保存的模型（没读到设置前不传，控件先不出现）。 */
   savedModels?: string[];
   modelLabels?: Record<string, string>;
@@ -439,6 +449,198 @@ export function AskMessage({
           </details>
         )}
       </div>
+      {m.role === 'assistant' &&
+      m.status === 'complete' &&
+      conversationId &&
+      conversationMessages ? (
+        <TaskFromConversation
+          message={m}
+          messages={conversationMessages}
+          conversationId={conversationId}
+          conversationProjectId={conversationProjectId}
+          projects={projects}
+          onOpenTask={onOpenTask}
+        />
+      ) : null}
     </article>
+  );
+}
+
+/**
+ * CF4：把这一轮讨论转成编码任务草案。只在 complete 的助手回答下面出现。
+ * 用户点开、看清范围与目标、确认后点「建草案」——这一步就是确认。
+ */
+function TaskFromConversation({
+  message,
+  messages,
+  conversationId,
+  conversationProjectId,
+  projects,
+  onOpenTask,
+}: {
+  message: ConversationMessage;
+  messages: ConversationMessage[];
+  conversationId: string;
+  conversationProjectId?: string;
+  projects?: Array<{ id: string; name: string }>;
+  onOpenTask?: (taskId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [fromId, setFromId] = useState<string>('');
+  const [goal, setGoal] = useState('');
+  const [acceptance, setAcceptance] = useState('');
+  const [pickProject, setPickProject] = useState('');
+  const [tasks, setTasks] = useState<
+    Array<{ id: string; goal: string; origin_to_seq?: number | null }>
+  >([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const usersBefore = messages.filter((x) => x.role === 'user' && x.seq < message.seq);
+  const fromSeq = (id: string): number => messages.find((x) => x.id === id)?.seq ?? message.seq;
+  const count = message.seq - fromSeq(fromId || usersBefore.at(-1)?.id || '') + 1;
+
+  const reload = async (): Promise<void> => {
+    try {
+      setTasks((await api.listConversationTasks(conversationId)) as never);
+    } catch {
+      setTasks([]);
+    }
+  };
+  useEffect(() => {
+    void reload();
+    // 只在这个对话换掉时重读
+  }, [conversationId]);
+  const links = tasks.filter((x) => (x.origin_to_seq ?? -1) === message.seq);
+
+  const openForm = (): void => {
+    const last = usersBefore.at(-1);
+    setFromId(last?.id ?? '');
+    setGoal((last?.content ?? '').slice(0, 2000));
+    setAcceptance('');
+    setOpen(true);
+  };
+
+  const changeFrom = (id: string): void => {
+    setFromId(id);
+    const msg = messages.find((x) => x.id === id);
+    if (msg) setGoal(msg.content.slice(0, 2000));
+  };
+
+  const submit = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const lines = acceptance
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await api.createTaskFromConversation({
+        conversationId,
+        fromMessageId: fromId,
+        toMessageId: message.id,
+        goal,
+        acceptance: lines,
+        scope: ['.'],
+        ...(conversationProjectId ? {} : { projectId: pickProject }),
+      });
+      setOpen(false);
+      await reload();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="ask-message-task">
+      {links.map((x) => (
+        <div key={x.id} className="muted">
+          已转成任务：{x.goal.slice(0, 30)}
+          <button
+            type="button"
+            className="link"
+            data-testid={`message-task-link-${x.id}`}
+            onClick={() => onOpenTask?.(x.id)}
+          >
+            到任务页看
+          </button>
+        </div>
+      ))}
+      {!open ? (
+        <button
+          type="button"
+          className="link"
+          data-testid={`message-to-task-${message.id}`}
+          onClick={openForm}
+        >
+          转成任务
+        </button>
+      ) : (
+        <div className="ask-message-task-form">
+          <p className="muted">
+            第 {fromSeq(fromId) === message.seq ? message.seq : fromSeq(fromId)}–{message.seq}{' '}
+            条，共 {count} 条消息
+          </p>
+          <Field label="开始">
+            <select
+              data-testid="message-to-task-from"
+              value={fromId}
+              onChange={(e) => changeFrom(e.target.value)}
+            >
+              {usersBefore.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.content.slice(0, 20)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="目标">
+            <textarea
+              data-testid="message-to-task-goal"
+              value={goal}
+              rows={3}
+              onChange={(e) => setGoal(e.target.value)}
+            />
+          </Field>
+          <Field label="验收条件（一行一条）">
+            <textarea
+              data-testid="message-to-task-acceptance"
+              value={acceptance}
+              rows={3}
+              onChange={(e) => setAcceptance(e.target.value)}
+            />
+          </Field>
+          {conversationProjectId ? null : (
+            <Field label="项目">
+              <select
+                data-testid="message-to-task-project"
+                value={pickProject}
+                onChange={(e) => setPickProject(e.target.value)}
+              >
+                <option value="">选一个项目</option>
+                {(projects ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          {error ? <p className="warn">{error}</p> : null}
+          <Button
+            kind="primary"
+            disabled={
+              busy || acceptance.trim().length === 0 || (!conversationProjectId && !pickProject)
+            }
+            testId="message-to-task-submit"
+            onClick={() => void submit()}
+          >
+            建草案
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
