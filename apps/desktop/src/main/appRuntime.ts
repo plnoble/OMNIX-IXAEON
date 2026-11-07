@@ -38,7 +38,6 @@ import {
   GoalStore,
   PlanStore,
   explainModelFailure,
-  extractSuggestedTodos,
   parseUserTodo,
   Vault,
   ensureDataDirLayout,
@@ -1290,11 +1289,8 @@ export class AppRuntime {
       // 重启/再次提问都保持停用；恢复需要走显式入口（设置页 enableAskCapture）。
       // 有实际回答时把问答对存为 ask_session 来源并入队提取（走既有
       // 「提案→用户确认」管线）；存档/提取失败不吞掉回答，如实附注。
-      // T2a：回答末尾的「建议待办」由代码变成待办（见下面 finishMessage 前），
-      // 存档、消息正文、返回值都用拆掉这一段之后的回答——否则同一件事会被
-      // 记忆提炼再记成一条「AI 建议」，下一轮背景里也会带着它。
-      const extracted = extractSuggestedTodos(result.answer);
-      result.answer = extracted.answer;
+      // CF2：回答原样用——末尾就算写了「建议待办：」也只是正文的一部分，
+      // 不拆、不建待办、不进 meta（用户 11-03 定）。用户自己在消息开头写「待办：」照旧。
 
       // A5：core-bounded 的轮子是否以失败告终——结构化判定，绝不匹配回答文字：
       // 真引擎在会话结果上带 failedKind（model_error / round_limit）；兼容替身
@@ -1366,21 +1362,10 @@ export class AppRuntime {
           : failedKind === 'round_limit'
             ? '已达轮次上限，未形成最终回答。'
             : null;
-      const proposedTodos: Array<{ id: string; title: string }> = [];
-      if (!cancelled && !failedKind) {
-        for (const title of extracted.todos) {
-          const row = this.todos.propose({
-            title,
-            conversationId,
-            messageId: assistantMessage.id,
-          });
-          if (row) proposedTodos.push({ id: row.id, title: row.title });
-        }
-      }
       this.conversations.finishMessage(assistantMessage.id, {
         // 失败轮：正文不放错误文字，但 delta 已经写进去的半截回答照常保留
         //（content 传 undefined 就不覆盖这条消息现有的内容）
-        content: failedKind ? undefined : extracted.answer,
+        content: failedKind ? undefined : result.answer,
         status: cancelled ? 'cancelled' : failedKind ? 'failed' : 'complete',
         runId,
         engine: result.engine,
@@ -1397,7 +1382,6 @@ export class AppRuntime {
           memoryUsed: result.memoryUsed,
           // P3：这一轮带上的项目近况计数（没带不写；回答下面一行灰字用它）。
           ...(result.projectBrief ? { projectBrief: result.projectBrief } : {}),
-          ...(proposedTodos.length > 0 ? { proposedTodos } : {}),
           ...(userTodo ? { userTodo: { id: userTodo.id, title: userTodo.title } } : {}),
         },
       });
@@ -1547,7 +1531,7 @@ export class AppRuntime {
         }
         return {
           ok: false,
-          content: `工具 ${name} 不在直连聊天的可用清单里（普通聊天不建任务、不写记忆）`,
+          content: `没有这个工具：${name} 不在直连聊天的可用清单里（普通聊天不建任务、不写记忆）`,
         };
       },
     };
