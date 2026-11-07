@@ -1,4 +1,4 @@
-﻿# CF4b 交付说明：讨论转任务（界面部分，基于 dev/CF4）
+# CF4b 交付说明：讨论转任务（界面部分，基于 dev/CF4）
 
 规格 `docs/委派/CF4-讨论转任务.md` 条件 10。本支只含界面。
 
@@ -36,3 +36,14 @@ Tests  9 passed (9)
 - 锁定：已在 main 上 `node scripts/acceptance.mjs lock CF4b "讨论转任务（界面）" apps/desktop/test/acceptance/cf4-ui.test.ts`（状态 queued，指纹不变）。
 - 源码 248 行，没超 300。
 - CI：没合并，本支 CI 结果不作数。改完后 `git merge dev/CF4`（CF4 改完并 merge 过 main 之后），再推。
+
+## 整合方复审（2026-11-07，由 DSH + group/ixaeon-integrator 代做）
+
+第二次看，只做整合，没改实现和测试。
+
+- 核了：dev/CF4b 1ba0a4a（表单加「可修改的路径」输入）上 `node node_modules/vitest/vitest.mjs run --project acceptance apps/desktop/test/acceptance/cf4-ui.test.ts` 9/9 通过。
+- 同步：CF4 并入 main 后，在 dev/CF4b 上 `git merge origin/main`（808d492，无冲突，没 rebase），推到 dev/CF4b；合并后 CF4 + CF4b 两份锁定测试 37/37 通过。
+- 合并：`git merge --no-ff origin/dev/CF4b` 进 main（cfe864d），本机 `node scripts/verify.mjs` 退出码 0。
+- CI：main 上 run 42347444949 success（15m26s）。
+- `node scripts/acceptance.mjs done CF4b`（CF4b 的锁定单独一条，不 done 就不进门禁）。
+- 真机：本轮没重跑；截图遮蔽仍未由能读图的整合方核过。

@@ -179,3 +179,13 @@ dev 交来的测试有几处在实现正确时也过不了，有几处在实现�
 - 合并 main（e3eece8，锁定已拆）进本支；保留 `cf4-ui.test.ts`（和 main、CF4b 上逐字相同，锁给 CF4b、排队中），不然并入后 main 上少了 CF4b 锁定的文件。
 - 本支 `node scripts/verify.mjs` 退出码 0；`cf4-task-from-conversation.test.ts` 28/28。
 - 结论：**可以并入。**
+
+## 整合方复审（2026-11-07，由 DSH + group/ixaeon-integrator 代做）
+
+第三次看，只做整合，没改实现和测试。
+
+- 核了：dev/CF4 2be48b8（含开发 42b1cf6 的修复）上 `node node_modules/vitest/vitest.mjs run --project acceptance apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts` 28/28 通过；锁定指纹没变。
+- 合并：`git merge --no-ff origin/dev/CF4` 进 main（abcfd9f），本机 `node scripts/verify.mjs` 退出码 0。
+- CI：main 上 run 42345673193 success（15m12s）。
+- `node scripts/acceptance.mjs done CF4`，队列 153 改「已完成（2026-11-07）」。
+- 真机：本轮没重跑。

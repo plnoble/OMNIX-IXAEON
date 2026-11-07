@@ -1017,7 +1017,7 @@
     {
       "id": "CF4",
       "title": "讨论转任务（core + IPC）",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts": "cd45d694e92b973b6e1f02e14ad413ee819807b9a96bbfd5e4bc3a923c096128"
       }
@@ -1025,7 +1025,7 @@
     {
       "id": "CF4b",
       "title": "讨论转任务（界面）",
-      "status": "queued",
+      "status": "done",
       "files": {
         "apps/desktop/test/acceptance/cf4-ui.test.ts": "bc3c368381a6c2bfd3dab29a0841fed5fa047dcc6200b169dbc2bb320a3d2ede"
       }
