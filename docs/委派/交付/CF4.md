@@ -110,3 +110,12 @@ dev 交来的测试有几处在实现正确时也过不了，有几处在实现�
 
 - 迁移 43 是替补整合方写的（见上面的越权说明）。
 - CF2 遗留没做：退役 `t2a-suggested-todos`、删 `extractSuggestedTodos`。
+
+## 拆分（2026-11-07，照代审与 AGENTS 300 行规矩）
+
+源码改动约 353 行，超过 300，按规格拆成两支：
+
+- **本支 `dev/CF4`（core + IPC）**：`taskStore.ts` 三列读写 + 标题 join、`entities.ts` / `ipc.ts` 契约、`ipc.ts`/`preload` 两个方法、`appRuntime.ts` 的 `createTaskFromConversation`（类型守卫、项目校验、建任务与审计同事务）与 `listConversationTasks`。验收测试：`apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts`（条件 1–9，28 条）。
+- **`dev/CF4b`（界面，基于本支）**：`AskMessage.tsx` 的「转成任务」表单、`Tasks.tsx` 的来源显示、`App.tsx` 的 `onOpenConversation`、`Ask.tsx` 传参；验收测试 `cf4-ui.test.ts`（条件 10，9 条）。交付说明见 `docs/委派/交付/CF4b.md`。
+
+锁定：本支只锁核心那份测试，CF4b 锁界面那份。
