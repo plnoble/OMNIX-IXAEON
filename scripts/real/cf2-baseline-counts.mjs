@@ -105,9 +105,8 @@ try {
         { timeout: 240_000 },
       );
     } catch {
-      throw new Error(
-        '这一问没答出来：' + (await page.getByTestId('message-list').innerText()).slice(0, 200),
-      );
+      // 规格要求只贴计数：这里不输出任何界面正文
+      throw new Error('这一问没答出来（超时；不输出回答内容）');
     }
     await page.waitForTimeout(500);
   }

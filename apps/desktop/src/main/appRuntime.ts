@@ -1531,7 +1531,7 @@ export class AppRuntime {
         }
         return {
           ok: false,
-          content: `工具 ${name} 不在直连聊天的可用清单里（普通聊天不建任务、不写记忆）`,
+          content: `没有这个工具：${name} 不在直连聊天的可用清单里（普通聊天不建任务、不写记忆）`,
         };
       },
     };
