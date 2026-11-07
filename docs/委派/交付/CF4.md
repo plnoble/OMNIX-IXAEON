@@ -36,7 +36,9 @@ Tests  37 passed (37)
 对话消息条数： 4 ｜审计 conversation.task_created： 1
 ```
 
-截图：`.logs/cf4-form.png`、`.logs/cf4-origin.png`（临时目录已遮）。
+脚本现在**在截图前断言页面文本里不含临时目录路径**（含就抛错不截图），并断言任务数 1、有来源 1、范围 1–4、draft、消息 4 条、审计 1 行——不符就以非 0 退出。
+
+截图：`.logs/cf4-form.png`、`.logs/cf4-origin.png`。审查方看不到图片时，以脚本的「页面文本不含临时目录」断言作为遮蔽证据。
 
 ## 用户接受
 

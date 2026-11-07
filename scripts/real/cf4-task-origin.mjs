@@ -128,6 +128,9 @@ try {
       if (opts.length > 1) await picker.selectOption({ index: 1 });
     });
   }
+  if ((await page.evaluate(() => document.body.innerText)).includes(dir)) {
+    throw new Error('页面上出现了临时目录路径');
+  }
   await page.screenshot({ path: '.logs/cf4-form.png' });
   await page.getByTestId('message-to-task-submit').click();
   await page.getByTestId('message-to-task-submit').waitFor({ state: 'detached', timeout: 20_000 });
@@ -138,9 +141,14 @@ try {
     .click()
     .catch(() => undefined);
   await page.waitForTimeout(1200);
+  const pageText = await page.evaluate(() => document.body.innerText);
+  if (pageText.includes(dir) || pageText.includes(folder)) {
+    throw new Error('页面上出现了临时目录路径，截图会带出去');
+  }
   const cardOrigin = (await page.getByTestId('page-tasks').innerText()).includes('来自对话');
   await page.screenshot({ path: '.logs/cf4-origin.png' });
   console.log('任务页显示「来自对话」：', cardOrigin);
+  if (!cardOrigin) throw new Error('任务页没显示来源');
   await app.close();
   app = null;
 
@@ -172,6 +180,14 @@ try {
     row.status,
   );
   console.log('对话消息条数：', msgCount, '｜审计 conversation.task_created：', audit);
+  const bad = [];
+  if (tasks !== 1) bad.push('任务行数应为 1');
+  if (withOrigin !== 1) bad.push('有来源的应为 1');
+  if (row.origin_from_seq !== 1 || row.origin_to_seq !== 4) bad.push('范围应为 1–4');
+  if (row.status !== 'draft') bad.push('状态应为 draft');
+  if (msgCount !== 4) bad.push('消息应为 4 条');
+  if (audit !== 1) bad.push('审计应为 1 行');
+  if (bad.length > 0) throw new Error('真机检查不符：' + bad.join('；'));
 } finally {
   if (app) await app.close().catch(() => undefined);
   server.close();
