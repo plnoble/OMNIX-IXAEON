@@ -993,7 +993,7 @@
       "title": "聊天行为基线",
       "status": "queued",
       "files": {
-        "apps/desktop/test/acceptance/cf2-chat-baseline.test.ts": "3388bf507e2ef4282c72856dad463785ef38efe0c12bb3ab18acbcef7f186948"
+        "apps/desktop/test/acceptance/cf2-chat-baseline.test.ts": "298d4a4877ea53376a36d3727372a114f2499520d764c0e538cbad6f9dc59151"
       }
     },
     {

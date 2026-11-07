@@ -18,7 +18,7 @@
  * 条件 5：已有 AI 提的旧待办（proposed）不动。
  * 条件 6：问题 1 照常存档，存的正文里带「建议待办：」。
  *
- * 现在实现还没改（仍会把「建议待办：」拆成待办），本文件应当红。
+ * 整合方 11-07 改严：条件 1、6 断言整段回答原样（含「- 甲」「- 乙」两行），条件 4 断言回给模型的是「没有这个工具」。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -231,6 +231,8 @@ describe('CF2 条件 1：问题 1–7 不建待办、不建任务，正文里那
       const last = msgs(runtime).at(-1) as Record<string, unknown>;
       expect(last.role).toBe('assistant');
       expect(String(last.content)).toContain('建议待办：');
+      // 整段原样：标题和下面的列表一行不少、一字不改
+      expect(last.content, q).toBe(SUGGEST);
       const meta = (last.meta ?? {}) as Record<string, unknown>;
       expect(meta['proposedTodos']).toBeUndefined();
     }
@@ -298,6 +300,10 @@ describe('CF2 条件 4：清单外工具一律拒绝、不建东西、不起子�
       // 第二轮请求里应能看到拒绝内容（工具结果作为消息回给模型）
       const second = calls[1]!;
       expect(second.messages.some((m) => m.content.includes('清单'))).toBe(true);
+      // 规格：回给模型的内容里写明「没有这个工具」，并点出是哪个工具名
+      expect(
+        second.messages.some((m) => m.content.includes('没有这个工具') && m.content.includes(tool)),
+      ).toBe(true);
       const last = msgs(runtime).at(-1) as Record<string, unknown>;
       expect(last.status).toBe('complete');
       expect(String(last.content)).toContain('普通回答');
@@ -355,7 +361,12 @@ describe('CF2 条件 6：存档照旧，正文里带着「建议待办：」', (
     await ask(runtime, Q[0]!);
     expect(captureAsk).toHaveBeenCalled();
     expect(JSON.stringify(captureAsk.mock.calls)).toContain('建议待办：');
+    // 交给存档的回答就是整段原样（不拆、不截）
+    const arg = captureAsk.mock.calls[0]![0] as unknown as { question: string; answer: string };
+    expect(arg.question).toBe(Q[0]);
+    expect(arg.answer).toBe(SUGGEST);
     const last = msgs(runtime).at(-1) as Record<string, unknown>;
     expect(String(last.content)).toContain('建议待办：');
+    expect(last.content).toBe(SUGGEST);
   });
 });
