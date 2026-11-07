@@ -3007,6 +3007,85 @@ export class AppRuntime {
   }
 
   /** P4/P6：聊天里提、点「要做」、任务页批准、任务页派发共用的那道检查。 */
+  /**
+   * CF4：用户点一下，把聊天里的一段讨论转成编码任务草案（draft）。
+   * 只建草案，不批准、不派发、不跑命令；不改任何已有消息；不把讨论原文交给执行器。
+   */
+  async createTaskFromConversation(input: {
+    conversationId: string;
+    fromMessageId: string;
+    toMessageId: string;
+    goal: string;
+    acceptance: string[];
+    scope?: string[];
+    projectId?: string;
+  }): Promise<CodingTask> {
+    const bad = (message: string) => new IxaError(ErrorCodes.VALIDATION_FAILED, message) as never;
+    const conv = this.db
+      .prepare('SELECT id, project_id FROM conversations WHERE id = ?')
+      .get(input.conversationId) as { id: string; project_id: string | null } | undefined;
+    if (!conv) throw bad('对话不存在');
+    const pick = (id: string) =>
+      this.db
+        .prepare('SELECT id, conversation_id, seq, role, status FROM messages WHERE id = ?')
+        .get(id) as
+        | { id: string; conversation_id: string; seq: number; role: string; status: string }
+        | undefined;
+    const from = pick(input.fromMessageId);
+    const to = pick(input.toMessageId);
+    if (!from || !to || from.conversation_id !== conv.id || to.conversation_id !== conv.id) {
+      throw bad('这两条消息不属于这个对话');
+    }
+    if (from.seq > to.seq) throw bad('开始的消息在结束之后');
+    if (to.role !== 'assistant' || to.status !== 'complete') {
+      throw bad('只能把一条已经答完的回答转成任务');
+    }
+    const goal = input.goal.trim();
+    if (goal.length === 0 || goal.length > 2000) throw bad('目标要写 1–2000 字');
+    const acceptance = input.acceptance;
+    if (!Array.isArray(acceptance) || acceptance.length < 1 || acceptance.length > 8) {
+      throw bad('验收条件要写 1–8 条');
+    }
+    for (const item of acceptance) {
+      if (typeof item !== 'string' || item.trim().length === 0 || item.length > 200) {
+        throw bad('每条验收条件要写 1–200 字');
+      }
+    }
+    const projectId = conv.project_id ?? input.projectId;
+    if (!projectId) throw bad('个人视角的对话要先选一个项目');
+    const project = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId) as
+      { id: string } | undefined;
+    if (!project) throw bad('项目不存在');
+    this.assertProjectFolderBound(projectId);
+    const task = this.coding.create({
+      projectId,
+      goal,
+      scope: input.scope && input.scope.length > 0 ? input.scope : ['.'],
+      allowedCommands: [],
+      acceptance: acceptance.map((s) => s.trim()),
+      originRunId: null,
+      originConversationId: conv.id,
+      originFromSeq: from.seq,
+      originToSeq: to.seq,
+    });
+    recordAudit(this.db, 'conversation.task_created', {
+      taskId: task.id,
+      conversationId: conv.id,
+      messageCount: to.seq - from.seq + 1,
+    });
+    return task;
+  }
+
+  /** CF4：这个对话转出来过哪些任务（不写消息 meta，按来源列查）。 */
+  listConversationTasks(conversationId: string): CodingTask[] {
+    const rows = this.db
+      .prepare(
+        'SELECT t.id FROM coding_tasks t WHERE t.origin_conversation_id = ? ORDER BY t.created_at ASC',
+      )
+      .all(conversationId) as Array<{ id: string }>;
+    return rows.map((r) => this.coding.store.get(r.id));
+  }
+
   private assertProjectFolderBound(projectId: string): void {
     const gap = this.projectFolderGap(projectId);
     if (gap) throw new IxaError(ErrorCodes.VALIDATION_FAILED, gap);

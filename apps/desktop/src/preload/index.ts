@@ -127,6 +127,10 @@ const api: IxaIpcApi = {
   followWatchDirection: (input) => ipcRenderer.invoke('ixaeon:followWatchDirection', input),
   skipWatchDirection: (input) => ipcRenderer.invoke('ixaeon:skipWatchDirection', input),
   listCodingTasks: (projectId) => ipcRenderer.invoke('ixaeon:listCodingTasks', projectId),
+  createTaskFromConversation: (input) =>
+    ipcRenderer.invoke('ixaeon:createTaskFromConversation', input),
+  listConversationTasks: (conversationId) =>
+    ipcRenderer.invoke('ixaeon:listConversationTasks', conversationId),
   createCodingTask: (input) => ipcRenderer.invoke('ixaeon:createCodingTask', input),
   createCodingDraftFromFinding: (input) =>
     ipcRenderer.invoke('ixaeon:createCodingDraftFromFinding', input),

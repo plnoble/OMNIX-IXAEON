@@ -69,6 +69,10 @@ function toTask(row: Record<string, unknown>): CodingTask {
     applied_at: (row['applied_at'] as string | null) ?? null,
     apply_error: (row['apply_error'] as string | null) ?? null,
     acceptance_json: (row['acceptance_json'] as string | null) ?? null,
+    origin_conversation_id: (row['origin_conversation_id'] as string | null) ?? null,
+    origin_from_seq: (row['origin_from_seq'] as number | null) ?? null,
+    origin_to_seq: (row['origin_to_seq'] as number | null) ?? null,
+    origin_conversation_title: (row['origin_conversation_title'] as string | null) ?? null,
   };
 }
 
@@ -145,6 +149,10 @@ export class CodingTaskStore {
     dispatchKey?: string | null;
     /** D1：桥接调用不在提问的异步上下文里，发起方要显式传是哪一轮。缺省仍从上下文取。 */
     originRunId?: string | null;
+    /** 迁移 43（CF4）：任务来自哪段对话与消息范围；不传则为空。 */
+    originConversationId?: string | null;
+    originFromSeq?: number | null;
+    originToSeq?: number | null;
     now?: string;
   }): CodingTask {
     const project = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(input.projectId) as
@@ -187,8 +195,8 @@ export class CodingTaskStore {
            allowed_commands_json, timeout_ms, status, version, approval_id, dispatch_key,
            generation, executor_name, executor_report_json, verify_status, verify_exit_code,
            verify_output, tests_modified, accepted_at, error, created_at, updated_at, origin_run_id,
-           acceptance_json
-         ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'draft', 1, NULL, ?, 0, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?)`,
+           acceptance_json, origin_conversation_id, origin_from_seq, origin_to_seq
+         ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'draft', 1, NULL, ?, 0, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -206,6 +214,9 @@ export class CodingTaskStore {
         // 桥接路（D1）不在上下文里，由发起方显式传。
         input.originRunId !== undefined ? input.originRunId : currentAskRunId(),
         JSON.stringify(input.acceptance ?? []),
+        input.originConversationId ?? null,
+        input.originFromSeq ?? null,
+        input.originToSeq ?? null,
       );
     return this.get(id);
   }
@@ -258,13 +269,16 @@ export class CodingTaskStore {
   }
 
   list(projectId?: string): CodingTask[] {
+    const sql =
+      'SELECT t.*, c.title AS origin_conversation_title FROM coding_tasks t ' +
+      'LEFT JOIN conversations c ON c.id = t.origin_conversation_id ';
     const rows = projectId
       ? (this.db
-          .prepare('SELECT * FROM coding_tasks WHERE project_id = ? ORDER BY created_at DESC')
+          .prepare(sql + 'WHERE t.project_id = ? ORDER BY t.created_at DESC')
           .all(projectId) as Array<Record<string, unknown>>)
-      : (this.db
-          .prepare('SELECT * FROM coding_tasks ORDER BY created_at DESC LIMIT 50')
-          .all() as Array<Record<string, unknown>>);
+      : (this.db.prepare(sql + 'ORDER BY t.created_at DESC LIMIT 50').all() as Array<
+          Record<string, unknown>
+        >);
     return rows.map(toTask);
   }
 

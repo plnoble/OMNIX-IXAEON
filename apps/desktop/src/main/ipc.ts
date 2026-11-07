@@ -734,6 +734,8 @@ export function registerIpc(runtime: AppRuntime): void {
         tasks,
       };
     },
+    createTaskFromConversation: async (input) => runtime.createTaskFromConversation(input),
+    listConversationTasks: async (conversationId) => runtime.listConversationTasks(conversationId),
     createCodingTask: async (input) => runtime.coding.create(input),
     createCodingDraftFromFinding: async (input) => {
       const task = runtime.coding.draftFromFinding(input);

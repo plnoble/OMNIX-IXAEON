@@ -2,28 +2,41 @@
 
 分支 `dev/CF4`，B 档。规格 `docs/委派/CF4-讨论转任务.md`。
 
-## 已实现
+## 已实现（2026-11-07）
 
-无（B 档先只交测试；迁移 43 由整合方写，实现等迁移上 main 后再做）。
+- `packages/core/src/execution/taskStore.ts`：`create` 多收 `originConversationId/FromSeq/ToSeq` 并写入新三列；`list`/`get` LEFT JOIN 出 `origin_conversation_title`。
+- `packages/contracts/src/entities.ts`：`codingTaskSchema` 加三个可空来源列 + 只读的标题回退字段。
+- `apps/desktop/src/main/appRuntime.ts`：新增 `createTaskFromConversation`（校验：消息同对话、开始不晚于结束、结束是 complete 助手、目标 1–2000、验收 1–8 条各 1–200、项目存在且绑了文件夹；项目以对话为准；origin_run_id 显式 null；allowedCommands 空；审计 `conversation.task_created` 只记 id 与条数）与 `listConversationTasks`。
+- IPC：contracts / main / preload 两方法 `createTaskFromConversation`、`listConversationTasks`。
+- 界面：`AskMessage.tsx` 每条 complete 助手消息下「转成任务」+ 展开表单（范围下拉、目标预填、验收条件、个人视角选项目），建完显示「已转成任务：<前 30 字>」与「到任务页看」；`Tasks.tsx` 卡片显示「来自对话「标题」第 a–b 条」或「来自已删除的对话」，点了打开对话（`onOpenConversation`）。
+- 源码改动约 300 行（核心 + IPC 一支、界面一支都在这一分支，按规格未超 300 才不拆）。
 
-## 自动化：测试已写、现在应当红
+## 自动化通过
 
-- `apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts`：条件 1–9，13 条。
-  当前 `13 failed`，全部红在 `createTaskFromConversation is not a function`（实现未写）。
-- `apps/desktop/test/acceptance/cf4-ui.test.ts`：条件 10 前两项（按钮出现位置、表单与提交），2 条。
-  当前红在找不到 `message-to-task-<id>` / 表单元素。
+```
+$ node scripts/acceptance.mjs run CF4
+Tests  37 passed (37)
+```
 
-跑法：`node scripts/acceptance.mjs run CF4`（解锁前可单独
-`node node_modules/vitest/vitest.mjs run --project acceptance <文件>`）。
+（整合方锁定后扩到 37 条：条件 1–9 共 28 条 + 条件 10 界面 9 条。）`tsc`、`eslint` 干净。
 
-## 没覆盖到的（交整合方定）
+### 测试覆盖
 
-- **条件 10 最后一项「任务页卡片 `task-origin-<id>` 显示来自对话「标题」第 a–b 条」没写自动化**：任务页现在没有稳定的卡片 testid，界面结构要等实现时定。我先不编 testid 免得锁死实现；实现时补，或整合方指定 testid 后我补测试。
-- 真机检查（`scripts/real/cf4-task-origin.mjs` + 截图）留到实现那一轮做。
+- `apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts`：条件 1–9（28 条，整合方改严后）。
+- `apps/desktop/test/acceptance/cf4-ui.test.ts`：条件 10（9 条，含任务页来源与个人视角选项目）。
 
-## 真机通过
+## 真机通过（2026-11-07）
 
-未跑（测试先行，实现未写）。
+`node scripts/real/cf4-task-origin.mjs`：临时数据目录、本机假 OpenAI 网关（模型 demo-a）、项目「合成项目甲」绑临时文件夹；新对话问两句，在第二条回答下点「转成任务」，开始挪到第 1 句、填两条验收，建草案；到任务页看来源。
+
+```
+任务页显示「来自对话」： true
+编码任务行数： 1 ｜有来源的： 1
+范围： 1–4 ｜状态： draft
+对话消息条数： 4 ｜审计 conversation.task_created： 1
+```
+
+截图：`.logs/cf4-form.png`、`.logs/cf4-origin.png`（临时目录已遮）。
 
 ## 用户接受
 
