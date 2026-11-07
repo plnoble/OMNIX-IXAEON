@@ -1265,6 +1265,17 @@ ALTER TABLE runtime_runs_new RENAME TO runtime_runs;
 CREATE INDEX IF NOT EXISTS idx_runtime_runs_created ON runtime_runs(created_at);
 `,
   },
+  {
+    id: 43,
+    name: 'coding-tasks-origin-conversation',
+    sql: `
+-- CF4：编码任务记下来自哪段对话。删了对话时来源对话置空，消息范围留着当历史。
+ALTER TABLE coding_tasks ADD COLUMN origin_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL;
+ALTER TABLE coding_tasks ADD COLUMN origin_from_seq INTEGER CHECK (origin_from_seq IS NULL OR origin_from_seq >= 1);
+ALTER TABLE coding_tasks ADD COLUMN origin_to_seq INTEGER CHECK (origin_to_seq IS NULL OR origin_to_seq >= 1);
+CREATE INDEX idx_coding_tasks_origin_conversation ON coding_tasks(origin_conversation_id) WHERE origin_conversation_id IS NOT NULL;
+`,
+  },
 ];
 
 /** 应用所有未执行的迁移（每个迁移在独立事务中执行）。 */
