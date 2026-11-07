@@ -366,6 +366,12 @@ export const codingTaskSchema = z.object({
   // 迁移 38（D1/D4）：聊天里提任务时的验收条件；接受后的落地结果——
   // 建出的分支名或补丁目录、落地时间、没落成的原因。
   acceptance_json: z.string().nullable(),
+  // 迁移 43（CF4）：编码任务记下来自哪段对话。旧任务、任务页手建的都是 null。
+  origin_conversation_id: uuidSchema.nullable(),
+  origin_from_seq: z.number().int().positive().nullable(),
+  origin_to_seq: z.number().int().positive().nullable(),
+  /** 只读展示用：来源对话的标题（对话删了为 null）。不落库，查询时 join 出来。 */
+  origin_conversation_title: z.string().nullable().optional(),
   applied_ref: z.string().nullable(),
   applied_at: isoDateTimeSchema.nullable(),
   apply_error: z.string().nullable(),

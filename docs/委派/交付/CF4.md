@@ -2,28 +2,43 @@
 
 分支 `dev/CF4`，B 档。规格 `docs/委派/CF4-讨论转任务.md`。
 
-## 已实现
+## 已实现（2026-11-07）
 
-无（B 档先只交测试；迁移 43 由整合方写，实现等迁移上 main 后再做）。
+- `packages/core/src/execution/taskStore.ts`：`create` 多收 `originConversationId/FromSeq/ToSeq` 并写入新三列；`list`/`get` LEFT JOIN 出 `origin_conversation_title`。
+- `packages/contracts/src/entities.ts`：`codingTaskSchema` 加三个可空来源列 + 只读的标题回退字段。
+- `apps/desktop/src/main/appRuntime.ts`：新增 `createTaskFromConversation`（校验：消息同对话、开始不晚于结束、结束是 complete 助手、目标 1–2000、验收 1–8 条各 1–200、项目存在且绑了文件夹；项目以对话为准；origin_run_id 显式 null；allowedCommands 空；审计 `conversation.task_created` 只记 id 与条数）与 `listConversationTasks`。
+- IPC：contracts / main / preload 两方法 `createTaskFromConversation`、`listConversationTasks`。
+- 界面：`AskMessage.tsx` 每条 complete 助手消息下「转成任务」+ 展开表单（范围下拉、目标预填、验收条件、个人视角选项目），建完显示「已转成任务：<前 30 字>」与「到任务页看」；`Tasks.tsx` 卡片显示「来自对话「标题」第 a–b 条」或「来自已删除的对话」，点了打开对话（`onOpenConversation`）。
+- 源码改动约 300 行（核心 + IPC 一支、界面一支都在这一分支，按规格未超 300 才不拆）。
 
-## 自动化：测试已写、现在应当红
+## 自动化通过
 
-- `apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts`：条件 1–9，13 条。
-  当前 `13 failed`，全部红在 `createTaskFromConversation is not a function`（实现未写）。
-- `apps/desktop/test/acceptance/cf4-ui.test.ts`：条件 10 前两项（按钮出现位置、表单与提交），2 条。
-  当前红在找不到 `message-to-task-<id>` / 表单元素。
+```
+$ node scripts/acceptance.mjs run CF4
+Tests  37 passed (37)
+```
 
-跑法：`node scripts/acceptance.mjs run CF4`（解锁前可单独
-`node node_modules/vitest/vitest.mjs run --project acceptance <文件>`）。
+（整合方锁定后扩到 37 条：条件 1–9 共 28 条 + 条件 10 界面 9 条。）`tsc`、`eslint` 干净。
 
-## 没覆盖到的（交整合方定）
+### 测试覆盖
 
-- **条件 10 最后一项「任务页卡片 `task-origin-<id>` 显示来自对话「标题」第 a–b 条」没写自动化**：任务页现在没有稳定的卡片 testid，界面结构要等实现时定。我先不编 testid 免得锁死实现；实现时补，或整合方指定 testid 后我补测试。
-- 真机检查（`scripts/real/cf4-task-origin.mjs` + 截图）留到实现那一轮做。
+- `apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts`：条件 1–9（28 条，整合方改严后）。
+- `apps/desktop/test/acceptance/cf4-ui.test.ts`：条件 10（9 条，含任务页来源与个人视角选项目）。
 
-## 真机通过
+## 真机通过（2026-11-07）
 
-未跑（测试先行，实现未写）。
+`node scripts/real/cf4-task-origin.mjs`：临时数据目录、本机假 OpenAI 网关（模型 demo-a）、项目「合成项目甲」绑临时文件夹；新对话问两句，在第二条回答下点「转成任务」，开始挪到第 1 句、填两条验收，建草案；到任务页看来源。
+
+```
+任务页显示「来自对话」： true
+编码任务行数： 1 ｜有来源的： 1
+范围： 1–4 ｜状态： draft
+对话消息条数： 4 ｜审计 conversation.task_created： 1
+```
+
+脚本现在**在截图前断言页面文本里不含临时目录路径**（含就抛错不截图），并断言任务数 1、有来源 1、范围 1–4、draft、消息 4 条、审计 1 行——不符就以非 0 退出。
+
+截图：`.logs/cf4-form.png`、`.logs/cf4-origin.png`。审查方看不到图片时，以脚本的「页面文本不含临时目录」断言作为遮蔽证据。
 
 ## 用户接受
 
@@ -95,3 +110,72 @@ dev 交来的测试有几处在实现正确时也过不了，有几处在实现�
 
 - 迁移 43 是替补整合方写的（见上面的越权说明）。
 - CF2 遗留没做：退役 `t2a-suggested-todos`、删 `extractSuggestedTodos`。
+
+## 拆分（2026-11-07，照代审与 AGENTS 300 行规矩）
+
+源码改动约 353 行，超过 300，按规格拆成两支：
+
+- **本支 `dev/CF4`（core + IPC）**：`taskStore.ts` 三列读写 + 标题 join、`entities.ts` / `ipc.ts` 契约、`ipc.ts`/`preload` 两个方法、`appRuntime.ts` 的 `createTaskFromConversation`（类型守卫、项目校验、建任务与审计同事务）与 `listConversationTasks`。验收测试：`apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts`（条件 1–9，28 条）。
+- **`dev/CF4b`（界面，基于本支）**：`AskMessage.tsx` 的「转成任务」表单、`Tasks.tsx` 的来源显示、`App.tsx` 的 `onOpenConversation`、`Ask.tsx` 传参；验收测试 `cf4-ui.test.ts`（条件 10，9 条）。交付说明见 `docs/委派/交付/CF4b.md`。
+
+锁定：本支只锁核心那份测试，CF4b 锁界面那份。
+
+## 整合方复审（2026-11-07，由 DSH + group/ixaeon-integrator 代做）
+
+结论：**退回，不并。** 代审（`CF4-Codex审查.md`）的「必须改」还有 3 条没处理。
+
+### 逐条核对代审「必须改」
+
+| 代审意见 | 处理了没有 | 依据 |
+| --- | --- | --- |
+| 范围（可修改路径）可编辑，默认 `.` | **没有** | CF4b `AskMessage.tsx:544` 提交时仍写死 `scope: ['.']`，表单里没有路径输入框 |
+| 任务页来源点了打开对话（App 接 `onOpenConversation`） | 已处理 | CF4b `App.tsx` 给 `TasksPage` 传了回调：`setOpenConversationId(id); setPage('ask')` |
+| 空任务列表在渲染期循环发 IPC | 已处理 | CF4b `AskMessage.tsx` 改成 `useEffect(..., [conversationId])` |
+| 建任务与审计同一事务 | 已处理 | `appRuntime.ts` 用 `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` 包住 `coding.create` 和 `recordAudit`；`CodingTaskStore.create` 里没有自己的事务，不会嵌套出错。代审要的「人为令审计失败、任务不留」回归测试没补（建议，不卡这次） |
+| 显式 `scope: []` 不能被扩大成 `['.']` | **没有** | `appRuntime.ts:3084` 仍是 `input.scope && input.scope.length > 0 ? input.scope : ['.']`；规格只说「不传 = `['.']`」，显式空数组应拒绝（`VALIDATION_FAILED`） |
+| 普通手建 `createCodingTask` IPC 可附带来源字段，绕过校验和审计 | **没有** | `ipc.ts:739` 仍把 payload 原样交给 `runtime.coding.create`，`taskStore.ts:217-219` 会写入 `originConversationId/FromSeq/ToSeq`。要在这个 IPC 里只取白名单字段（或剥掉三个来源字段），并补测试：附带来源字段建出的任务三列仍为 null |
+| CF4 新 IPC 入参运行时类型守卫 | 已处理 | `createTaskFromConversation` 开头查了 id/goal 是字符串、acceptance 是数组、scope 是字符串数组、projectId 是字符串 |
+| 源码超 300 行要拆 | 已处理 | 拆后 CF4 源码 +105/+2/+4（appRuntime/ipc/preload）加 contracts/core 约 44 行；CF4b 源码 248 行 |
+
+### 抽查代码
+
+- `createTaskFromConversation`：校验顺序和规格第 3 条一致；项目以对话为准（`conv.project_id ?? input.projectId`）；`originRunId: null`、`allowedCommands: []`；审计只记 `taskId / conversationId / messageCount`。
+- `listConversationTasks`：按 `origin_conversation_id` 查，参数化 SQL，再逐条 `store.get`。返回的任务里没有 `origin_conversation_title`（`get` 不做 join），界面在对话下只用 `goal` 和 `origin_to_seq`，不影响。
+- `taskStore.list` 的 LEFT JOIN 只加了一个只读展示字段，没改已有列。
+- 界面（CF4b）：入口只在 complete 助手消息下；开始下拉只列这条之前的用户消息；个人视角没选项目不能提交；任务页来源三种情况（有标题、对话已删、手建不显示）都有。
+
+### 测试
+
+- CF4 支 `apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts`：28/28 通过。
+- CF4b 支 `apps/desktop/test/acceptance/cf4-ui.test.ts`：9/9 通过。
+- 两份测试和 main 上锁定的内容逐字相同（`git diff` 为空）。
+- 改动文件 eslint 干净。
+- 分支 CI：dev/CF4 红，原因只是 main 上 CF4 还锁着 `cf4-ui.test.ts`，拆分后本支没有这个文件。锁定已经在 main 上拆开（见下），本支 `git merge origin/main` 后会好。
+
+### 锁定（已在 main 上做）
+
+- `node scripts/acceptance.mjs lock CF4 "讨论转任务（core + IPC）" apps/desktop/test/acceptance/cf4-task-from-conversation.test.ts`
+- `node scripts/acceptance.mjs lock CF4b "讨论转任务（界面）" apps/desktop/test/acceptance/cf4-ui.test.ts`
+- 指纹没变（文件内容没动），状态都是 queued。
+
+### 给 dev：要改的 3 条
+
+1. **CF4（core）**：`createTaskFromConversation` 区分「没传 scope」和「传了空数组」：没传用 `['.']`，传了空数组抛 `VALIDATION_FAILED`、什么都不建。补一条自己的测试（不改锁定测试）。
+2. **CF4（IPC）**：`ipc.ts` 的 `createCodingTask` 只把 `projectId / goal / scope / allowedCommands / acceptance` 等原有字段交给 `coding.create`，丢掉 `originConversationId / originFromSeq / originToSeq`。补测试：经 IPC 附带三个来源字段建任务，库里三列仍是 null、没有 `conversation.task_created` 审计。
+3. **CF4b（界面）**：表单加路径范围输入，默认 `.`，可改（比如一行一个或逗号分隔），提交时按输入传 `scope`；空了不能提交。补一条界面测试。
+
+改完：CF4 先 `git merge origin/main`（不要 rebase，分支已推过），推上去等 CI 绿；CF4b `git merge dev/CF4`，再推。队列状态改回「待复审（整合方）」。
+
+### 真机
+
+没重跑。截图（`.logs/cf4-form.png`、`cf4-origin.png`）我这个模型读不了图，遮蔽仍未核实，留给 Claude 或能读图的整合方看一眼。改了范围输入之后真机脚本要重跑一次。
+
+### 第二轮（同日，开发 42b1cf6 / CF4b 1ba0a4a 修完后）
+
+- `appRuntime.ts`：显式 `scope: []` 抛 `VALIDATION_FAILED`，不传才用 `['.']`。已处理。
+- `ipc.ts`：`createCodingTask` 只把 `projectId / goal / scope / allowedCommands` 交给 `coding.create`，来源三个字段带不进去。已处理。
+- 开发没补测试，整合方补了 `apps/desktop/test/integration/cf4-guards.test.ts`（4 条，不是锁定测试）：空 scope 拒绝且不建、不留审计；不传 scope 用 `["."]`、传了照用；手建 IPC 附带来源字段后三列仍为 null、没有 `conversation.task_created`；用 trigger 让审计写入失败，任务也不留。
+- 变异检查：把 `appRuntime.ts`、`ipc.ts` 换回修复前（5442aa2）的版本，空 scope 和手建 IPC 两条变红（2 红 2 绿；回滚那条在修复前就已是事务，本来就该绿），换回后 4/4 绿。
+- 合并 main（e3eece8，锁定已拆）进本支；保留 `cf4-ui.test.ts`（和 main、CF4b 上逐字相同，锁给 CF4b、排队中），不然并入后 main 上少了 CF4b 锁定的文件。
+- 本支 `node scripts/verify.mjs` 退出码 0；`cf4-task-from-conversation.test.ts` 28/28。
+- 结论：**可以并入。**

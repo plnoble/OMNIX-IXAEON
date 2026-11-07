@@ -948,6 +948,18 @@ export interface IxaIpcApi {
     notice: string;
     tasks: CodingTask[];
   }>;
+  /** CF4：把聊天里的一段讨论转成编码任务草案（不批准、不派发）。 */
+  createTaskFromConversation(input: {
+    conversationId: string;
+    fromMessageId: string;
+    toMessageId: string;
+    goal: string;
+    acceptance: string[];
+    scope?: string[];
+    projectId?: string;
+  }): Promise<CodingTask>;
+  /** CF4：某段对话转出来过哪些任务。 */
+  listConversationTasks(conversationId: string): Promise<CodingTask[]>;
   createCodingTask(input: {
     projectId: string;
     goal: string;

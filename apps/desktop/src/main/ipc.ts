@@ -734,7 +734,15 @@ export function registerIpc(runtime: AppRuntime): void {
         tasks,
       };
     },
-    createCodingTask: async (input) => runtime.coding.create(input),
+    createTaskFromConversation: async (input) => runtime.createTaskFromConversation(input),
+    listConversationTasks: async (conversationId) => runtime.listConversationTasks(conversationId),
+    createCodingTask: async (input) =>
+      runtime.coding.create({
+        projectId: input.projectId,
+        goal: input.goal,
+        scope: input.scope,
+        allowedCommands: input.allowedCommands,
+      }),
     createCodingDraftFromFinding: async (input) => {
       const task = runtime.coding.draftFromFinding(input);
       recordAudit(runtime.db, 'coding.draft_from_finding', {
