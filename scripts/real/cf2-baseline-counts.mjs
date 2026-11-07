@@ -59,16 +59,23 @@ try {
   await firstRow.locator('input[type="checkbox"]').check();
   await card.getByTestId(/^provider-save-/).click();
   await page.waitForTimeout(500);
-  // 用 IPC 直接存「聊天用这家这个模型」（等价于用途卡片里选中再保存）
-  const saved = await page.evaluate(async (model) => {
-    const provs = await window.ixaeon.listModelProviders();
-    const p = provs.find((x) => x.name.includes('magpie') && x.savedModels.includes(model));
-    if (!p) return { ok: false, reason: '没找到供应商', provs: provs.map((x) => x.name) };
-    await window.ixaeon.saveModelUses({ chat: { providerId: p.id, model } });
-    const uses = (await window.ixaeon.getSettings()).config.uses;
-    return { ok: Boolean(uses?.chat), uses };
-  }, modelId);
-  if (!saved.ok) throw new Error('uses.chat 没存上：' + JSON.stringify(saved).slice(0, 200));
+  // 按规格走 UI：先把「后台分析」也选成勾选过的模型，再选「聊天」，再点保存
+  const pick = async (testId, label) => {
+    const sel = page.getByTestId(testId);
+    const labels = (await sel.locator('option').allTextContents()).map((s) => s.trim());
+    const hit = labels.find((x) => x.includes(label));
+    if (!hit)
+      throw new Error(
+        testId + ' 里没有 ' + label + '（有：' + labels.join(' / ').slice(0, 120) + '）',
+      );
+    await sel.selectOption({ label: hit });
+  };
+  await pick('uses-analysis', modelId);
+  await pick('uses-chat', modelId);
+  await page.getByTestId('uses-save').click();
+  await page.waitForTimeout(800);
+  const uses = await page.evaluate(async () => (await window.ixaeon.getSettings()).config.uses);
+  if (!uses?.chat) throw new Error('UI 保存后 uses.chat 仍是空');
 
   // 新对话，按顺序问 8 句
   await page.getByTestId('nav-ask').click();
@@ -116,8 +123,13 @@ try {
     if (done >= 8 || Date.now() > deadline) break;
     await new Promise((r) => setTimeout(r, 1000));
   }
+  const finalDone = probe
+    .prepare("SELECT COUNT(*) AS n FROM messages WHERE role = 'assistant' AND status = 'complete'")
+    .get().n;
   probe.close();
   await app.close();
+  app = null;
+  if (finalDone < 8) throw new Error('8 句只完成了 ' + finalDone + ' 句');
   app = null;
 
   // 只读临时库数结果
