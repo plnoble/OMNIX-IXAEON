@@ -3034,6 +3034,7 @@ export class AppRuntime {
       if (!Array.isArray(input.scope) || input.scope.some((s) => typeof s !== 'string')) {
         throw bad('范围要是字符串数组');
       }
+      if (input.scope.length === 0) throw bad('范围不能是空的（默认传 ["."]）');
     }
     if (input.projectId !== undefined && typeof input.projectId !== 'string') {
       throw bad('项目 id 要是字符串');
@@ -3081,7 +3082,7 @@ export class AppRuntime {
       task = this.coding.create({
         projectId,
         goal,
-        scope: input.scope && input.scope.length > 0 ? input.scope : ['.'],
+        scope: input.scope ?? ['.'],
         allowedCommands: [],
         acceptance: acceptance.map((s) => s.trim()),
         originRunId: null,
