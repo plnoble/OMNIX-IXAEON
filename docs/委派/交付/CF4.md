@@ -169,3 +169,13 @@ dev 交来的测试有几处在实现正确时也过不了，有几处在实现�
 ### 真机
 
 没重跑。截图（`.logs/cf4-form.png`、`cf4-origin.png`）我这个模型读不了图，遮蔽仍未核实，留给 Claude 或能读图的整合方看一眼。改了范围输入之后真机脚本要重跑一次。
+
+### 第二轮（同日，开发 42b1cf6 / CF4b 1ba0a4a 修完后）
+
+- `appRuntime.ts`：显式 `scope: []` 抛 `VALIDATION_FAILED`，不传才用 `['.']`。已处理。
+- `ipc.ts`：`createCodingTask` 只把 `projectId / goal / scope / allowedCommands` 交给 `coding.create`，来源三个字段带不进去。已处理。
+- 开发没补测试，整合方补了 `apps/desktop/test/integration/cf4-guards.test.ts`（4 条，不是锁定测试）：空 scope 拒绝且不建、不留审计；不传 scope 用 `["."]`、传了照用；手建 IPC 附带来源字段后三列仍为 null、没有 `conversation.task_created`；用 trigger 让审计写入失败，任务也不留。
+- 变异检查：把 `appRuntime.ts`、`ipc.ts` 换回修复前（5442aa2）的版本，空 scope 和手建 IPC 两条变红（2 红 2 绿；回滚那条在修复前就已是事务，本来就该绿），换回后 4/4 绿。
+- 合并 main（e3eece8，锁定已拆）进本支；保留 `cf4-ui.test.ts`（和 main、CF4b 上逐字相同，锁给 CF4b、排队中），不然并入后 main 上少了 CF4b 锁定的文件。
+- 本支 `node scripts/verify.mjs` 退出码 0；`cf4-task-from-conversation.test.ts` 28/28。
+- 结论：**可以并入。**

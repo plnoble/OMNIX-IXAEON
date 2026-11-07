@@ -153,7 +153,7 @@ function fixture(opts: { personal?: boolean } = {}): Ctx {
   });
   runtime.saveModelUses({ chat: { providerId: p.id, model: 'demo-a' } });
 
-  const project = projects.create({ name: '合成项目甲' });
+  const project = projects.create({ name: '合成项目甲', rootPath: null, description: null });
   runtime.bindProjectFolder(project.id, folder);
   const conv = conversations.create({ projectId: opts.personal ? null : project.id });
   return {
