@@ -272,19 +272,15 @@ export interface TaskFocus {
 export function TasksPage({
   projects,
   focus = null,
-  onOpenConversation,
 }: {
   projects: Project[];
   focus?: TaskFocus | null;
-  /** CF4：任务来自某段对话时，点来源打开那段对话。 */
-  onOpenConversation?: (conversationId: string) => void;
 }) {
   const [notice, setNotice] = useState('');
   const [realDispatch, setRealDispatch] = useState(false);
   /** D7b：主进程回传的执行器种类（'model' 时不显示 Fake / 真机 Codex 那两句）。 */
   const [executorKind, setExecutorKind] = useState<'fake' | 'codex-cli' | 'model'>('fake');
   const [tasks, setTasks] = useState<CodingTask[]>([]);
-  const [convTitles, setConvTitles] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
@@ -299,12 +295,6 @@ export function TasksPage({
 
   const reload = useCallback(async () => {
     try {
-      try {
-        const convs = await api.listConversations({ includeArchived: true });
-        setConvTitles(Object.fromEntries(convs.map((c) => [c.id, c.title])));
-      } catch {
-        setConvTitles({});
-      }
       const snap = await api.listCodingTasks();
       setNotice(snap.notice);
       setRealDispatch(snap.realDispatchEnabled);
@@ -436,26 +426,6 @@ export function TasksPage({
       {tasks.length === 0 && !notice ? <Spinner /> : null}
       {tasks.map((t) => (
         <Card key={t.id} title={t.goal} testId={`task-${t.id}`}>
-          {t.origin_from_seq !== null && t.origin_to_seq !== null ? (
-            t.origin_conversation_id &&
-            (t.origin_conversation_title ?? convTitles[t.origin_conversation_id]) ? (
-              <p className="muted" data-testid={`task-origin-${t.id}`}>
-                来自对话「{t.origin_conversation_title ?? convTitles[t.origin_conversation_id!]}」第{' '}
-                {t.origin_from_seq}–{t.origin_to_seq} 条
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() => onOpenConversation?.(t.origin_conversation_id!)}
-                >
-                  打开对话
-                </button>
-              </p>
-            ) : (
-              <p className="muted" data-testid={`task-origin-${t.id}`}>
-                来自已删除的对话
-              </p>
-            )
-          ) : null}
           <p className="muted">
             {statusLabel[t.status]} · 版本 {t.version}
             {t.executor_name ? ` · 执行器 ${executorLabel(t.executor_name)}` : ''}

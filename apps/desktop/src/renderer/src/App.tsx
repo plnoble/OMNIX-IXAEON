@@ -326,16 +326,7 @@ export default function App() {
 
         {page === 'research' && <ResearchPage projects={projects} onOpenTasks={openTasks} />}
 
-        {page === 'tasks' && (
-          <TasksPage
-            projects={projects}
-            focus={taskFocus}
-            onOpenConversation={(id: string) => {
-              setOpenConversationId(id);
-              setPage('ask');
-            }}
-          />
-        )}
+        {page === 'tasks' && <TasksPage projects={projects} focus={taskFocus} />}
 
         {page === 'settings' && (
           <SettingsPage focus={settingsFocus} onOpenModels={() => setPage('models')} />

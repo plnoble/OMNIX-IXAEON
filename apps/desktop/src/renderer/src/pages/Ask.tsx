@@ -678,10 +678,6 @@ export function AskPage({
                 <AskMessage
                   key={m.id}
                   message={m}
-                  conversationMessages={messages}
-                  conversationId={activeId ?? undefined}
-                  conversationProjectId={projectId || undefined}
-                  projects={projects}
                   showNotice={noticeShown.get(m.id) ?? false}
                   expandedRef={expandedRef}
                   onToggleRef={(ref) => setExpandedRef(expandedRef === ref ? null : ref)}
