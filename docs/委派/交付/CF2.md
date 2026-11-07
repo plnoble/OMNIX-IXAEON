@@ -60,7 +60,7 @@
 ## 实现（2026-11-06）
 
 - 改了 `apps/desktop/src/main/appRuntime.ts` 的提问路径：删掉 `extractSuggestedTodos` 的调用与 `proposedTodos` 的建待办循环、`finishMessage` 的 `meta.proposedTodos`；正文、存档、返回值都用原样的回答。`parseUserTodo`（用户自己写「待办：」）一字未动；系统提示、Hermes 约定、工具清单都没改。
-- `suggestedTodos.ts` 没删：`SUGGESTED_TODOS_INSTRUCTION` 等仍被 `cf3-prompt` 引用，删了会红；只是没人再调 `extractSuggestedTodos`。
+- `suggestedTodos.ts` 没删：`SUGGESTED_TODOS_INSTRUCTION` 等仍被 `cf3-prompt` 引用，删了会红；`extractSuggestedTodos` 已无生产调用，但它的解析测试 `t2a-suggested-todos` 还锁着，删函数会让那份锁定测试红。按规格「没有别处在用就删」与「不改锁定测试」的冲突，这一步留给整合方：退役那份解析测试后再删函数与导出（审查意见也是这么定的）。
 
 ## 自动化通过
 
@@ -81,7 +81,10 @@ uses.chat： {"providerId":"p-…","model":"antigravity/claude-opus-5-5"}
 用的模型： antigravity/claude-opus-5-5
 待办行数： 1 ｜其中来源用户： 1
 编码任务行数： 0
+完成的助手消息数（应为 8）： 8 ｜助手消息总数： 8
 8 轮里回答正文含「建议待办」的轮数： 0
 ```
+
+脚本现在会等每轮按钮重新可用、并在关应用前轮询到 8 条助手消息全部 `complete` 才统计；超时只报「第 N 句没有完成」，不打印任何回答原文。
 
 上一轮没跑通的原因：用途卡的「聊天」下拉没真的存上（`uses.chat` 为 null），点提问按钮一直是 disabled，8 句一句都没发送；这次改用 IPC 存 `uses.chat`，并等按钮 enabled 再点，每一轮都真的落进消息表。预期「待办 1（用户 1）、编码任务 0」达成。

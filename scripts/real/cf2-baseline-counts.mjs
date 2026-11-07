@@ -104,6 +104,19 @@ try {
     }
     await page.waitForTimeout(500);
   }
+  // 等 8 条助手消息都到终态（complete），再关应用统计
+  const probe = new Database(join(dir, 'ixaeon.db'), { readonly: true });
+  const deadline = Date.now() + 180_000;
+  for (;;) {
+    const done = probe
+      .prepare(
+        "SELECT COUNT(*) AS n FROM messages WHERE role = 'assistant' AND status = 'complete'",
+      )
+      .get().n;
+    if (done >= 8 || Date.now() > deadline) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  probe.close();
   await app.close();
   app = null;
 
@@ -112,13 +125,15 @@ try {
   const todos = db.prepare('SELECT COUNT(*) AS n FROM todos').get().n;
   const userTodos = db.prepare("SELECT COUNT(*) AS n FROM todos WHERE origin = 'user'").get().n;
   const tasks = db.prepare('SELECT COUNT(*) AS n FROM coding_tasks').get().n;
-  const rows = db.prepare("SELECT content FROM messages WHERE role = 'assistant'").all();
+  const rows = db.prepare("SELECT content, status FROM messages WHERE role = 'assistant'").all();
+  const complete = rows.filter((r) => r.status === 'complete').length;
   const withSuggest = rows.filter((r) => String(r.content).includes('建议待办')).length;
   db.close();
 
   console.log('用的模型：', modelName || '（没选上）');
   console.log('待办行数：', todos, '｜其中来源用户：', userTodos);
   console.log('编码任务行数：', tasks);
+  console.log('完成的助手消息数（应为 8）：', complete, '｜助手消息总数：', rows.length);
   console.log('8 轮里回答正文含「建议待办」的轮数：', withSuggest);
   console.log('（临时目录已遮：' + mask('<临时目录>') + '）');
 } finally {
