@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ConversationMessage, MemoryUsedItem, TodoStatus } from '@ixaeon/contracts';
 import { isModelUnavailable } from '@ixaeon/contracts';
 import { api, errMsg } from '../api.js';
@@ -507,10 +507,11 @@ function TaskFromConversation({
       setTasks([]);
     }
   };
-  if (!open && tasks.length === 0 && conversationId) {
-    // 首次渲染读一次，挂在对应消息下面
+  useEffect(() => {
     void reload();
-  }
+    // 只在这个对话换掉时重读
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
   const links = tasks.filter((x) => (x.origin_to_seq ?? -1) === message.seq);
 
   const openForm = (): void => {

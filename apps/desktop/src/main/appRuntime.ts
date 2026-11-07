@@ -3021,6 +3021,23 @@ export class AppRuntime {
     projectId?: string;
   }): Promise<CodingTask> {
     const bad = (message: string) => new IxaError(ErrorCodes.VALIDATION_FAILED, message) as never;
+    if (
+      typeof input.conversationId !== 'string' ||
+      typeof input.fromMessageId !== 'string' ||
+      typeof input.toMessageId !== 'string' ||
+      typeof input.goal !== 'string' ||
+      !Array.isArray(input.acceptance)
+    ) {
+      throw bad('参数类型不对');
+    }
+    if (input.scope !== undefined) {
+      if (!Array.isArray(input.scope) || input.scope.some((s) => typeof s !== 'string')) {
+        throw bad('范围要是字符串数组');
+      }
+    }
+    if (input.projectId !== undefined && typeof input.projectId !== 'string') {
+      throw bad('项目 id 要是字符串');
+    }
     const conv = this.db
       .prepare('SELECT id, project_id FROM conversations WHERE id = ?')
       .get(input.conversationId) as { id: string; project_id: string | null } | undefined;
@@ -3057,22 +3074,31 @@ export class AppRuntime {
       { id: string } | undefined;
     if (!project) throw bad('项目不存在');
     this.assertProjectFolderBound(projectId);
-    const task = this.coding.create({
-      projectId,
-      goal,
-      scope: input.scope && input.scope.length > 0 ? input.scope : ['.'],
-      allowedCommands: [],
-      acceptance: acceptance.map((s) => s.trim()),
-      originRunId: null,
-      originConversationId: conv.id,
-      originFromSeq: from.seq,
-      originToSeq: to.seq,
-    });
-    recordAudit(this.db, 'conversation.task_created', {
-      taskId: task.id,
-      conversationId: conv.id,
-      messageCount: to.seq - from.seq + 1,
-    });
+    // 建任务与审计同进同出：要么都写，要么都不写
+    this.db.exec('BEGIN IMMEDIATE');
+    let task: CodingTask;
+    try {
+      task = this.coding.create({
+        projectId,
+        goal,
+        scope: input.scope && input.scope.length > 0 ? input.scope : ['.'],
+        allowedCommands: [],
+        acceptance: acceptance.map((s) => s.trim()),
+        originRunId: null,
+        originConversationId: conv.id,
+        originFromSeq: from.seq,
+        originToSeq: to.seq,
+      });
+      recordAudit(this.db, 'conversation.task_created', {
+        taskId: task.id,
+        conversationId: conv.id,
+        messageCount: to.seq - from.seq + 1,
+      });
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
     return task;
   }
 
