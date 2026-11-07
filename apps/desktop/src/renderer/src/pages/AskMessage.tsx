@@ -510,7 +510,6 @@ function TaskFromConversation({
   useEffect(() => {
     void reload();
     // 只在这个对话换掉时重读
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
   const links = tasks.filter((x) => (x.origin_to_seq ?? -1) === message.seq);
 
