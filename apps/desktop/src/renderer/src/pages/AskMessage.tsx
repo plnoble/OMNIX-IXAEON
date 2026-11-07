@@ -490,6 +490,7 @@ function TaskFromConversation({
   const [goal, setGoal] = useState('');
   const [acceptance, setAcceptance] = useState('');
   const [pickProject, setPickProject] = useState('');
+  const [scopeText, setScopeText] = useState('.');
   const [tasks, setTasks] = useState<
     Array<{ id: string; goal: string; origin_to_seq?: number | null }>
   >([]);
@@ -541,7 +542,15 @@ function TaskFromConversation({
         toMessageId: message.id,
         goal,
         acceptance: lines,
-        scope: ['.'],
+        scope: scopeText
+          .split(/[,\n]/)
+          .map((s) => s.trim())
+          .filter(Boolean).length
+          ? scopeText
+              .split(/[,\n]/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : ['.'],
         ...(conversationProjectId ? {} : { projectId: pickProject }),
       });
       setOpen(false);
@@ -610,6 +619,13 @@ function TaskFromConversation({
               value={acceptance}
               rows={3}
               onChange={(e) => setAcceptance(e.target.value)}
+            />
+          </Field>
+          <Field label="可修改的路径（逗号分隔，默认 .）">
+            <input
+              data-testid="message-to-task-scope"
+              value={scopeText}
+              onChange={(e) => setScopeText(e.target.value)}
             />
           </Field>
           {conversationProjectId ? null : (
